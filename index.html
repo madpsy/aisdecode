@@ -100,7 +100,7 @@
     /* New Style for the vessel detail overlay (bottom right) */
     #vessel-detail {
       position: absolute;
-      bottom: 100px;
+      bottom: 80px;
       right: 10px;
       background: rgba(255, 255, 255, 0.95);
       border: 1px solid #ccc;
@@ -155,7 +155,7 @@
       left: 10px;
     }
     #toggle-detail-overlay {
-      bottom: 70px;
+      bottom: 50px;
       right: 10px;
     }
   </style>
@@ -280,11 +280,11 @@
         if (data.static.Type !== undefined) { lines.push(`Static Message Type: ${data.static.Type}`); }
         if (data.static.Dimension) {
           const d = data.static.Dimension;
-          lines.push(`Dimensions (m):`);
-          lines.push(`- bow: ${d.A}`);
-          lines.push(`- stern: ${d.B}`);
-          lines.push(`- port: ${d.C}`);
-          lines.push(`- starboard: ${d.D}`);
+          lines.push(`Dimensions (from ref):`);
+          lines.push(`- bow: ${d.A} m`);
+          lines.push(`- stern: ${d.B} m`);
+          lines.push(`- port: ${d.C} m`);
+          lines.push(`- starboard: ${d.D} m`);
         }
         if (data.static.Eta) {
           const e = data.static.Eta;
@@ -296,7 +296,8 @@
       
       if (data.position) {
         lines.push(`Position Report Message ID: ${data.position.MessageID}`);
-        lines.push(`Latitude: ${data.position.Latitude.toFixed(4)}, Longitude: ${data.position.Longitude.toFixed(4)}`);
+        lines.push(`Latitude: ${data.position.Latitude.toFixed(4)}`);
+	lines.push(`Longitude: ${data.position.Longitude.toFixed(4)}`);
         if (data.position.TrueHeading !== undefined && data.position.TrueHeading < 360) { 
           lines.push(`True Heading: ${data.position.TrueHeading}°`); 
         }
