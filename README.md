@@ -1,5 +1,5 @@
 # aisdecode
-AIS Decoder and Web based Tracker for serial (and USB) NMEA hardware. Tested with ia SevenStar 2rxPro.
+AIS Decoder and Web based Tracker for serial (and USB) NMEA hardware. Tested with a SevenStar 2rxPro.
 
 1) Clone this repo
 2) Download prebuilt binary from [Releases](https://github.com/madpsy/aisdecode/releases) for your OS/Arch (or build your own)
