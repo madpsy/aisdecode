@@ -732,6 +732,9 @@
       updateOverlay();
       updateFocussedVisibility();
       localStorage.setItem('vesselData', JSON.stringify(vesselData));
+      if (document.getElementById('auto-zoom').checked) {
+	    adjustMapBounds();
+      }
     });
 
     document.getElementById('vessel-filter').addEventListener('input', updateOverlay);
