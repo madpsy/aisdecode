@@ -344,7 +344,7 @@
       }
       
       if (data.position) {
-        lines.push(`Position Report Message ID: ${data.position.MessageID}`);
+        lines.push(`Position Msg ID: ${data.position.MessageID}`);
         lines.push(`Latitude: ${data.position.Latitude.toFixed(4)}`);
         lines.push(`Longitude: ${data.position.Longitude.toFixed(4)}`);
         if (data.position.TrueHeading !== undefined && data.position.TrueHeading < 360) { 
