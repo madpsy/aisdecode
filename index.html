@@ -107,17 +107,16 @@
       border-radius: 5px;
       padding: 5px;
       max-height: 300px;
-      min-width: 200px; /* Adjust if necessary */
-      width: auto; /* Allow width to expand based on content */
+      min-width: 200px;
+      width: auto;
       overflow-y: auto;
       z-index: 1000;
       font-family: Arial, sans-serif;
       font-size: 13px;
       line-height: 1.4;
-      display: none; /* Initially hidden */
-      white-space: nowrap; /* Prevent text from wrapping */
+      display: none;
+      white-space: nowrap;
     }
-
     #vessel-detail h4 {
       margin: 5px 0;
       text-align: center;
@@ -230,9 +229,7 @@
       if (focusedVessel) {
         focusedVessel = null;
         document.getElementById('vessel-detail').style.display = 'none';
-        // Hide the vessel details toggle button when no vessel is focussed.
         document.getElementById('toggle-detail-overlay').style.display = 'none';
-        // Reset the detailsOverlayHidden flag.
         detailsOverlayHidden = false;
         document.getElementById('auto-zoom').checked = true;
         updateFocussedVisibility();
@@ -252,17 +249,52 @@
       popupAnchor: [0, -12]
     });
 
+    // Define mapping objects for Fix Type and Navigational Status.
+    const fixTypeMapping = {
+      0: "No Fix",
+      1: "GPS Fix",
+      2: "DGPS Fix"
+      // add other mappings as needed
+    };
+
+    const navigationalStatusMapping = {
+      0: "Under Way Using Engine",
+      1: "At Anchor",
+      2: "Not Under Command",
+      3: "Restricted Manoeuvrability",
+      4: "Constrained by Draft",
+      5: "Moored",
+      6: "Aground",
+      7: "Engaged in Fishing",
+      8: "Under Way Sailing",
+      15: "Not Defined"
+      // add other mappings as needed
+    };
+
     // Global objects: vesselMarkers holds markers; vesselData holds merged data; vesselTracks holds polylines.
     const vesselMarkers = {};
     const vesselData = {};   // keyed by MMSI/UserID
     const vesselTracks = {}; // keyed by MMSI/UserID
 
-    // Utility: Generate a random hex color.
-    function randomColor() {
-      return '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
+    /**
+     * Decode the AIS communication state.
+     * Assumes a 19-bit integer using ITDMA structure:
+     * - Bits 18-17 (2 bits): Sync State
+     * - Bits 16-14 (3 bits): Slot Timeout
+     * - Bits 13-0  (14 bits): Slot Offset
+     */
+    function decodeCommunicationState(state) {
+      // Ensure we treat the state as an integer.
+      const intState = Number(state);
+      const syncState = intState >> 17; // top 2 bits
+      const slotTimeout = (intState >> 14) & 0x07; // next 3 bits (mask 0b111)
+      const slotOffset = intState & 0x3FFF; // lower 14 bits (mask 0b11111111111111)
+      return { syncState, slotTimeout, slotOffset };
     }
 
-    // Utility: Build detailed popup content from merged vessel data.
+    /**
+     * Build detailed popup content from merged vessel data.
+     */
     function createPopupContent(data) {
       const lines = [];
       const name = data.static && data.static.Name ? data.static.Name : "Unknown Vessel";
@@ -289,23 +321,38 @@
           lines.push(`- port: ${d.C} m`);
           lines.push(`- starboard: ${d.D} m`);
         }
+        // Updated ETA formatting
         if (data.static.Eta) {
           const e = data.static.Eta;
-          lines.push(`ETA: ${e.Month}/${e.Day} ${e.Hour}:${e.Minute}`);
+          const now = new Date();
+          // Create a date using the current year and the ETA's month, day, hour, and minute.
+          const etaDate = new Date(now.getFullYear(), e.Month - 1, e.Day, e.Hour, e.Minute);
+          const etaFormatted = etaDate.toLocaleString(undefined, {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: 'numeric'
+          });
+          lines.push(`ETA: ${etaFormatted}`);
         }
-        if (data.static.FixType !== undefined) { lines.push(`Fix Type: ${data.static.FixType}`); }
+        if (data.static.FixType !== undefined) {
+          const fixDescription = fixTypeMapping[data.static.FixType] || data.static.FixType;
+          lines.push(`Fix Type: ${fixDescription}`);
+        }
         if (data.static.MaximumStaticDraught !== undefined) { lines.push(`Maximum Draught (m): ${data.static.MaximumStaticDraught}`); }
       }
       
       if (data.position) {
         lines.push(`Position Report Message ID: ${data.position.MessageID}`);
         lines.push(`Latitude: ${data.position.Latitude.toFixed(4)}`);
-	lines.push(`Longitude: ${data.position.Longitude.toFixed(4)}`);
+        lines.push(`Longitude: ${data.position.Longitude.toFixed(4)}`);
         if (data.position.TrueHeading !== undefined && data.position.TrueHeading < 360) { 
           lines.push(`True Heading: ${data.position.TrueHeading}°`); 
         }
         if (data.position.NavigationalStatus !== undefined) { 
-          lines.push(`Navigational Status: ${data.position.NavigationalStatus}`); 
+          const navStatusDescription = navigationalStatusMapping[data.position.NavigationalStatus] || data.position.NavigationalStatus;
+          lines.push(`Navigational Status: ${navStatusDescription}`);
         }
         if (data.position.RateOfTurn !== undefined) { 
           lines.push(`Rate Of Turn: ${data.position.RateOfTurn}°/min`); 
@@ -317,7 +364,12 @@
           lines.push(`Position Accuracy: ${data.position.PositionAccuracy}`); 
         }
         if (data.position.CommunicationState !== undefined) { 
-          lines.push(`Communication State: ${data.position.CommunicationState}`); 
+          // Decode and display the communication state breakdown.
+          const comm = decodeCommunicationState(data.position.CommunicationState);
+          lines.push(`Communication State:`);
+          lines.push(`- Sync State: ${comm.syncState}`);
+          lines.push(`- Slot Timeout: ${comm.slotTimeout}`);
+          lines.push(`- Slot Offset: ${comm.slotOffset}`);
         }
       }
       
@@ -327,12 +379,10 @@
     // Function to adjust the map bounds based on whether a vessel is focused.
     function adjustMapBounds() {
       if (focusedVessel) {
-        // If a vessel is focused, adjust the map bounds to fit that vessel.
         let bounds = L.latLngBounds([]);
         bounds.extend(vesselMarkers[focusedVessel].getLatLng());
         map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
       } else {
-        // If no vessel is focused, adjust the map to fit all visible vessel markers.
         const allLatLngs = [];
         for (const key in vesselMarkers) {
           if (vesselMarkers.hasOwnProperty(key) && map.hasLayer(vesselMarkers[key])) {
@@ -345,12 +395,11 @@
      }
    }
 
-  document.getElementById('auto-zoom').addEventListener('change', (event) => {
-    if (event.target.checked) {
-      adjustMapBounds(); // Only trigger fitBounds if Auto Zoom is checked
-    }
-  });
-
+    document.getElementById('auto-zoom').addEventListener('change', (event) => {
+      if (event.target.checked) {
+        adjustMapBounds();
+      }
+    });
 
     // Utility: Compute time elapsed string given a timestamp in ms.
     function timeAgo(timestamp) {
@@ -440,7 +489,6 @@
     function focusOnVessel(userID) {
       if (vesselMarkers[userID]) {
         focusedVessel = userID;
-        // Force the details overlay to be shown by resetting the flag.
         detailsOverlayHidden = false;
         document.getElementById('vessel-detail').style.display = 'block';
         document.getElementById('toggle-detail-overlay').style.display = 'block';
@@ -493,7 +541,6 @@
     document.getElementById('toggle-detail-overlay').addEventListener('click', () => {
       const detailOverlay = document.getElementById('vessel-detail');
       const btn = document.getElementById('toggle-detail-overlay');
-      // Toggle visibility and update our flag accordingly.
       if (detailOverlay.style.display === 'none' || detailOverlay.style.display === '') {
         detailOverlay.style.display = 'block';
         btn.textContent = 'Hide Details';
@@ -531,13 +578,11 @@
               }).openTooltip();
               attachTooltipClick(marker, userID);
             }
-            // Modified click event: only show vessel details overlay without opening popup.
             marker.on('click', function(e) {
               e.stopPropagation();
               e.preventDefault();
               focusOnVessel(userID);
             });
-            // Only bind hover events on non-touch devices.
             if (!isMobile) {
               marker.on('mouseover', function() { this.openPopup(); });
               marker.on('mouseout', function() { this.closePopup(); });
@@ -665,7 +710,6 @@
             attachTooltipClick(vesselMarkers[userID], userID);
           }
           vesselMarkers[userID].off('click');
-          // Modified click event: prevent popup from opening on tap/click.
           vesselMarkers[userID].on('click', function(e) {
             e.stopPropagation();
             e.preventDefault();
@@ -688,7 +732,6 @@
             }).openTooltip();
             attachTooltipClick(marker, userID);
           }
-          // Modified click event: prevent popup from opening on tap/click.
           marker.on('click', function(e) {
             e.stopPropagation();
             e.preventDefault();
@@ -720,9 +763,7 @@
         }
       }
 
-      // Only auto-show the details overlay if auto-zoom is enabled and the details overlay isn't hidden by the user.
       if (focusedVessel && focusedVessel == userID && !detailsOverlayHidden) {
-        // For mobile devices, pan the map so that the focused vessel remains centered.
         if (isMobile) {
           map.panTo(vesselMarkers[userID].getLatLng());
         } else {
@@ -733,7 +774,7 @@
       updateFocussedVisibility();
       localStorage.setItem('vesselData', JSON.stringify(vesselData));
       if (document.getElementById('auto-zoom').checked) {
-	    adjustMapBounds();
+        adjustMapBounds();
       }
     });
 
@@ -753,6 +794,11 @@
       updateOverlay();
       location.reload();
     });
+
+    // Utility: Generate a random hex color.
+    function randomColor() {
+      return '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
+    }
   </script>
 </body>
 </html>
