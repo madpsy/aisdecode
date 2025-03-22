@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AIS Vessel Tracker</title>
+  <!-- Leaflet CSS (from CDN, without integrity) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" crossorigin=""/>
+  <style>
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    .popup-content {
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.3;
+    }
+    .boat-icon {
+      background: transparent;
+      border: none;
+      transition: transform 0.5s ease-out;
+    }
+    /* CSS for the enlargement animation */
+    .boat-icon.enlarge {
+      transform: scale(1.5);
+    }
+    .vessel-tooltip {
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      font-weight: bold;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 2px 4px;
+      border: 1px solid #aaa;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    /* Style for the Clear History button */
+    #clear-history {
+      position: absolute;
+      bottom: 25px;
+      left: 10px;
+      background: yellow;
+      border: none;
+      padding: 10px 15px;
+      cursor: pointer;
+      font-weight: bold;
+      z-index: 1000;
+    }
+    /* Style for the known vessels overlay (bottom left) */
+    #vessel-overlay {
+      position: absolute;
+      bottom: 100px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 5px;
+      height: 300px;
+      width: 150px;
+      overflow-y: auto;
+      z-index: 1000;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    #vessel-overlay h4 {
+      margin: 5px 0;
+      text-align: center;
+      font-size: 14px;
+    }
+    /* Style for the filter input box */
+    #vessel-filter {
+      width: 90%;
+      margin: 5px auto;
+      display: block;
+      padding: 3px;
+      font-size: 13px;
+    }
+    #vessel-overlay .vessel-entry {
+      border-bottom: 1px solid #eee;
+      padding: 4px 0;
+      cursor: pointer;
+    }
+    #vessel-overlay .vessel-entry:last-child {
+      border-bottom: none;
+    }
+    #vessel-overlay .vessel-name {
+      font-weight: bold;
+      text-decoration: underline;
+    }
+    #vessel-overlay .vessel-callsign {
+      color: #555;
+    }
+    #vessel-overlay .vessel-timestamp {
+      color: #888;
+      font-size: 12px;
+    }
+    /* New Style for the vessel detail overlay (bottom right) */
+    #vessel-detail {
+      position: absolute;
+      bottom: 100px;
+      right: 10px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 5px;
+      max-height: 300px;
+      width: 250px;
+      overflow-y: auto;
+      z-index: 1000;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+      display: none; /* Initially hidden */
+    }
+    #vessel-detail h4 {
+      margin: 5px 0;
+      text-align: center;
+      font-size: 14px;
+    }
+    /* Style for the controls overlay */
+    #controls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 10px;
+      z-index: 1000;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+    }
+    #controls label {
+      cursor: pointer;
+      display: block;
+      margin-bottom: 5px;
+    }
+    /* Styles for the new toggle buttons */
+    .toggle-button {
+      position: absolute;
+      background: #f0f0f0;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      padding: 3px 6px;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      cursor: pointer;
+      z-index: 1100;
+    }
+    #toggle-known-overlay {
+      bottom: 70px;
+      left: 10px;
+    }
+    #toggle-detail-overlay {
+      bottom: 70px;
+      right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  
+  <!-- Controls Overlay -->
+  <div id="controls">
+    <label>
+      <input type="checkbox" id="auto-zoom" checked>
+      Auto Zoom
+    </label>
+    <label>
+      <input type="checkbox" id="only-focussed">
+      Only Tracked
+    </label>
+    <label>
+      <input type="checkbox" id="openseamap-overlay" checked>
+      Map Overlay
+    </label>
+  </div>
+  
+  <!-- Known vessels overlay (bottom left) -->
+  <div id="vessel-overlay">
+    <!-- Filter input box -->
+    <input type="text" id="vessel-filter" placeholder="Filter vessels...">
+    <div id="overlay-content"></div>
+  </div>
+  
+  <!-- Vessel detail overlay (bottom right) -->
+  <div id="vessel-detail">
+    <h4 id="vessel-detail-header">Vessel Details</h4>
+    <div id="detail-content"></div>
+  </div>
+  
+  <!-- Toggle Buttons -->
+  <button id="toggle-known-overlay" class="toggle-button">Hide Vessels</button>
+  <button id="toggle-detail-overlay" class="toggle-button" style="display: none;">Hide Details</button>
+  
+  <button id="clear-history">Clear History</button>
+
+  <!-- Socket.IO client (local copy) -->
+  <script src="socket.io.min.js"></script>
+  <!-- Leaflet JS (from CDN, without integrity) -->
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js" crossorigin=""></script>
+  <script>
+    // Detect if the device is touch capable.
+    const isMobile = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    // Flag to track if the user manually hid the details overlay.
+    let detailsOverlayHidden = false;
+
+    // Global variable to store the currently focused vessel (if any).
+    let focusedVessel = null;
+
+    // Initialize the Leaflet map.
+    const map = L.map('map').setView([55.0, -3.0], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // OpenSeaMap overlay layer (enabled by default).
+    const openSeaMapLayer = L.tileLayer('http://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      attribution: 'Map data: &copy; OpenSeaMap contributors'
+    }).addTo(map);
+
+    // Clicking on the map resets any vessel focus.
+    map.on('click', () => {
+      if (focusedVessel) {
+        focusedVessel = null;
+        document.getElementById('vessel-detail').style.display = 'none';
+        // Hide the vessel details toggle button when no vessel is focussed.
+        document.getElementById('toggle-detail-overlay').style.display = 'none';
+        // Reset the detailsOverlayHidden flag.
+        detailsOverlayHidden = false;
+        document.getElementById('auto-zoom').checked = true;
+        updateFocussedVisibility();
+        adjustMapBounds();
+      }
+    });
+
+    // Define a custom boat icon using inline SVG.
+    const boatIcon = L.divIcon({
+      html: '<svg width="24" height="24" viewBox="0 0 24 24">' +
+              '<path d="M2,16 L12,4 L22,16 L2,16 Z" fill="blue" />' +
+              '<rect x="11" y="4" width="2" height="6" fill="white"/>' +
+            '</svg>',
+      className: 'boat-icon',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+      popupAnchor: [0, -12]
+    });
+
+    // Global objects: vesselMarkers holds markers; vesselData holds merged data; vesselTracks holds polylines.
+    const vesselMarkers = {};
+    const vesselData = {};   // keyed by MMSI/UserID
+    const vesselTracks = {}; // keyed by MMSI/UserID
+
+    // Utility: Generate a random hex color.
+    function randomColor() {
+      return '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
+    }
+
+    // Utility: Build detailed popup content from merged vessel data.
+    function createPopupContent(data) {
+      const lines = [];
+      const name = data.static && data.static.Name ? data.static.Name : "Unknown Vessel";
+      const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : "N/A";
+      lines.push(`<strong>${name}</strong>`);
+      lines.push(`Last Update: ${lastSeen}`);
+      lines.push(`MMSI: ${data.userID}`);
+      if (data.static) {
+        if (data.static.CallSign) { lines.push(`Call Sign: ${data.static.CallSign}`); }
+        if (data.static.ImoNumber) { lines.push(`IMO Number: ${data.static.ImoNumber}`); }
+        if (data.static.Destination) { lines.push(`Destination: ${data.static.Destination}`); }
+        if (data.position.Sog !== undefined) { 
+          lines.push(`Speed Over Ground: ${data.position.Sog} knots`); 
+        }
+        if (data.position.Cog !== undefined) { 
+          lines.push(`Course Over Ground: ${data.position.Cog}°`); 
+        }
+        if (data.static.Type !== undefined) { lines.push(`Static Message Type: ${data.static.Type}`); }
+        if (data.static.Dimension) {
+          const d = data.static.Dimension;
+          lines.push(`Dimensions (m):`);
+          lines.push(`- bow: ${d.A}`);
+          lines.push(`- stern: ${d.B}`);
+          lines.push(`- port: ${d.C}`);
+          lines.push(`- starboard: ${d.D}`);
+        }
+        if (data.static.Eta) {
+          const e = data.static.Eta;
+          lines.push(`ETA: ${e.Month}/${e.Day} ${e.Hour}:${e.Minute}`);
+        }
+        if (data.static.FixType !== undefined) { lines.push(`Fix Type: ${data.static.FixType}`); }
+        if (data.static.MaximumStaticDraught !== undefined) { lines.push(`Maximum Draught (m): ${data.static.MaximumStaticDraught}`); }
+      }
+      
+      if (data.position) {
+        lines.push(`Position Report Message ID: ${data.position.MessageID}`);
+        lines.push(`Latitude: ${data.position.Latitude.toFixed(4)}, Longitude: ${data.position.Longitude.toFixed(4)}`);
+        if (data.position.TrueHeading !== undefined && data.position.TrueHeading < 360) { 
+          lines.push(`True Heading: ${data.position.TrueHeading}°`); 
+        }
+        if (data.position.NavigationalStatus !== undefined) { 
+          lines.push(`Navigational Status: ${data.position.NavigationalStatus}`); 
+        }
+        if (data.position.RateOfTurn !== undefined) { 
+          lines.push(`Rate Of Turn: ${data.position.RateOfTurn}°/min`); 
+        }
+        if (data.position.Timestamp !== undefined) { 
+          lines.push(`Timestamp: ${data.position.Timestamp}`); 
+        }
+        if (data.position.PositionAccuracy !== undefined) { 
+          lines.push(`Position Accuracy: ${data.position.PositionAccuracy}`); 
+        }
+        if (data.position.CommunicationState !== undefined) { 
+          lines.push(`Communication State: ${data.position.CommunicationState}`); 
+        }
+      }
+      
+      return `<div class="popup-content">${lines.join('<br>')}</div>`;
+    }
+
+    // Function to adjust the map bounds based on whether a vessel is focused.
+    function adjustMapBounds() {
+      if (focusedVessel) {
+        // If a vessel is focused, adjust the map bounds to fit that vessel.
+        let bounds = L.latLngBounds([]);
+        bounds.extend(vesselMarkers[focusedVessel].getLatLng());
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+      } else {
+        // If no vessel is focused, adjust the map to fit all visible vessel markers.
+        const allLatLngs = [];
+        for (const key in vesselMarkers) {
+          if (vesselMarkers.hasOwnProperty(key) && map.hasLayer(vesselMarkers[key])) {
+            allLatLngs.push(vesselMarkers[key].getLatLng());
+          }
+        }
+        if (allLatLngs.length > 0) {
+          map.fitBounds(allLatLngs, { padding: [50, 50] });
+        }
+     }
+   }
+
+   // Add an event listener to the auto-zoom checkbox to trigger the map adjustment.
+   document.getElementById('auto-zoom').addEventListener('change', () => {
+     adjustMapBounds();
+   });
+
+
+    // Utility: Compute time elapsed string given a timestamp in ms.
+    function timeAgo(timestamp) {
+      const seconds = Math.floor((Date.now() - timestamp) / 1000);
+      if (seconds < 60) return seconds + " sec ago";
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return minutes + " min ago";
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return hours + " hrs ago";
+      const days = Math.floor(hours / 24);
+      return days + " days ago";
+    }
+
+    // Function to update the known vessels overlay.
+    function updateOverlay() {
+      const filterText = document.getElementById('vessel-filter').value.toLowerCase();
+      const vessels = Object.values(vesselData).filter(v => 
+        v.static && v.static.Name && v.lastUpdate &&
+        (!filterText ||
+          v.static.Name.toLowerCase().includes(filterText) ||
+          (v.static.CallSign && v.static.CallSign.toLowerCase().includes(filterText)) ||
+          v.userID.toString().includes(filterText)
+        )
+      );
+      vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
+      const topVessels = vessels.slice(0, 20);
+      let content = "";
+      topVessels.forEach(v => {
+        const name = v.static.Name;
+        const callsign = v.static.CallSign ? v.static.CallSign : "N/A";
+        const lastSeen = timeAgo(v.lastUpdate);
+        const locationCount = v.locationCount || 0;
+        content += `<div class="vessel-entry" data-userid="${v.userID}">
+                      <div class="vessel-name">${name}</div>
+                      <div class="vessel-callsign">Call Sign: ${callsign}</div>
+                      <div class="vessel-timestamp">${lastSeen} | ${locationCount} msgs</div>
+                    </div>`;
+      });
+      document.getElementById('overlay-content').innerHTML = content;
+      
+      document.querySelectorAll('.vessel-entry').forEach(entry => {
+        entry.addEventListener('click', (event) => {
+          event.stopPropagation();
+          const userID = entry.getAttribute('data-userid');
+          focusOnVessel(userID);
+        });
+      });
+    }
+
+    // Update the vessel details overlay periodically.
+    function updateVesselDetailOverlay() {
+      if (!detailsOverlayHidden && focusedVessel && vesselData[focusedVessel]) {
+        const popupContent = createPopupContent(vesselData[focusedVessel]);
+        document.getElementById('detail-content').innerHTML = popupContent;
+      }
+    }
+    setInterval(updateVesselDetailOverlay, 1000);
+
+    // Function to update marker and track visibility based on "Only Focussed" checkbox.
+    function updateFocussedVisibility() {
+      const onlyFocussed = document.getElementById('only-focussed').checked;
+      if (onlyFocussed && focusedVessel) {
+        for (const userID in vesselMarkers) {
+          if (userID !== focusedVessel.toString()) {
+            if (map.hasLayer(vesselMarkers[userID])) map.removeLayer(vesselMarkers[userID]);
+            if (vesselTracks[userID] && map.hasLayer(vesselTracks[userID])) {
+              map.removeLayer(vesselTracks[userID]);
+            }
+          } else {
+            if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
+            if (vesselTracks[userID] && !map.hasLayer(vesselTracks[userID])) {
+              map.addLayer(vesselTracks[userID]);
+            }
+          }
+        }
+      } else {
+        for (const userID in vesselMarkers) {
+          if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
+        }
+        for (const userID in vesselTracks) {
+          if (!map.hasLayer(vesselTracks[userID])) map.addLayer(vesselTracks[userID]);
+        }
+      }
+    }
+
+    // Function to focus on a particular vessel.
+    function focusOnVessel(userID) {
+      if (vesselMarkers[userID]) {
+        focusedVessel = userID;
+        // Force the details overlay to be shown by resetting the flag.
+        detailsOverlayHidden = false;
+        document.getElementById('vessel-detail').style.display = 'block';
+        document.getElementById('toggle-detail-overlay').style.display = 'block';
+        const headerEl = document.getElementById('vessel-detail-header');
+        if (vesselData[userID].userID) {
+          headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].userID}" target="_blank">Lookup</a>)`;
+        } else {
+          headerEl.textContent = "Vessel Details";
+        }
+        const popupContent = createPopupContent(vesselData[userID]);
+        document.getElementById('detail-content').innerHTML = popupContent;
+        let bounds = L.latLngBounds([]);
+        bounds.extend(vesselMarkers[userID].getLatLng());
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+        updateFocussedVisibility();
+      }
+    }
+
+    // Helper: Attach a click listener to the tooltip element.
+    function attachTooltipClick(marker, userID) {
+      setTimeout(() => {
+        const tooltip = marker.getTooltip();
+        if (tooltip) {
+          const ttEl = tooltip.getElement();
+          if (ttEl) {
+            ttEl.addEventListener('click', (e) => {
+              e.stopPropagation();
+              focusOnVessel(userID);
+            });
+          }
+        }
+      }, 0);
+    }
+
+    // Toggle button for known vessels overlay.
+    document.getElementById('toggle-known-overlay').addEventListener('click', () => {
+      const overlay = document.getElementById('vessel-overlay');
+      const btn = document.getElementById('toggle-known-overlay');
+      const computedDisplay = window.getComputedStyle(overlay).display;
+      if (computedDisplay === 'none') {
+        overlay.style.display = 'block';
+        btn.textContent = 'Hide Vessels';
+      } else {
+        overlay.style.display = 'none';
+        btn.textContent = 'Show Vessels';
+      }
+    });
+
+    // Toggle button for vessel details overlay.
+    document.getElementById('toggle-detail-overlay').addEventListener('click', () => {
+      const detailOverlay = document.getElementById('vessel-detail');
+      const btn = document.getElementById('toggle-detail-overlay');
+      // Toggle visibility and update our flag accordingly.
+      if (detailOverlay.style.display === 'none' || detailOverlay.style.display === '') {
+        detailOverlay.style.display = 'block';
+        btn.textContent = 'Hide Details';
+        detailsOverlayHidden = false;
+      } else {
+        detailOverlay.style.display = 'none';
+        btn.textContent = 'Show Details';
+        detailsOverlayHidden = true;
+      }
+    });
+
+    // Load saved vessel data from localStorage if available.
+    const storedData = localStorage.getItem('vesselData');
+    if (storedData) {
+      try {
+        const parsedData = JSON.parse(storedData);
+        Object.keys(parsedData).forEach(userID => {
+          vesselData[userID] = parsedData[userID];
+          if (
+            vesselData[userID].position &&
+            typeof vesselData[userID].position.Latitude === "number" &&
+            typeof vesselData[userID].position.Longitude === "number"
+          ) {
+            const lat = vesselData[userID].position.Latitude;
+            const lon = vesselData[userID].position.Longitude;
+            const popupContent = createPopupContent(vesselData[userID]);
+            const marker = L.marker([lat, lon], { icon: boatIcon }).addTo(map);
+            marker.bindPopup(popupContent, { autoPan: false });
+            if (vesselData[userID].static && vesselData[userID].static.Name) {
+              marker.bindTooltip(vesselData[userID].static.Name, {
+                permanent: true,
+                direction: 'top',
+                className: 'vessel-tooltip',
+                interactive: true
+              }).openTooltip();
+              attachTooltipClick(marker, userID);
+            }
+            // Modified click event: only show vessel details overlay without opening popup.
+            marker.on('click', function(e) {
+              e.stopPropagation();
+              e.preventDefault();
+              focusOnVessel(userID);
+            });
+            // Only bind hover events on non-touch devices.
+            if (!isMobile) {
+              marker.on('mouseover', function() { this.openPopup(); });
+              marker.on('mouseout', function() { this.closePopup(); });
+            }
+            vesselMarkers[userID] = marker;
+          }
+          if (vesselData[userID].track && vesselData[userID].track.length > 0) {
+            vesselTracks[userID] = L.polyline(vesselData[userID].track, {
+              color: vesselData[userID].color,
+              weight: 3,
+              opacity: 0.8
+            }).addTo(map);
+          }
+        });
+        adjustMapBounds();
+        updateOverlay();
+      } catch (e) {
+        console.error("Error loading stored vessel data", e);
+      }
+    }
+
+    // Listen for changes to the "Only Focussed" and "OpenSeaMap Overlay" checkboxes.
+    document.getElementById('only-focussed').addEventListener('change', updateFocussedVisibility);
+    document.getElementById('openseamap-overlay').addEventListener('change', () => {
+      const overlayEnabled = document.getElementById('openseamap-overlay').checked;
+      if (overlayEnabled) {
+        if (!map.hasLayer(openSeaMapLayer)) {
+          map.addLayer(openSeaMapLayer);
+        }
+      } else {
+        if (map.hasLayer(openSeaMapLayer)) {
+          map.removeLayer(openSeaMapLayer);
+        }
+      }
+    });
+
+    // Connect to the Socket.IO server.
+    const socket = io();
+
+    socket.on("ais_data", (message) => {
+      const colonIndex = message.indexOf(':');
+      if (colonIndex === -1) return;
+      const jsonText = message.substring(colonIndex + 1).trim();
+      let packet;
+      try {
+        packet = JSON.parse(jsonText);
+      } catch (err) {
+        console.error("Failed to parse AIS packet JSON", err);
+        return;
+      }
+
+      let userID;
+      if (packet.Header && packet.Header.UserID !== undefined) {
+        userID = packet.Header.UserID;
+      } else if (packet.UserID !== undefined) {
+        userID = packet.UserID;
+      } else {
+        return;
+      }
+
+      if (!vesselData[userID]) {
+        vesselData[userID] = { userID, track: [] };
+        vesselData[userID].color = randomColor();
+      }
+
+      if (packet.MessageID === 5 || packet.MessageID === 19) {
+        vesselData[userID].static = packet;
+      }
+      if (packet.MessageID === 1 || packet.MessageID === 3 || packet.MessageID === 18) {
+        if (typeof packet.Latitude === "number" && typeof packet.Longitude === "number") {
+          if (!vesselData[userID].locationCount) {
+            vesselData[userID].locationCount = 0;
+          }
+          vesselData[userID].locationCount++;
+          const tolerance = 1e-5;
+          if (
+            !vesselData[userID].position ||
+            Math.abs(vesselData[userID].position.Latitude - packet.Latitude) > tolerance ||
+            Math.abs(vesselData[userID].position.Longitude - packet.Longitude) > tolerance
+          ) {
+            vesselData[userID].lastUpdate = Date.now();
+          }
+          vesselData[userID].position = {
+            MessageID: packet.MessageID,
+            Latitude: packet.Latitude,
+            Longitude: packet.Longitude,
+            Sog: packet.Sog,
+            Cog: packet.Cog,
+            TrueHeading: packet.TrueHeading,
+            NavigationalStatus: packet.NavigationalStatus,
+            RateOfTurn: packet.RateOfTurn,
+            Timestamp: packet.Timestamp,
+            PositionAccuracy: packet.PositionAccuracy,
+            CommunicationState: packet.CommunicationState
+          };
+          vesselData[userID].track.push([packet.Latitude, packet.Longitude]);
+          if (vesselData[userID].track.length > 10000) {
+            vesselData[userID].track.shift();
+          }
+        } else {
+          return;
+        }
+      }
+
+      const popupContent = createPopupContent(vesselData[userID]);
+
+      if (
+        vesselData[userID].position &&
+        typeof vesselData[userID].position.Latitude === "number" &&
+        typeof vesselData[userID].position.Longitude === "number"
+      ) {
+        const lat = vesselData[userID].position.Latitude;
+        const lon = vesselData[userID].position.Longitude;
+        if (vesselMarkers[userID]) {
+          vesselMarkers[userID].setLatLng([lat, lon]);
+          vesselMarkers[userID].getPopup().setContent(popupContent);
+          if (vesselData[userID].static && vesselData[userID].static.Name) {
+            vesselMarkers[userID].unbindTooltip();
+            vesselMarkers[userID].bindTooltip(vesselData[userID].static.Name, {
+              permanent: true,
+              direction: 'top',
+              className: 'vessel-tooltip',
+              interactive: true
+            }).openTooltip();
+            attachTooltipClick(vesselMarkers[userID], userID);
+          }
+          vesselMarkers[userID].off('click');
+          // Modified click event: prevent popup from opening on tap/click.
+          vesselMarkers[userID].on('click', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            focusOnVessel(userID);
+          });
+          let markerElem = vesselMarkers[userID].getElement() || vesselMarkers[userID]._icon;
+          if (markerElem) {
+            markerElem.classList.add('enlarge');
+            setTimeout(() => markerElem.classList.remove('enlarge'), 500);
+          }
+        } else {
+          const marker = L.marker([lat, lon], { icon: boatIcon }).addTo(map);
+          marker.bindPopup(popupContent, { autoPan: false });
+          if (vesselData[userID].static && vesselData[userID].static.Name) {
+            marker.bindTooltip(vesselData[userID].static.Name, {
+              permanent: true,
+              direction: 'top',
+              className: 'vessel-tooltip',
+              interactive: true
+            }).openTooltip();
+            attachTooltipClick(marker, userID);
+          }
+          // Modified click event: prevent popup from opening on tap/click.
+          marker.on('click', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            focusOnVessel(userID);
+          });
+          if (!isMobile) {
+            marker.on('mouseover', function() { this.openPopup(); });
+            marker.on('mouseout', function() { this.closePopup(); });
+          }
+          vesselMarkers[userID] = marker;
+        }
+        if (vesselTracks[userID]) {
+          vesselTracks[userID].setLatLngs(vesselData[userID].track);
+        } else {
+          vesselTracks[userID] = L.polyline(vesselData[userID].track, {
+            color: vesselData[userID].color,
+            weight: 3,
+            opacity: 0.8
+          }).addTo(map);
+        }
+      } else {
+        if (vesselMarkers[userID]) {
+          vesselMarkers[userID].getPopup().setContent(popupContent);
+          vesselMarkers[userID].unbindTooltip();
+          vesselMarkers[userID].bindTooltip(popupContent, {
+            direction: 'top',
+            className: 'vessel-tooltip'
+          });
+        }
+      }
+
+      // Only auto-show the details overlay if auto-zoom is enabled and the details overlay isn't hidden by the user.
+      if (focusedVessel && focusedVessel == userID && !detailsOverlayHidden) {
+        // For mobile devices, pan the map so that the focused vessel remains centered.
+        if (isMobile) {
+          map.panTo(vesselMarkers[userID].getLatLng());
+        } else {
+          focusOnVessel(userID);
+        }
+      }
+      updateOverlay();
+      updateFocussedVisibility();
+      localStorage.setItem('vesselData', JSON.stringify(vesselData));
+    });
+
+    document.getElementById('vessel-filter').addEventListener('input', updateOverlay);
+
+    document.getElementById('clear-history').addEventListener('click', () => {
+      localStorage.removeItem('vesselData');
+      Object.keys(vesselMarkers).forEach(userID => {
+        map.removeLayer(vesselMarkers[userID]);
+      });
+      Object.keys(vesselTracks).forEach(userID => {
+        map.removeLayer(vesselTracks[userID]);
+      });
+      Object.keys(vesselData).forEach(key => delete vesselData[key]);
+      Object.keys(vesselMarkers).forEach(key => delete vesselMarkers[key]);
+      Object.keys(vesselTracks).forEach(key => delete vesselTracks[key]);
+      updateOverlay();
+      location.reload();
+    });
+  </script>
+</body>
+</html>
