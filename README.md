@@ -11,17 +11,17 @@ Tested with SevenStar 2rxPro AIS decoder via USB
 ```
 Usage of aisdecode:
   -baud int
-    	Baud rate (default: 38400) (default 38400)
+    	Baud rate (default: 38400)
   -debug
     	Enable debug output
   -serial-port string
-    	Serial port device (default: /dev/ttyUSB0) (default "/dev/ttyUSB0")
+    	Serial port device (default: /dev/ttyUSB0)
   -show-decodes
     	Output the decoded messages
   -web-root string
-    	Web root directory (default: current directory) (default ".")
+    	Web root directory (default: current directory)
   -ws-port int
-    	WebSocket port (default: 8100) (default 8100)
+    	WebSocket port (default: 8100)
 ```
 
 ![aisdecode](images/aisdecode.png)
