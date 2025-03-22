@@ -345,10 +345,11 @@
      }
    }
 
-   // Add an event listener to the auto-zoom checkbox to trigger the map adjustment.
-   document.getElementById('auto-zoom').addEventListener('change', () => {
-     adjustMapBounds();
-   });
+  document.getElementById('auto-zoom').addEventListener('change', (event) => {
+    if (event.target.checked) {
+      adjustMapBounds(); // Only trigger fitBounds if Auto Zoom is checked
+    }
+  });
 
 
     // Utility: Compute time elapsed string given a timestamp in ms.
