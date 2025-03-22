@@ -306,7 +306,7 @@
         if (data.static.ImoNumber) { lines.push(`IMO Number: ${data.static.ImoNumber}`); }
         if (data.static.Destination) { lines.push(`Destination: ${data.static.Destination}`); }
         if (data.position.Sog !== undefined) { 
-          lines.push(`Speed Over Ground: ${data.position.Sog} knots`); 
+          lines.push(`Speed Over Ground: ${data.position.Sog} kn`); 
         }
         if (data.position.Cog !== undefined) { 
           lines.push(`Course Over Ground: ${data.position.Cog}°`); 
@@ -326,13 +326,14 @@
           const now = new Date();
           // Create a date using the current year and the ETA's month, day, hour, and minute.
           const etaDate = new Date(now.getFullYear(), e.Month - 1, e.Day, e.Hour, e.Minute);
-          const etaFormatted = etaDate.toLocaleString(undefined, {
-            month: 'long',
-            day: 'numeric',
-            year: 'numeric',
-            hour: 'numeric',
-            minute: 'numeric'
-          });
+	  const etaFormatted = etaDate.toLocaleString('ja-JP', {
+	    year: 'numeric',
+	    month: '2-digit',
+	    day: '2-digit',
+	    hour: '2-digit',
+	    minute: '2-digit',
+	    hour12: false
+	  });
           lines.push(`ETA: ${etaFormatted}`);
         }
         if (data.static.FixType !== undefined) {
