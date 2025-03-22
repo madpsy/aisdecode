@@ -107,14 +107,17 @@
       border-radius: 5px;
       padding: 5px;
       max-height: 300px;
-      width: 250px;
+      min-width: 200px; /* Adjust if necessary */
+      width: auto; /* Allow width to expand based on content */
       overflow-y: auto;
       z-index: 1000;
       font-family: Arial, sans-serif;
       font-size: 13px;
       line-height: 1.4;
       display: none; /* Initially hidden */
+      white-space: nowrap; /* Prevent text from wrapping */
     }
+
     #vessel-detail h4 {
       margin: 5px 0;
       text-align: center;
