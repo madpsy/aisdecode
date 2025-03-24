@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AIS Vessel Tracker</title>
+  <title>AIS Tracker</title>
   <!-- Leaflet CSS (from CDN, without integrity) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" crossorigin=""/>
   <style>
@@ -249,12 +249,11 @@
       popupAnchor: [0, -12]
     });
 
-    // Define mapping objects for Fix Type, Nav Status, and Static Message Types.
+    // Mapping objects for Fix Type, Nav Status, and Static Message Types.
     const fixTypeMapping = {
       0: "No Fix",
       1: "GPS Fix",
       2: "DGPS Fix"
-      // add other mappings as needed
     };
 
     const navigationalStatusMapping = {
@@ -270,7 +269,6 @@
       15: "Not Defined"
     };
 
-    // New lookup table for translating static message types.
     const staticTypeMapping = {
       0: "Not available (default)",
       1: "Reserved for future use",
@@ -374,117 +372,104 @@
       99: "Other Type"
     };
 
-
-    // Global objects: vesselMarkers holds markers; vesselData holds merged data; vesselTracks holds polylines.
+    // Global objects to store markers, vessel data, and track histories.
     const vesselMarkers = {};
     const vesselData = {};   // keyed by MMSI/UserID
     const vesselTracks = {}; // keyed by MMSI/UserID
 
     /**
      * Decode the AIS communication state.
-     * Assumes a 19-bit integer using ITDMA structure:
-     * - Bits 18-17 (2 bits): Sync State
-     * - Bits 16-14 (3 bits): Slot Timeout
-     * - Bits 13-0  (14 bits): Slot Offset
      */
     function decodeCommunicationState(state) {
-      // Ensure we treat the state as an integer.
       const intState = Number(state);
-      const syncState = intState >> 17; // top 2 bits
-      const slotTimeout = (intState >> 14) & 0x07; // next 3 bits (mask 0b111)
-      const slotOffset = intState & 0x3FFF; // lower 14 bits (mask 0b11111111111111)
+      const syncState = intState >> 17;
+      const slotTimeout = (intState >> 14) & 0x07;
+      const slotOffset = intState & 0x3FFF;
       return { syncState, slotTimeout, slotOffset };
     }
 
     /**
-     * Build detailed popup content from merged vessel data.
+     * Build popup content from vessel data.
+     * Now the vessel object contains all relevant fields directly.
      */
     function createPopupContent(data) {
       const lines = [];
-      const name = data.static && data.static.Name ? data.static.Name : "Unknown Vessel";
+      const name = data.Name ? data.Name : "Unknown Vessel";
       const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : "N/A";
       lines.push(`<strong>${name}</strong>`);
       lines.push(`Last Update: ${lastSeen}`);
-      lines.push(`MMSI: ${data.userID}`);
-      if (data.static) {
-        if (data.static.CallSign) { lines.push(`Call Sign: ${data.static.CallSign}`); }
-        if (data.static.ImoNumber) { lines.push(`IMO Number: ${data.static.ImoNumber}`); }
-        if (data.static.Destination) { lines.push(`Destination: ${data.static.Destination}`); }
-        if (data.position.Sog !== undefined) { 
-          lines.push(`Speed Over Ground: ${data.position.Sog} kn`); 
-        }
-        if (data.position.Cog !== undefined) { 
-          lines.push(`Course Over Ground: ${data.position.Cog}°`); 
-        }
-        if (data.static.Type !== undefined) {
-          const typeDescription = staticTypeMapping[data.static.Type] || data.static.Type;
-          lines.push(`Type: ${typeDescription}`);
-        }
-        if (data.static.Dimension) {
-          const d = data.static.Dimension;
-          lines.push(`Dimensions (from ref):`);
-          lines.push(`- bow: ${d.A} m`);
-          lines.push(`- stern: ${d.B} m`);
-          lines.push(`- port: ${d.C} m`);
-          lines.push(`- starboard: ${d.D} m`);
-        }
-        // Updated ETA formatting
-        if (data.static.Eta) {
-          const e = data.static.Eta;
-          const now = new Date();
-          // Create a date using the current year and the ETA's month, day, hour, and minute.
-          const etaDate = new Date(now.getFullYear(), e.Month - 1, e.Day, e.Hour, e.Minute);
-	  const etaFormatted = etaDate.toLocaleString('ja-JP', {
-	    year: 'numeric',
-	    month: '2-digit',
-	    day: '2-digit',
-	    hour: '2-digit',
-	    minute: '2-digit',
-	    hour12: false
-	  });
-          lines.push(`ETA: ${etaFormatted}`);
-        }
-        if (data.static.FixType !== undefined) {
-          const fixDescription = fixTypeMapping[data.static.FixType] || data.static.FixType;
-          lines.push(`Fix Type: ${fixDescription}`);
-        }
-        if (data.static.MaximumStaticDraught !== undefined) { lines.push(`Maximum Draught (m): ${data.static.MaximumStaticDraught}`); }
+      lines.push(`MMSI: ${data.UserID}`);
+      if (data.CallSign) { lines.push(`Call Sign: ${data.CallSign}`); }
+      if (data.ImoNumber) { lines.push(`IMO Number: ${data.ImoNumber}`); }
+      if (data.Destination) { lines.push(`Destination: ${data.Destination}`); }
+      if (data.Sog !== undefined) { lines.push(`Speed Over Ground: ${data.Sog} kn`); }
+      if (data.Cog !== undefined) { lines.push(`Course Over Ground: ${data.Cog}°`); }
+      if (data.Type !== undefined) { 
+        const typeDescription = staticTypeMapping[data.Type] || data.Type;
+        lines.push(`Type: ${typeDescription}`);
       }
-      
-      if (data.position) {
-        lines.push(`Position Msg ID: ${data.position.MessageID}`);
-        lines.push(`Latitude: ${data.position.Latitude.toFixed(4)}`);
-        lines.push(`Longitude: ${data.position.Longitude.toFixed(4)}`);
-        if (data.position.TrueHeading !== undefined && data.position.TrueHeading < 360) { 
-          lines.push(`True Heading: ${data.position.TrueHeading}°`); 
-        }
-        if (data.position.NavigationalStatus !== undefined) { 
-          const navStatusDescription = navigationalStatusMapping[data.position.NavigationalStatus] || data.position.NavigationalStatus;
-          lines.push(`Nav Status: ${navStatusDescription}`);
-        }
-        if (data.position.RateOfTurn !== undefined) { 
-          lines.push(`Rate Of Turn: ${data.position.RateOfTurn}°/min`); 
-        }
-        if (data.position.Timestamp !== undefined) { 
-          lines.push(`Timestamp: ${data.position.Timestamp}`); 
-        }
-        if (data.position.PositionAccuracy !== undefined) { 
-          lines.push(`Position Accuracy: ${data.position.PositionAccuracy}`); 
-        }
-        if (data.position.CommunicationState !== undefined) { 
-          // Decode and display the communication state breakdown.
-          const comm = decodeCommunicationState(data.position.CommunicationState);
-          lines.push(`Communication State:`);
-          lines.push(`- Sync State: ${comm.syncState}`);
-          lines.push(`- Slot Timeout: ${comm.slotTimeout}`);
-          lines.push(`- Slot Offset: ${comm.slotOffset}`);
-        }
+      if (data.Dimension) {
+        const d = data.Dimension;
+        lines.push(`Dimensions (from ref):`);
+        lines.push(`- bow: ${d.A} m`);
+        lines.push(`- stern: ${d.B} m`);
+        lines.push(`- port: ${d.C} m`);
+        lines.push(`- starboard: ${d.D} m`);
       }
-      
+      if (data.Eta) {
+        const e = data.Eta;
+        const now = new Date();
+        const etaDate = new Date(now.getFullYear(), e.Month - 1, e.Day, e.Hour, e.Minute);
+        const etaFormatted = etaDate.toLocaleString('ja-JP', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        });
+        lines.push(`ETA: ${etaFormatted}`);
+      }
+      if (data.FixType !== undefined) {
+        const fixDescription = fixTypeMapping[data.FixType] || data.FixType;
+        lines.push(`Fix Type: ${fixDescription}`);
+      }
+      if (data.MaximumStaticDraught !== undefined) { 
+        lines.push(`Maximum Draught (m): ${data.MaximumStaticDraught}`); 
+      }
+      // Positional information
+      lines.push(`Position Msg ID: ${data.MessageID}`);
+      if (data.Latitude !== undefined && data.Longitude !== undefined) {
+        lines.push(`Latitude: ${data.Latitude.toFixed(4)}`);
+        lines.push(`Longitude: ${data.Longitude.toFixed(4)}`);
+      }
+      if (data.TrueHeading !== undefined && data.TrueHeading < 360) { 
+        lines.push(`True Heading: ${data.TrueHeading}°`); 
+      }
+      if (data.NavigationalStatus !== undefined) {
+        const navStatusDescription = navigationalStatusMapping[data.NavigationalStatus] || data.NavigationalStatus;
+        lines.push(`Nav Status: ${navStatusDescription}`);
+      }
+      if (data.RateOfTurn !== undefined) { 
+        lines.push(`Rate Of Turn: ${data.RateOfTurn}°/min`); 
+      }
+      if (data.Timestamp !== undefined) { 
+        lines.push(`Timestamp: ${data.Timestamp}`); 
+      }
+      if (data.PositionAccuracy !== undefined) { 
+        lines.push(`Position Accuracy: ${data.PositionAccuracy}`); 
+      }
+      if (data.CommunicationState !== undefined) { 
+        const comm = decodeCommunicationState(data.CommunicationState);
+        lines.push(`Communication State:`);
+        lines.push(`- Sync State: ${comm.syncState}`);
+        lines.push(`- Slot Timeout: ${comm.slotTimeout}`);
+        lines.push(`- Slot Offset: ${comm.slotOffset}`);
+      }
       return `<div class="popup-content">${lines.join('<br>')}</div>`;
     }
 
-    // Function to adjust the map bounds based on whether a vessel is focused.
+    // Adjust map bounds based on whether a vessel is focused.
     function adjustMapBounds() {
       if (focusedVessel) {
         let bounds = L.latLngBounds([]);
@@ -509,7 +494,7 @@
       }
     });
 
-    // Utility: Compute time elapsed string given a timestamp in ms.
+    // Utility: Compute a time elapsed string.
     function timeAgo(timestamp) {
       const seconds = Math.floor((Date.now() - timestamp) / 1000);
       if (seconds < 60) return seconds + " sec ago";
@@ -521,26 +506,26 @@
       return days + " days ago";
     }
 
-    // Function to update the known vessels overlay.
+    // Update the known vessels overlay.
     function updateOverlay() {
       const filterText = document.getElementById('vessel-filter').value.toLowerCase();
       const vessels = Object.values(vesselData).filter(v => 
-        v.static && v.static.Name && v.lastUpdate &&
+        v.Name && v.lastUpdate &&
         (!filterText ||
-          v.static.Name.toLowerCase().includes(filterText) ||
-          (v.static.CallSign && v.static.CallSign.toLowerCase().includes(filterText)) ||
-          v.userID.toString().includes(filterText)
+          v.Name.toLowerCase().includes(filterText) ||
+          (v.CallSign && v.CallSign.toLowerCase().includes(filterText)) ||
+          v.UserID.toString().includes(filterText)
         )
       );
       vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
       const topVessels = vessels.slice(0, 20);
       let content = "";
       topVessels.forEach(v => {
-        const name = v.static.Name;
-        const callsign = v.static.CallSign ? v.static.CallSign : "N/A";
+        const name = v.Name;
+        const callsign = v.CallSign ? v.CallSign : "N/A";
         const lastSeen = timeAgo(v.lastUpdate);
-        const locationCount = v.locationCount || 0;
-        content += `<div class="vessel-entry" data-userid="${v.userID}">
+        const locationCount = v.track ? v.track.length : 0;
+        content += `<div class="vessel-entry" data-userid="${v.UserID}">
                       <div class="vessel-name">${name}</div>
                       <div class="vessel-callsign">Call Sign: ${callsign}</div>
                       <div class="vessel-timestamp">${lastSeen} | ${locationCount} msgs</div>
@@ -557,7 +542,7 @@
       });
     }
 
-    // Update the vessel details overlay periodically.
+    // Periodically update the vessel detail overlay.
     function updateVesselDetailOverlay() {
       if (!detailsOverlayHidden && focusedVessel && vesselData[focusedVessel]) {
         const popupContent = createPopupContent(vesselData[focusedVessel]);
@@ -566,7 +551,7 @@
     }
     setInterval(updateVesselDetailOverlay, 1000);
 
-    // Function to update marker and track visibility based on "Only Focussed" checkbox.
+    // Update marker and track visibility based on the "Only Tracked" checkbox.
     function updateFocussedVisibility() {
       const onlyFocussed = document.getElementById('only-focussed').checked;
       if (onlyFocussed && focusedVessel) {
@@ -593,7 +578,7 @@
       }
     }
 
-    // Function to focus on a particular vessel.
+    // Focus on a particular vessel.
     function focusOnVessel(userID) {
       if (vesselMarkers[userID]) {
         focusedVessel = userID;
@@ -601,8 +586,8 @@
         document.getElementById('vessel-detail').style.display = 'block';
         document.getElementById('toggle-detail-overlay').style.display = 'block';
         const headerEl = document.getElementById('vessel-detail-header');
-        if (vesselData[userID].userID) {
-          headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].userID}" target="_blank">Lookup</a>)`;
+        if (vesselData[userID].UserID) {
+          headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a>)`;
         } else {
           headerEl.textContent = "Vessel Details";
         }
@@ -615,7 +600,7 @@
       }
     }
 
-    // Helper: Attach a click listener to the tooltip element.
+    // Attach a click listener to a tooltip element.
     function attachTooltipClick(marker, userID) {
       setTimeout(() => {
         const tooltip = marker.getTooltip();
@@ -668,17 +653,16 @@
         Object.keys(parsedData).forEach(userID => {
           vesselData[userID] = parsedData[userID];
           if (
-            vesselData[userID].position &&
-            typeof vesselData[userID].position.Latitude === "number" &&
-            typeof vesselData[userID].position.Longitude === "number"
+            vesselData[userID].Latitude !== undefined &&
+            vesselData[userID].Longitude !== undefined
           ) {
-            const lat = vesselData[userID].position.Latitude;
-            const lon = vesselData[userID].position.Longitude;
+            const lat = vesselData[userID].Latitude;
+            const lon = vesselData[userID].Longitude;
             const popupContent = createPopupContent(vesselData[userID]);
             const marker = L.marker([lat, lon], { icon: boatIcon }).addTo(map);
             marker.bindPopup(popupContent, { autoPan: false });
-            if (vesselData[userID].static && vesselData[userID].static.Name) {
-              marker.bindTooltip(vesselData[userID].static.Name, {
+            if (vesselData[userID].Name) {
+              marker.bindTooltip(vesselData[userID].Name, {
                 permanent: true,
                 direction: 'top',
                 className: 'vessel-tooltip',
@@ -712,7 +696,7 @@
       }
     }
 
-    // Listen for changes to the "Only Focussed" and "OpenSeaMap Overlay" checkboxes.
+    // Listen for changes to the "Only Tracked" and "OpenSeaMap Overlay" checkboxes.
     document.getElementById('only-focussed').addEventListener('change', updateFocussedVisibility);
     document.getElementById('openseamap-overlay').addEventListener('change', () => {
       const overlayEnabled = document.getElementById('openseamap-overlay').checked;
@@ -730,152 +714,155 @@
     // Connect to the Socket.IO server.
     const socket = io();
 
-    socket.on("ais_data", (message) => {
-      const colonIndex = message.indexOf(':');
-      if (colonIndex === -1) return;
-      const jsonText = message.substring(colonIndex + 1).trim();
-      let packet;
-      try {
-        packet = JSON.parse(jsonText);
-      } catch (err) {
-        console.error("Failed to parse AIS packet JSON", err);
-        return;
-      }
+    // Listen on "latest_vessel_data" which now provides a complete vessel state object.
+socket.on("latest_vessel_data", (data) => {
+  // console.log("Received latest vessel data:", data);  // Log the full data to verify it's correct
 
-      let userID;
-      if (packet.Header && packet.Header.UserID !== undefined) {
-        userID = packet.Header.UserID;
-      } else if (packet.UserID !== undefined) {
-        userID = packet.UserID;
-      } else {
-        return;
-      }
+  // Check if the incoming data is already an object. If it's a string, we need to parse it.
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);  // Parse the string into a valid object
+      // console.log("Parsed vessel data:", data);  // Log parsed data to check if it's correct
+    } catch (e) {
+      console.error("Failed to parse JSON:", e);
+      return;
+    }
+  }
 
-      if (!vesselData[userID]) {
-        vesselData[userID] = { userID, track: [] };
-        vesselData[userID].color = randomColor();
-      }
+  // Ensure the data is in the expected format (a dictionary with MMSI as keys)
+  if (typeof data !== "object" || Array.isArray(data)) {
+    console.error("Received invalid data format:", data);
+    return;
+  }
 
-      if (packet.MessageID === 5 || packet.MessageID === 19) {
-        vesselData[userID].static = packet;
-      }
-      if (packet.MessageID === 1 || packet.MessageID === 3 || packet.MessageID === 18) {
-        if (typeof packet.Latitude === "number" && typeof packet.Longitude === "number") {
-          if (!vesselData[userID].locationCount) {
-            vesselData[userID].locationCount = 0;
-          }
-          vesselData[userID].locationCount++;
-          const tolerance = 1e-5;
-          if (
-            !vesselData[userID].position ||
-            Math.abs(vesselData[userID].position.Latitude - packet.Latitude) > tolerance ||
-            Math.abs(vesselData[userID].position.Longitude - packet.Longitude) > tolerance
-          ) {
-            vesselData[userID].lastUpdate = Date.now();
-          }
-          vesselData[userID].position = {
-            MessageID: packet.MessageID,
-            Latitude: packet.Latitude,
-            Longitude: packet.Longitude,
-            Sog: packet.Sog,
-            Cog: packet.Cog,
-            TrueHeading: packet.TrueHeading,
-            NavigationalStatus: packet.NavigationalStatus,
-            RateOfTurn: packet.RateOfTurn,
-            Timestamp: packet.Timestamp,
-            PositionAccuracy: packet.PositionAccuracy,
-            CommunicationState: packet.CommunicationState
-          };
-          vesselData[userID].track.push([packet.Latitude, packet.Longitude]);
-          if (vesselData[userID].track.length > 10000) {
-            vesselData[userID].track.shift();
-          }
-        } else {
-          return;
+  // Step 1: Track MMSIs (vessel IDs) in new data
+  const newIDs = new Set(Object.keys(data));  // Get the MMSI/UserID keys from the data object
+  // console.log("New Vessel IDs:", newIDs);  // Log the MMSI IDs in the new data
+
+  // Step 2: Remove vessels no longer present in the new data
+  for (const mmsi in vesselData) {
+    if (!newIDs.has(mmsi)) {  // Check if the vessel is still in the new data
+      console.log("Removing vessel with MMSI:", mmsi);  // Log which vessel is being removed
+      if (vesselMarkers[mmsi]) map.removeLayer(vesselMarkers[mmsi]);
+      if (vesselTracks[mmsi]) map.removeLayer(vesselTracks[mmsi]);
+      delete vesselData[mmsi];
+      delete vesselMarkers[mmsi];
+      delete vesselTracks[mmsi];
+    }
+  }
+
+  // Step 3: Process each vessel in the new data
+  for (const mmsi in data) {
+    const vesselState = data[mmsi];  // Access the vessel data using MMSI as the key
+    // console.log("Processing vessel with MMSI:", mmsi, "State:", vesselState);  // Log the vessel data
+
+    // Step 4: If this is a new vessel, add it to vesselData, otherwise update the existing data
+    if (!vesselData[mmsi]) {
+      vesselData[mmsi] = Object.assign({}, vesselState);  // Create a new vessel entry
+      vesselData[mmsi].track = [];  // Initialize an empty track
+      vesselData[mmsi].color = randomColor();  // Assign a random color to the vessel for the track
+    } else {
+      Object.assign(vesselData[mmsi], vesselState);  // Update the existing vessel data
+    }
+
+    vesselData[mmsi].lastUpdate = Date.now();  // Update the lastUpdate timestamp
+
+    // console.log("Updated vessel data:", vesselData[mmsi]);  // Log the updated data
+
+    // Step 5: Update the vessel's track if valid latitude/longitude exists
+    if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
+      const tolerance = 1e-5;  // Allow a small tolerance for position changes
+      const track = vesselData[mmsi].track;  // Access the vessel's track
+      const lastPoint = track[track.length - 1];  // Get the last track point
+
+      // Only update the track if the position has changed
+      if (!lastPoint || Math.abs(lastPoint[0] - vesselState.Latitude) > tolerance || Math.abs(lastPoint[1] - vesselState.Longitude) > tolerance) {
+        track.push([vesselState.Latitude, vesselState.Longitude]);  // Add the new position to the track
+        if (track.length > 10000) {
+          track.shift();  // Limit the track history to a reasonable length
         }
       }
+    }
 
-      const popupContent = createPopupContent(vesselData[userID]);
 
-      if (
-        vesselData[userID].position &&
-        typeof vesselData[userID].position.Latitude === "number" &&
-        typeof vesselData[userID].position.Longitude === "number"
-      ) {
-        const lat = vesselData[userID].position.Latitude;
-        const lon = vesselData[userID].position.Longitude;
-        if (vesselMarkers[userID]) {
-          vesselMarkers[userID].setLatLng([lat, lon]);
-          vesselMarkers[userID].getPopup().setContent(popupContent);
-          if (vesselData[userID].static && vesselData[userID].static.Name) {
-            vesselMarkers[userID].unbindTooltip();
-            vesselMarkers[userID].bindTooltip(vesselData[userID].static.Name, {
-              permanent: true,
+
+
+        const popupContent = createPopupContent(vesselData[mmsi]);
+        if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
+          const lat = vesselState.Latitude;
+          const lon = vesselState.Longitude;
+          if (vesselMarkers[mmsi]) {
+            vesselMarkers[mmsi].setLatLng([lat, lon]);
+            vesselMarkers[mmsi].getPopup().setContent(popupContent);
+            if (vesselState.Name) {
+              vesselMarkers[mmsi].unbindTooltip();
+              vesselMarkers[mmsi].bindTooltip(vesselState.Name, {
+                permanent: true,
+                direction: 'top',
+                className: 'vessel-tooltip',
+                interactive: true
+              }).openTooltip();
+              attachTooltipClick(vesselMarkers[mmsi], mmsi);
+            }
+            vesselMarkers[mmsi].off('click');
+            vesselMarkers[mmsi].on('click', function(e) {
+              e.stopPropagation();
+              e.preventDefault();
+              focusOnVessel(mmsi);
+            });
+            let markerElem = vesselMarkers[mmsi].getElement() || vesselMarkers[mmsi]._icon;
+            if (markerElem) {
+              markerElem.classList.add('enlarge');
+              setTimeout(() => markerElem.classList.remove('enlarge'), 500);
+            }
+          } else {
+            const marker = L.marker([lat, lon], { icon: boatIcon }).addTo(map);
+            marker.bindPopup(popupContent, { autoPan: false });
+            if (vesselState.Name) {
+              marker.bindTooltip(vesselState.Name, {
+                permanent: true,
+                direction: 'top',
+                className: 'vessel-tooltip',
+                interactive: true
+              }).openTooltip();
+              attachTooltipClick(marker, mmsi);
+            }
+            marker.on('click', function(e) {
+              e.stopPropagation();
+              e.preventDefault();
+              focusOnVessel(mmsi);
+            });
+            if (!isMobile) {
+              marker.on('mouseover', function() { this.openPopup(); });
+              marker.on('mouseout', function() { this.closePopup(); });
+            }
+            vesselMarkers[mmsi] = marker;
+          }
+          if (vesselTracks[mmsi]) {
+            vesselTracks[mmsi].setLatLngs(vesselData[mmsi].track);
+          } else {
+            vesselTracks[mmsi] = L.polyline(vesselData[mmsi].track, {
+              color: vesselData[mmsi].color,
+              weight: 3,
+              opacity: 0.8
+            }).addTo(map);
+          }
+        } else {
+          if (vesselMarkers[mmsi]) {
+            vesselMarkers[mmsi].getPopup().setContent(popupContent);
+            vesselMarkers[mmsi].unbindTooltip();
+            vesselMarkers[mmsi].bindTooltip(popupContent, {
               direction: 'top',
-              className: 'vessel-tooltip',
-              interactive: true
-            }).openTooltip();
-            attachTooltipClick(vesselMarkers[userID], userID);
+              className: 'vessel-tooltip'
+            });
           }
-          vesselMarkers[userID].off('click');
-          vesselMarkers[userID].on('click', function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            focusOnVessel(userID);
-          });
-          let markerElem = vesselMarkers[userID].getElement() || vesselMarkers[userID]._icon;
-          if (markerElem) {
-            markerElem.classList.add('enlarge');
-            setTimeout(() => markerElem.classList.remove('enlarge'), 500);
-          }
-        } else {
-          const marker = L.marker([lat, lon], { icon: boatIcon }).addTo(map);
-          marker.bindPopup(popupContent, { autoPan: false });
-          if (vesselData[userID].static && vesselData[userID].static.Name) {
-            marker.bindTooltip(vesselData[userID].static.Name, {
-              permanent: true,
-              direction: 'top',
-              className: 'vessel-tooltip',
-              interactive: true
-            }).openTooltip();
-            attachTooltipClick(marker, userID);
-          }
-          marker.on('click', function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            focusOnVessel(userID);
-          });
-          if (!isMobile) {
-            marker.on('mouseover', function() { this.openPopup(); });
-            marker.on('mouseout', function() { this.closePopup(); });
-          }
-          vesselMarkers[userID] = marker;
         }
-        if (vesselTracks[userID]) {
-          vesselTracks[userID].setLatLngs(vesselData[userID].track);
-        } else {
-          vesselTracks[userID] = L.polyline(vesselData[userID].track, {
-            color: vesselData[userID].color,
-            weight: 3,
-            opacity: 0.8
-          }).addTo(map);
-        }
-      } else {
-        if (vesselMarkers[userID]) {
-          vesselMarkers[userID].getPopup().setContent(popupContent);
-          vesselMarkers[userID].unbindTooltip();
-          vesselMarkers[userID].bindTooltip(popupContent, {
-            direction: 'top',
-            className: 'vessel-tooltip'
-          });
-        }
-      }
-
-      if (focusedVessel && focusedVessel == userID && !detailsOverlayHidden) {
-        if (isMobile) {
-          map.panTo(vesselMarkers[userID].getLatLng());
-        } else {
-          focusOnVessel(userID);
+        if (focusedVessel && focusedVessel == mmsi && !detailsOverlayHidden) {
+          if (isMobile) {
+            map.panTo(vesselMarkers[mmsi].getLatLng());
+          } else {
+            focusOnVessel(mmsi);
+          }
         }
       }
       updateOverlay();
