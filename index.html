@@ -1115,6 +1115,19 @@
       updateFocussedVisibility();
     }
 
+    document.getElementById('toggle-known-overlay').addEventListener('click', function() {
+      const overlay = document.getElementById('vessel-overlay');
+      const currentDisplay = window.getComputedStyle(overlay).display;
+      if (currentDisplay === 'none') {
+        overlay.style.display = 'block';
+        this.textContent = 'Hide Vessels';
+      } else {
+        overlay.style.display = 'none';
+        this.textContent = 'Show Vessels';
+      }
+    });
+
+
     // Utility: Generate a random hex color.
     function randomColor() {
       return '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
