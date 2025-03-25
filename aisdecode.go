@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -55,7 +56,7 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
 		baseData = make(map[string]interface{})
 	}
 	for key, value := range newData {
-		// Prioritize Latitude, Longitude, and Callsign in the merge
+		// Prioritize Latitude, Longitude, and Callsign in the merge.
 		if key == "Latitude" || key == "Longitude" || key == "CallSign" {
 			baseData[key] = value
 		} else if baseData[key] == nil {
@@ -80,7 +81,7 @@ func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[
 	return filteredData
 }
 
-// Compare two vessel maps (map[string]interface{}) recursively.
+// isInterfaceMapEqual compares two maps recursively.
 func isInterfaceMapEqual(a, b map[string]interface{}) bool {
 	if len(a) != len(b) {
 		return false
@@ -94,7 +95,7 @@ func isInterfaceMapEqual(a, b map[string]interface{}) bool {
 	return true
 }
 
-// Helper function to compare two values.
+// compareValues helps compare two interface{} values.
 func compareValues(currentValue, previousValue interface{}) bool {
 	switch currentTyped := currentValue.(type) {
 	case map[string]interface{}:
@@ -108,7 +109,7 @@ func compareValues(currentValue, previousValue interface{}) bool {
 	}
 }
 
-// Compare currentData and previousData, which are maps of vessel IDs to vessel data.
+// isDataChanged compares currentData and previousData.
 func isDataChanged(currentData, previousData map[string]map[string]interface{}) bool {
 	if len(currentData) != len(previousData) {
 		return true
@@ -137,7 +138,7 @@ func deepCopyVesselData(original map[string]map[string]interface{}) map[string]m
 	return copy
 }
 
-// Check if the message is a duplicate within the deduplication window.
+// isDuplicate checks if a message is a duplicate within the deduplication window.
 func isDuplicate(message string, dedupeWindow []dedupeState, windowDuration time.Duration) bool {
 	message = strings.TrimSpace(message)
 	now := time.Now()
@@ -150,7 +151,7 @@ func isDuplicate(message string, dedupeWindow []dedupeState, windowDuration time
 	return false
 }
 
-// Filter the deduplication window to only include messages within the time range.
+// filterWindow filters deduplication states to those newer than cutoff.
 func filterWindow(window []dedupeState, cutoff time.Time) []dedupeState {
 	filtered := []dedupeState{}
 	for _, state := range window {
@@ -174,17 +175,39 @@ func main() {
 	dedupeWindowDuration := flag.Int("dedupe-window", 1000, "Deduplication window in milliseconds (default: 1000, set to 0 to disable deduplication)")
 	dumpVesselData := flag.Bool("dump-vessel-data", false, "Log the latest vessel data to the screen whenever it is updated")
 	updateInterval := flag.Int("update-interval", 2, "Update interval in seconds for emitting latest vessel data (default: 2)")
-	// New expire-after flag (using a duration flag) defaulting to 60 minutes.
 	expireAfter := flag.Duration("expire-after", 60*time.Minute, "Expire vessel data if no update is received within this duration (default: 60m)")
+	// New state file option; if provided, state is persisted.
+	stateFile := flag.String("state-file", "", "Path to a file to persist vessel state between restarts (default: disabled)")
 	flag.Parse()
 
 	// Initialize previous vessel data.
 	previousVesselData = make(map[string]map[string]interface{})
 
+	// If a state file is provided and exists, attempt to load it.
+	if *stateFile != "" {
+		if _, err := os.Stat(*stateFile); err == nil {
+			data, err := os.ReadFile(*stateFile)
+			if err != nil {
+				log.Printf("Error reading state file %s: %v", *stateFile, err)
+			} else {
+				var loadedData map[string]map[string]interface{}
+				if err := json.Unmarshal(data, &loadedData); err != nil {
+					log.Printf("Invalid JSON in state file %s: %v", *stateFile, err)
+				} else {
+					vesselDataMutex.Lock()
+					vesselData = loadedData
+					vesselDataMutex.Unlock()
+					log.Printf("Loaded vessel state from %s", *stateFile)
+				}
+			}
+		} else if !os.IsNotExist(err) {
+			log.Printf("Error accessing state file %s: %v", *stateFile, err)
+		}
+	}
+
 	// --- Setup Socket.IO server ---
 	engineServer := types.CreateServer(nil)
 	sioServer := socket.NewServer(engineServer, nil)
-
 	sioServer.On("connection", func(args ...any) {
 		client := args[0].(*socket.Socket)
 		log.Printf("Socket.IO client connected: %s", client.Id())
@@ -288,24 +311,19 @@ func main() {
 				log.Printf("Error reading UDP message: %v", err)
 				continue
 			}
-
 			rawNmea := string(buf[:n])
 			currentTime := time.Now().Format(time.RFC3339)
 			source := addr.String()
-
 			if *debug {
 				log.Printf("[DEBUG] Received from UDP (%s) at %s: %s", source, currentTime, rawNmea)
 			}
-
 			if *dedupeWindowDuration > 0 && isDuplicate(rawNmea, aggregatorDedupeWindow, windowDuration) {
 				if *debug {
 					log.Printf("[DEBUG] Dropped duplicate message from %s at %s: %s", source, currentTime, rawNmea)
 				}
 				continue
 			}
-
 			aggregatorDedupeWindow = append(aggregatorDedupeWindow, dedupeState{message: rawNmea, timestamp: time.Now()})
-
 			decoded, err := nmeaCodec.ParseSentence(rawNmea)
 			if err != nil {
 				log.Printf("Error decoding sentence: %v", err)
@@ -314,7 +332,6 @@ func main() {
 			if decoded == nil || decoded.Packet == nil {
 				continue
 			}
-
 			var newData map[string]interface{}
 			{
 				b, err := json.Marshal(decoded.Packet)
@@ -327,7 +344,6 @@ func main() {
 					continue
 				}
 			}
-
 			out, err := json.MarshalIndent(decoded.Packet, "", "  ")
 			if err != nil {
 				log.Printf("Error formatting AIS packet: %v", err)
@@ -336,11 +352,9 @@ func main() {
 			typeName := fmt.Sprintf("%T", decoded.Packet)
 			typeName = strings.TrimPrefix(typeName, "*")
 			message := fmt.Sprintf("%s: %s", typeName, out)
-
 			if *showDecodes {
 				log.Println("Decoded AIS Packet:", message)
 			}
-
 			clientsMutex.Lock()
 			for _, client := range clients {
 				go func(c *socket.Socket, msg string) {
@@ -350,7 +364,6 @@ func main() {
 				}(client, message)
 			}
 			clientsMutex.Unlock()
-
 			if udpConn != nil {
 				if !isDuplicate(rawNmea, aggregatorDedupeWindow, windowDuration) {
 					log.Printf("[DEBUG] Sending message to aggregator: %s", rawNmea)
@@ -364,7 +377,6 @@ func main() {
 					}
 				}
 			}
-
 			// Process vessel data update.
 			userIDFloat, ok := newData["UserID"].(float64)
 			if !ok {
@@ -382,8 +394,6 @@ func main() {
 			merged["lastUpdated"] = time.Now().UTC().Format(time.RFC3339)
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
-
-			// Instead of immediate emission, set the flag if data has changed.
 			vesselDataMutex.Lock()
 			latestData := filterCompleteVesselData(vesselData)
 			vesselDataMutex.Unlock()
@@ -400,7 +410,7 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
 		for range ticker.C {
-			// Before sending, remove vessels that have not been updated within expireAfter.
+			// Remove vessels that haven't updated within expireAfter.
 			vesselDataMutex.Lock()
 			now := time.Now().UTC()
 			for id, vessel := range vesselData {
@@ -421,13 +431,11 @@ func main() {
 			if changeAvailable {
 				changeAvailable = false
 				changeMutex.Unlock()
-
 				latestDataJSON, err := json.Marshal(latestData)
 				if err != nil {
 					log.Printf("Error marshaling latest vessel data: %v", err)
 					continue
 				}
-
 				clientsMutex.Lock()
 				for _, client := range clients {
 					go func(c *socket.Socket, msg string) {
@@ -437,15 +445,19 @@ func main() {
 					}(client, string(latestDataJSON))
 				}
 				clientsMutex.Unlock()
-
 				previousVesselData = deepCopyVesselData(latestData)
-
 				if *dumpVesselData {
 					indentJSON, err := json.MarshalIndent(latestData, "", "  ")
 					if err != nil {
 						log.Printf("Error marshaling latest vessel data: %v", err)
 					} else {
 						log.Printf("Latest vessel data:\n%s", string(indentJSON))
+					}
+				}
+				// If stateFile is specified, write the JSON blob to disk.
+				if *stateFile != "" {
+					if err := os.WriteFile(*stateFile, latestDataJSON, 0644); err != nil {
+						log.Printf("Error writing state file %s: %v", *stateFile, err)
 					}
 				}
 			} else {
@@ -461,22 +473,18 @@ func main() {
 			line := scanner.Text()
 			currentTime := time.Now().Format(time.RFC3339)
 			source := "Serial"
-
 			if *debug {
 				log.Printf("[DEBUG] Received from Serial (%s) at %s: %s", source, currentTime, line)
 			}
-
 			if len(line) == 0 || (line[0] != '!' && line[0] != '$') {
 				continue
 			}
-
 			if *dedupeWindowDuration > 0 && isDuplicate(line, websocketDedupeWindow, windowDuration) {
 				if *debug {
 					log.Printf("[DEBUG] Dropped duplicate serial message (%s) at %s: %s", source, currentTime, line)
 				}
 				continue
 			}
-
 			websocketDedupeWindow = append(websocketDedupeWindow, dedupeState{message: line, timestamp: time.Now()})
 			decoded, err := nmeaCodec.ParseSentence(line)
 			if err != nil {
@@ -486,7 +494,6 @@ func main() {
 			if decoded == nil || decoded.Packet == nil {
 				continue
 			}
-
 			var newData map[string]interface{}
 			{
 				b, err := json.Marshal(decoded.Packet)
@@ -499,7 +506,6 @@ func main() {
 					continue
 				}
 			}
-
 			out, err := json.MarshalIndent(decoded.Packet, "", "  ")
 			if err != nil {
 				log.Printf("Error formatting AIS packet: %v", err)
@@ -508,11 +514,9 @@ func main() {
 			typeName := fmt.Sprintf("%T", decoded.Packet)
 			typeName = strings.TrimPrefix(typeName, "*")
 			message := fmt.Sprintf("%s: %s", typeName, out)
-
 			if *showDecodes {
 				log.Println("Decoded AIS Packet:", message)
 			}
-
 			clientsMutex.Lock()
 			for _, client := range clients {
 				go func(c *socket.Socket, msg string) {
@@ -522,7 +526,6 @@ func main() {
 				}(client, message)
 			}
 			clientsMutex.Unlock()
-
 			if udpConn != nil {
 				if !isDuplicate(line, aggregatorDedupeWindow, windowDuration) {
 					log.Printf("[DEBUG] Sending message to aggregator: %s", line)
@@ -536,7 +539,6 @@ func main() {
 					}
 				}
 			}
-
 			userIDFloat, ok := newData["UserID"].(float64)
 			if !ok {
 				availableKeys := make([]string, 0, len(newData))
@@ -546,14 +548,12 @@ func main() {
 				log.Printf("Vessel packet missing or invalid UserID field. Available keys: %v", availableKeys)
 				continue
 			}
-
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
 			vesselDataMutex.Lock()
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["lastUpdated"] = time.Now().UTC().Format(time.RFC3339)
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
-
 			vesselDataMutex.Lock()
 			latestData := filterCompleteVesselData(vesselData)
 			vesselDataMutex.Unlock()
@@ -564,12 +564,10 @@ func main() {
 			changeAvailable = true
 			changeMutex.Unlock()
 		}
-
 		if err := scanner.Err(); err != nil {
 			log.Printf("Error reading from serial port: %v", err)
 		}
 	}
-
 	// Wait forever.
 	select {}
 }
