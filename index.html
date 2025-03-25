@@ -179,6 +179,10 @@
       <input type="checkbox" id="openseamap-overlay" checked>
       Map Overlay
     </label>
+    <label>
+     <input type="checkbox" id="filter-nocallsign">
+     No Callsign
+    </label>
   </div>
   
   <!-- Known vessels overlay (bottom left) -->
@@ -755,6 +759,8 @@ socket.on("latest_vessel_data", (data) => {
   // Step 3: Process each vessel in the new data
 for (const mmsi in data) {
   const vesselState = data[mmsi];  // Access the vessel data using MMSI as the key
+  const showNoCallsign = document.getElementById('filter-nocallsign').checked;
+  const hasCallSign = (vesselState.CallSign || "").trim().length > 0;
 
   // If this is a new vessel, initialize the object and the counter.
   if (!vesselData[mmsi]) {
@@ -785,6 +791,18 @@ for (const mmsi in data) {
         track.shift();
       }
     }
+  }
+  // If the vessel has no callsign and the checkbox is not checked, remove its marker if it exists, then continue.
+  if (!hasCallSign && !showNoCallsign) {
+    if (vesselMarkers[mmsi]) {
+      map.removeLayer(vesselMarkers[mmsi]);
+      delete vesselMarkers[mmsi];
+    }
+    if (vesselTracks[mmsi]) {
+      map.removeLayer(vesselTracks[mmsi]);
+      delete vesselTracks[mmsi];
+    }
+    continue; // Skip further processing for this vessel.
   }
         const popupContent = createPopupContent(vesselData[mmsi]);
         if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
