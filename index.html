@@ -1127,6 +1127,19 @@
       }
     });
 
+    document.getElementById('toggle-detail-overlay').addEventListener('click', function() {
+      const detailOverlay = document.getElementById('vessel-detail');
+      if (detailOverlay.style.display === 'none' || detailOverlay.style.display === '') {
+        detailOverlay.style.display = 'block';
+        this.textContent = 'Hide Details';
+        detailsOverlayHidden = false;
+      } else {
+        detailOverlay.style.display = 'none';
+        this.textContent = 'Show Details';
+        detailsOverlayHidden = true;
+      }
+   });
+
 
     // Utility: Generate a random hex color.
     function randomColor() {
