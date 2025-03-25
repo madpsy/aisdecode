@@ -214,8 +214,39 @@ func main() {
 		clientsMutex.Lock()
 		clients = append(clients, client)
 		clientsMutex.Unlock()
-		client.Join("ais_data")
-		client.Join("latest_vessel_data")
+
+		// Join the common room for latest vessel data.
+		client.Join(socket.Room("latest_vessel_data"))
+		log.Printf("Client %s joined room latest_vessel_data", client.Id())
+
+		// Listen for subscription events to join other rooms.
+		client.On("subscribe", func(args ...any) {
+			if len(args) < 1 {
+				return
+			}
+			roomName, ok := args[0].(string)
+			if !ok {
+				return
+			}
+			client.Join(socket.Room(roomName))
+			log.Printf("Client %s subscribed to room %s", client.Id(), roomName)
+		})
+
+		client.On("unsubscribe", func(args ...any) {
+		    if len(args) < 1 {
+		        log.Printf("Client %s sent unsubscribe with no room specified", client.Id())
+		        return
+		    }
+		    roomName, ok := args[0].(string)
+		    if !ok {
+		        log.Printf("Client %s sent unsubscribe with non-string room value", client.Id())
+		        return
+		    }
+		    client.Leave(socket.Room(roomName))
+		    log.Printf("Client %s unsubscribed from room %s", client.Id(), roomName)
+		})
+
+
 		vesselDataMutex.Lock()
 		latestData := filterCompleteVesselData(vesselData)
 		vesselDataMutex.Unlock()
@@ -356,15 +387,21 @@ func main() {
 			if *showDecodes {
 				log.Println("Decoded AIS Packet:", message)
 			}
-			clientsMutex.Lock()
-			for _, client := range clients {
-				go func(c *socket.Socket, msg string) {
-					if err := c.Emit("ais_data", msg); err != nil {
-						log.Printf("Error sending decoded AIS data to client %s: %v", c.Id(), err)
-					}
-				}(client, message)
+			// Send AIS message to the dynamic room (vessel-specific)
+			userIDFloat, ok := newData["UserID"].(float64)
+			if !ok {
+				availableKeys := make([]string, 0, len(newData))
+				for key := range newData {
+					availableKeys = append(availableKeys, key)
+				}
+				log.Printf("Vessel packet missing or invalid UserID field. Available keys: %v", availableKeys)
+				continue
 			}
-			clientsMutex.Unlock()
+			vesselID := fmt.Sprintf("%.0f", userIDFloat)
+			roomName := "ais_data/" + vesselID
+			if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", message); err != nil {
+				log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
+			}
 
 			// Forward to aggregator if enabled.
 			if udpConn != nil {
@@ -377,18 +414,7 @@ func main() {
 			aggregatorDedupeWindow = append(aggregatorDedupeWindow, dedupeState{message: rawNmea, timestamp: time.Now()})
 
 			// Process vessel data update.
-			userIDFloat, ok := newData["UserID"].(float64)
-			if !ok {
-				availableKeys := make([]string, 0, len(newData))
-				for key := range newData {
-					availableKeys = append(availableKeys, key)
-				}
-				log.Printf("Vessel packet missing or invalid UserID field. Available keys: %v", availableKeys)
-				continue
-			}
-			vesselID := fmt.Sprintf("%.0f", userIDFloat)
 			vesselDataMutex.Lock()
-			// Merge new data and update the lastUpdated field.
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			vesselData[vesselID] = merged
@@ -526,15 +552,7 @@ func main() {
 			if *showDecodes {
 				log.Println("Decoded AIS Packet:", message)
 			}
-			clientsMutex.Lock()
-			for _, client := range clients {
-				go func(c *socket.Socket, msg string) {
-					if err := c.Emit("ais_data", msg); err != nil {
-						log.Printf("Error sending decoded AIS data to client %s: %v", c.Id(), err)
-					}
-				}(client, message)
-			}
-			clientsMutex.Unlock()
+			// Send AIS message to the dynamic room (vessel-specific)
 			userIDFloat, ok := newData["UserID"].(float64)
 			if !ok {
 				availableKeys := make([]string, 0, len(newData))
@@ -545,6 +563,10 @@ func main() {
 				continue
 			}
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
+			roomName := "ais_data/" + vesselID
+			if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", message); err != nil {
+				log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
+			}
 			vesselDataMutex.Lock()
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)

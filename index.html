@@ -159,6 +159,58 @@
     #toggle-detail-overlay {
       bottom: 50px;
       right: 10px;
+      display: none;
+    }
+    /* Live Logs button styling (positioned to the left of Show/Hide Details) */
+    #live-logs {
+      position: absolute;
+      bottom: 50px;
+      right: 100px;
+      background: #f0f0f0;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      padding: 3px 6px;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      cursor: pointer;
+      z-index: 1100;
+      display: none;
+    }
+    /* Live Logs overlay styling */
+    #live-logs-overlay {
+      display: none;
+      position: absolute;
+      top: 100px;
+      left: 50px;
+      background: rgba(255,255,255,0.95);
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 10px;
+      width: 250px;
+      max-height: 400px;
+      overflow-y: auto;
+      z-index: 1200;
+    }
+    #live-logs-header {
+      cursor: move;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    #live-logs-header button {
+      float: right;
+      cursor: pointer;
+    }
+    .log-entry {
+      border-bottom: 1px solid #eee;
+      padding: 5px 0;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+    .log-field {
+      font-weight: bold;
     }
   </style>
 </head>
@@ -180,8 +232,8 @@
       Map Overlay
     </label>
     <label>
-     <input type="checkbox" id="filter-nocallsign">
-     No Callsign
+      <input type="checkbox" id="filter-nocallsign">
+      No Callsign
     </label>
   </div>
   
@@ -200,9 +252,18 @@
   
   <!-- Toggle Buttons -->
   <button id="toggle-known-overlay" class="toggle-button">Hide Vessels</button>
-  <button id="toggle-detail-overlay" class="toggle-button" style="display: none;">Hide Details</button>
+  <button id="toggle-detail-overlay" class="toggle-button">Hide Details</button>
+  
+  <!-- Live Logs Button (only visible when vessel is focussed) -->
+  <button id="live-logs">Live Messages</button>
   
   <button id="clear-history">Clear History</button>
+
+  <!-- Live Logs Overlay (draggable) -->
+  <div id="live-logs-overlay">
+    <div id="live-logs-header">Live Messages <button id="close-live-logs">X</button></div>
+    <div id="live-logs-content"></div>
+  </div>
 
   <!-- Socket.IO client (local copy) -->
   <script src="socket.io.min.js"></script>
@@ -217,6 +278,9 @@
     // Global variable to store the currently focused vessel (if any).
     let focusedVessel = null;
 
+    // Variable to track the current live logs channel.
+    let currentChannel = null;
+
     // Initialize the Leaflet map.
     const map = L.map('map').setView([55.0, -3.0], 5);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -228,12 +292,29 @@
       attribution: 'Map data: &copy; OpenSeaMap contributors'
     }).addTo(map);
 
+    // Helper function to clear all live logs and show a placeholder.
+    function clearLiveLogs() {
+      liveLogsContent.innerHTML = "<div class='placeholder' style='font-family: monospace; font-size: 12px; color: #888; text-align: center; padding: 10px;'>Waiting for next message...</div>";
+    }
+
     // Clicking on the map resets any vessel focus.
     map.on('click', () => {
       if (focusedVessel) {
         focusedVessel = null;
         document.getElementById('vessel-detail').style.display = 'none';
         document.getElementById('toggle-detail-overlay').style.display = 'none';
+        // Hide Live Logs button and overlay when unfocused.
+        document.getElementById('live-logs').style.display = 'none';
+        const liveLogsOverlay = document.getElementById('live-logs-overlay');
+        liveLogsOverlay.style.display = 'none';
+        clearLiveLogs();
+        // Unsubscribe if live logs were active.
+        if (liveLogsSubscribed && currentChannel) {
+          socket.emit("unsubscribe", currentChannel);
+          socket.off("ais_data", liveLogsHandler);
+          liveLogsSubscribed = false;
+          currentChannel = null;
+        }
         detailsOverlayHidden = false;
         document.getElementById('auto-zoom').checked = true;
         updateFocussedVisibility();
@@ -254,11 +335,7 @@
     });
 
     // Mapping objects for Fix Type, Nav Status, and Static Message Types.
-    const fixTypeMapping = {
-      0: "No Fix",
-      1: "GPS Fix",
-      2: "DGPS Fix"
-    };
+    const fixTypeMapping = { 0: "No Fix", 1: "GPS Fix", 2: "DGPS Fix" };
 
     const navigationalStatusMapping = {
       0: "Using Engine",
@@ -394,7 +471,6 @@
 
     /**
      * Build popup content from vessel data.
-     * Now the vessel object contains all relevant fields directly.
      */
     function createPopupContent(data) {
       const lines = [];
@@ -441,7 +517,6 @@
       if (data.MaximumStaticDraught !== undefined) { 
         lines.push(`Maximum Draught (m): ${data.MaximumStaticDraught}`); 
       }
-      // Positional information
       lines.push(`Position Msg ID: ${data.MessageID}`);
       if (data.Latitude !== undefined && data.Longitude !== undefined) {
         lines.push(`Latitude: ${data.Latitude.toFixed(4)}`);
@@ -510,67 +585,64 @@
       return days + " days ago";
     }
 
-function updateNoCallsignMarkers() {
-  const showNoCallsign = document.getElementById('filter-nocallsign').checked;
-  for (const mmsi in vesselData) {
-    const vesselState = vesselData[mmsi];
-    const hasCallSign = (vesselState.CallSign || "").trim().length > 0;
-    if (!hasCallSign && !showNoCallsign) {
-      // Remove the marker and track if they exist.
-      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-        map.removeLayer(vesselMarkers[mmsi]);
-      }
-      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
-        map.removeLayer(vesselTracks[mmsi]);
-      }
-    } else {
-      // Re-add the marker and track if they were removed.
-      if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
-        map.addLayer(vesselMarkers[mmsi]);
-      }
-      if (vesselTracks[mmsi] && !map.hasLayer(vesselTracks[mmsi])) {
-        map.addLayer(vesselTracks[mmsi]);
+    function updateNoCallsignMarkers() {
+      const showNoCallsign = document.getElementById('filter-nocallsign').checked;
+      for (const mmsi in vesselData) {
+        const vesselState = vesselData[mmsi];
+        const hasCallSign = (vesselState.CallSign || "").trim().length > 0;
+        if (!hasCallSign && !showNoCallsign) {
+          if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+            map.removeLayer(vesselMarkers[mmsi]);
+          }
+          if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+            map.removeLayer(vesselTracks[mmsi]);
+          }
+        } else {
+          if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
+            map.addLayer(vesselMarkers[mmsi]);
+          }
+          if (vesselTracks[mmsi] && !map.hasLayer(vesselTracks[mmsi])) {
+            map.addLayer(vesselTracks[mmsi]);
+          }
+        }
       }
     }
-  }
-}
 
     // Update the known vessels overlay.
-function updateOverlay() {
-  const filterText = document.getElementById('vessel-filter').value.toLowerCase();
-  const vessels = Object.values(vesselData).filter(v => 
-    v.Name && v.lastUpdate &&
-    (!filterText ||
-      v.Name.toLowerCase().includes(filterText) ||
-      (v.CallSign && v.CallSign.toLowerCase().includes(filterText)) ||
-      v.UserID.toString().includes(filterText)
-    )
-  );
-  vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
-  const topVessels = vessels.slice(0, 100);
-  let content = "";
-  topVessels.forEach(v => {
-    const name = v.Name;
-    const callsign = v.CallSign ? v.CallSign : "N/A";
-    const lastSeen = timeAgo(v.lastUpdate);
-    // Replace the track length with the lastUpdateCount property.
-    const updateCount = v.lastUpdateCount || 0;
-    content += `<div class="vessel-entry" data-userid="${v.UserID}">
-                  <div class="vessel-name">${name}</div>
-                  <div class="vessel-callsign">Call Sign: ${callsign}</div>
-                  <div class="vessel-timestamp">${lastSeen} | ${updateCount} msgs</div>
-                </div>`;
-  });
-  document.getElementById('overlay-content').innerHTML = content;
-  
-  document.querySelectorAll('.vessel-entry').forEach(entry => {
-    entry.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const userID = entry.getAttribute('data-userid');
-      focusOnVessel(userID);
-    });
-  });
-}
+    function updateOverlay() {
+      const filterText = document.getElementById('vessel-filter').value.toLowerCase();
+      const vessels = Object.values(vesselData).filter(v => 
+        v.Name && v.lastUpdate &&
+        (!filterText ||
+          v.Name.toLowerCase().includes(filterText) ||
+          (v.CallSign && v.CallSign.toLowerCase().includes(filterText)) ||
+          v.UserID.toString().includes(filterText)
+        )
+      );
+      vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
+      const topVessels = vessels.slice(0, 100);
+      let content = "";
+      topVessels.forEach(v => {
+        const name = v.Name;
+        const callsign = v.CallSign ? v.CallSign : "N/A";
+        const lastSeen = timeAgo(v.lastUpdate);
+        const updateCount = v.lastUpdateCount || 0;
+        content += `<div class="vessel-entry" data-userid="${v.UserID}">
+                      <div class="vessel-name">${name}</div>
+                      <div class="vessel-callsign">Call Sign: ${callsign}</div>
+                      <div class="vessel-timestamp">${lastSeen} | ${updateCount} msgs</div>
+                    </div>`;
+      });
+      document.getElementById('overlay-content').innerHTML = content;
+      
+      document.querySelectorAll('.vessel-entry').forEach(entry => {
+        entry.addEventListener('click', (event) => {
+          event.stopPropagation();
+          const userID = entry.getAttribute('data-userid');
+          focusOnVessel(userID);
+        });
+      });
+    }
 
     // Periodically update the vessel detail overlay.
     function updateVesselDetailOverlay() {
@@ -581,6 +653,7 @@ function updateOverlay() {
     }
     setInterval(updateVesselDetailOverlay, 1000);
     setInterval(updateOverlay, 1000);
+
     // Update marker and track visibility based on the "Only Tracked" checkbox.
     function updateFocussedVisibility() {
       const onlyFocussed = document.getElementById('only-focussed').checked;
@@ -608,78 +681,147 @@ function updateOverlay() {
       }
     }
 
-    // Focus on a particular vessel.
-function focusOnVessel(userID, initialFocus = true) {
-  if (vesselMarkers[userID]) {
-    focusedVessel = userID;
-    detailsOverlayHidden = false;
-    document.getElementById('vessel-detail').style.display = 'block';
-    document.getElementById('toggle-detail-overlay').style.display = 'block';
-    const headerEl = document.getElementById('vessel-detail-header');
-    if (vesselData[userID].UserID) {
-      headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a>)`;
-    } else {
-      headerEl.textContent = "Vessel Details";
-    }
-    const popupContent = createPopupContent(vesselData[userID]);
-    document.getElementById('detail-content').innerHTML = popupContent;
-    
-    // Only auto zoom on initial focus or if auto zoom is still enabled.
-    if (initialFocus || document.getElementById('auto-zoom').checked) {
-      let bounds = L.latLngBounds([]);
-      bounds.extend(vesselMarkers[userID].getLatLng());
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
-    }
-    
-    updateFocussedVisibility();
-  }
-}
+    // --- Live Logs functionality ---
+    let liveLogsSubscribed = false;
+    const maxLogMessages = 250;
+    const liveLogsContent = document.getElementById('live-logs-content');
 
+    // Helper function to recursively format nested objects with indentation.
+    function formatLogField(key, value, indentLevel = 0) {
+      const indentStyle = `style="padding-left: ${indentLevel * 15}px"`;
+      let html = `<div ${indentStyle}><span class="log-field">${key}:</span> `;
+      if (value !== null && typeof value === 'object') {
+        html += `<br>`;
+        for (const subKey in value) {
+          html += formatLogField(subKey, value[subKey], indentLevel + 1);
+        }
+      } else {
+        html += `${value}`;
+      }
+      html += `</div>`;
+      return html;
+    }
 
-    // Attach a click listener to a tooltip element.
-    function attachTooltipClick(marker, userID) {
-      setTimeout(() => {
-        const tooltip = marker.getTooltip();
-        if (tooltip) {
-          const ttEl = tooltip.getElement();
-          if (ttEl) {
-            ttEl.addEventListener('click', (e) => {
-              e.stopPropagation();
-              focusOnVessel(userID);
-            });
+    // Updated renderLogMessage function that uses the recursive formatter.
+    function renderLogMessage(msg) {
+      const timestamp = new Date().toLocaleTimeString();
+      let html = '<div class="log-entry">';
+      html += `<div class="log-timestamp" style="font-size:10px;color:#888;margin-bottom:2px;">${timestamp}</div>`;
+  
+      if (msg._type) {
+        html += formatLogField("Type", msg._type);
+      }
+  
+      for (const field in msg) {
+        if (field === "_type") continue;
+        html += formatLogField(field, msg[field]);
+      }
+  
+      html += '</div>';
+      return html;
+    }
+
+    // Handler for incoming ais_data messages.
+    function liveLogsHandler(message) {
+      if (typeof message === "string") {
+        const colonIndex = message.indexOf(':');
+        if (colonIndex !== -1) {
+          const messageType = message.substring(0, colonIndex).trim();
+          const jsonPart = message.substring(colonIndex + 1).trim();
+          try {
+            message = JSON.parse(jsonPart);
+            message._type = messageType;
+          } catch (e) {
+            console.error("Error parsing JSON for ais_room. Message type:", messageType, e, "Raw message:", message);
+            return;
+          }
+        } else {
+          try {
+            message = JSON.parse(message);
+          } catch (e) {
+            console.error("Error parsing JSON for ais_room:", e, "Raw message:", message);
+            return;
           }
         }
-      }, 0);
+      }
+
+      if (focusedVessel && message.UserID && message.UserID.toString() !== focusedVessel.toString()) {
+        return;
+      }
+
+      const placeholder = liveLogsContent.querySelector('.placeholder');
+      if (placeholder) {
+        placeholder.remove();
+      }
+  
+      liveLogsContent.insertAdjacentHTML('afterbegin', renderLogMessage(message));
+      while (liveLogsContent.childElementCount > maxLogMessages) {
+        liveLogsContent.removeChild(liveLogsContent.lastChild);
+      }
     }
 
-    // Toggle button for known vessels overlay.
-    document.getElementById('toggle-known-overlay').addEventListener('click', () => {
-      const overlay = document.getElementById('vessel-overlay');
-      const btn = document.getElementById('toggle-known-overlay');
-      const computedDisplay = window.getComputedStyle(overlay).display;
-      if (computedDisplay === 'none') {
-        overlay.style.display = 'block';
-        btn.textContent = 'Hide Vessels';
-      } else {
-        overlay.style.display = 'none';
-        btn.textContent = 'Show Vessels';
+    // Function to manage live logs subscription when focusing on a new vessel.
+    function updateLiveLogsSubscription(newVesselID) {
+      const newChannel = "ais_data/" + newVesselID;
+      if (liveLogsSubscribed && currentChannel && currentChannel !== newChannel) {
+        socket.emit("unsubscribe", currentChannel);
+        socket.off("ais_data", liveLogsHandler);
+        liveLogsSubscribed = false;
+      }
+      if (!liveLogsSubscribed) {
+        socket.emit("subscribe", newChannel);
+        socket.on("ais_data", liveLogsHandler);
+        liveLogsSubscribed = true;
+        currentChannel = newChannel;
+      }
+    }
+
+    // When the Live Logs button is clicked.
+    document.getElementById('live-logs').addEventListener('click', () => {
+      const overlay = document.getElementById('live-logs-overlay');
+      overlay.style.display = 'block';
+      clearLiveLogs();
+      if (!liveLogsSubscribed && focusedVessel) {
+        updateLiveLogsSubscription(focusedVessel);
       }
     });
 
-    // Toggle button for vessel details overlay.
-    document.getElementById('toggle-detail-overlay').addEventListener('click', () => {
-      const detailOverlay = document.getElementById('vessel-detail');
-      const btn = document.getElementById('toggle-detail-overlay');
-      if (detailOverlay.style.display === 'none' || detailOverlay.style.display === '') {
-        detailOverlay.style.display = 'block';
-        btn.textContent = 'Hide Details';
-        detailsOverlayHidden = false;
-      } else {
-        detailOverlay.style.display = 'none';
-        btn.textContent = 'Show Details';
-        detailsOverlayHidden = true;
+    // When the close button on the Live Logs overlay is clicked.
+    document.getElementById('close-live-logs').addEventListener('click', () => {
+      const overlay = document.getElementById('live-logs-overlay');
+      overlay.style.display = 'none';
+      clearLiveLogs();
+      if (liveLogsSubscribed && focusedVessel && currentChannel) {
+        socket.emit("unsubscribe", currentChannel);
+        socket.off("ais_data", liveLogsHandler);
+        liveLogsSubscribed = false;
+        currentChannel = null;
       }
     });
+
+    // Make the Live Logs overlay draggable.
+    (function makeDraggable() {
+      const overlay = document.getElementById('live-logs-overlay');
+      const header = document.getElementById('live-logs-header');
+      let offsetX = 0, offsetY = 0, isDragging = false;
+
+      header.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        offsetX = e.clientX - overlay.offsetLeft;
+        offsetY = e.clientY - overlay.offsetTop;
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+          overlay.style.left = (e.clientX - offsetX) + 'px';
+          overlay.style.top = (e.clientY - offsetY) + 'px';
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+    })();
 
     // Load saved vessel data from localStorage if available.
     const storedData = localStorage.getItem('vesselData');
@@ -751,90 +893,69 @@ function focusOnVessel(userID, initialFocus = true) {
     const socket = io();
 
     // Listen on "latest_vessel_data" which now provides a complete vessel state object.
-socket.on("latest_vessel_data", (data) => {
-  // console.log("Received latest vessel data:", data);  // Log the full data to verify it's correct
-
-  // Check if the incoming data is already an object. If it's a string, we need to parse it.
-  if (typeof data === "string") {
-    try {
-      data = JSON.parse(data);  // Parse the string into a valid object
-      // console.log("Parsed vessel data:", data);  // Log parsed data to check if it's correct
-    } catch (e) {
-      console.error("Failed to parse JSON:", e);
-      return;
-    }
-  }
-
-  // Ensure the data is in the expected format (a dictionary with MMSI as keys)
-  if (typeof data !== "object" || Array.isArray(data)) {
-    console.error("Received invalid data format:", data);
-    return;
-  }
-
-  // Step 1: Track MMSIs (vessel IDs) in new data
-  const newIDs = new Set(Object.keys(data));  // Get the MMSI/UserID keys from the data object
-  // console.log("New Vessel IDs:", newIDs);  // Log the MMSI IDs in the new data
-
-  // Step 2: Remove vessels no longer present in the new data
-  for (const mmsi in vesselData) {
-    if (!newIDs.has(mmsi)) {  // Check if the vessel is still in the new data
-      console.log("Removing vessel with MMSI:", mmsi);  // Log which vessel is being removed
-      if (vesselMarkers[mmsi]) map.removeLayer(vesselMarkers[mmsi]);
-      if (vesselTracks[mmsi]) map.removeLayer(vesselTracks[mmsi]);
-      delete vesselData[mmsi];
-      delete vesselMarkers[mmsi];
-      delete vesselTracks[mmsi];
-    }
-  }
-
-  // Step 3: Process each vessel in the new data
-for (const mmsi in data) {
-  const vesselState = data[mmsi];  // Access the vessel data using MMSI as the key
-  const showNoCallsign = document.getElementById('filter-nocallsign').checked;
-  const hasCallSign = (vesselState.CallSign || "").trim().length > 0;
-
-  // If this is a new vessel, initialize the object and the counter.
-  if (!vesselData[mmsi]) {
-    vesselData[mmsi] = Object.assign({}, vesselState);
-    vesselData[mmsi].track = [];  // Initialize an empty track (if you still need it)
-    vesselData[mmsi].color = randomColor();  // Assign a random color for the track
-    vesselData[mmsi].lastUpdateCount = 1;  // First update
-  } else {
-    // If the new LastUpdated value is different, increment the counter.
-    if (vesselData[mmsi].LastUpdated !== vesselState.LastUpdated) {
-      vesselData[mmsi].lastUpdateCount = (vesselData[mmsi].lastUpdateCount || 0) + 1;
-    }
-    Object.assign(vesselData[mmsi], vesselState);
-  }
-  
-  // Update the stored LastUpdated value and convert it to a timestamp.
-  vesselData[mmsi].LastUpdated = vesselState.LastUpdated;
-  vesselData[mmsi].lastUpdate = new Date(vesselState.LastUpdated).getTime();
-
-  // Continue with track updates as before (if needed)
-  if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
-    const tolerance = 1e-5;
-    const track = vesselData[mmsi].track;
-    const lastPoint = track[track.length - 1];
-    if (!lastPoint || Math.abs(lastPoint[0] - vesselState.Latitude) > tolerance || Math.abs(lastPoint[1] - vesselState.Longitude) > tolerance) {
-      track.push([vesselState.Latitude, vesselState.Longitude]);
-      if (track.length > 10000) {
-        track.shift();
+    socket.on("latest_vessel_data", (data) => {
+      if (typeof data === "string") {
+        try {
+          data = JSON.parse(data);
+        } catch (e) {
+          console.error("Failed to parse JSON:", e);
+          return;
+        }
       }
-    }
-  }
-  // If the vessel has no callsign and the checkbox is not checked, remove its marker if it exists, then continue.
-  if (!hasCallSign && !showNoCallsign) {
-    if (vesselMarkers[mmsi]) {
-      map.removeLayer(vesselMarkers[mmsi]);
-      delete vesselMarkers[mmsi];
-    }
-    if (vesselTracks[mmsi]) {
-      map.removeLayer(vesselTracks[mmsi]);
-      delete vesselTracks[mmsi];
-    }
-    continue; // Skip further processing for this vessel.
-  }
+      if (typeof data !== "object" || Array.isArray(data)) {
+        console.error("Received invalid data format:", data);
+        return;
+      }
+      const newIDs = new Set(Object.keys(data));
+      for (const mmsi in vesselData) {
+        if (!newIDs.has(mmsi)) {
+          console.log("Removing vessel with MMSI:", mmsi);
+          if (vesselMarkers[mmsi]) map.removeLayer(vesselMarkers[mmsi]);
+          if (vesselTracks[mmsi]) map.removeLayer(vesselTracks[mmsi]);
+          delete vesselData[mmsi];
+          delete vesselMarkers[mmsi];
+          delete vesselTracks[mmsi];
+        }
+      }
+      for (const mmsi in data) {
+        const vesselState = data[mmsi];
+        const showNoCallsign = document.getElementById('filter-nocallsign').checked;
+        const hasCallSign = (vesselState.CallSign || "").trim().length > 0;
+        if (!vesselData[mmsi]) {
+          vesselData[mmsi] = Object.assign({}, vesselState);
+          vesselData[mmsi].track = [];
+          vesselData[mmsi].color = randomColor();
+          vesselData[mmsi].lastUpdateCount = 1;
+        } else {
+          if (vesselData[mmsi].LastUpdated !== vesselState.LastUpdated) {
+            vesselData[mmsi].lastUpdateCount = (vesselData[mmsi].lastUpdateCount || 0) + 1;
+          }
+          Object.assign(vesselData[mmsi], vesselState);
+        }
+        vesselData[mmsi].LastUpdated = vesselState.LastUpdated;
+        vesselData[mmsi].lastUpdate = new Date(vesselState.LastUpdated).getTime();
+        if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
+          const tolerance = 1e-5;
+          const track = vesselData[mmsi].track;
+          const lastPoint = track[track.length - 1];
+          if (!lastPoint || Math.abs(lastPoint[0] - vesselState.Latitude) > tolerance || Math.abs(lastPoint[1] - vesselState.Longitude) > tolerance) {
+            track.push([vesselState.Latitude, vesselState.Longitude]);
+            if (track.length > 10000) {
+              track.shift();
+            }
+          }
+        }
+        if (!hasCallSign && !showNoCallsign) {
+          if (vesselMarkers[mmsi]) {
+            map.removeLayer(vesselMarkers[mmsi]);
+            delete vesselMarkers[mmsi];
+          }
+          if (vesselTracks[mmsi]) {
+            map.removeLayer(vesselTracks[mmsi]);
+            delete vesselTracks[mmsi];
+          }
+          continue;
+        }
         const popupContent = createPopupContent(vesselData[mmsi]);
         if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
           const lat = vesselState.Latitude;
@@ -905,14 +1026,13 @@ for (const mmsi in data) {
             });
           }
         }
-	if (focusedVessel && focusedVessel == mmsi && !detailsOverlayHidden) {
-	  if (isMobile) {
-	    map.panTo(vesselMarkers[mmsi].getLatLng());
-	  } else {
-	    // Pass false so that it won't trigger a re-zoom if auto zoom is off.
-	    focusOnVessel(mmsi, false);
-	  }
-	}
+        if (focusedVessel && focusedVessel == mmsi && !detailsOverlayHidden) {
+          if (isMobile) {
+            map.panTo(vesselMarkers[mmsi].getLatLng());
+          } else {
+            focusOnVessel(mmsi, false);
+          }
+        }
       }
       updateOverlay();
       updateFocussedVisibility();
@@ -948,6 +1068,52 @@ for (const mmsi in data) {
       }
     });
 
+    // Attach tooltip click listener.
+    function attachTooltipClick(marker, userID) {
+      setTimeout(() => {
+        const tooltip = marker.getTooltip();
+        if (tooltip) {
+          const ttEl = tooltip.getElement();
+          if (ttEl) {
+            ttEl.addEventListener('click', (e) => {
+              e.stopPropagation();
+              focusOnVessel(userID);
+            });
+          }
+        }
+      }, 0);
+    }
+
+    // Focus on a particular vessel.
+    function focusOnVessel(userID, initialFocus = true) {
+      if (focusedVessel !== userID) {
+        clearLiveLogs();
+        if (liveLogsSubscribed) {
+          updateLiveLogsSubscription(userID);
+        }
+      }
+      focusedVessel = userID;
+      detailsOverlayHidden = false;
+      document.getElementById('vessel-detail').style.display = 'block';
+      document.getElementById('toggle-detail-overlay').style.display = 'block';
+      document.getElementById('live-logs').style.display = 'block';
+      const headerEl = document.getElementById('vessel-detail-header');
+      if (vesselData[userID].UserID) {
+        headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a>)`;
+      } else {
+        headerEl.textContent = "Vessel Details";
+      }
+      const popupContent = createPopupContent(vesselData[userID]);
+      document.getElementById('detail-content').innerHTML = popupContent;
+      
+      if (initialFocus || document.getElementById('auto-zoom').checked) {
+        let bounds = L.latLngBounds([]);
+        bounds.extend(vesselMarkers[userID].getLatLng());
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+      }
+      
+      updateFocussedVisibility();
+    }
 
     // Utility: Generate a random hex color.
     function randomColor() {
