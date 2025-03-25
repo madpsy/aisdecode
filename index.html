@@ -510,6 +510,31 @@
       return days + " days ago";
     }
 
+function updateNoCallsignMarkers() {
+  const showNoCallsign = document.getElementById('filter-nocallsign').checked;
+  for (const mmsi in vesselData) {
+    const vesselState = vesselData[mmsi];
+    const hasCallSign = (vesselState.CallSign || "").trim().length > 0;
+    if (!hasCallSign && !showNoCallsign) {
+      // Remove the marker and track if they exist.
+      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+        map.removeLayer(vesselMarkers[mmsi]);
+      }
+      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+        map.removeLayer(vesselTracks[mmsi]);
+      }
+    } else {
+      // Re-add the marker and track if they were removed.
+      if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
+        map.addLayer(vesselMarkers[mmsi]);
+      }
+      if (vesselTracks[mmsi] && !map.hasLayer(vesselTracks[mmsi])) {
+        map.addLayer(vesselTracks[mmsi]);
+      }
+    }
+  }
+}
+
     // Update the known vessels overlay.
 function updateOverlay() {
   const filterText = document.getElementById('vessel-filter').value.toLowerCase();
@@ -906,6 +931,16 @@ for (const mmsi in data) {
       updateOverlay();
       location.reload();
     });
+
+    document.getElementById('filter-nocallsign').addEventListener('change', () => {
+      updateOverlay();
+      updateFocussedVisibility();
+      updateNoCallsignMarkers();
+      if (document.getElementById('auto-zoom').checked) {
+        adjustMapBounds();
+      }
+    });
+
 
     // Utility: Generate a random hex color.
     function randomColor() {
