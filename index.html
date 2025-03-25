@@ -507,40 +507,41 @@
     }
 
     // Update the known vessels overlay.
-    function updateOverlay() {
-      const filterText = document.getElementById('vessel-filter').value.toLowerCase();
-      const vessels = Object.values(vesselData).filter(v => 
-        v.Name && v.lastUpdate &&
-        (!filterText ||
-          v.Name.toLowerCase().includes(filterText) ||
-          (v.CallSign && v.CallSign.toLowerCase().includes(filterText)) ||
-          v.UserID.toString().includes(filterText)
-        )
-      );
-      vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
-      const topVessels = vessels.slice(0, 20);
-      let content = "";
-      topVessels.forEach(v => {
-        const name = v.Name;
-        const callsign = v.CallSign ? v.CallSign : "N/A";
-        const lastSeen = timeAgo(v.lastUpdate);
-        const locationCount = v.track ? v.track.length : 0;
-        content += `<div class="vessel-entry" data-userid="${v.UserID}">
-                      <div class="vessel-name">${name}</div>
-                      <div class="vessel-callsign">Call Sign: ${callsign}</div>
-                      <div class="vessel-timestamp">${lastSeen} | ${locationCount} msgs</div>
-                    </div>`;
-      });
-      document.getElementById('overlay-content').innerHTML = content;
-      
-      document.querySelectorAll('.vessel-entry').forEach(entry => {
-        entry.addEventListener('click', (event) => {
-          event.stopPropagation();
-          const userID = entry.getAttribute('data-userid');
-          focusOnVessel(userID);
-        });
-      });
-    }
+function updateOverlay() {
+  const filterText = document.getElementById('vessel-filter').value.toLowerCase();
+  const vessels = Object.values(vesselData).filter(v => 
+    v.Name && v.lastUpdate &&
+    (!filterText ||
+      v.Name.toLowerCase().includes(filterText) ||
+      (v.CallSign && v.CallSign.toLowerCase().includes(filterText)) ||
+      v.UserID.toString().includes(filterText)
+    )
+  );
+  vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
+  const topVessels = vessels.slice(0, 100);
+  let content = "";
+  topVessels.forEach(v => {
+    const name = v.Name;
+    const callsign = v.CallSign ? v.CallSign : "N/A";
+    const lastSeen = timeAgo(v.lastUpdate);
+    // Replace the track length with the lastUpdateCount property.
+    const updateCount = v.lastUpdateCount || 0;
+    content += `<div class="vessel-entry" data-userid="${v.UserID}">
+                  <div class="vessel-name">${name}</div>
+                  <div class="vessel-callsign">Call Sign: ${callsign}</div>
+                  <div class="vessel-timestamp">${lastSeen} | ${updateCount} msgs</div>
+                </div>`;
+  });
+  document.getElementById('overlay-content').innerHTML = content;
+  
+  document.querySelectorAll('.vessel-entry').forEach(entry => {
+    entry.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const userID = entry.getAttribute('data-userid');
+      focusOnVessel(userID);
+    });
+  });
+}
 
     // Periodically update the vessel detail overlay.
     function updateVesselDetailOverlay() {
@@ -550,7 +551,7 @@
       }
     }
     setInterval(updateVesselDetailOverlay, 1000);
-
+    setInterval(updateOverlay, 1000);
     // Update marker and track visibility based on the "Only Tracked" checkbox.
     function updateFocussedVisibility() {
       const onlyFocussed = document.getElementById('only-focussed').checked;
@@ -752,41 +753,39 @@ socket.on("latest_vessel_data", (data) => {
   }
 
   // Step 3: Process each vessel in the new data
-  for (const mmsi in data) {
-    const vesselState = data[mmsi];  // Access the vessel data using MMSI as the key
-    // console.log("Processing vessel with MMSI:", mmsi, "State:", vesselState);  // Log the vessel data
+for (const mmsi in data) {
+  const vesselState = data[mmsi];  // Access the vessel data using MMSI as the key
 
-    // Step 4: If this is a new vessel, add it to vesselData, otherwise update the existing data
-    if (!vesselData[mmsi]) {
-      vesselData[mmsi] = Object.assign({}, vesselState);  // Create a new vessel entry
-      vesselData[mmsi].track = [];  // Initialize an empty track
-      vesselData[mmsi].color = randomColor();  // Assign a random color to the vessel for the track
-    } else {
-      Object.assign(vesselData[mmsi], vesselState);  // Update the existing vessel data
+  // If this is a new vessel, initialize the object and the counter.
+  if (!vesselData[mmsi]) {
+    vesselData[mmsi] = Object.assign({}, vesselState);
+    vesselData[mmsi].track = [];  // Initialize an empty track (if you still need it)
+    vesselData[mmsi].color = randomColor();  // Assign a random color for the track
+    vesselData[mmsi].lastUpdateCount = 1;  // First update
+  } else {
+    // If the new LastUpdated value is different, increment the counter.
+    if (vesselData[mmsi].LastUpdated !== vesselState.LastUpdated) {
+      vesselData[mmsi].lastUpdateCount = (vesselData[mmsi].lastUpdateCount || 0) + 1;
     }
+    Object.assign(vesselData[mmsi], vesselState);
+  }
+  
+  // Update the stored LastUpdated value and convert it to a timestamp.
+  vesselData[mmsi].LastUpdated = vesselState.LastUpdated;
+  vesselData[mmsi].lastUpdate = new Date(vesselState.LastUpdated).getTime();
 
-    vesselData[mmsi].lastUpdate = new Date(vesselState.LastUpdated).getTime();
-
-    // console.log("Updated vessel data:", vesselData[mmsi]);  // Log the updated data
-
-    // Step 5: Update the vessel's track if valid latitude/longitude exists
-    if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
-      const tolerance = 1e-5;  // Allow a small tolerance for position changes
-      const track = vesselData[mmsi].track;  // Access the vessel's track
-      const lastPoint = track[track.length - 1];  // Get the last track point
-
-      // Only update the track if the position has changed
-      if (!lastPoint || Math.abs(lastPoint[0] - vesselState.Latitude) > tolerance || Math.abs(lastPoint[1] - vesselState.Longitude) > tolerance) {
-        track.push([vesselState.Latitude, vesselState.Longitude]);  // Add the new position to the track
-        if (track.length > 10000) {
-          track.shift();  // Limit the track history to a reasonable length
-        }
+  // Continue with track updates as before (if needed)
+  if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
+    const tolerance = 1e-5;
+    const track = vesselData[mmsi].track;
+    const lastPoint = track[track.length - 1];
+    if (!lastPoint || Math.abs(lastPoint[0] - vesselState.Latitude) > tolerance || Math.abs(lastPoint[1] - vesselState.Longitude) > tolerance) {
+      track.push([vesselState.Latitude, vesselState.Longitude]);
+      if (track.length > 10000) {
+        track.shift();
       }
     }
-
-
-
-
+  }
         const popupContent = createPopupContent(vesselData[mmsi]);
         if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
           const lat = vesselState.Latitude;
