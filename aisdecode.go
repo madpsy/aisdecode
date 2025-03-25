@@ -37,7 +37,7 @@ var (
 
 var previousVesselData map[string]map[string]interface{}
 
-// New global flag and mutex for change detection.
+// Global flag and mutex for change detection.
 var (
 	changeAvailable bool
 	changeMutex     sync.Mutex
@@ -54,7 +54,6 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
 	if baseData == nil {
 		baseData = make(map[string]interface{})
 	}
-
 	for key, value := range newData {
 		// Prioritize Latitude, Longitude, and Callsign in the merge
 		if key == "Latitude" || key == "Longitude" || key == "CallSign" {
@@ -63,18 +62,17 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
 			baseData[key] = value
 		}
 	}
-
 	return baseData
 }
 
+// filterCompleteVesselData filters vessels that have all required fields.
 func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[string]map[string]interface{} {
 	filteredData := make(map[string]map[string]interface{})
 	for id, vesselInfo := range vesselData {
 		hasLat := vesselInfo["Latitude"] != nil
 		hasLon := vesselInfo["Longitude"] != nil
 		hasCall := vesselInfo["CallSign"] != nil
-
-		// Only include vessels with all required fields
+		// Only include vessels with all required fields.
 		if hasLat && hasLon && hasCall {
 			filteredData[id] = vesselInfo
 		}
@@ -115,7 +113,6 @@ func isDataChanged(currentData, previousData map[string]map[string]interface{}) 
 	if len(currentData) != len(previousData) {
 		return true
 	}
-
 	for id, currentVessel := range currentData {
 		previousVessel, exists := previousData[id]
 		if !exists {
@@ -176,11 +173,12 @@ func main() {
 	udpListenPort := flag.Int("udp-listen-port", 8101, "UDP listen port for incoming NMEA data (default: 8101)")
 	dedupeWindowDuration := flag.Int("dedupe-window", 1000, "Deduplication window in milliseconds (default: 1000, set to 0 to disable deduplication)")
 	dumpVesselData := flag.Bool("dump-vessel-data", false, "Log the latest vessel data to the screen whenever it is updated")
-	// New update interval flag in seconds, default 2 seconds.
 	updateInterval := flag.Int("update-interval", 2, "Update interval in seconds for emitting latest vessel data (default: 2)")
+	// New expire-after flag (using a duration flag) defaulting to 60 minutes.
+	expireAfter := flag.Duration("expire-after", 60*time.Minute, "Expire vessel data if no update is received within this duration (default: 60m)")
 	flag.Parse()
 
-	// Initialize the previous vessel data state.
+	// Initialize previous vessel data.
 	previousVesselData = make(map[string]map[string]interface{})
 
 	// --- Setup Socket.IO server ---
@@ -242,7 +240,6 @@ func main() {
 		}
 		defer port.Close()
 	}
-
 	codec := ais.CodecNew(false, false)
 	codec.DropSpace = true
 	nmeaCodec := aisnmea.NMEACodecNew(codec)
@@ -380,11 +377,16 @@ func main() {
 			}
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
 			vesselDataMutex.Lock()
-			vesselData[vesselID] = mergeMaps(vesselData[vesselID], newData)
-			latestData := filterCompleteVesselData(vesselData)
+			// Merge new data and update the lastUpdated field.
+			merged := mergeMaps(vesselData[vesselID], newData)
+			merged["lastUpdated"] = time.Now().UTC().Format(time.RFC3339)
+			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 
 			// Instead of immediate emission, set the flag if data has changed.
+			vesselDataMutex.Lock()
+			latestData := filterCompleteVesselData(vesselData)
+			vesselDataMutex.Unlock()
 			if !isDataChanged(latestData, previousVesselData) {
 				continue
 			}
@@ -398,14 +400,27 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
 		for range ticker.C {
+			// Before sending, remove vessels that have not been updated within expireAfter.
+			vesselDataMutex.Lock()
+			now := time.Now().UTC()
+			for id, vessel := range vesselData {
+				lastUpdatedStr, ok := vessel["lastUpdated"].(string)
+				if !ok {
+					delete(vesselData, id)
+					continue
+				}
+				t, err := time.Parse(time.RFC3339, lastUpdatedStr)
+				if err != nil || now.Sub(t) > *expireAfter {
+					delete(vesselData, id)
+				}
+			}
+			latestData := filterCompleteVesselData(vesselData)
+			vesselDataMutex.Unlock()
+
 			changeMutex.Lock()
 			if changeAvailable {
 				changeAvailable = false
 				changeMutex.Unlock()
-
-				vesselDataMutex.Lock()
-				latestData := filterCompleteVesselData(vesselData)
-				vesselDataMutex.Unlock()
 
 				latestDataJSON, err := json.Marshal(latestData)
 				if err != nil {
@@ -426,8 +441,7 @@ func main() {
 				previousVesselData = deepCopyVesselData(latestData)
 
 				if *dumpVesselData {
-					var indentJSON []byte
-					indentJSON, err = json.MarshalIndent(latestData, "", "  ")
+					indentJSON, err := json.MarshalIndent(latestData, "", "  ")
 					if err != nil {
 						log.Printf("Error marshaling latest vessel data: %v", err)
 					} else {
@@ -535,11 +549,14 @@ func main() {
 
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
 			vesselDataMutex.Lock()
-			vesselData[vesselID] = mergeMaps(vesselData[vesselID], newData)
-			latestData := filterCompleteVesselData(vesselData)
+			merged := mergeMaps(vesselData[vesselID], newData)
+			merged["lastUpdated"] = time.Now().UTC().Format(time.RFC3339)
+			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 
-			// Instead of immediate emission, set the flag if data has changed.
+			vesselDataMutex.Lock()
+			latestData := filterCompleteVesselData(vesselData)
+			vesselDataMutex.Unlock()
 			if !isDataChanged(latestData, previousVesselData) {
 				continue
 			}
