@@ -609,26 +609,32 @@ function updateOverlay() {
     }
 
     // Focus on a particular vessel.
-    function focusOnVessel(userID) {
-      if (vesselMarkers[userID]) {
-        focusedVessel = userID;
-        detailsOverlayHidden = false;
-        document.getElementById('vessel-detail').style.display = 'block';
-        document.getElementById('toggle-detail-overlay').style.display = 'block';
-        const headerEl = document.getElementById('vessel-detail-header');
-        if (vesselData[userID].UserID) {
-          headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a>)`;
-        } else {
-          headerEl.textContent = "Vessel Details";
-        }
-        const popupContent = createPopupContent(vesselData[userID]);
-        document.getElementById('detail-content').innerHTML = popupContent;
-        let bounds = L.latLngBounds([]);
-        bounds.extend(vesselMarkers[userID].getLatLng());
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
-        updateFocussedVisibility();
-      }
+function focusOnVessel(userID, initialFocus = true) {
+  if (vesselMarkers[userID]) {
+    focusedVessel = userID;
+    detailsOverlayHidden = false;
+    document.getElementById('vessel-detail').style.display = 'block';
+    document.getElementById('toggle-detail-overlay').style.display = 'block';
+    const headerEl = document.getElementById('vessel-detail-header');
+    if (vesselData[userID].UserID) {
+      headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a>)`;
+    } else {
+      headerEl.textContent = "Vessel Details";
     }
+    const popupContent = createPopupContent(vesselData[userID]);
+    document.getElementById('detail-content').innerHTML = popupContent;
+    
+    // Only auto zoom on initial focus or if auto zoom is still enabled.
+    if (initialFocus || document.getElementById('auto-zoom').checked) {
+      let bounds = L.latLngBounds([]);
+      bounds.extend(vesselMarkers[userID].getLatLng());
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+    }
+    
+    updateFocussedVisibility();
+  }
+}
+
 
     // Attach a click listener to a tooltip element.
     function attachTooltipClick(marker, userID) {
@@ -899,13 +905,14 @@ for (const mmsi in data) {
             });
           }
         }
-        if (focusedVessel && focusedVessel == mmsi && !detailsOverlayHidden) {
-          if (isMobile) {
-            map.panTo(vesselMarkers[mmsi].getLatLng());
-          } else {
-            focusOnVessel(mmsi);
-          }
-        }
+	if (focusedVessel && focusedVessel == mmsi && !detailsOverlayHidden) {
+	  if (isMobile) {
+	    map.panTo(vesselMarkers[mmsi].getLatLng());
+	  } else {
+	    // Pass false so that it won't trigger a re-zoom if auto zoom is off.
+	    focusOnVessel(mmsi, false);
+	  }
+	}
       }
       updateOverlay();
       updateFocussedVisibility();
