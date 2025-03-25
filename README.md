@@ -8,18 +8,32 @@ AIS Decoder and Web based Tracker for serial (and USB) NMEA hardware. Tested wit
 
 ```
 Usage of aisdecode:
+  -aggregator string
+    	Aggregator host/ip:port (optional)
   -baud int
-    	Baud rate (default: 38400)
+    	Baud rate (default: 38400), ignored if -serial-port is not specified (default 38400)
   -debug
     	Enable debug output
+  -dedupe-window int
+    	Deduplication window in milliseconds (default: 1000, set to 0 to disable deduplication) (default 1000)
+  -dump-vessel-data
+    	Log the latest vessel data to the screen whenever it is updated
+  -expire-after duration
+    	Expire vessel data if no update is received within this duration (default: 60m) (default 1h0m0s)
   -serial-port string
-    	Serial port device (default: /dev/ttyUSB0)
+    	Serial port device (optional)
   -show-decodes
     	Output the decoded messages
+  -state-file string
+    	Path to a file to persist vessel state between restarts (default: disabled)
+  -udp-listen-port int
+    	UDP listen port for incoming NMEA data (default: 8101) (default 8101)
+  -update-interval int
+    	Update interval in seconds for emitting latest vessel data (default: 2) (default 2)
   -web-root string
-    	Web root directory (default: current directory)
+    	Web root directory (default: current directory) (default ".")
   -ws-port int
-    	WebSocket port (default: 8100)
+    	WebSocket port (default: 8100) (default 8100)
 ```
 
 ![aisdecode](images/aisdecode.png)
