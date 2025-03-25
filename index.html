@@ -765,7 +765,7 @@ socket.on("latest_vessel_data", (data) => {
       Object.assign(vesselData[mmsi], vesselState);  // Update the existing vessel data
     }
 
-    vesselData[mmsi].lastUpdate = Date.now();  // Update the lastUpdate timestamp
+    vesselData[mmsi].lastUpdate = new Date(vesselState.LastUpdated).getTime();
 
     // console.log("Updated vessel data:", vesselData[mmsi]);  // Log the updated data
 

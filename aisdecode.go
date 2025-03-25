@@ -390,7 +390,7 @@ func main() {
 			vesselDataMutex.Lock()
 			// Merge new data and update the lastUpdated field.
 			merged := mergeMaps(vesselData[vesselID], newData)
-			merged["lastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 			vesselDataMutex.Lock()
@@ -413,7 +413,7 @@ func main() {
 			vesselDataMutex.Lock()
 			now := time.Now().UTC()
 			for id, vessel := range vesselData {
-				lastUpdatedStr, ok := vessel["lastUpdated"].(string)
+				lastUpdatedStr, ok := vessel["LastUpdated"].(string)
 				if !ok {
 					delete(vesselData, id)
 					continue
@@ -547,7 +547,7 @@ func main() {
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
 			vesselDataMutex.Lock()
 			merged := mergeMaps(vesselData[vesselID], newData)
-			merged["lastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 			vesselDataMutex.Lock()
