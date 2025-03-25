@@ -312,18 +312,19 @@ func main() {
 				continue
 			}
 			rawNmea := string(buf[:n])
-			currentTime := time.Now().Format(time.RFC3339)
+			currentTime := time.Now().UTC().Format(time.RFC3339Nano)
 			source := addr.String()
 			if *debug {
 				log.Printf("[DEBUG] Received from UDP (%s) at %s: %s", source, currentTime, rawNmea)
 			}
+			// Check deduplication before processing.
 			if *dedupeWindowDuration > 0 && isDuplicate(rawNmea, aggregatorDedupeWindow, windowDuration) {
 				if *debug {
 					log.Printf("[DEBUG] Dropped duplicate message from %s at %s: %s", source, currentTime, rawNmea)
 				}
 				continue
 			}
-			aggregatorDedupeWindow = append(aggregatorDedupeWindow, dedupeState{message: rawNmea, timestamp: time.Now()})
+
 			decoded, err := nmeaCodec.ParseSentence(rawNmea)
 			if err != nil {
 				log.Printf("Error decoding sentence: %v", err)
@@ -364,19 +365,17 @@ func main() {
 				}(client, message)
 			}
 			clientsMutex.Unlock()
+
+			// Forward to aggregator if enabled.
 			if udpConn != nil {
-				if !isDuplicate(rawNmea, aggregatorDedupeWindow, windowDuration) {
-					log.Printf("[DEBUG] Sending message to aggregator: %s", rawNmea)
-					_, err := udpConn.Write([]byte(rawNmea))
-					if err != nil {
-						log.Printf("Error sending raw NMEA sentence over UDP: %v", err)
-					}
-				} else {
-					if *debug {
-						log.Printf("[DEBUG] Dropped duplicate message to aggregator: %s", rawNmea)
-					}
+				_, err := udpConn.Write([]byte(rawNmea))
+				if err != nil {
+					log.Printf("Error sending raw NMEA sentence over UDP: %v", err)
 				}
 			}
+			// Now record the message in the aggregator deduplication window.
+			aggregatorDedupeWindow = append(aggregatorDedupeWindow, dedupeState{message: rawNmea, timestamp: time.Now()})
+
 			// Process vessel data update.
 			userIDFloat, ok := newData["UserID"].(float64)
 			if !ok {
@@ -391,7 +390,7 @@ func main() {
 			vesselDataMutex.Lock()
 			// Merge new data and update the lastUpdated field.
 			merged := mergeMaps(vesselData[vesselID], newData)
-			merged["lastUpdated"] = time.Now().UTC().Format(time.RFC3339)
+			merged["lastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 			vesselDataMutex.Lock()
@@ -419,7 +418,7 @@ func main() {
 					delete(vesselData, id)
 					continue
 				}
-				t, err := time.Parse(time.RFC3339, lastUpdatedStr)
+				t, err := time.Parse(time.RFC3339Nano, lastUpdatedStr)
 				if err != nil || now.Sub(t) > *expireAfter {
 					delete(vesselData, id)
 				}
@@ -471,7 +470,7 @@ func main() {
 		scanner := bufio.NewScanner(port)
 		for scanner.Scan() {
 			line := scanner.Text()
-			currentTime := time.Now().Format(time.RFC3339)
+			currentTime := time.Now().UTC().Format(time.RFC3339Nano)
 			source := "Serial"
 			if *debug {
 				log.Printf("[DEBUG] Received from Serial (%s) at %s: %s", source, currentTime, line)
@@ -485,7 +484,17 @@ func main() {
 				}
 				continue
 			}
+			// Forward to aggregator before recording dedupe.
+			if udpConn != nil {
+				_, err := udpConn.Write([]byte(line))
+				if err != nil {
+					log.Printf("Error sending raw NMEA sentence over UDP: %v", err)
+				}
+			}
+			// Record message in dedupe windows.
 			websocketDedupeWindow = append(websocketDedupeWindow, dedupeState{message: line, timestamp: time.Now()})
+			aggregatorDedupeWindow = append(aggregatorDedupeWindow, dedupeState{message: line, timestamp: time.Now()})
+
 			decoded, err := nmeaCodec.ParseSentence(line)
 			if err != nil {
 				log.Printf("Error decoding sentence: %v", err)
@@ -526,19 +535,6 @@ func main() {
 				}(client, message)
 			}
 			clientsMutex.Unlock()
-			if udpConn != nil {
-				if !isDuplicate(line, aggregatorDedupeWindow, windowDuration) {
-					log.Printf("[DEBUG] Sending message to aggregator: %s", line)
-					_, err := udpConn.Write([]byte(line))
-					if err != nil {
-						log.Printf("Error sending raw NMEA sentence over UDP: %v", err)
-					}
-				} else {
-					if *debug {
-						log.Printf("[DEBUG] Dropped duplicate message to aggregator: %s", line)
-					}
-				}
-			}
 			userIDFloat, ok := newData["UserID"].(float64)
 			if !ok {
 				availableKeys := make([]string, 0, len(newData))
@@ -551,7 +547,7 @@ func main() {
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
 			vesselDataMutex.Lock()
 			merged := mergeMaps(vesselData[vesselID], newData)
-			merged["lastUpdated"] = time.Now().UTC().Format(time.RFC3339)
+			merged["lastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 			vesselDataMutex.Lock()
