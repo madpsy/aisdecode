@@ -235,6 +235,10 @@
   <!-- Controls Overlay -->
 <div id="controls">
   <label>
+  <div id="connection-status" style="display: flex; align-items: center; margin-bottom: 5px; margin-left: 5px;">
+    <span id="status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: red; display: inline-block; margin-right: 5px;"></span>
+    <span id="status-text">Disconnected</span>
+  </div>
     <input type="checkbox" id="auto-zoom">
     Auto Zoom
   </label>
@@ -965,6 +969,18 @@ function liveLogsHandler(message) {
 
     // Connect to the Socket.IO server.
     const socket = io();
+
+    // Listen for the socket connection event.
+    socket.on('connect', () => {
+      document.getElementById('status-dot').style.background = 'green';
+      document.getElementById('status-text').textContent = 'Connected';
+    });
+
+    // Listen for the socket disconnection event.
+    socket.on('disconnect', () => {
+      document.getElementById('status-dot').style.background = 'red';
+      document.getElementById('status-text').textContent = 'Disconnected';
+    });
 
     // Listen on "latest_vessel_data" which now provides a complete vessel state object.
     socket.on("latest_vessel_data", (data) => {
