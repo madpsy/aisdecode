@@ -15,28 +15,134 @@
       font-family: Arial, sans-serif;
       margin: 20px;
     }
-    h1 {
-      text-align: center;
-    }
+    /* Vessel info container */
     #vessel-info {
       text-align: center;
       margin-bottom: 20px;
+      line-height: 1.5;
     }
-    #chart-container {
+    /* Vessel name styling: bold */
+    #vessel-name {
+      font-weight: bold;
+      font-size: 24px;
+    }
+    /* Container for time period dropdown */
+    #time-period-container {
+      margin-top: 10px;
+      text-align: center;
+    }
+    /* Chart container styles removed max-width so they can grow */
+    #chart-container, #direction-chart-container {
       width: 100%;
-      max-width: 800px;
-      margin: 0 auto;
+      margin: 0 auto 40px;
     }
   </style>
 </head>
 <body>
-  <h1>Vessel Stats</h1>
-  <p id="vessel-info"></p>
+  <!-- Vessel Details -->
+  <div id="vessel-info">
+    <div id="vessel-name">Loading vessel data...</div>
+    <div id="position-accuracy-container">
+      Position Accuracy: 
+      <span id="position-accuracy-dot" title="Position Accuracy" style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:5px;"></span>
+    </div>
+    <div id="status-container">
+      Status: <span id="navigational-status">Loading...</span>
+    </div>
+    <div id="time-period-container">
+      Time Period: 
+      <select id="time-period">
+        <option>All</option>
+        <option>10 minutes</option>
+        <option>30 minutes</option>
+        <option>1 hour</option>
+        <option>3 hours</option>
+        <option>6 hours</option>
+        <option>12 hours</option>
+        <option>24 hours</option>
+      </select>
+    </div>
+  </div>
+  
+  <!-- Speed on Ground Chart -->
   <div id="chart-container">
     <canvas id="sogChart"></canvas>
   </div>
   
+  <!-- Direction Chart for TrueHeading and Cog -->
+  <div id="direction-chart-container">
+    <canvas id="directionChart"></canvas>
+  </div>
+  
   <script>
+    // Mapping for NavigationalStatus
+    const navigationalStatusMapping = {
+      0: "Using Engine",
+      1: "At Anchor",
+      2: "Not Under Command",
+      3: "Restricted Manoeuvrability",
+      4: "Constrained by Draft",
+      5: "Moored",
+      6: "Aground",
+      7: "Engaged in Fishing",
+      8: "Under Way Sailing",
+      15: "Not Defined"
+    };
+
+    // Global arrays to store full history of data points.
+    let allSogData = [];
+    let allDirectionData = [];
+    
+    // --- Helper: Update the Position Accuracy Dot ---
+    function updatePositionAccuracyDot(isAccurate) {
+      const dot = document.getElementById('position-accuracy-dot');
+      if (dot) {
+        dot.style.backgroundColor = isAccurate ? 'green' : 'red';
+      }
+    }
+
+    // --- Helper: Update Navigational Status ---
+    function updateNavigationalStatus(statusValue) {
+      const statusText = navigationalStatusMapping[statusValue] || statusValue;
+      const statusElem = document.getElementById('navigational-status');
+      if (statusElem) {
+        statusElem.textContent = statusText;
+      }
+    }
+    
+    // --- Helper: Filter and update chart data based on selected time period ---
+    function filterChartData() {
+      const selected = document.getElementById('time-period').value;
+      let threshold = 0;
+      if (selected !== "All") {
+        let ms = 0;
+        if (selected === "10 minutes") { ms = 10 * 60 * 1000; }
+        else if (selected === "30 minutes") { ms = 30 * 60 * 1000; }
+        else if (selected === "1 hour") { ms = 60 * 60 * 1000; }
+        else if (selected === "3 hours") { ms = 3 * 60 * 60 * 1000; }
+        else if (selected === "6 hours") { ms = 6 * 60 * 60 * 1000; }
+        else if (selected === "12 hours") { ms = 12 * 60 * 60 * 1000; }
+        else if (selected === "24 hours") { ms = 24 * 60 * 60 * 1000; }
+        threshold = Date.now() - ms;
+      }
+      
+      // Filter SOG data.
+      const filteredSogData = (selected === "All") ? allSogData : allSogData.filter(item => item.timestamp >= threshold);
+      sogChart.data.labels = filteredSogData.map(item => new Date(item.timestamp));
+      sogChart.data.datasets[0].data = filteredSogData.map(item => item.sog);
+      sogChart.update();
+
+      // Filter Direction data.
+      const filteredDirectionData = (selected === "All") ? allDirectionData : allDirectionData.filter(item => item.timestamp >= threshold);
+      directionChart.data.labels = filteredDirectionData.map(item => new Date(item.timestamp));
+      directionChart.data.datasets[0].data = filteredDirectionData.map(item => item.trueHeading);
+      directionChart.data.datasets[1].data = filteredDirectionData.map(item => item.cog);
+      directionChart.update();
+    }
+    
+    // Event listener for the dropdown change.
+    document.getElementById('time-period').addEventListener('change', filterChartData);
+
     // --- 1. Parse Query Parameter ---
     function getQueryParams() {
       const params = {};
@@ -52,12 +158,11 @@
       document.body.innerHTML = "<p>Error: No UserID provided in the URL.</p>";
       throw new Error("No UserID provided in the URL.");
     }
-    document.getElementById('vessel-info').textContent = "Showing stats for vessel with UserID: " + userID;
-
-    // --- 2. Set Up the Chart ---
-    const ctx = document.getElementById('sogChart').getContext('2d');
+    
+    // --- 2. Set Up the Speed on Ground Chart ---
+    const ctxSog = document.getElementById('sogChart').getContext('2d');
     const sogData = {
-      labels: [], // timestamps
+      labels: [], // timestamps (will be updated via filtering)
       datasets: [{
         label: 'Speed on Ground (kn)',
         data: [],
@@ -66,23 +171,22 @@
         tension: 0.1
       }]
     };
-    const sogChart = new Chart(ctx, {
+    const sogChart = new Chart(ctxSog, {
       type: 'line',
       data: sogData,
       options: {
+        responsive: true,
         scales: {
           x: {
             type: 'time',
             time: {
-              tooltipFormat: 'HH:mm:ss',
+              unit: 'second',
+              tooltipFormat: 'HH:mm:ss',  // 24-hour format
               displayFormats: {
                 second: 'HH:mm:ss'
               }
-            },
-            title: {
-              display: true,
-              text: 'Time'
             }
+            // Removed the title configuration to hide the "Time" label
           },
           y: {
             title: {
@@ -93,37 +197,114 @@
         }
       }
     });
-    function addDataPoint(timestamp, sogValue) {
-      sogChart.data.labels.push(new Date(timestamp));
-      sogChart.data.datasets[0].data.push(sogValue);
-      sogChart.update();
+    
+    function addSogDataPoint(timestamp, sogValue) {
+      allSogData.push({ timestamp: timestamp, sog: sogValue });
+      filterChartData();
     }
-
-    // --- 3. Load Initial State from /state.json ---
+    
+    // --- 3. Set Up the Direction Chart for TrueHeading and Cog ---
+    const ctxDirection = document.getElementById('directionChart').getContext('2d');
+    const directionData = {
+      labels: [], // timestamps (will be updated via filtering)
+      datasets: [
+        {
+          label: 'True Heading (°)',
+          data: [],
+          fill: false,
+          borderColor: 'red',
+          tension: 0.1
+        },
+        {
+          label: 'Course Over Ground (°)',
+          data: [],
+          fill: false,
+          borderColor: 'green',
+          tension: 0.1
+        }
+      ]
+    };
+    const directionChart = new Chart(ctxDirection, {
+      type: 'line',
+      data: directionData,
+      options: {
+        responsive: true,
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              unit: 'second',
+              tooltipFormat: 'HH:mm:ss',  // 24-hour format
+              displayFormats: {
+                second: 'HH:mm:ss'
+              }
+            }
+            // Removed the title configuration to hide the "Time" label
+          },
+          y: {
+            min: 0,
+            max: 360,
+            title: {
+              display: true,
+              text: 'Degrees'
+            }
+          }
+        }
+      }
+    });
+    
+    function addDirectionDataPoint(timestamp, trueHeading, cog) {
+      allDirectionData.push({ timestamp: timestamp, trueHeading: trueHeading, cog: cog });
+      filterChartData();
+    }
+    
+    // --- 4. Load Initial State from /state.json ---
     fetch('/state.json')
       .then(response => response.json())
       .then(stateData => {
-        // Assumes stateData is an object keyed by UserID like vesselData in your main code.
+        // Assumes stateData is an object keyed by UserID.
         const vesselState = stateData[userID];
-        if (vesselState && vesselState.Sog !== undefined) {
-          // Use LastUpdated if available; otherwise, use now.
-          const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
-          addDataPoint(ts, vesselState.Sog);
+        if (vesselState && vesselState.Name) {
+          // Update vessel name with callsign (in bold).
+          document.getElementById('vessel-name').innerHTML = vesselState.Name + " (" + vesselState.CallSign + ")";
+          // Set the Position Accuracy dot.
+          updatePositionAccuracyDot(vesselState.PositionAccuracy);
+          // Update navigational status.
+          updateNavigationalStatus(vesselState.NavigationalStatus);
+          
+          // Update Speed on Ground chart if Sog is available.
+          if (vesselState.Sog !== undefined) {
+            const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+            addSogDataPoint(ts, vesselState.Sog);
+          } else {
+            addSogDataPoint(Date.now(), 0);
+          }
+          
+          // Update Direction chart if TrueHeading and Cog are available.
+          if (vesselState.TrueHeading !== undefined && vesselState.Cog !== undefined) {
+            const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+            addDirectionDataPoint(ts, vesselState.TrueHeading, vesselState.Cog);
+          } else {
+            addDirectionDataPoint(Date.now(), 0, 0);
+          }
         } else {
-          // If no initial Sog is found, add a default value.
-          addDataPoint(Date.now(), 0);
+          document.getElementById('vessel-name').textContent = "Vessel not found.";
+          addSogDataPoint(Date.now(), 0);
+          addDirectionDataPoint(Date.now(), 0, 0);
         }
       })
       .catch(err => {
         console.error("Error loading /state.json:", err);
-        addDataPoint(Date.now(), 0);
+        document.getElementById('vessel-name').textContent = "Error loading vessel data.";
+        addSogDataPoint(Date.now(), 0);
+        addDirectionDataPoint(Date.now(), 0, 0);
       });
-
-    // --- 4. Connect to Socket.IO and Subscribe ---
+    
+    // --- 5. Connect to Socket.IO and Subscribe ---
     const socket = io();
     const channel = "ais_data/" + userID;
     socket.emit("subscribe", channel);
-
+    
     // Listen for incoming ais_data messages
     socket.on("ais_data", (message) => {
       // If message is a string, try to parse it.
@@ -139,17 +320,35 @@
       if (message.type === "ais.PositionReport" && message.data) {
         if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
           const ts = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
-          const sogValue = message.data.Sog;
-          if (sogValue !== undefined) {
-            addDataPoint(ts, sogValue);
+          // Update Speed on Ground chart if available.
+          if (message.data.Sog !== undefined) {
+            addSogDataPoint(ts, message.data.Sog);
+          }
+          // Update Direction chart if TrueHeading and Cog are available.
+          if (message.data.TrueHeading !== undefined && message.data.Cog !== undefined) {
+            addDirectionDataPoint(ts, message.data.TrueHeading, message.data.Cog);
+          }
+          // Dynamically update the Position Accuracy dot if provided.
+          if (message.data.PositionAccuracy !== undefined) {
+            updatePositionAccuracyDot(message.data.PositionAccuracy);
+          }
+          // Dynamically update Navigational Status if provided.
+          if (message.data.NavigationalStatus !== undefined) {
+            updateNavigationalStatus(message.data.NavigationalStatus);
           }
         }
       }
     });
-
-    // --- 5. Clean-up on Unload ---
+    
+    // --- 6. Clean-up on Unload ---
     window.addEventListener('beforeunload', () => {
       socket.emit("unsubscribe", channel);
+    });
+    
+    // --- 7. Resize charts on window resize so they grow back properly ---
+    window.addEventListener('resize', () => {
+      sogChart.resize();
+      directionChart.resize();
     });
   </script>
 </body>
