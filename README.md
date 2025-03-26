@@ -20,12 +20,12 @@ Usage of aisdecode:
     	Log the latest vessel data to the screen whenever it is updated
   -expire-after duration
     	Expire vessel data if no update is received within this duration (default: 60m) (default 1h0m0s)
+  -no-state
+    	When specified, do not save or load the state (default: false)
   -serial-port string
     	Serial port device (optional)
   -show-decodes
     	Output the decoded messages
-  -state-file string
-    	Path to a file to persist vessel state between restarts (default: disabled)
   -udp-listen-port int
     	UDP listen port for incoming NMEA data (default: 8101) (default 8101)
   -update-interval int
