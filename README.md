@@ -19,7 +19,7 @@ Usage of aisdecode:
   -dump-vessel-data
     	Log the latest vessel data to the screen whenever it is updated
   -expire-after duration
-    	Expire vessel data if no update is received within this duration (default: 60m) (default 1h0m0s)
+    	Expire vessel data if no update is received within this duration (default: 60m)
   -no-state
     	When specified, do not save or load the state (default: false)
   -serial-port string
@@ -27,13 +27,13 @@ Usage of aisdecode:
   -show-decodes
     	Output the decoded messages
   -udp-listen-port int
-    	UDP listen port for incoming NMEA data (default: 8101) (default 8101)
+    	UDP listen port for incoming NMEA data (default: 8101)
   -update-interval int
-    	Update interval in seconds for emitting latest vessel data (default: 2) (default 2)
+    	Update interval in seconds for emitting latest vessel data (default: 10)
   -web-root string
-    	Web root directory (default: current directory) (default ".")
+    	Web root directory (default: current directory)
   -ws-port int
-    	WebSocket port (default: 8100) (default 8100)
+    	WebSocket port (default: 8100)
 ```
 
 ![aisdecode](images/aisdecode.png)

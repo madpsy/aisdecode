@@ -182,7 +182,7 @@ func main() {
 	udpListenPort := flag.Int("udp-listen-port", 8101, "UDP listen port for incoming NMEA data (default: 8101)")
 	dedupeWindowDuration := flag.Int("dedupe-window", 1000, "Deduplication window in milliseconds (default: 1000, set to 0 to disable deduplication)")
 	dumpVesselData := flag.Bool("dump-vessel-data", false, "Log the latest vessel data to the screen whenever it is updated")
-	updateInterval := flag.Int("update-interval", 2, "Update interval in seconds for emitting latest vessel data (default: 2)")
+	updateInterval := flag.Int("update-interval", 10, "Update interval in seconds for emitting latest vessel data (default: 10)")
 	expireAfter := flag.Duration("expire-after", 60*time.Minute, "Expire vessel data if no update is received within this duration (default: 60m)")
 	// New option: disable state persistence.
 	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
