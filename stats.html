@@ -48,6 +48,8 @@
     </div>
     <div id="status-container">
       Status: <span id="navigational-status">Loading...</span>
+      <br>
+      Last Message: <span id="last-message-time">Loading...</span>
     </div>
     <div id="time-period-container">
       Time Period: 
@@ -92,6 +94,9 @@
     // Global arrays to store full history of data points.
     let allSogData = [];
     let allDirectionData = [];
+
+    // --- Variable to store the timestamp of the last message ---
+    let lastMessageTimestamp = Date.now();
     
     // --- Helper: Update the Position Accuracy Dot ---
     function updatePositionAccuracyDot(isAccurate) {
@@ -143,6 +148,27 @@
     // Event listener for the dropdown change.
     document.getElementById('time-period').addEventListener('change', filterChartData);
 
+    // --- Helper: Format time difference ---
+    function formatTimeDifference(diffMs) {
+      const diffSec = Math.floor(diffMs / 1000);
+      if (diffSec < 60) {
+        return diffSec + " seconds";
+      } else if (diffSec < 3600) {
+        const diffMin = Math.floor(diffSec / 60);
+        return diffMin + " minutes";
+      } else {
+        const diffHrs = Math.floor(diffSec / 3600);
+        return diffHrs + " hours";
+      }
+    }
+
+    // --- Update the "Last Message" display every second ---
+    setInterval(() => {
+      const now = Date.now();
+      const diffMs = now - lastMessageTimestamp;
+      document.getElementById('last-message-time').textContent = formatTimeDifference(diffMs);
+    }, 1000);
+    
     // --- 1. Parse Query Parameter ---
     function getQueryParams() {
       const params = {};
@@ -186,7 +212,6 @@
                 second: 'HH:mm:ss'
               }
             }
-            // Removed the title configuration to hide the "Time" label
           },
           y: {
             title: {
@@ -239,7 +264,6 @@
                 second: 'HH:mm:ss'
               }
             }
-            // Removed the title configuration to hide the "Time" label
           },
           y: {
             min: 0,
@@ -320,6 +344,8 @@
       if (message.type === "ais.PositionReport" && message.data) {
         if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
           const ts = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
+          // Update the last message timestamp.
+          lastMessageTimestamp = ts;
           // Update Speed on Ground chart if available.
           if (message.data.Sog !== undefined) {
             addSogDataPoint(ts, message.data.Sog);
