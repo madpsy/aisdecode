@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vessel Stats</title>
+  <!-- Chart.js from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Include a date adapter for Chart.js (using date-fns) -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  <!-- Socket.IO client (assumes the same server is serving it) -->
+  <script src="/socket.io.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    h1 {
+      text-align: center;
+    }
+    #vessel-info {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    #chart-container {
+      width: 100%;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>Vessel Stats</h1>
+  <p id="vessel-info"></p>
+  <div id="chart-container">
+    <canvas id="sogChart"></canvas>
+  </div>
+  
+  <script>
+    // --- 1. Parse Query Parameter ---
+    function getQueryParams() {
+      const params = {};
+      window.location.search.substring(1).split("&").forEach(pair => {
+        const [key, value] = pair.split("=");
+        if (key) params[decodeURIComponent(key)] = decodeURIComponent(value || '');
+      });
+      return params;
+    }
+    const params = getQueryParams();
+    const userID = params.UserID;
+    if (!userID) {
+      document.body.innerHTML = "<p>Error: No UserID provided in the URL.</p>";
+      throw new Error("No UserID provided in the URL.");
+    }
+    document.getElementById('vessel-info').textContent = "Showing stats for vessel with UserID: " + userID;
+
+    // --- 2. Set Up the Chart ---
+    const ctx = document.getElementById('sogChart').getContext('2d');
+    const sogData = {
+      labels: [], // timestamps
+      datasets: [{
+        label: 'Speed on Ground (kn)',
+        data: [],
+        fill: false,
+        borderColor: 'blue',
+        tension: 0.1
+      }]
+    };
+    const sogChart = new Chart(ctx, {
+      type: 'line',
+      data: sogData,
+      options: {
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              tooltipFormat: 'HH:mm:ss',
+              displayFormats: {
+                second: 'HH:mm:ss'
+              }
+            },
+            title: {
+              display: true,
+              text: 'Time'
+            }
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'Speed (kn)'
+            }
+          }
+        }
+      }
+    });
+    function addDataPoint(timestamp, sogValue) {
+      sogChart.data.labels.push(new Date(timestamp));
+      sogChart.data.datasets[0].data.push(sogValue);
+      sogChart.update();
+    }
+
+    // --- 3. Load Initial State from /state.json ---
+    fetch('/state.json')
+      .then(response => response.json())
+      .then(stateData => {
+        // Assumes stateData is an object keyed by UserID like vesselData in your main code.
+        const vesselState = stateData[userID];
+        if (vesselState && vesselState.Sog !== undefined) {
+          // Use LastUpdated if available; otherwise, use now.
+          const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+          addDataPoint(ts, vesselState.Sog);
+        } else {
+          // If no initial Sog is found, add a default value.
+          addDataPoint(Date.now(), 0);
+        }
+      })
+      .catch(err => {
+        console.error("Error loading /state.json:", err);
+        addDataPoint(Date.now(), 0);
+      });
+
+    // --- 4. Connect to Socket.IO and Subscribe ---
+    const socket = io();
+    const channel = "ais_data/" + userID;
+    socket.emit("subscribe", channel);
+
+    // Listen for incoming ais_data messages
+    socket.on("ais_data", (message) => {
+      // If message is a string, try to parse it.
+      if (typeof message === "string") {
+        try {
+          message = JSON.parse(message);
+        } catch (e) {
+          console.error("Error parsing ais_data message:", e);
+          return;
+        }
+      }
+      // Process only ais.PositionReport messages for the correct vessel.
+      if (message.type === "ais.PositionReport" && message.data) {
+        if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
+          const ts = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
+          const sogValue = message.data.Sog;
+          if (sogValue !== undefined) {
+            addDataPoint(ts, sogValue);
+          }
+        }
+      }
+    });
+
+    // --- 5. Clean-up on Unload ---
+    window.addEventListener('beforeunload', () => {
+      socket.emit("unsubscribe", channel);
+    });
+  </script>
+</body>
+</html>

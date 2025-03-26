@@ -63,10 +63,11 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
 		baseData = make(map[string]interface{})
 	}
 	for key, value := range newData {
-		// Prioritize Latitude, Longitude, and Callsign in the merge.
+		// For these keys, always update.
 		if key == "Latitude" || key == "Longitude" || key == "CallSign" {
 			baseData[key] = value
-		} else if baseData[key] == nil {
+		} else {
+			// Always update other keys, even if they have a default (e.g., 0) value.
 			baseData[key] = value
 		}
 	}
