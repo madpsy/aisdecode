@@ -48,10 +48,24 @@
       display: flex;
       justify-content: space-around;
       align-items: center;
-      margin-bottom: 40px;
+      margin-bottom: 20px;
     }
     #compass-container > div {
       width: 45%;
+    }
+    /* Current speed display styling */
+    #current-speed-display {
+      text-align: center;
+      font-size: 20px;
+      margin-bottom: 20px;
+      font-weight: bold;
+    }
+    /* Latitude and Longitude display styling (smaller and no comma) */
+    #lat-long-display {
+      text-align: center;
+      font-size: 14px;
+      margin-bottom: 40px;
+      font-weight: bold;
     }
   </style>
 </head>
@@ -59,12 +73,19 @@
   <!-- Vessel Details -->
   <div id="vessel-info">
     <div id="vessel-name">Loading vessel data...</div>
+    <!-- New Server Connected Dot -->
+    <div id="server-connected-container">
+      Server Connected: 
+      <span id="server-connected-dot" title="Server Connected" style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:5px;"></span>
+    </div>
     <div id="position-accuracy-container">
       Position Accuracy: 
       <span id="position-accuracy-dot" title="Position Accuracy" style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:5px;"></span>
     </div>
     <div id="status-container">
       Status: <span id="navigational-status">Loading...</span>
+      <br>
+      Max Draught: <span id="max-draught">Loading...</span>
       <br>
       Last Message: <span id="last-message-time">Loading...</span>
     </div>
@@ -84,12 +105,10 @@
     </div>
   </div>
   
-  <!-- Speed on Ground Chart -->
-  <div id="chart-container">
-    <canvas id="sogChart"></canvas>
-  </div>
+  <!-- Current Speed Display -->
+  <div id="current-speed-display">Speed: 0.00 kn</div>
   
-  <!-- Compass Charts for True Heading and Course Over Ground (placed between the SOG and direction charts) -->
+  <!-- Compass Charts for True Heading and Course Over Ground -->
   <div id="compass-container">
     <div>
       <canvas id="trueHeadingCompass"></canvas>
@@ -99,6 +118,14 @@
       <canvas id="cogCompass"></canvas>
       <div style="text-align: center; font-weight: bold;" id="cogLabel">Course</div>
     </div>
+  </div>
+  
+  <!-- Latitude and Longitude Display -->
+  <div id="lat-long-display">Latitude: -- Longitude: --</div>
+  
+  <!-- Speed on Ground Chart (moved below the compasses) -->
+  <div id="chart-container">
+    <canvas id="sogChart"></canvas>
   </div>
   
   <!-- Previous Direction Chart (line chart) -->
@@ -133,6 +160,14 @@
       const dot = document.getElementById('position-accuracy-dot');
       if (dot) {
         dot.style.backgroundColor = isAccurate ? 'green' : 'red';
+      }
+    }
+    
+    // --- Helper: Update the Server Connected Dot ---
+    function updateServerConnectedDot(isConnected) {
+      const dot = document.getElementById('server-connected-dot');
+      if (dot) {
+        dot.style.backgroundColor = isConnected ? 'green' : 'red';
       }
     }
 
@@ -250,7 +285,25 @@
     });
     
     function addSogDataPoint(timestamp, sogValue) {
-      allSogData.push({ timestamp: timestamp, sog: sogValue });
+      // Format the speed to 2 decimal places.
+      const currentSogNum = Number(parseFloat(sogValue).toFixed(1));
+      let arrowHtml = '';
+      if (allSogData.length > 0) {
+        const previousSogNum = Number(parseFloat(allSogData[allSogData.length - 1].sog).toFixed(1));
+        if (currentSogNum > previousSogNum) {
+          arrowHtml = ' <span style="color: green;">&#9650;</span>'; // up arrow (▲)
+        } else if (currentSogNum < previousSogNum) {
+          arrowHtml = ' <span style="color: red;">&#9660;</span>'; // down arrow (▼)
+        } else {
+          arrowHtml = ' <span style="background-color: blue; display:inline-block; width:10px; height:10px; border-radius:50%;"></span>'; // blue circle
+        }
+      } else {
+        // For the first reading, show the blue circle.
+        arrowHtml = ' <span style="background-color: blue; display:inline-block; width:10px; height:10px; border-radius:50%;"></span>';
+      }
+      allSogData.push({ timestamp: timestamp, sog: currentSogNum });
+      // Update current speed display with formatted speed and arrow.
+      document.getElementById('current-speed-display').innerHTML = "Speed: " + currentSogNum.toFixed(1) + " kn" + arrowHtml;
       filterChartData();
     }
     
@@ -287,7 +340,6 @@
         
         // Draw the red arrow if a currentDirection value exists.
         if (chart.currentDirection !== undefined) {
-          // Use the heading value directly so that 0° points up, 90° to the right, etc.
           const angle = chart.currentDirection * Math.PI / 180;
           ctx.save();
           ctx.translate(centerX, centerY);
@@ -312,7 +364,6 @@
     };
     
     // --- 4. Set Up the Compass Charts ---
-    // For the compasses we remove the built-in rotation so that our plugin drawing is in the expected orientation.
     const ctxTrueHeading = document.getElementById('trueHeadingCompass').getContext('2d');
     const trueHeadingCompass = new Chart(ctxTrueHeading, {
       type: 'doughnut',
@@ -320,7 +371,7 @@
         labels: [],
         datasets: [{
           data: [1],
-          backgroundColor: ['#e0e0e0'],
+          backgroundColor: ['transparent'],
           borderWidth: 0
         }]
       },
@@ -345,7 +396,7 @@
         labels: [],
         datasets: [{
           data: [1],
-          backgroundColor: ['#e0e0e0'],
+          backgroundColor: ['transparent'],
           borderWidth: 0
         }]
       },
@@ -427,6 +478,14 @@
       filterChartData();
     }
     
+    // --- Helper: Update Latitude and Longitude Display ---
+    function updateLatLongDisplay(lat, lon) {
+      // Limit to 5 decimal places if the values are numbers.
+      const latText = typeof lat === 'number' ? lat.toFixed(5) : lat;
+      const lonText = typeof lon === 'number' ? lon.toFixed(5) : lon;
+      document.getElementById('lat-long-display').textContent = "Latitude: " + latText + " Longitude: " + lonText;
+    }
+    
     // --- 6. Load Initial State from /state.json ---
     function loadInitialState() {
       fetch('/state.json')
@@ -453,6 +512,16 @@
               addDirectionDataPoint(Date.now(), 0, 0);
               updateCompassCharts(0, 0);
             }
+            // Update Latitude and Longitude if available.
+            if (vesselState.Latitude !== undefined && vesselState.Longitude !== undefined) {
+              updateLatLongDisplay(vesselState.Latitude, vesselState.Longitude);
+            }
+            // Update Maximum Static Draught display.
+            if (vesselState.MaximumStaticDraught !== undefined) {
+              document.getElementById('max-draught').textContent = vesselState.MaximumStaticDraught + " m";
+            } else {
+              document.getElementById('max-draught').textContent = "N/A";
+            }
           } else {
             document.getElementById('vessel-name').textContent = "Vessel not found.";
             addSogDataPoint(Date.now(), 0);
@@ -476,6 +545,14 @@
     const channel = "ais_data/" + userID;
     socket.emit("subscribe", channel);
     
+    // Update the Server Connected Dot based on socket events.
+    socket.on('connect', function() {
+      updateServerConnectedDot(true);
+    });
+    socket.on('disconnect', function() {
+      updateServerConnectedDot(false);
+    });
+    
     socket.on("ais_data", (message) => {
       if (typeof message === "string") {
         try { message = JSON.parse(message); }
@@ -498,6 +575,10 @@
           if (message.data.NavigationalStatus !== undefined) {
             updateNavigationalStatus(message.data.NavigationalStatus);
           }
+          // Update Latitude and Longitude if provided.
+          if (message.data.Latitude !== undefined && message.data.Longitude !== undefined) {
+            updateLatLongDisplay(message.data.Latitude, message.data.Longitude);
+          }
         }
       }
     });
@@ -519,12 +600,18 @@
       
       // Reset compass charts.
       trueHeadingCompass.currentDirection = 0;
-      document.getElementById('trueHeadingLabel').textContent = "True Heading";
+      document.getElementById('trueHeadingLabel').textContent = "Heading";
       trueHeadingCompass.update();
       
       cogCompass.currentDirection = 0;
-      document.getElementById('cogLabel').textContent = "Course Over Ground";
+      document.getElementById('cogLabel').textContent = "Course";
       cogCompass.update();
+      
+      // Reset current speed display.
+      document.getElementById('current-speed-display').textContent = "Speed: 0.00 kn";
+      
+      // Reset Latitude and Longitude display.
+      document.getElementById('lat-long-display').textContent = "Latitude: -- Longitude: --";
       
       // Re-fetch initial state.
       loadInitialState();
