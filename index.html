@@ -260,10 +260,27 @@
   <button id="clear-history">Clear History</button>
 
   <!-- Live Logs Overlay (draggable) -->
-  <div id="live-logs-overlay">
-    <div id="live-logs-header">Live Messages <button id="close-live-logs">X</button></div>
-    <div id="live-logs-content"></div>
+<div id="live-logs-overlay">
+  <div id="live-logs-header">
+    Live Messages <button id="close-live-logs">X</button>
   </div>
+  <!-- New filters section -->
+  <div id="live-logs-filters" style="padding: 5px; border-bottom: 1px solid #ccc; font-size: 12px;">
+    <label style="white-space: nowrap;">
+      <input type="checkbox" class="log-filter" value="ais.PositionReport" checked> Position
+    </label>
+    <label style="white-space: nowrap;">
+      <input type="checkbox" class="log-filter" value="ais.ShipStaticData" checked> Static
+    </label>
+    <label style="white-space: nowrap;">
+      <input type="checkbox" class="log-filter" value="ais.StandardClassBPositionReport" checked> Std. Class B
+    </label>
+    <label style="white-space: nowrap;">
+      <input type="checkbox" class="log-filter" value="ais.ExtendedClassBPositionReport" checked> Ext. Class B
+    </label>
+  </div>
+  <div id="live-logs-content"></div>
+</div>
 
   <!-- Socket.IO client (local copy) -->
   <script src="socket.io.min.js"></script>
@@ -291,6 +308,13 @@
     const openSeaMapLayer = L.tileLayer('http://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
       attribution: 'Map data: &copy; OpenSeaMap contributors'
     }).addTo(map);
+
+const allowedMessageTypes = {
+  "ais.PositionReport": true,
+  "ais.ShipStaticData": true,
+  "ais.StandardClassBPositionReport": true,
+  "ais.ExtendedClassBPositionReport": true
+};
 
     // Helper function to clear all live logs and show a placeholder.
     function clearLiveLogs() {
@@ -703,62 +727,68 @@
     }
 
     // Updated renderLogMessage function that uses the recursive formatter.
-    function renderLogMessage(msg) {
-      const timestamp = new Date().toLocaleTimeString();
-      let html = '<div class="log-entry">';
-      html += `<div class="log-timestamp" style="font-size:10px;color:#888;margin-bottom:2px;">${timestamp}</div>`;
+function renderLogMessage(msg) {
+  // Use the timestamp provided in the message
+  const logTimestamp = msg.timestamp
+    ? new Date(msg.timestamp).toLocaleTimeString()
+    : new Date().toLocaleTimeString();
   
-      if (msg._type) {
-        html += formatLogField("Type", msg._type);
-      }
+  let html = '<div class="log-entry">';
+  html += `<div class="log-timestamp" style="font-size:10px;color:#888;margin-bottom:2px;">${logTimestamp}</div>`;
   
-      for (const field in msg) {
-        if (field === "_type") continue;
-        html += formatLogField(field, msg[field]);
-      }
+  // Display the message type.
+  html += formatLogField("Type", msg.type);
   
-      html += '</div>';
-      return html;
-    }
+  // Iterate over the AIS packet data (contained in msg.data)
+  for (const field in msg.data) {
+    html += formatLogField(field, msg.data[field]);
+  }
+  
+  html += '</div>';
+  return html;
+}
+
 
     // Handler for incoming ais_data messages.
-    function liveLogsHandler(message) {
-      if (typeof message === "string") {
-        const colonIndex = message.indexOf(':');
-        if (colonIndex !== -1) {
-          const messageType = message.substring(0, colonIndex).trim();
-          const jsonPart = message.substring(colonIndex + 1).trim();
-          try {
-            message = JSON.parse(jsonPart);
-            message._type = messageType;
-          } catch (e) {
-            console.error("Error parsing JSON for ais_room. Message type:", messageType, e, "Raw message:", message);
-            return;
-          }
-        } else {
-          try {
-            message = JSON.parse(message);
-          } catch (e) {
-            console.error("Error parsing JSON for ais_room:", e, "Raw message:", message);
-            return;
-          }
-        }
-      }
-
-      if (focusedVessel && message.UserID && message.UserID.toString() !== focusedVessel.toString()) {
-        return;
-      }
-
-      const placeholder = liveLogsContent.querySelector('.placeholder');
-      if (placeholder) {
-        placeholder.remove();
-      }
-  
-      liveLogsContent.insertAdjacentHTML('afterbegin', renderLogMessage(message));
-      while (liveLogsContent.childElementCount > maxLogMessages) {
-        liveLogsContent.removeChild(liveLogsContent.lastChild);
-      }
+function liveLogsHandler(message) {
+  // If the message is a string, parse it into JSON.
+  if (typeof message === "string") {
+    try {
+      message = JSON.parse(message);
+    } catch (e) {
+      console.error("Error parsing ais_data message:", e, "Raw message:", message);
+      return;
     }
+  }
+  
+  // Now message is expected to be an object with { type, data, timestamp }.
+  // Check if this message type is allowed by the filters.
+  if (!allowedMessageTypes[message.type]) {
+    return;
+  }
+  
+  // If a vessel is focused, filter out messages not belonging to it.
+  if (
+    focusedVessel &&
+    message.data &&
+    message.data.UserID &&
+    message.data.UserID.toString() !== focusedVessel.toString()
+  ) {
+    return;
+  }
+  
+  const placeholder = liveLogsContent.querySelector('.placeholder');
+  if (placeholder) {
+    placeholder.remove();
+  }
+  
+  // Render the log entry using the updated format.
+  liveLogsContent.insertAdjacentHTML('afterbegin', renderLogMessage(message));
+  while (liveLogsContent.childElementCount > maxLogMessages) {
+    liveLogsContent.removeChild(liveLogsContent.lastChild);
+  }
+}
+
 
     // Function to manage live logs subscription when focusing on a new vessel.
     function updateLiveLogsSubscription(newVesselID) {
@@ -1140,6 +1170,11 @@
       }
    });
 
+   document.querySelectorAll('.log-filter').forEach(checkbox => {
+     checkbox.addEventListener('change', function() {
+       allowedMessageTypes[this.value] = this.checked;
+     });
+   });
 
     // Utility: Generate a random hex color.
     function randomColor() {

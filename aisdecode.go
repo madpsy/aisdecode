@@ -23,6 +23,13 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
+// AISMessage represents the structured JSON message sent to the ais_data room.
+type AISMessage struct {
+	Type      string      `json:"type"`
+	Data      interface{} `json:"data"`
+	Timestamp string      `json:"timestamp"`
+}
+
 // Global client list and mutex.
 var (
 	clients      []*socket.Socket
@@ -233,19 +240,18 @@ func main() {
 		})
 
 		client.On("unsubscribe", func(args ...any) {
-		    if len(args) < 1 {
-		        log.Printf("Client %s sent unsubscribe with no room specified", client.Id())
-		        return
-		    }
-		    roomName, ok := args[0].(string)
-		    if !ok {
-		        log.Printf("Client %s sent unsubscribe with non-string room value", client.Id())
-		        return
-		    }
-		    client.Leave(socket.Room(roomName))
-		    log.Printf("Client %s unsubscribed from room %s", client.Id(), roomName)
+			if len(args) < 1 {
+				log.Printf("Client %s sent unsubscribe with no room specified", client.Id())
+				return
+			}
+			roomName, ok := args[0].(string)
+			if !ok {
+				log.Printf("Client %s sent unsubscribe with non-string room value", client.Id())
+				return
+			}
+			client.Leave(socket.Room(roomName))
+			log.Printf("Client %s unsubscribed from room %s", client.Id(), roomName)
 		})
-
 
 		vesselDataMutex.Lock()
 		latestData := filterCompleteVesselData(vesselData)
@@ -364,6 +370,24 @@ func main() {
 			if decoded == nil || decoded.Packet == nil {
 				continue
 			}
+
+			// Prepare the structured AIS message.
+			typeName := fmt.Sprintf("%T", decoded.Packet)
+			typeName = strings.TrimPrefix(typeName, "*")
+			aisMsg := AISMessage{
+				Type:      typeName,
+				Data:      decoded.Packet,
+				Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+			}
+			finalMsg, err := json.Marshal(aisMsg)
+			if err != nil {
+				log.Printf("Error marshaling AISMessage: %v", err)
+				continue
+			}
+			if *showDecodes {
+				log.Println("Decoded AIS Packet:", string(finalMsg))
+			}
+			// Send AIS message to the dynamic room (vessel-specific)
 			var newData map[string]interface{}
 			{
 				b, err := json.Marshal(decoded.Packet)
@@ -376,18 +400,6 @@ func main() {
 					continue
 				}
 			}
-			out, err := json.MarshalIndent(decoded.Packet, "", "  ")
-			if err != nil {
-				log.Printf("Error formatting AIS packet: %v", err)
-				continue
-			}
-			typeName := fmt.Sprintf("%T", decoded.Packet)
-			typeName = strings.TrimPrefix(typeName, "*")
-			message := fmt.Sprintf("%s: %s", typeName, out)
-			if *showDecodes {
-				log.Println("Decoded AIS Packet:", message)
-			}
-			// Send AIS message to the dynamic room (vessel-specific)
 			userIDFloat, ok := newData["UserID"].(float64)
 			if !ok {
 				availableKeys := make([]string, 0, len(newData))
@@ -399,7 +411,7 @@ func main() {
 			}
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
 			roomName := "ais_data/" + vesselID
-			if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", message); err != nil {
+			if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", string(finalMsg)); err != nil {
 				log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
 			}
 
@@ -529,6 +541,24 @@ func main() {
 			if decoded == nil || decoded.Packet == nil {
 				continue
 			}
+
+			// Prepare the structured AIS message.
+			typeName := fmt.Sprintf("%T", decoded.Packet)
+			typeName = strings.TrimPrefix(typeName, "*")
+			aisMsg := AISMessage{
+				Type:      typeName,
+				Data:      decoded.Packet,
+				Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+			}
+			finalMsg, err := json.Marshal(aisMsg)
+			if err != nil {
+				log.Printf("Error marshaling AISMessage: %v", err)
+				continue
+			}
+			if *showDecodes {
+				log.Println("Decoded AIS Packet:", string(finalMsg))
+			}
+			// Send AIS message to the dynamic room (vessel-specific)
 			var newData map[string]interface{}
 			{
 				b, err := json.Marshal(decoded.Packet)
@@ -541,18 +571,6 @@ func main() {
 					continue
 				}
 			}
-			out, err := json.MarshalIndent(decoded.Packet, "", "  ")
-			if err != nil {
-				log.Printf("Error formatting AIS packet: %v", err)
-				continue
-			}
-			typeName := fmt.Sprintf("%T", decoded.Packet)
-			typeName = strings.TrimPrefix(typeName, "*")
-			message := fmt.Sprintf("%s: %s", typeName, out)
-			if *showDecodes {
-				log.Println("Decoded AIS Packet:", message)
-			}
-			// Send AIS message to the dynamic room (vessel-specific)
 			userIDFloat, ok := newData["UserID"].(float64)
 			if !ok {
 				availableKeys := make([]string, 0, len(newData))
@@ -564,7 +582,7 @@ func main() {
 			}
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
 			roomName := "ais_data/" + vesselID
-			if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", message); err != nil {
+			if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", string(finalMsg)); err != nil {
 				log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
 			}
 			vesselDataMutex.Lock()
