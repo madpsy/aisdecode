@@ -485,58 +485,59 @@
     }
     
     // --- 6. Load Initial State from /state.json ---
-    function loadInitialState() {
-      fetch('/state.json')
-        .then(response => response.json())
-        .then(stateData => {
-          const vesselState = stateData[userID];
-          if (vesselState && vesselState.Name) {
-            document.getElementById('vessel-name').innerHTML = vesselState.Name + " (" + vesselState.CallSign + ")";
-            updatePositionAccuracyDot(vesselState.PositionAccuracy);
-            updateNavigationalStatus(vesselState.NavigationalStatus);
-            // Update SOG chart.
-            if (vesselState.Sog !== undefined) {
-              const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
-              addSogDataPoint(ts, vesselState.Sog);
-            } else {
-              addSogDataPoint(Date.now(), 0);
-            }
-            // Update both the compass and direction charts.
-            if (vesselState.TrueHeading !== undefined && vesselState.Cog !== undefined) {
-              const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
-              addDirectionDataPoint(ts, vesselState.TrueHeading, vesselState.Cog);
-              updateCompassCharts(vesselState.TrueHeading, vesselState.Cog);
-            } else {
-              addDirectionDataPoint(Date.now(), 0, 0);
-              updateCompassCharts(0, 0);
-            }
-            // Update Latitude and Longitude if available.
-            if (vesselState.Latitude !== undefined && vesselState.Longitude !== undefined) {
-              updateLatLongDisplay(vesselState.Latitude, vesselState.Longitude);
-            }
-            // Update Maximum Static Draught display.
-            if (vesselState.MaximumStaticDraught !== undefined) {
-              document.getElementById('max-draught').textContent = vesselState.MaximumStaticDraught + " m";
-            } else {
-              document.getElementById('max-draught').textContent = "N/A";
-            }
-          } else {
-            document.getElementById('vessel-name').textContent = "Vessel not found.";
-            addSogDataPoint(Date.now(), 0);
-            addDirectionDataPoint(Date.now(), 0, 0);
-            updateCompassCharts(0, 0);
-          }
-        })
-        .catch(err => {
-          console.error("Error loading /state.json:", err);
-          document.getElementById('vessel-name').textContent = "Error loading vessel data.";
+// --- 6. Load Initial State from /state/<UserID>
+function loadInitialState() {
+  fetch('/state/' + userID)
+    .then(response => response.json())
+    .then(vesselState => {
+      if (vesselState && vesselState.Name) {
+        document.getElementById('vessel-name').innerHTML = vesselState.Name + " (" + vesselState.CallSign + ")";
+        updatePositionAccuracyDot(vesselState.PositionAccuracy);
+        updateNavigationalStatus(vesselState.NavigationalStatus);
+        // Update SOG chart.
+        if (vesselState.Sog !== undefined) {
+          const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+          addSogDataPoint(ts, vesselState.Sog);
+        } else {
           addSogDataPoint(Date.now(), 0);
+        }
+        // Update both the compass and direction charts.
+        if (vesselState.TrueHeading !== undefined && vesselState.Cog !== undefined) {
+          const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+          addDirectionDataPoint(ts, vesselState.TrueHeading, vesselState.Cog);
+          updateCompassCharts(vesselState.TrueHeading, vesselState.Cog);
+        } else {
           addDirectionDataPoint(Date.now(), 0, 0);
           updateCompassCharts(0, 0);
-        });
-    }
-    
-    loadInitialState();
+        }
+        // Update Latitude and Longitude if available.
+        if (vesselState.Latitude !== undefined && vesselState.Longitude !== undefined) {
+          updateLatLongDisplay(vesselState.Latitude, vesselState.Longitude);
+        }
+        // Update Maximum Static Draught display.
+        if (vesselState.MaximumStaticDraught !== undefined) {
+          document.getElementById('max-draught').textContent = vesselState.MaximumStaticDraught + " m";
+        } else {
+          document.getElementById('max-draught').textContent = "N/A";
+        }
+      } else {
+        document.getElementById('vessel-name').textContent = "Vessel not found.";
+        addSogDataPoint(Date.now(), 0);
+        addDirectionDataPoint(Date.now(), 0, 0);
+        updateCompassCharts(0, 0);
+      }
+    })
+    .catch(err => {
+      console.error("Error loading vessel state:", err);
+      document.getElementById('vessel-name').textContent = "Error loading vessel data.";
+      addSogDataPoint(Date.now(), 0);
+      addDirectionDataPoint(Date.now(), 0, 0);
+      updateCompassCharts(0, 0);
+    });
+}
+
+loadInitialState();
+
     
     // --- 7. Connect to Socket.IO and Subscribe ---
     const socket = io();

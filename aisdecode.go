@@ -285,6 +285,39 @@ func main() {
 	fs := http.FileServer(http.Dir(*webRoot))
 	http.Handle("/", fs)
 	http.Handle("/socket.io/", engineServer)
+
+	// Add HTTP endpoint for vessel state.
+	http.HandleFunc("/state/", func(w http.ResponseWriter, r *http.Request) {
+		// Extract the vessel userid from the URL path.
+		userID := strings.TrimPrefix(r.URL.Path, "/state/")
+		vesselDataMutex.Lock()
+		defer vesselDataMutex.Unlock()
+
+		// If no specific userID is provided, return all complete vessels.
+		if userID == "" {
+			latestData := filterCompleteVesselData(vesselData)
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(latestData); err != nil {
+				http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		// Lookup the vessel data for the specified userID.
+		vessel, exists := vesselData[userID]
+		if !exists {
+			http.Error(w, "Vessel not found", http.StatusNotFound)
+			return
+		}
+
+		// Return the JSON state for the specified vessel.
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(vessel); err != nil {
+			http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+		}
+	})
+
+
 	go func() {
 		addr := fmt.Sprintf(":%d", *wsPort)
 		log.Printf("Starting HTTP/Socket.IO server on %s, serving web root: %s", addr, filepath.Clean(*webRoot))
