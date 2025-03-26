@@ -262,7 +262,8 @@
   <!-- Live Logs Overlay (draggable) -->
 <div id="live-logs-overlay">
   <div id="live-logs-header">
-    Live Messages <button id="close-live-logs">X</button>
+    <span id="live-logs-title">Live Messages</span>
+    <button id="close-live-logs">X</button>
   </div>
   <!-- New filters section -->
   <div id="live-logs-filters" style="padding: 5px; border-bottom: 1px solid #ccc; font-size: 12px;">
@@ -340,9 +341,7 @@ const allowedMessageTypes = {
           currentChannel = null;
         }
         detailsOverlayHidden = false;
-        document.getElementById('auto-zoom').checked = true;
         updateFocussedVisibility();
-        adjustMapBounds();
       }
     });
 
@@ -650,11 +649,11 @@ const allowedMessageTypes = {
         const name = v.Name;
         const callsign = v.CallSign ? v.CallSign : "N/A";
         const lastSeen = timeAgo(v.lastUpdate);
-        const updateCount = v.lastUpdateCount || 0;
+        const numMessages = v.NumMessages || 0;
         content += `<div class="vessel-entry" data-userid="${v.UserID}">
                       <div class="vessel-name">${name}</div>
                       <div class="vessel-callsign">Call Sign: ${callsign}</div>
-                      <div class="vessel-timestamp">${lastSeen} | ${updateCount} msgs</div>
+                      <div class="vessel-timestamp">${lastSeen} | ${numMessages} msgs</div>
                     </div>`;
       });
       document.getElementById('overlay-content').innerHTML = content;
@@ -955,11 +954,7 @@ function liveLogsHandler(message) {
           vesselData[mmsi] = Object.assign({}, vesselState);
           vesselData[mmsi].track = [];
           vesselData[mmsi].color = randomColor();
-          vesselData[mmsi].lastUpdateCount = 1;
         } else {
-          if (vesselData[mmsi].LastUpdated !== vesselState.LastUpdated) {
-            vesselData[mmsi].lastUpdateCount = (vesselData[mmsi].lastUpdateCount || 0) + 1;
-          }
           Object.assign(vesselData[mmsi], vesselState);
         }
         vesselData[mmsi].LastUpdated = vesselState.LastUpdated;
@@ -1128,6 +1123,19 @@ function liveLogsHandler(message) {
       document.getElementById('toggle-detail-overlay').style.display = 'block';
       document.getElementById('live-logs').style.display = 'block';
       const headerEl = document.getElementById('vessel-detail-header');
+      if (vesselData[userID].UserID) {
+        headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a>)`;
+      } else {
+        headerEl.textContent = "Vessel Details";
+      }
+
+     // Update the Live Logs modal title with the vessel name.
+     const liveLogsTitle = document.getElementById('live-logs-title');
+     if (vesselData[userID].Name) {
+       liveLogsTitle.textContent = `${vesselData[userID].Name}`;
+     } else {
+       liveLogsTitle.textContent = 'Live Messages';
+     }
       if (vesselData[userID].UserID) {
         headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a>)`;
       } else {

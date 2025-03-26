@@ -183,32 +183,35 @@ func main() {
 	dumpVesselData := flag.Bool("dump-vessel-data", false, "Log the latest vessel data to the screen whenever it is updated")
 	updateInterval := flag.Int("update-interval", 2, "Update interval in seconds for emitting latest vessel data (default: 2)")
 	expireAfter := flag.Duration("expire-after", 60*time.Minute, "Expire vessel data if no update is received within this duration (default: 60m)")
-	// New state file option; if provided, state is persisted.
-	stateFile := flag.String("state-file", "", "Path to a file to persist vessel state between restarts (default: disabled)")
+	// New option: disable state persistence.
+	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
 	flag.Parse()
+
+	// Determine the state file path within the web root.
+	statePath := filepath.Join(*webRoot, "state.json")
 
 	// Initialize previous vessel data.
 	previousVesselData = make(map[string]map[string]interface{})
 
-	// If a state file is provided and exists, attempt to load it.
-	if *stateFile != "" {
-		if _, err := os.Stat(*stateFile); err == nil {
-			data, err := os.ReadFile(*stateFile)
+	// Load state from statePath unless state persistence is disabled.
+	if !*noState {
+		if _, err := os.Stat(statePath); err == nil {
+			data, err := os.ReadFile(statePath)
 			if err != nil {
-				log.Printf("Error reading state file %s: %v", *stateFile, err)
+				log.Printf("Error reading state file %s: %v", statePath, err)
 			} else {
 				var loadedData map[string]map[string]interface{}
 				if err := json.Unmarshal(data, &loadedData); err != nil {
-					log.Printf("Invalid JSON in state file %s: %v", *stateFile, err)
+					log.Printf("Invalid JSON in state file %s: %v", statePath, err)
 				} else {
 					vesselDataMutex.Lock()
 					vesselData = loadedData
 					vesselDataMutex.Unlock()
-					log.Printf("Loaded vessel state from %s", *stateFile)
+					log.Printf("Loaded vessel state from %s", statePath)
 				}
 			}
 		} else if !os.IsNotExist(err) {
-			log.Printf("Error accessing state file %s: %v", *stateFile, err)
+			log.Printf("Error accessing state file %s: %v", statePath, err)
 		}
 	}
 
@@ -429,6 +432,11 @@ func main() {
 			vesselDataMutex.Lock()
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+			if count, ok := merged["NumMessages"].(float64); ok {
+				merged["NumMessages"] = count + 1
+			} else {
+				merged["NumMessages"] = 1.0
+			}
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 			vesselDataMutex.Lock()
@@ -491,10 +499,10 @@ func main() {
 						log.Printf("Latest vessel data:\n%s", string(indentJSON))
 					}
 				}
-				// If stateFile is specified, write the JSON blob to disk.
-				if *stateFile != "" {
-					if err := os.WriteFile(*stateFile, latestDataJSON, 0644); err != nil {
-						log.Printf("Error writing state file %s: %v", *stateFile, err)
+				// Save state unless disabled via -no-state.
+				if !*noState {
+					if err := os.WriteFile(statePath, latestDataJSON, 0644); err != nil {
+						log.Printf("Error writing state file %s: %v", statePath, err)
 					}
 				}
 			} else {
@@ -588,6 +596,11 @@ func main() {
 			vesselDataMutex.Lock()
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+			if count, ok := merged["NumMessages"].(float64); ok {
+				merged["NumMessages"] = count + 1
+			} else {
+				merged["NumMessages"] = 1.0
+			}
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 			vesselDataMutex.Lock()
