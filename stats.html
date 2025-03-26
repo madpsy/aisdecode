@@ -71,24 +71,22 @@
 </head>
 <body>
   <!-- Vessel Details -->
-  <div id="vessel-info">
-    <div id="vessel-name">Loading vessel data...</div>
-    <!-- New Server Connected Dot -->
-    <div id="server-connected-container">
-      Server Connected: 
-      <span id="server-connected-dot" title="Server Connected" style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:5px;"></span>
-    </div>
-    <div id="position-accuracy-container">
-      Position Accuracy: 
-      <span id="position-accuracy-dot" title="Position Accuracy" style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:5px;"></span>
-    </div>
-    <div id="status-container">
-      Status: <span id="navigational-status">Loading...</span>
-      <br>
-      Max Draught: <span id="max-draught">Loading...</span>
-      <br>
-      Last Message: <span id="last-message-time">Loading...</span>
-    </div>
+<div id="vessel-info">
+  <div id="vessel-name">Loading vessel data...</div>
+  <!-- Combined Connection and Accuracy Status -->
+  <div id="connection-status">
+    Connected: 
+    <span id="server-connected-dot" title="Server Connected" style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:5px;"></span>
+    &nbsp;&nbsp; Accuracy: 
+    <span id="position-accuracy-dot" title="Position Accuracy" style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:5px;"></span>
+  </div>
+  <div id="status-container">
+    Status: <span id="navigational-status">Loading...</span>
+    <br>
+    Max Draught: <span id="max-draught">Loading...</span>
+    <br>
+    Last Message: <span id="last-message-time">Loading...</span>
+  </div>
     <div id="time-period-container">
       Time Period: 
       <select id="time-period">
