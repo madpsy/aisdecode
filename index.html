@@ -519,7 +519,37 @@ const boatIcon = L.divIcon({
     /**
      * Build popup content from vessel data.
      */
-    function createPopupContent(data) {
+function createPopupContent(data) {
+  const lines = [];
+  let name = data.Name ? data.Name : "Unknown Vessel";
+  // Append callsign in brackets next to the name if it exists
+  if (data.CallSign) {
+    name += ` (${data.CallSign})`;
+  }
+  const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : "N/A";
+  lines.push(`<strong>${name}</strong>`);
+  lines.push(`Last Update: ${lastSeen}`);
+  lines.push(`MMSI: ${data.UserID}`);
+  if (data.Destination) { lines.push(`Destination: ${data.Destination}`); }
+  if (data.Sog !== undefined) { lines.push(`Speed Over Ground: ${data.Sog} kn`); }
+  if (data.Type !== undefined) { 
+    const typeDescription = staticTypeMapping[data.Type] || data.Type;
+    lines.push(`Type: ${typeDescription}`);
+  }
+  if (data.MaximumStaticDraught !== undefined) { 
+    lines.push(`Maximum Draught: ${data.MaximumStaticDraught} m`); 
+  }
+  if (data.NavigationalStatus !== undefined) {
+    const navStatusDescription = navigationalStatusMapping[data.NavigationalStatus] || data.NavigationalStatus;
+    lines.push(`Nav Status: ${navStatusDescription}`);
+  }
+  return `<div class="popup-content">${lines.join('<br>')}</div>`;
+}
+
+
+
+
+    function createDetailContent(data) {
       const lines = [];
       const name = data.Name ? data.Name : "Unknown Vessel";
       const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : "N/A";
@@ -594,6 +624,7 @@ const boatIcon = L.divIcon({
       }
       return `<div class="popup-content">${lines.join('<br>')}</div>`;
     }
+
 
     // Adjust map bounds based on whether a vessel is focused.
     function adjustMapBounds() {
@@ -700,8 +731,8 @@ function updateNoCallsignMarkers() {
     // Periodically update the vessel detail overlay.
     function updateVesselDetailOverlay() {
       if (!detailsOverlayHidden && focusedVessel && vesselData[focusedVessel]) {
-        const popupContent = createPopupContent(vesselData[focusedVessel]);
-        document.getElementById('detail-content').innerHTML = popupContent;
+        const detailContent = createDetailContent(vesselData[focusedVessel]);
+        document.getElementById('detail-content').innerHTML = detailContent;
       }
     }
     setInterval(updateVesselDetailOverlay, 1000);
@@ -915,6 +946,17 @@ function liveLogsHandler(message) {
 	          svg.style.transform = `rotate(${vesselData[userID].TrueHeading}deg)`;
 	        }
 	      }
+	      if (markerElem) {
+	       const svg = markerElem.querySelector('svg');
+		 if (svg) {
+		    svg.addEventListener('click', (e) => {
+		      if (e && typeof e.stopPropagation === 'function') {
+		        e.stopPropagation();
+		      }
+		      focusOnVessel(userID);
+		    });
+		  }
+	       }
 	    });
             marker.bindPopup(popupContent, { autoPan: false });
             if (vesselData[userID].Name) {
@@ -927,10 +969,23 @@ function liveLogsHandler(message) {
               attachTooltipClick(marker, userID);
             }
             marker.on('click', function(e) {
-              e.stopPropagation();
-              e.preventDefault();
-              focusOnVessel(userID);
-            });
+  	      if (e && typeof e.stopPropagation === 'function') {
+	        e.stopPropagation();
+	      }
+	      if (e && typeof e.preventDefault === 'function') {
+	        e.preventDefault();
+	      }
+	      focusOnVessel(userID);
+	    });
+	    const markerElem = marker.getElement() || marker._icon;
+	    if (markerElem) {
+	      markerElem.addEventListener('click', (e) => {
+	        if (e && typeof e.stopPropagation === 'function') {
+	          e.stopPropagation();
+	        }
+   	    focusOnVessel(userID);
+	      });
+	    }
             if (!isMobile) {
               marker.on('mouseover', function() { this.openPopup(); });
               marker.on('mouseout', function() { this.closePopup(); });
@@ -1094,7 +1149,7 @@ function liveLogsHandler(message) {
             marker.on('click', function(e) {
               e.stopPropagation();
               e.preventDefault();
-              focusOnVessel(mmsi);
+              focusOnVessel(userID);
             });
             if (!isMobile) {
               marker.on('mouseover', function() { this.openPopup(); });
@@ -1212,8 +1267,8 @@ function liveLogsHandler(message) {
       } else {
         headerEl.textContent = "Vessel Details";
       }
-      const popupContent = createPopupContent(vesselData[userID]);
-      document.getElementById('detail-content').innerHTML = popupContent;
+      const detailContent = createDetailContent(vesselData[userID]);
+      document.getElementById('detail-content').innerHTML = detailContent;
       
       if (initialFocus || document.getElementById('auto-zoom').checked) {
         let bounds = L.latLngBounds([]);
