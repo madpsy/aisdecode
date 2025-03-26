@@ -233,24 +233,29 @@
   <div id="map"></div>
   
   <!-- Controls Overlay -->
-  <div id="controls">
-    <label>
-      <input type="checkbox" id="auto-zoom" checked>
-      Auto Zoom
-    </label>
-    <label>
-      <input type="checkbox" id="only-focussed">
-      Only Tracked
-    </label>
-    <label>
-      <input type="checkbox" id="openseamap-overlay" checked>
-      Map Overlay
-    </label>
-    <label>
-      <input type="checkbox" id="filter-nocallsign">
-      No Callsign
-    </label>
-  </div>
+<div id="controls">
+  <label>
+    <input type="checkbox" id="auto-zoom">
+    Auto Zoom
+  </label>
+  <label>
+    <input type="checkbox" id="only-focussed">
+    Only Tracked
+  </label>
+  <label>
+    <input type="checkbox" id="openseamap-overlay" checked>
+    Map Overlay
+  </label>
+  <label>
+    <input type="checkbox" id="filter-nocallsign">
+    No Callsign
+  </label>
+  <label>
+    <input type="checkbox" id="show-paths" checked>
+    Show Paths
+  </label>
+</div>
+
   
   <!-- Known vessels overlay (bottom left) -->
   <div id="vessel-overlay">
@@ -362,16 +367,15 @@ const allowedMessageTypes = {
     });
 
     // Define a custom boat icon using inline SVG.
-    const boatIcon = L.divIcon({
-      html: '<svg width="24" height="24" viewBox="0 0 24 24">' +
-              '<path d="M2,16 L12,4 L22,16 L2,16 Z" fill="blue" />' +
-              '<rect x="11" y="4" width="2" height="6" fill="white"/>' +
-            '</svg>',
-      className: 'boat-icon',
-      iconSize: [24, 24],
-      iconAnchor: [12, 12],
-      popupAnchor: [0, -12]
-    });
+const boatIcon = L.divIcon({
+  html: `<svg width="20" height="50" viewBox="0 0 20 50">
+  <path d="M5 45 L15 45 L15 30 Q10 5,5 30 Z" stroke="blue" fill="blue" stroke-width="2" />
+</svg>`,
+  className: 'boat-icon',
+  iconSize: [20, 50],
+  iconAnchor: [10, 25],
+  popupAnchor: [0, -25]
+});
 
     // Mapping objects for Fix Type, Nav Status, and Static Message Types.
     const fixTypeMapping = { 0: "No Fix", 1: "GPS Fix", 2: "DGPS Fix" };
@@ -624,28 +628,34 @@ const allowedMessageTypes = {
       return days + " days ago";
     }
 
-    function updateNoCallsignMarkers() {
-      const showNoCallsign = document.getElementById('filter-nocallsign').checked;
-      for (const mmsi in vesselData) {
-        const vesselState = vesselData[mmsi];
-        const hasCallSign = (vesselState.CallSign || "").trim().length > 0;
-        if (!hasCallSign && !showNoCallsign) {
-          if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-            map.removeLayer(vesselMarkers[mmsi]);
-          }
-          if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
-            map.removeLayer(vesselTracks[mmsi]);
-          }
-        } else {
-          if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
-            map.addLayer(vesselMarkers[mmsi]);
-          }
-          if (vesselTracks[mmsi] && !map.hasLayer(vesselTracks[mmsi])) {
-            map.addLayer(vesselTracks[mmsi]);
-          }
+function updateNoCallsignMarkers() {
+  const showNoCallsign = document.getElementById('filter-nocallsign').checked;
+  const showPaths = document.getElementById('show-paths').checked;
+  for (const mmsi in vesselData) {
+    const vesselState = vesselData[mmsi];
+    const hasCallSign = (vesselState.CallSign || "").trim().length > 0;
+    if (!hasCallSign && !showNoCallsign) {
+      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+        map.removeLayer(vesselMarkers[mmsi]);
+      }
+      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+        map.removeLayer(vesselTracks[mmsi]);
+      }
+    } else {
+      if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
+        map.addLayer(vesselMarkers[mmsi]);
+      }
+      if (vesselTracks[mmsi]) {
+        if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
+          map.addLayer(vesselTracks[mmsi]);
+        } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
+          map.removeLayer(vesselTracks[mmsi]);
         }
       }
     }
+  }
+}
+
 
     // Update the known vessels overlay.
     function updateOverlay() {
@@ -694,31 +704,41 @@ const allowedMessageTypes = {
     setInterval(updateOverlay, 1000);
 
     // Update marker and track visibility based on the "Only Tracked" checkbox.
-    function updateFocussedVisibility() {
-      const onlyFocussed = document.getElementById('only-focussed').checked;
-      if (onlyFocussed && focusedVessel) {
-        for (const userID in vesselMarkers) {
-          if (userID !== focusedVessel.toString()) {
-            if (map.hasLayer(vesselMarkers[userID])) map.removeLayer(vesselMarkers[userID]);
-            if (vesselTracks[userID] && map.hasLayer(vesselTracks[userID])) {
-              map.removeLayer(vesselTracks[userID]);
-            }
-          } else {
-            if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
-            if (vesselTracks[userID] && !map.hasLayer(vesselTracks[userID])) {
-              map.addLayer(vesselTracks[userID]);
-            }
-          }
+function updateFocussedVisibility() {
+  const onlyFocussed = document.getElementById('only-focussed').checked;
+  const showPaths = document.getElementById('show-paths').checked;
+  if (onlyFocussed && focusedVessel) {
+    for (const userID in vesselMarkers) {
+      if (userID !== focusedVessel.toString()) {
+        if (map.hasLayer(vesselMarkers[userID])) map.removeLayer(vesselMarkers[userID]);
+        if (vesselTracks[userID] && map.hasLayer(vesselTracks[userID])) {
+          map.removeLayer(vesselTracks[userID]);
         }
       } else {
-        for (const userID in vesselMarkers) {
-          if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
-        }
-        for (const userID in vesselTracks) {
-          if (!map.hasLayer(vesselTracks[userID])) map.addLayer(vesselTracks[userID]);
+        if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
+        if (vesselTracks[userID]) {
+          if (showPaths && !map.hasLayer(vesselTracks[userID])) {
+            map.addLayer(vesselTracks[userID]);
+          } else if (!showPaths && map.hasLayer(vesselTracks[userID])) {
+            map.removeLayer(vesselTracks[userID]);
+          }
         }
       }
     }
+  } else {
+    for (const userID in vesselMarkers) {
+      if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
+    }
+    for (const userID in vesselTracks) {
+      if (showPaths) {
+        if (!map.hasLayer(vesselTracks[userID])) map.addLayer(vesselTracks[userID]);
+      } else {
+        if (map.hasLayer(vesselTracks[userID])) map.removeLayer(vesselTracks[userID]);
+      }
+    }
+  }
+}
+
 
     // --- Live Logs functionality ---
     let liveLogsSubscribed = false;
@@ -883,6 +903,15 @@ function liveLogsHandler(message) {
             const lon = vesselData[userID].Longitude;
             const popupContent = createPopupContent(vesselData[userID]);
             const marker = L.marker([lat, lon], { icon: boatIcon }).addTo(map);
+	    marker.on('add', function() {
+	      const markerElem = marker.getElement();
+	      if (markerElem) {
+	        const svg = markerElem.querySelector('svg');
+	        if (svg) {
+	          svg.style.transform = `rotate(${vesselData[userID].TrueHeading}deg)`;
+	        }
+	      }
+	    });
             marker.bindPopup(popupContent, { autoPan: false });
             if (vesselData[userID].Name) {
               marker.bindTooltip(vesselData[userID].Name, {
@@ -1004,6 +1033,16 @@ function liveLogsHandler(message) {
           if (vesselMarkers[mmsi]) {
             vesselMarkers[mmsi].setLatLng([lat, lon]);
             vesselMarkers[mmsi].getPopup().setContent(popupContent);
+	    const markerElem = vesselMarkers[mmsi].getElement() || vesselMarkers[mmsi]._icon;
+	    if (markerElem) {
+	      const svg = markerElem.querySelector('svg');
+	      if (svg) {
+	        svg.style.transform = `rotate(${vesselState.TrueHeading}deg)`;
+	      }
+	      // Add the enlarge effect
+	      markerElem.classList.add('enlarge');
+	      setTimeout(() => markerElem.classList.remove('enlarge'), 500);
+	    }
             if (vesselState.Name) {
               vesselMarkers[mmsi].unbindTooltip();
               vesselMarkers[mmsi].bindTooltip(vesselState.Name, {
@@ -1020,7 +1059,6 @@ function liveLogsHandler(message) {
               e.preventDefault();
               focusOnVessel(mmsi);
             });
-            let markerElem = vesselMarkers[mmsi].getElement() || vesselMarkers[mmsi]._icon;
             if (markerElem) {
               markerElem.classList.add('enlarge');
               setTimeout(() => markerElem.classList.remove('enlarge'), 500);
@@ -1207,6 +1245,32 @@ function liveLogsHandler(message) {
        window.open('/stats.html?UserID=' + focusedVessel, '_blank', 'width=600,height=800');
      }
    });
+
+   window.addEventListener('load', () => {
+     updateNoCallsignMarkers();
+     adjustMapBounds();
+   });
+
+document.getElementById('show-paths').addEventListener('change', function() {
+  const showPaths = this.checked;
+  const showNoCallsign = document.getElementById('filter-nocallsign').checked;
+  for (const mmsi in vesselTracks) {
+    const vessel = vesselData[mmsi];
+    const hasCallSign = vessel && (vessel.CallSign || "").trim().length > 0;
+    if (showPaths && (hasCallSign || showNoCallsign)) {
+      if (!map.hasLayer(vesselTracks[mmsi])) {
+        map.addLayer(vesselTracks[mmsi]);
+      }
+    } else {
+      if (map.hasLayer(vesselTracks[mmsi])) {
+        map.removeLayer(vesselTracks[mmsi]);
+      }
+    }
+  }
+  updateNoCallsignMarkers();
+  updateFocussedVisibility();
+});
+
 
     // Utility: Generate a random hex color.
     function randomColor() {
