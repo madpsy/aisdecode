@@ -546,10 +546,10 @@ loadInitialState();
     // --- 7. Connect to Socket.IO and Subscribe ---
     const socket = io();
     const channel = "ais_data/" + userID;
-    socket.emit("subscribe", channel);
     
     // Update the Server Connected Dot based on socket events.
     socket.on('connect', function() {
+      socket.emit("subscribe", channel);
       updateServerConnectedDot(true);
     });
     socket.on('disconnect', function() {
