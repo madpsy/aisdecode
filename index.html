@@ -52,7 +52,7 @@
         /* Style for the known vessels overlay (bottom left) */
         #vessel-overlay {
           position: absolute;
-          bottom: 100px;
+          bottom: 85px;
           left: 10px;
           background: rgba(255, 255, 255, 0.95);
           border: 1px solid #ccc;
@@ -154,7 +154,7 @@
           z-index: 1100;
         }
         #toggle-known-overlay {
-          bottom: 70px;
+          bottom: 60px;
           left: 10px;
         }
         #toggle-detail-overlay {
@@ -405,24 +405,23 @@
         }
     
         // Clicking on the map resets any vessel focus.
-        map.on('click', () => {
-          if (focusedVessel) {
-	    const vessel = vesselData[focusedVessel];
-	    vesselMarkers[focusedVessel].getTooltip().setContent(vessel.Name);
-            focusedVessel = null;
-    	    unsubscribeInstantUpdates();
-            document.getElementById('vessel-detail').style.display = 'none';
-            document.getElementById('toggle-detail-overlay').style.display = 'none';
-            // Hide Live Logs button and overlay when unfocused.
-            document.getElementById('live-logs').style.display = 'none';
-            document.getElementById('stats-button').style.display = 'none';
-            const liveLogsOverlay = document.getElementById('live-logs-overlay');
-            liveLogsOverlay.style.display = 'none';
-            clearLiveLogs();
-            detailsOverlayHidden = false;
-            updateFocussedVisibility();
-          }
-        });
+map.on('click', () => {
+  if (focusedVessel) {
+    const vessel = vesselData[focusedVessel];
+    vesselMarkers[focusedVessel].getTooltip().setContent(vessel.Name);
+    focusedVessel = null;
+    unsubscribeInstantUpdates();
+    
+    // Hide detail overlay and all related buttons when no vessel is focused.
+    document.getElementById('vessel-detail').style.display = 'none';
+    document.getElementById('toggle-detail-overlay').style.display = 'none';
+    document.getElementById('live-logs').style.display = 'none';
+    document.getElementById('stats-button').style.display = 'none';
+    
+    clearLiveLogs();
+    updateFocussedVisibility();
+  }
+});
     
         // Define a custom boat icon using inline SVG.
     const boatIcon = L.divIcon({
@@ -1261,7 +1260,7 @@
     	      markerElem.classList.add('enlarge');
     	      setTimeout(() => markerElem.classList.remove('enlarge'), 500);
     	    }
-                if (vesselState.Name) {
+                if (vesselState.Name && mmsi !== focusedVessel) {
                   vesselMarkers[mmsi].unbindTooltip();
                   vesselMarkers[mmsi].bindTooltip(vesselState.Name, {
                     permanent: true,
@@ -1434,11 +1433,19 @@
        const newTooltipContent = `${vessel.Name} ${extraFields.join('<br>')}`;
        vesselMarkers[userID].getTooltip().setContent(newTooltipContent);
 
-          detailsOverlayHidden = false;
-          document.getElementById('vessel-detail').style.display = 'block';
-          document.getElementById('toggle-detail-overlay').style.display = 'block';
-          document.getElementById('live-logs').style.display = 'block';
-          document.getElementById('stats-button').style.display = 'block';
+       document.getElementById('toggle-detail-overlay').style.display = 'block';
+       document.getElementById('live-logs').style.display = 'block';
+       document.getElementById('stats-button').style.display = 'block';
+
+       const detailOverlay = document.getElementById('vessel-detail');
+       if (!detailsOverlayHidden) {   
+          detailOverlay.style.display = 'block';
+          document.getElementById('toggle-detail-overlay').textContent = 'Hide Details';
+       } else {
+          detailOverlay.style.display = 'none';
+          document.getElementById('toggle-detail-overlay').textContent = 'Show Details';
+       }
+
           const headerEl = document.getElementById('vessel-detail-header');
           if (vesselData[userID].UserID) {
             headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a>)`;
@@ -1569,6 +1576,20 @@ map.on('zoomend moveend', updateNauticalScale);
 // Call once to set the initial scale.
 updateNauticalScale();
 
+function updateFocussedTooltip() {
+  if (focusedVessel && vesselData[focusedVessel]) {
+    const vessel = vesselData[focusedVessel];
+    const typeDescription = staticTypeMapping[vessel.Type] || vessel.Type;
+    const navStatusDescription = navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus;
+    const extraFields = [];
+    extraFields.push(`| ${vessel.CallSign}`);
+    extraFields.push(`${vessel.Destination} | ${navStatusDescription}`);
+    extraFields.push(`${typeDescription} | ${vessel.MaximumStaticDraught} m | ${vessel.Sog} kn | ${vessel.TrueHeading}°`);
+    const newTooltipContent = `${vessel.Name} ${extraFields.join('<br>')}`;
+    vesselMarkers[focusedVessel].getTooltip().setContent(newTooltipContent);
+  }
+}
+setInterval(updateFocussedTooltip, 1000);
 
     document.getElementById('live-log-search').addEventListener('input', applyLogFilters);
     
