@@ -102,9 +102,19 @@ func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[
 	for id, vesselInfo := range vesselData {
 		hasLat := vesselInfo["Latitude"] != nil
 		hasLon := vesselInfo["Longitude"] != nil
-		hasCall := vesselInfo["CallSign"] != nil
-		// Only include vessels with all required fields.
-		if hasLat && hasLon && hasCall {
+
+		// Set default for CallSign if missing.
+		if vesselInfo["CallSign"] == nil {
+			vesselInfo["CallSign"] = "NOCALL"
+		}
+
+		// Set default for Name if missing or empty.
+		if name, ok := vesselInfo["Name"].(string); !ok || strings.TrimSpace(name) == "" {
+			vesselInfo["Name"] = "NONAME"
+		}
+
+		// Only include vessels with required Latitude and Longitude.
+		if hasLat && hasLon {
 			filteredData[id] = vesselInfo
 		}
 	}
