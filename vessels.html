@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Vessel Data</title>
+  <!-- Include Bootstrap CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css">
+  <!-- Include DataTables CSS -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
+  <style>
+    /* Remove extra margin/padding from the DataTables wrapper */
+    .dataTables_wrapper {
+      margin: 0;
+      padding: 0;
+    }
+    /* Ensure the table takes full width */
+    table.dataTable {
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+<div class="container-fluid p-0">
+  <h2 class="text-center py-3">Vessel Data</h2>
+  <!-- Removed row/column grid so table uses full width -->
+  <table id="stateTable" class="table table-striped table-bordered">
+    <thead>
+      <tr>
+        <th>MMSI</th>
+        <th>Name</th>
+        <th>CallSign</th>
+        <th>Destination</th>
+        <th>Last Updated</th>
+        <th>Latitude</th>
+        <th>Longitude</th>
+        <th>Cog</th>
+        <th>Sog</th>
+        <th>Type</th>
+        <th>Max Static Draught</th>
+        <th>NumMessages</th>
+        <th>ImoNumber</th>
+        <th>True Heading</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Data rows will be inserted here dynamically -->
+    </tbody>
+  </table>
+</div>
+
+<!-- Include jQuery -->
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<!-- Include DataTables JS -->
+<script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+<script>
+  // Fetch state data from the /state/ endpoint
+  fetch('/state/')
+    .then(response => response.json())
+    .then(data => {
+      let tbody = '';
+      // Iterate over data objects keyed by UserID
+      Object.keys(data).forEach(userID => {
+        let item = data[userID];
+        tbody += '<tr>' +
+          '<td>' + item.UserID + '</td>' +
+          '<td>' + item.Name + '</td>' +
+          '<td>' + item.CallSign + '</td>' +
+          '<td>' + item.Destination + '</td>' +
+          '<td>' + new Date(item.LastUpdated).toLocaleString() + '</td>' +
+          '<td>' + item.Latitude + '</td>' +
+          '<td>' + item.Longitude + '</td>' +
+          '<td>' + item.Cog + '</td>' +
+          '<td>' + item.Sog + '</td>' +
+          '<td>' + item.Type + '</td>' +
+          '<td>' + item.MaximumStaticDraught + '</td>' +
+          '<td>' + item.NumMessages + '</td>' +
+          '<td>' + item.ImoNumber + '</td>' +
+          '<td>' + item.TrueHeading + '</td>' +
+          '</tr>';
+      });
+      document.querySelector('#stateTable tbody').innerHTML = tbody;
+
+      // Initialize DataTables with custom DOM, page length, and responsive settings
+      $('#stateTable').DataTable({
+        responsive: true,
+        pageLength: 100,
+        // DOM configuration to place search and length dropdown on the same row.
+        dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>" +
+             "<'row'<'col-sm-12'tr>>" +
+             "<'row'<'col-sm-5'i><'col-sm-7'p>>",
+        order: [[0, "asc"]]  // Default sorting by UserID
+      });
+    })
+    .catch(error => console.error('Error fetching state data:', error));
+</script>
+</body>
+</html>
