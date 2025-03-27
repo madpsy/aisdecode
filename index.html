@@ -232,7 +232,7 @@
 
 <body>
     <div id="map"></div>
-	<div id="latlong-display" style="
+    <div id="latlong-display" style="
 	    position: absolute;
 	    top: 10px;
 	    left: 50%;
@@ -244,9 +244,9 @@
 	    font-family: Arial, sans-serif;
 	    font-size: 14px;
 	">
-	  0, 0
-	</div>
-<div id="nm-scale" style="
+        0, 0
+    </div>
+    <div id="nm-scale" style="
     position: absolute;
     bottom: 20px;
     left: 50%;
@@ -259,15 +259,15 @@
     font-size: 14px;
     text-align: center;
 ">
-  <div id="scale-bar" style="
+        <div id="scale-bar" style="
       position: relative;
       width: 100px;
       height: 4px;
       background: black;
       margin-bottom: 2px;
   ">
-    <!-- Left tick -->
-    <div style="
+            <!-- Left tick -->
+            <div style="
         position: absolute;
         left: 0;
         top: -4px;
@@ -275,8 +275,8 @@
         height: 12px;
         background: black;
     "></div>
-    <!-- Right tick -->
-    <div style="
+            <!-- Right tick -->
+            <div style="
         position: absolute;
         right: 0;
         top: -4px;
@@ -284,9 +284,9 @@
         height: 12px;
         background: black;
     "></div>
-  </div>
-  <div id="scale-label">0 NM</div>
-</div>
+        </div>
+        <div id="scale-label">0 NM</div>
+    </div>
 
     <!-- Controls Overlay -->
     <div id="controls">
@@ -583,7 +583,7 @@ map.on('click', () => {
       lines.push(`<strong>${name}</strong>`);
       lines.push(`Last Update: ${lastSeen}`);
       lines.push(`MMSI: ${data.UserID}`);
-      if (data.Destination) { lines.push(`Destination: ${data.Destination}`); }
+      lines.push(`Destination: ${data.Destination && data.Destination.trim() !== "" ? data.Destination : 'NO DEST'}`);
       if (data.Sog !== undefined) { lines.push(`Speed Over Ground: ${data.Sog} kn`); }
       if (data.Type !== undefined) { 
         const typeDescription = staticTypeMapping[data.Type] || data.Type;
@@ -604,14 +604,12 @@ map.on('click', () => {
     
         function createDetailContent(data) {
           const lines = [];
-          const name = data.Name ? data.Name : "Unknown Vessel";
           const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : "N/A";
-          lines.push(`<strong>${name}</strong>`);
           lines.push(`Last Update: ${lastSeen}`);
           lines.push(`MMSI: ${data.UserID}`);
           if (data.CallSign) { lines.push(`Call Sign: ${data.CallSign}`); }
           if (data.ImoNumber) { lines.push(`IMO Number: ${data.ImoNumber}`); }
-          if (data.Destination) { lines.push(`Destination: ${data.Destination}`); }
+          lines.push(`Destination: ${data.Destination && data.Destination.trim() !== "" ? data.Destination : 'NO DEST'}`);
           if (data.Sog !== undefined) { lines.push(`Speed Over Ground: ${data.Sog} kn`); }
           if (data.Cog !== undefined) { lines.push(`Course Over Ground: ${data.Cog}°`); }
           if (data.Type !== undefined) { 
@@ -1428,7 +1426,7 @@ map.on('click', () => {
        const navStatusDescription = navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus;
        const extraFields = [];
        extraFields.push(`| ${vessel.CallSign}`);
-       extraFields.push(`${vessel.Destination} | ${navStatusDescription}`);
+       extraFields.push(`${vessel.Destination && vessel.Destination.trim() !== "" ? vessel.Destination : 'NO DEST'} | ${navStatusDescription}`);
        extraFields.push(`${typeDescription} | ${vessel.MaximumStaticDraught} m | ${vessel.Sog} kn | ${vessel.TrueHeading}°`);
        const newTooltipContent = `${vessel.Name} ${extraFields.join('<br>')}`;
        vesselMarkers[userID].getTooltip().setContent(newTooltipContent);
@@ -1446,12 +1444,66 @@ map.on('click', () => {
           document.getElementById('toggle-detail-overlay').textContent = 'Show Details';
        }
 
-          const headerEl = document.getElementById('vessel-detail-header');
-          if (vesselData[userID].UserID) {
-            headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a>)`;
-          } else {
-            headerEl.textContent = "Vessel Details";
-          }
+	    const headerEl = document.getElementById('vessel-detail-header');
+	    if (vesselData[userID].UserID) {
+	      // Build the Lookup link and add a (Link) button after the vessel name.
+	      headerEl.innerHTML = `${vesselData[userID].Name} 
+	        <br><a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a> | 
+	        <span id="copy-link" style="cursor:pointer; color:blue;">Link</span>`;
+	    } else {
+	      headerEl.textContent = "Vessel Details";
+	    }
+
+const copyLinkEl = document.getElementById('copy-link');
+if (copyLinkEl) {
+  copyLinkEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const currentUrl = window.location.href.split('?')[0];
+    const copyUrl = `${currentUrl}?UserID=${vesselData[userID].UserID}`;
+    
+    // Function to update the text temporarily
+    function updateLinkText(newText) {
+      copyLinkEl.textContent = newText;
+      setTimeout(() => {
+        copyLinkEl.textContent = "Link";
+      }, 2000); // 2 seconds delay before reverting back
+    }
+    
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(copyUrl).then(() => {
+        updateLinkText("Link Copied");
+      }).catch(err => {
+        console.error("Failed to copy: ", err);
+      });
+    } else {
+      // Fallback using a temporary textarea
+      const textArea = document.createElement("textarea");
+      textArea.value = copyUrl;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        updateLinkText("Link Copied");
+      } catch (err) {
+        console.error("Fallback: Unable to copy", err);
+      }
+      document.body.removeChild(textArea);
+    }
+  });
+}
+
+
+// Helper function to show flash message
+function showFlashMessage(message, parentEl) {
+  const flashMsg = document.createElement('span');
+  flashMsg.textContent = ` ${message}`;
+  flashMsg.style.color = 'green';
+  parentEl.appendChild(flashMsg);
+  setTimeout(() => {
+    flashMsg.remove();
+  }, 1000);
+}
+
     
          // Update the Live Logs modal title with the vessel name.
          const liveLogsTitle = document.getElementById('live-logs-title');
@@ -1460,11 +1512,6 @@ map.on('click', () => {
          } else {
            liveLogsTitle.textContent = 'Live Messages';
          }
-          if (vesselData[userID].UserID) {
-            headerEl.innerHTML = `Vessel Details (<a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a>)`;
-          } else {
-            headerEl.textContent = "Vessel Details";
-          }
           const detailContent = createDetailContent(vesselData[userID]);
           document.getElementById('detail-content').innerHTML = detailContent;
 
@@ -1529,6 +1576,18 @@ map.on('click', () => {
        window.addEventListener('load', () => {
          updateNoCallsignMarkers();
          adjustMapBounds();
+	 // Check if a "UserID" query parameter exists in the URL.
+	 const urlParams = new URLSearchParams(window.location.search);
+	 const userID = urlParams.get("UserID");
+	 if (userID) {
+	   // Set an interval to wait for the vessel data to load.
+	   const checkVesselInterval = setInterval(() => {
+	     if (vesselData[userID]) {
+	       focusOnVessel(userID);
+	       clearInterval(checkVesselInterval);
+	     }
+	   }, 1000); // Check every 1 second (adjust as needed)
+	 }
        });
     
     document.getElementById('show-paths').addEventListener('change', function() {
@@ -1583,7 +1642,7 @@ function updateFocussedTooltip() {
     const navStatusDescription = navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus;
     const extraFields = [];
     extraFields.push(`| ${vessel.CallSign}`);
-    extraFields.push(`${vessel.Destination} | ${navStatusDescription}`);
+    extraFields.push(`${vessel.Destination && vessel.Destination.trim() !== "" ? vessel.Destination : 'NO DEST'} | ${navStatusDescription}`);
     extraFields.push(`${typeDescription} | ${vessel.MaximumStaticDraught} m | ${vessel.Sog} kn | ${vessel.TrueHeading}°`);
     const newTooltipContent = `${vessel.Name} ${extraFields.join('<br>')}`;
     vesselMarkers[focusedVessel].getTooltip().setContent(newTooltipContent);
