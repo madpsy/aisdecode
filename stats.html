@@ -119,7 +119,7 @@
   </div>
   
   <!-- Latitude and Longitude Display -->
-  <div id="lat-long-display">Latitude: -- Longitude: --</div>
+  <div id="lat-long-display">--, --</div>
   
   <!-- Speed on Ground Chart (moved below the compasses) -->
   <div id="chart-container">
@@ -485,7 +485,7 @@
       // Limit to 5 decimal places if the values are numbers.
       const latText = typeof lat === 'number' ? lat.toFixed(5) : lat;
       const lonText = typeof lon === 'number' ? lon.toFixed(5) : lon;
-      document.getElementById('lat-long-display').textContent = "Latitude: " + latText + " Longitude: " + lonText;
+      document.getElementById('lat-long-display').textContent = latText + ", " + lonText;
     }
     
     // --- 6. Load Initial State from /state.json ---
@@ -615,7 +615,7 @@ loadInitialState();
       document.getElementById('current-speed-display').textContent = "Speed: 0.00 kn";
       
       // Reset Latitude and Longitude display.
-      document.getElementById('lat-long-display').textContent = "Latitude: -- Longitude: --";
+      document.getElementById('lat-long-display').textContent = "--, --";
       
       // Re-fetch initial state.
       loadInitialState();
