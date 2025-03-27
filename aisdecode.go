@@ -195,6 +195,15 @@ func main() {
 	    statePath = *stateFile
 	}
 
+	if !*noState {
+	    // Try opening (or creating) the state file to ensure it is writable.
+	    f, err := os.OpenFile(statePath, os.O_WRONLY|os.O_CREATE, 0644)
+	    if err != nil {
+	        log.Fatalf("Cannot write to state file %s: %v", statePath, err)
+	    }
+	    f.Close()
+	}
+
 	// Initialize previous vessel data.
 	previousVesselData = make(map[string]map[string]interface{})
 
