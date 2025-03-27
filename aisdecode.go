@@ -178,18 +178,22 @@ func main() {
 	webRoot := flag.String("web-root", ".", "Web root directory (default: current directory)")
 	debug := flag.Bool("debug", false, "Enable debug output")
 	showDecodes := flag.Bool("show-decodes", false, "Output the decoded messages")
-	aggregator := flag.String("aggregator", "", "Aggregator host/ip:port (optional)")
+	aggregator := flag.String("aggregator", "", "Comma delimited list of aggregator host/ip:port (optional)")
 	udpListenPort := flag.Int("udp-listen-port", 8101, "UDP listen port for incoming NMEA data (default: 8101)")
 	dedupeWindowDuration := flag.Int("dedupe-window", 1000, "Deduplication window in milliseconds (default: 1000, set to 0 to disable deduplication)")
 	dumpVesselData := flag.Bool("dump-vessel-data", false, "Log the latest vessel data to the screen whenever it is updated")
 	updateInterval := flag.Int("update-interval", 10, "Update interval in seconds for emitting latest vessel data (default: 10)")
 	expireAfter := flag.Duration("expire-after", 60*time.Minute, "Expire vessel data if no update is received within this duration (default: 60m)")
-	// New option: disable state persistence.
 	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
+	stateFile := flag.String("state-file", "", "Path to state file (optional). Overrides the default location of web-root/state.json")
+
 	flag.Parse()
 
 	// Determine the state file path within the web root.
 	statePath := filepath.Join(*webRoot, "state.json")
+	if *stateFile != "" {
+	    statePath = *stateFile
+	}
 
 	// Initialize previous vessel data.
 	previousVesselData = make(map[string]map[string]interface{})
@@ -342,27 +346,38 @@ func main() {
 	nmeaCodec := aisnmea.NMEACodecNew(codec)
 
 	// Setup UDP aggregator if needed.
-	var udpConn *net.UDPConn
+	var aggregatorConns []*net.UDPConn
 	if *aggregator != "" {
-		parts := strings.Split(*aggregator, ":")
-		if len(parts) != 2 {
-			log.Fatal("Invalid aggregator format. Expected host/ip:port")
-		}
-		host, portStr := parts[0], parts[1]
-		udpPort, err := strconv.Atoi(portStr)
-		if err != nil {
-			log.Fatalf("Invalid port number: %v", err)
-		}
-		udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, udpPort))
-		if err != nil {
-			log.Fatalf("Failed to resolve UDP address: %v", err)
-		}
-		udpConn, err = net.DialUDP("udp", nil, udpAddr)
-		if err != nil {
-			log.Fatalf("Failed to create UDP connection: %v", err)
-		}
-		defer udpConn.Close()
-		log.Printf("[DEBUG] Connected to aggregator at %s", udpAddr.String())
+	    // Split the aggregator argument by comma.
+	    aggregatorList := strings.Split(*aggregator, ",")
+	    for _, addrStr := range aggregatorList {
+	        addrStr = strings.TrimSpace(addrStr)
+	        parts := strings.Split(addrStr, ":")
+	        if len(parts) != 2 {
+	            log.Fatalf("Invalid aggregator format for '%s'. Expected host/ip:port", addrStr)
+	        }
+	        host, portStr := parts[0], parts[1]
+	        udpPort, err := strconv.Atoi(portStr)
+	        if err != nil {
+	            log.Fatalf("Invalid port number in aggregator '%s': %v", addrStr, err)
+	        }
+	        udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, udpPort))
+	        if err != nil {
+	            log.Fatalf("Failed to resolve UDP address for '%s': %v", addrStr, err)
+	        }
+	        conn, err := net.DialUDP("udp", nil, udpAddr)
+	        if err != nil {
+	            log.Fatalf("Failed to create UDP connection for '%s': %v", addrStr, err)
+	        }
+	        aggregatorConns = append(aggregatorConns, conn)
+	        log.Printf("[DEBUG] Connected to aggregator at %s", udpAddr.String())
+	    }
+	    // Defer closing all aggregator connections.
+	    defer func() {
+	        for _, conn := range aggregatorConns {
+	            conn.Close()
+	        }
+	    }()
 	}
 
 	var websocketDedupeWindow []dedupeState
@@ -453,12 +468,16 @@ func main() {
 			}
 
 			// Forward to aggregator if enabled.
-			if udpConn != nil {
-				_, err := udpConn.Write([]byte(rawNmea))
-				if err != nil {
-					log.Printf("Error sending raw NMEA sentence over UDP: %v", err)
+			if len(aggregatorConns) > 0 {
+			    for _, conn := range aggregatorConns {
+			        if _, err := conn.Write([]byte(rawNmea)); err != nil {
+ 				   if *debug {
+				        log.Printf("[DEBUG] Error sending raw NMEA sentence over UDP to aggregator: %v", err)
+				    }
 				}
+			    }
 			}
+
 			// Now record the message in the aggregator deduplication window.
 			aggregatorDedupeWindow = append(aggregatorDedupeWindow, dedupeState{message: rawNmea, timestamp: time.Now()})
 
@@ -564,12 +583,15 @@ func main() {
 				}
 				continue
 			}
-			// Forward to aggregator before recording dedupe.
-			if udpConn != nil {
-				_, err := udpConn.Write([]byte(line))
-				if err != nil {
-					log.Printf("Error sending raw NMEA sentence over UDP: %v", err)
+			// Forward to aggregator if enabled.
+			if len(aggregatorConns) > 0 {
+			    for _, conn := range aggregatorConns {
+				if _, err := conn.Write([]byte(line)); err != nil {
+				    if *debug {
+				        log.Printf("[DEBUG] Error sending raw NMEA sentence over UDP to aggregator: %v", err)
+				    }
 				}
+			    }
 			}
 			// Record message in dedupe windows.
 			websocketDedupeWindow = append(websocketDedupeWindow, dedupeState{message: line, timestamp: time.Now()})
