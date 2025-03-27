@@ -320,6 +320,7 @@
     <div id="vessel-overlay">
         <!-- Filter input box -->
         <input type="text" id="vessel-filter" placeholder="Filter vessels...">
+	<div id="vessel-count" style="text-align: left; margin-bottom: 0px;">Total: 0</div>
         <div id="overlay-content"></div>
     </div>
 
@@ -755,6 +756,7 @@ map.on('click', () => {
               v.UserID.toString().includes(filterText)
             )
           );
+	  document.getElementById('vessel-count').textContent = 'Total: ' + vessels.length;
           vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
           const topVessels = vessels.slice(0, 100);
           let content = "";

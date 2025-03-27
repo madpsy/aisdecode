@@ -132,6 +132,10 @@
   </div>
   
   <script>
+    // --- Global array to store all message timestamps ---
+    let messageTimestamps = [];
+    // --- Variable to store the timestamp of the last message ---
+    let lastMessageTimestamp = Date.now();
     // Mapping for NavigationalStatus
     const navigationalStatusMapping = {
       0: "Using Engine",
@@ -149,9 +153,6 @@
     // Global arrays to store history of data points.
     let allSogData = [];
     let allDirectionData = [];
-
-    // --- Variable to store the timestamp of the last message ---
-    let lastMessageTimestamp = Date.now();
     
     // --- Helper: Update the Position Accuracy Dot ---
     function updatePositionAccuracyDot(isAccurate) {
@@ -229,7 +230,10 @@
     setInterval(() => {
       const now = Date.now();
       const diffMs = now - lastMessageTimestamp;
-      document.getElementById('last-message-time').textContent = formatTimeDifference(diffMs);
+      const formattedTime = formatTimeDifference(diffMs);
+      const messagesLastMinute = messageTimestamps.filter(ts => now - ts <= 60000).length;
+      document.getElementById('last-message-time').textContent = 
+	formattedTime + " (" + messagesLastMinute + " per min)";
     }, 1000);
     
     // --- 1. Parse Query Parameters ---
@@ -561,6 +565,7 @@ loadInitialState();
         if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
           const ts = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
           lastMessageTimestamp = ts;
+	  messageTimestamps.push(ts);
           if (message.data.Sog !== undefined) {
             addSogDataPoint(ts, message.data.Sog);
           }
