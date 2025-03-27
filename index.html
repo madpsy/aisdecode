@@ -409,6 +409,7 @@ map.on('click', () => {
   if (focusedVessel) {
     const vessel = vesselData[focusedVessel];
     vesselMarkers[focusedVessel].getTooltip().setContent(vessel.Name);
+    vesselMarkers[focusedVessel].setZIndexOffset(0);
     focusedVessel = null;
     unsubscribeInstantUpdates();
     
@@ -1406,21 +1407,21 @@ map.on('click', () => {
         function focusOnVessel(userID, initialFocus = true) {
           if (focusedVessel !== userID) {
             clearLiveLogs();
-        // If there's an existing subscription for a different vessel, unsubscribe first.
-        if (instantChannel) {
-          unsubscribeInstantUpdates();
-        }
-        // Subscribe to instant updates for the new focused vessel.
-        subscribeInstantUpdates(userID);
+            if (instantChannel) {
+              unsubscribeInstantUpdates();
+            }
+            subscribeInstantUpdates(userID);
           }
 
        // If another vessel was previously focused, reset its tooltip.
        if (focusedVessel && focusedVessel !== userID) {
          const prevVessel = vesselData[focusedVessel];
          vesselMarkers[focusedVessel].getTooltip().setContent(prevVessel.Name);
+         vesselMarkers[focusedVessel].setZIndexOffset(0);
        }
      
        focusedVessel = userID;
+       vesselMarkers[userID].setZIndexOffset(1000);
        const vessel = vesselData[userID];
        const typeDescription = staticTypeMapping[vessel.Type] || vessel.Type;
        const navStatusDescription = navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus;
@@ -1430,6 +1431,11 @@ map.on('click', () => {
        extraFields.push(`${typeDescription} | ${vessel.MaximumStaticDraught} m | ${vessel.Sog} kn | ${vessel.TrueHeading}°`);
        const newTooltipContent = `${vessel.Name} ${extraFields.join('<br>')}`;
        vesselMarkers[userID].getTooltip().setContent(newTooltipContent);
+
+       const tooltipEl = vesselMarkers[userID].getTooltip().getElement();
+       if (tooltipEl) {
+	  tooltipEl.style.zIndex = '1100';
+       }
 
        document.getElementById('toggle-detail-overlay').style.display = 'block';
        document.getElementById('live-logs').style.display = 'block';
