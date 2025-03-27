@@ -202,6 +202,23 @@ func filterWindow(window []dedupeState, cutoff time.Time) []dedupeState {
 	return filtered
 }
 
+func isInvalidData(data map[string]interface{}) bool {
+	if th, ok := data["TrueHeading"].(float64); ok && th == 511 {
+		return true
+	}
+	if cog, ok := data["Cog"].(float64); ok && cog == 360 {
+		return true
+	}
+	if lat, ok := data["Latitude"].(float64); ok && lat == 91 {
+		return true
+	}
+	if lon, ok := data["Longitude"].(float64); ok && lon == 181 {
+		return true
+	}
+	return false
+}
+
+
 func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]map[string]interface{} {
 	summary := make(map[string]map[string]interface{})
 	// List of keys to include in the summary.
@@ -579,6 +596,13 @@ func main() {
 
 			// Process vessel data update.
 			vesselDataMutex.Lock()
+
+			if isInvalidData(newData) {
+			    log.Printf("Skipping update for vessel %s due to invalid data values", vesselID)
+			    vesselDataMutex.Unlock()
+			    continue
+			}
+
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			if count, ok := merged["NumMessages"].(float64); ok {
@@ -600,8 +624,6 @@ func main() {
 		}
 	}()
 
-	// --- Start a ticker routine to emit updates every updateInterval seconds if data has changed ---
-	// --- Start a ticker routine to emit updates every updateInterval seconds if data has changed ---
 	go func() {
 		ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
 		for range ticker.C {
@@ -761,6 +783,13 @@ func main() {
 				log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
 			}
 			vesselDataMutex.Lock()
+
+			if isInvalidData(newData) {
+			    log.Printf("Skipping update for vessel %s due to invalid data values", vesselID)
+			    vesselDataMutex.Unlock()
+			    continue
+			}
+
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			if count, ok := merged["NumMessages"].(float64); ok {

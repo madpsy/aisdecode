@@ -749,37 +749,40 @@ map.on('click', () => {
     }
     
 function updateStationaryMarkers() {
-// Inside updateStationaryMarkers()
-const showStationary = document.getElementById('stationary').checked;
-const now = Date.now();
-for (const mmsi in vesselData) {
-  const vesselState = vesselData[mmsi];
-  if (typeof vesselState.Sog === "number" && vesselState.lastUpdate) {
-    const ageSeconds = (now - vesselState.lastUpdate) / 1000;
-    
-    // Only remove if the vessel is moving and hasn't updated in over 120 seconds.
-    // If stationary mode is enabled, we show all vessels regardless of age.
-    if ((!showStationary && ageSeconds > 120) ||
-        (vesselState.Sog > 0.5 && ageSeconds > 120)) {
-      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-        map.removeLayer(vesselMarkers[mmsi]);
-      }
-      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
-        map.removeLayer(vesselTracks[mmsi]);
-      }
-      continue;
-    }
+  const showStationary = document.getElementById('stationary').checked;
+  const now = Date.now();
 
-    // Then apply the stationary filter: if not showing stationary and vessel is stationary, remove it.
-    if (!showStationary && vesselState.Sog <= 0.5) {
-      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-        map.removeLayer(vesselMarkers[mmsi]);
+  for (const mmsi in vesselData) {
+    const vesselState = vesselData[mmsi];
+    if (typeof vesselState.Sog === "number" && vesselState.lastUpdate) {
+      const ageSeconds = (now - vesselState.lastUpdate) / 1000;
+
+      // Only apply removal logic if the stationary checkbox is NOT checked.
+      if (!showStationary) {
+        // Remove vessels that haven't updated in over 120 seconds.
+        if (ageSeconds > 120) {
+          if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+            map.removeLayer(vesselMarkers[mmsi]);
+          }
+          if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+            map.removeLayer(vesselTracks[mmsi]);
+          }
+          continue;
+        }
+
+        // Optionally, if you want to remove stationary vessels (SOG <= 0.5) when not in stationary mode:
+        if (vesselState.Sog <= 0.5) {
+          if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+            map.removeLayer(vesselMarkers[mmsi]);
+          }
+          if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+            map.removeLayer(vesselTracks[mmsi]);
+          }
+          continue;
+        }
       }
-      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
-        map.removeLayer(vesselTracks[mmsi]);
-      }
-    } else {
-      // Ensure markers and tracks are visible
+
+      // If the 'stationary' checkbox is checked, always ensure the vessel markers/tracks are visible.
       if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
         map.addLayer(vesselMarkers[mmsi]);
       }
@@ -787,10 +790,11 @@ for (const mmsi in vesselData) {
         const showPaths = document.getElementById('show-paths').checked;
         if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
           map.addLayer(vesselTracks[mmsi]);
+        } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
+          map.removeLayer(vesselTracks[mmsi]);
         }
-       }
-     }
-   }
+      }
+    }
   }
 
   if (document.getElementById('auto-zoom').checked) {
