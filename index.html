@@ -314,6 +314,10 @@
     <input type="checkbox" id="show-paths" checked>
     Show Paths
   </label>
+  <label>
+    <input type="checkbox" id="stationary" checked>
+    Stationary
+  </label>
     </div>
 
     <!-- Known vessels overlay (bottom left) -->
@@ -744,6 +748,66 @@ map.on('click', () => {
       }
     }
     
+function updateStationaryMarkers() {
+  const showStationary = document.getElementById('stationary').checked;
+  const onlyFocussed = document.getElementById('only-focussed').checked;
+  const now = Date.now();
+  for (const mmsi in vesselData) {
+    // If "Only Tracked" is enabled and a vessel is focused,
+    // remove any vessel that is not the focused one.
+    if (onlyFocussed && focusedVessel && mmsi !== focusedVessel.toString()) {
+      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+        map.removeLayer(vesselMarkers[mmsi]);
+      }
+      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+        map.removeLayer(vesselTracks[mmsi]);
+      }
+      continue; // Skip further processing for non-focused vessels.
+    }
+
+    const vesselState = vesselData[mmsi];
+    // Proceed only if the vessel's speed and last update are defined.
+    if (typeof vesselState.Sog === "number" && vesselState.lastUpdate) {
+      // Calculate how many seconds have passed since the last update.
+      const ageSeconds = (now - vesselState.lastUpdate) / 1000;
+
+      // If the message is older than 2 minutes, remove the marker and track.
+      if (ageSeconds > 120) {
+        if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+          map.removeLayer(vesselMarkers[mmsi]);
+        }
+        if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+          map.removeLayer(vesselTracks[mmsi]);
+        }
+        continue;
+      }
+
+      // If stationary filtering is active and the vessel’s speed is <= 0.5 knots:
+      if (!showStationary && vesselState.Sog <= 0.5) {
+        if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+          map.removeLayer(vesselMarkers[mmsi]);
+        }
+        if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+          map.removeLayer(vesselTracks[mmsi]);
+        }
+      } else {
+        // Otherwise, ensure the marker (and track if enabled) is visible.
+        if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
+          map.addLayer(vesselMarkers[mmsi]);
+        }
+        if (vesselTracks[mmsi]) {
+          const showPaths = document.getElementById('show-paths').checked;
+          if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
+            map.addLayer(vesselTracks[mmsi]);
+          }
+        }
+      }
+    }
+  }
+  if (document.getElementById('auto-zoom').checked) {
+    adjustMapBounds();
+  }
+}
     
         // Update the known vessels overlay.
         function updateOverlay() {
@@ -777,6 +841,8 @@ map.on('click', () => {
             entry.addEventListener('click', (event) => {
               event.stopPropagation();
               const userID = entry.getAttribute('data-userid');
+	      document.getElementById('stationary').checked = true;
+	      updateStationaryMarkers();
               focusOnVessel(userID);
             });
           });
@@ -1153,7 +1219,10 @@ map.on('click', () => {
         }
     
         // Listen for changes to the "Only Tracked" and "OpenSeaMap Overlay" checkboxes.
-        document.getElementById('only-focussed').addEventListener('change', updateFocussedVisibility);
+        document.getElementById('only-focussed').addEventListener('change', () => {
+  	    updateFocussedVisibility();
+	    updateStationaryMarkers(); // Reapply stationary filtering
+	});
         document.getElementById('openseamap-overlay').addEventListener('change', () => {
           const overlayEnabled = document.getElementById('openseamap-overlay').checked;
           if (overlayEnabled) {
@@ -1333,6 +1402,7 @@ map.on('click', () => {
           }
           updateOverlay();
           updateFocussedVisibility();
+	  updateStationaryMarkers();
           localStorage.setItem('vesselData', JSON.stringify(vesselData));
           if (document.getElementById('auto-zoom').checked) {
             adjustMapBounds();
@@ -1364,6 +1434,8 @@ map.on('click', () => {
             adjustMapBounds();
           }
         });
+
+	document.getElementById('stationary').addEventListener('change', updateStationaryMarkers);
     
         // Attach tooltip click listener.
         function attachTooltipClick(marker, userID) {
@@ -1583,6 +1655,7 @@ function showFlashMessage(message, parentEl) {
     
        window.addEventListener('load', () => {
          updateNoCallsignMarkers();
+	 updateStationaryMarkers();
          adjustMapBounds();
 	 // Check if a "UserID" query parameter exists in the URL.
 	 const urlParams = new URLSearchParams(window.location.search);
