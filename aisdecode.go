@@ -57,6 +57,28 @@ type dedupeState struct {
 	timestamp time.Time
 }
 
+var (
+	websocketDedupeWindow  []dedupeState
+	websocketDedupeMutex   sync.Mutex
+
+	aggregatorDedupeWindow []dedupeState
+	aggregatorDedupeMutex  sync.Mutex
+)
+
+// isDuplicateWithLock checks for duplicates while holding the given mutex.
+func isDuplicateWithLock(message string, window *[]dedupeState, mutex *sync.Mutex, duration time.Duration) bool {
+	mutex.Lock()
+	defer mutex.Unlock()
+	return isDuplicate(message, *window, duration)
+}
+
+// appendToWindowWithLock appends a deduplication entry while holding the given mutex.
+func appendToWindowWithLock(message string, window *[]dedupeState, mutex *sync.Mutex) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	*window = append(*window, dedupeState{message: message, timestamp: time.Now()})
+}
+
 // mergeMaps merges newData into baseData. Values in newData override those in baseData.
 func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} {
 	if baseData == nil {
@@ -170,6 +192,29 @@ func filterWindow(window []dedupeState, cutoff time.Time) []dedupeState {
 	return filtered
 }
 
+func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]map[string]interface{} {
+	summary := make(map[string]map[string]interface{})
+	// List of keys to include in the summary.
+	for id, v := range vessels {
+		summary[id] = map[string]interface{}{
+			"UserID":               v["UserID"],
+			"Name":                 v["Name"],
+			"CallSign":             v["CallSign"],
+			"LastUpdated":          v["LastUpdated"],
+			"NumMessages":          v["NumMessages"],
+			"Destination":          v["Destination"],
+			"Sog":                  v["Sog"],
+			"Type":                 v["Type"],
+			"MaximumStaticDraught": v["MaximumStaticDraught"],
+			"NavigationalStatus":   v["NavigationalStatus"],
+			"Latitude":   		v["Latitude"],
+			"Longitude":  		v["Longitude"],
+			"TrueHeading":  	v["TrueHeading"],
+		}
+	}
+	return summary
+}
+
 func main() {
 	// Command-line flags.
 	serialPort := flag.String("serial-port", "", "Serial port device (optional)")
@@ -239,9 +284,9 @@ func main() {
 		clients = append(clients, client)
 		clientsMutex.Unlock()
 
-		// Join the common room for latest vessel data.
-		client.Join(socket.Room("latest_vessel_data"))
-		log.Printf("Client %s joined room latest_vessel_data", client.Id())
+		// Force clients to join the latest vessel summary room.
+		client.Join(socket.Room("latest_vessel_summary"))
+		log.Printf("Client %s joined room latest_vessel_summary", client.Id())
 
 		// Listen for subscription events to join other rooms.
 		client.On("subscribe", func(args ...any) {
@@ -271,15 +316,16 @@ func main() {
 		})
 
 		vesselDataMutex.Lock()
-		latestData := filterCompleteVesselData(vesselData)
+		completeData := filterCompleteVesselData(vesselData)
+		summaryData := filterVesselSummary(completeData)
 		vesselDataMutex.Unlock()
-		latestDataJSON, err := json.Marshal(latestData)
+		summaryJSON, err := json.Marshal(summaryData)
 		if err != nil {
-			log.Printf("Error marshaling latest vessel data: %v", err)
+			log.Printf("Error marshaling latest vessel summary: %v", err)
 			return
 		}
-		if err := client.Emit("latest_vessel_data", string(latestDataJSON)); err != nil {
-			log.Printf("Error sending latest vessel data to client %s: %v", client.Id(), err)
+		if err := client.Emit("latest_vessel_summary", string(summaryJSON)); err != nil {
+			log.Printf("Error sending latest vessel summary to client %s: %v", client.Id(), err)
 		}
 		client.On("disconnect", func(args ...any) {
 			log.Printf("Socket.IO client disconnected: %s", client.Id())
@@ -328,6 +374,38 @@ func main() {
 		if err := json.NewEncoder(w).Encode(vessel); err != nil {
 			http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
 		}
+	})
+
+	http.HandleFunc("/summary/", func(w http.ResponseWriter, r *http.Request) {
+	    // Extract the vessel userid from the URL path.
+	    userID := strings.TrimPrefix(r.URL.Path, "/summary/")
+	    vesselDataMutex.Lock()
+	    defer vesselDataMutex.Unlock()
+
+	    // If no specific userID is provided, return summary data for all complete vessels.
+	    if userID == "" {
+	        completeData := filterCompleteVesselData(vesselData)
+	        summaryData := filterVesselSummary(completeData)
+	        w.Header().Set("Content-Type", "application/json")
+	        if err := json.NewEncoder(w).Encode(summaryData); err != nil {
+	            http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+	        }
+	        return
+	    }
+
+	    // Lookup the vessel data for the specified userID.
+	    vessel, exists := vesselData[userID]
+	    if !exists {
+	        http.Error(w, "Vessel not found", http.StatusNotFound)
+	        return
+	    }
+
+	    // Create a summary for the specific vessel.
+	    vesselSummary := filterVesselSummary(map[string]map[string]interface{}{userID: vessel})
+	    w.Header().Set("Content-Type", "application/json")
+	    if err := json.NewEncoder(w).Encode(vesselSummary[userID]); err != nil {
+	        http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+	    }
 	})
 
 
@@ -402,26 +480,27 @@ func main() {
 	defer udpListener.Close()
 
 	go func() {
-		buf := make([]byte, 1024)
-		for {
-			n, addr, err := udpListener.ReadFrom(buf)
-			if err != nil {
-				log.Printf("Error reading UDP message: %v", err)
-				continue
-			}
-			rawNmea := string(buf[:n])
-			currentTime := time.Now().UTC().Format(time.RFC3339Nano)
-			source := addr.String()
+	    buf := make([]byte, 1024)
+  	    for {
+		n, addr, err := udpListener.ReadFrom(buf)
+		if err != nil {
+			log.Printf("Error reading UDP message: %v", err)
+			continue
+		}
+		rawNmea := string(buf[:n])
+		currentTime := time.Now().UTC().Format(time.RFC3339Nano)
+		source := addr.String()
+		if *debug {
+			log.Printf("[DEBUG] Received from UDP (%s) at %s: %s", source, currentTime, rawNmea)
+		}
+		// Check deduplication before processing.
+		if *dedupeWindowDuration > 0 && isDuplicateWithLock(rawNmea, &aggregatorDedupeWindow, &aggregatorDedupeMutex, windowDuration) {
 			if *debug {
-				log.Printf("[DEBUG] Received from UDP (%s) at %s: %s", source, currentTime, rawNmea)
+				log.Printf("[DEBUG] Dropped duplicate message from %s at %s: %s", source, currentTime, rawNmea)
 			}
-			// Check deduplication before processing.
-			if *dedupeWindowDuration > 0 && isDuplicate(rawNmea, aggregatorDedupeWindow, windowDuration) {
-				if *debug {
-					log.Printf("[DEBUG] Dropped duplicate message from %s at %s: %s", source, currentTime, rawNmea)
-				}
-				continue
-			}
+			continue
+		}
+		appendToWindowWithLock(rawNmea, &aggregatorDedupeWindow, &aggregatorDedupeMutex)
 
 			decoded, err := nmeaCodec.ParseSentence(rawNmea)
 			if err != nil {
@@ -514,6 +593,7 @@ func main() {
 	}()
 
 	// --- Start a ticker routine to emit updates every updateInterval seconds if data has changed ---
+	// --- Start a ticker routine to emit updates every updateInterval seconds if data has changed ---
 	go func() {
 		ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
 		for range ticker.C {
@@ -533,25 +613,39 @@ func main() {
 			}
 			latestData := filterCompleteVesselData(vesselData)
 			vesselDataMutex.Unlock()
-
+	
 			changeMutex.Lock()
 			if changeAvailable {
 				changeAvailable = false
 				changeMutex.Unlock()
-				latestDataJSON, err := json.Marshal(latestData)
+				
+				// Create the summary data payload for clients.
+				summaryData := filterVesselSummary(latestData)
+				summaryJSON, err := json.Marshal(summaryData)
 				if err != nil {
-					log.Printf("Error marshaling latest vessel data: %v", err)
+					log.Printf("Error marshaling latest vessel summary: %v", err)
 					continue
 				}
 				clientsMutex.Lock()
 				for _, client := range clients {
 					go func(c *socket.Socket, msg string) {
-						if err := c.Emit("latest_vessel_data", msg); err != nil {
-							log.Printf("Error sending latest vessel data to client %s: %v", c.Id(), err)
+						if err := c.Emit("latest_vessel_summary", msg); err != nil {
+							log.Printf("Error sending latest vessel summary to client %s: %v", c.Id(), err)
 						}
-					}(client, string(latestDataJSON))
+					}(client, string(summaryJSON))
 				}
 				clientsMutex.Unlock()
+			
+				// Save the complete vessel data to state file.
+				latestDataJSON, err := json.Marshal(latestData)
+				if err != nil {
+					log.Printf("Error marshaling complete vessel data for state file: %v", err)
+				} else if !*noState {
+					if err := os.WriteFile(statePath, latestDataJSON, 0644); err != nil {
+						log.Printf("Error writing state file %s: %v", statePath, err)
+					}
+				}
+			
 				previousVesselData = deepCopyVesselData(latestData)
 				if *dumpVesselData {
 					indentJSON, err := json.MarshalIndent(latestData, "", "  ")
@@ -561,56 +655,43 @@ func main() {
 						log.Printf("Latest vessel data:\n%s", string(indentJSON))
 					}
 				}
-				// Save state unless disabled via -no-state.
-				if !*noState {
-					if err := os.WriteFile(statePath, latestDataJSON, 0644); err != nil {
-						log.Printf("Error writing state file %s: %v", statePath, err)
-					}
-				}
 			} else {
 				changeMutex.Unlock()
 			}
 		}
 	}()
 
+
 	// --- Read from serial port line-by-line (if -serial-port is specified) ---
 	if *serialPort != "" {
-		scanner := bufio.NewScanner(port)
-		for scanner.Scan() {
-			line := scanner.Text()
-			currentTime := time.Now().UTC().Format(time.RFC3339Nano)
-			source := "Serial"
+	    scanner := bufio.NewScanner(port)
+	    for scanner.Scan() {
+		line := scanner.Text()
+		currentTime := time.Now().UTC().Format(time.RFC3339Nano)
+		source := "Serial"
+		if *debug {
+			log.Printf("[DEBUG] Received from Serial (%s) at %s: %s", source, currentTime, line)
+		}
+		if len(line) == 0 || (line[0] != '!' && line[0] != '$') {
+			continue
+		}
+		// Check deduplication for the serial data.
+		if *dedupeWindowDuration > 0 && isDuplicateWithLock(line, &websocketDedupeWindow, &websocketDedupeMutex, windowDuration) {
 			if *debug {
-				log.Printf("[DEBUG] Received from Serial (%s) at %s: %s", source, currentTime, line)
+				log.Printf("[DEBUG] Dropped duplicate serial message (%s) at %s: %s", source, currentTime, line)
 			}
-			if len(line) == 0 || (line[0] != '!' && line[0] != '$') {
-				continue
-			}
-			if *dedupeWindowDuration > 0 && isDuplicate(line, websocketDedupeWindow, windowDuration) {
-				if *debug {
-					log.Printf("[DEBUG] Dropped duplicate serial message (%s) at %s: %s", source, currentTime, line)
-				}
-				continue
-			}
-			// Forward to aggregator if enabled.
-			if len(aggregatorConns) > 0 {
-			    for _, conn := range aggregatorConns {
-				if _, err := conn.Write([]byte(line)); err != nil {
-				    if *debug {
-				        log.Printf("[DEBUG] Error sending raw NMEA sentence over UDP to aggregator: %v", err)
-				    }
-				}
-			    }
-			}
-			// Record message in dedupe windows.
-			websocketDedupeWindow = append(websocketDedupeWindow, dedupeState{message: line, timestamp: time.Now()})
-			aggregatorDedupeWindow = append(aggregatorDedupeWindow, dedupeState{message: line, timestamp: time.Now()})
+			continue
+		}
+		appendToWindowWithLock(line, &websocketDedupeWindow, &websocketDedupeMutex)
+		// Also record in the aggregator dedupe window.
+		appendToWindowWithLock(line, &aggregatorDedupeWindow, &aggregatorDedupeMutex)
 
-			decoded, err := nmeaCodec.ParseSentence(line)
-			if err != nil {
-				log.Printf("Error decoding sentence: %v", err)
-				continue
-			}
+		// (Rest of your serial message processing code follows here...)
+		decoded, err := nmeaCodec.ParseSentence(line)
+		if err != nil {
+			log.Printf("Error decoding sentence: %v", err)
+			continue
+		}
 			if decoded == nil || decoded.Packet == nil {
 				continue
 			}

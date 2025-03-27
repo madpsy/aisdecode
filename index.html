@@ -44,7 +44,7 @@
           left: 10px;
           background: yellow;
           border: none;
-          padding: 10px 15px;
+          padding: 5px 5px;
           cursor: pointer;
           font-weight: bold;
           z-index: 1000;
@@ -187,7 +187,7 @@
           border: 1px solid #ccc;
           border-radius: 5px;
           padding: 10px;
-          width: 250px;
+          width: 290px;
           max-height: 400px;
           overflow-y: auto;
           z-index: 1200;
@@ -232,6 +232,61 @@
 
 <body>
     <div id="map"></div>
+	<div id="latlong-display" style="
+	    position: absolute;
+	    top: 10px;
+	    left: 50%;
+	    transform: translateX(-50%);
+	    background: rgba(255, 255, 255, 0.8);
+	    padding: 5px 10px;
+	    border-radius: 5px;
+	    z-index: 1100;
+	    font-family: Arial, sans-serif;
+	    font-size: 14px;
+	">
+	  0, 0
+	</div>
+<div id="nm-scale" style="
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.8);
+    padding: 5px 10px;
+    border-radius: 5px;
+    z-index: 1100;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    text-align: center;
+">
+  <div id="scale-bar" style="
+      position: relative;
+      width: 100px;
+      height: 4px;
+      background: black;
+      margin-bottom: 2px;
+  ">
+    <!-- Left tick -->
+    <div style="
+        position: absolute;
+        left: 0;
+        top: -4px;
+        width: 2px;
+        height: 12px;
+        background: black;
+    "></div>
+    <!-- Right tick -->
+    <div style="
+        position: absolute;
+        right: 0;
+        top: -4px;
+        width: 2px;
+        height: 12px;
+        background: black;
+    "></div>
+  </div>
+  <div id="scale-label">0 NM</div>
+</div>
 
     <!-- Controls Overlay -->
     <div id="controls">
@@ -289,7 +344,7 @@
             <span id="live-logs-title">Live Messages</span>
             <button id="close-live-logs">X</button>
         </div>
-        <div id="live-logs-filters" style="padding: 5px; border-bottom: 1px solid #ccc; font-size: 12px;">
+        <div id="live-logs-filters" style="padding: 2px; border-bottom: 1px solid #ccc; font-size: 12px;">
             <label style="white-space: nowrap;">
       <input type="checkbox" class="log-filter" value="ais.PositionReport" checked> Position
     </label>
@@ -297,10 +352,10 @@
       <input type="checkbox" class="log-filter" value="ais.ShipStaticData" checked> Static
     </label>
             <label style="white-space: nowrap;">
-      <input type="checkbox" class="log-filter" value="ais.StandardClassBPositionReport" checked> Std. Class B
+      <input type="checkbox" class="log-filter" value="ais.StandardClassBPositionReport" checked> Std. B
     </label>
             <label style="white-space: nowrap;">
-      <input type="checkbox" class="log-filter" value="ais.ExtendedClassBPositionReport" checked> Ext. Class B
+      <input type="checkbox" class="log-filter" value="ais.ExtendedClassBPositionReport" checked> Ext. B
     </label>
             <input type="text" id="live-log-search" placeholder="Search logs..." style="width:100%; margin-top:5px; padding:3px; font-size:12px;">
         </div>
@@ -337,6 +392,12 @@
       "ais.StandardClassBPositionReport": true,
       "ais.ExtendedClassBPositionReport": true
     };
+
+	map.on('mousemove', function(e) {
+	  document.getElementById('latlong-display').textContent =
+	    `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
+	});
+
     
         // Helper function to clear all live logs and show a placeholder.
         function clearLiveLogs() {
@@ -1122,7 +1183,7 @@
         });
     
         // Listen on "latest_vessel_data" which now provides a complete vessel state object.
-        socket.on("latest_vessel_data", (data) => {
+        socket.on("latest_vessel_summary", (data) => {
           if (typeof data === "string") {
             try {
               data = JSON.parse(data);
@@ -1317,7 +1378,31 @@
             }
           }, 0);
         }
-    
+
+	let lastFetchedUserID = null;
+
+	function fetchMissingData(userID) {
+	  // Only fetch if this vessel hasn't already had its missing data fetched this selection.
+	  if (lastFetchedUserID === userID) return;
+  
+	  fetch(`/state/${userID}`)
+	    .then(response => {
+	      if (!response.ok) {
+	        throw new Error(`Network response was not ok (${response.status})`);
+	      }
+	      return response.json();
+	    })
+	    .then(data => {
+	      Object.assign(vesselData[userID], data);
+	      updateVesselDetailOverlay();
+	      lastFetchedUserID = userID;
+	    })
+	    .catch(err => {
+	      console.error("Error fetching missing vessel data:", err);
+	    });
+	}
+  
+
         // Focus on a particular vessel.
         function focusOnVessel(userID, initialFocus = true) {
           if (focusedVessel !== userID) {
@@ -1356,6 +1441,9 @@
           }
           const detailContent = createDetailContent(vesselData[userID]);
           document.getElementById('detail-content').innerHTML = detailContent;
+
+	  // Fetch missing data from /state/<UserID> and update overlay.
+	  fetchMissingData(userID);
           
           if (initialFocus || document.getElementById('auto-zoom').checked) {
             let bounds = L.latLngBounds([]);
@@ -1436,7 +1524,33 @@
       updateNoCallsignMarkers();
       updateFocussedVisibility();
     });
-    
+
+// Conversion: 1 nautical mile = 1852 meters.
+function updateNauticalScale() {
+  const scaleLabel = document.getElementById('scale-label');
+  // Fixed pixel length for the scale bar (100px in this example)
+  const scalePx = 100;
+  const center = map.getCenter();
+  // Convert the center to container coordinates.
+  const point = map.latLngToContainerPoint(center);
+  // Create a point that is 'scalePx' pixels to the right.
+  const pointX = L.point(point.x + scalePx, point.y);
+  // Convert that back to geographic coordinates.
+  const latLngX = map.containerPointToLatLng(pointX);
+  // Calculate the distance in meters.
+  const distanceMeters = center.distanceTo(latLngX);
+  // Convert meters to nautical miles.
+  const distanceNM = distanceMeters / 1852;
+  // Update the scale label with the value rounded to one decimal place.
+  scaleLabel.textContent = `${distanceNM.toFixed(1)} NM`;
+}
+
+// Update the scale whenever the map is zoomed or moved.
+map.on('zoomend moveend', updateNauticalScale);
+// Call once to set the initial scale.
+updateNauticalScale();
+
+
     document.getElementById('live-log-search').addEventListener('input', applyLogFilters);
     
         // Utility: Generate a random hex color.
