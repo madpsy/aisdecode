@@ -467,8 +467,6 @@ func main() {
 	    }()
 	}
 
-	var websocketDedupeWindow []dedupeState
-	var aggregatorDedupeWindow []dedupeState
 	windowDuration := time.Duration(*dedupeWindowDuration) * time.Millisecond
 
 	// --- Start UDP listener for incoming NMEA data ---
@@ -686,7 +684,20 @@ func main() {
 		// Also record in the aggregator dedupe window.
 		appendToWindowWithLock(line, &aggregatorDedupeWindow, &aggregatorDedupeMutex)
 
-		// (Rest of your serial message processing code follows here...)
+       		 if len(aggregatorConns) > 0 {
+       		     for _, conn := range aggregatorConns {
+      		          if _, err := conn.Write([]byte(line)); err != nil {
+		                    if *debug {
+		                        log.Printf("[DEBUG] Error sending raw NMEA sentence over UDP to aggregator: %v", err)
+		                    }
+		                } else {
+		                    if *debug {
+		                        log.Printf("[DEBUG] Forwarded raw NMEA sentence over UDP to aggregator: %s", line)
+		                    }
+		                }
+		            }
+		        }
+
 		decoded, err := nmeaCodec.ParseSentence(line)
 		if err != nil {
 			log.Printf("Error decoding sentence: %v", err)
