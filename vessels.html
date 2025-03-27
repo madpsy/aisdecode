@@ -8,12 +8,10 @@
   <!-- Include DataTables CSS -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
   <style>
-    /* Remove extra margin/padding from the DataTables wrapper */
     .dataTables_wrapper {
       margin: 0;
       padding: 0;
     }
-    /* Ensure the table takes full width */
     table.dataTable {
       width: 100%;
     }
@@ -22,7 +20,6 @@
 <body>
 <div class="container-fluid p-0">
   <h2 class="text-center py-3">Vessel Data</h2>
-  <!-- Removed row/column grid so table uses full width -->
   <table id="stateTable" class="table table-striped table-bordered">
     <thead>
       <tr>
@@ -53,45 +50,72 @@
 <!-- Include DataTables JS -->
 <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
 <script>
-  // Fetch state data from the /state/ endpoint
-  fetch('/state/')
-    .then(response => response.json())
-    .then(data => {
-      let tbody = '';
-      // Iterate over data objects keyed by UserID
-      Object.keys(data).forEach(userID => {
-        let item = data[userID];
-        tbody += '<tr>' +
-          '<td>' + item.UserID + '</td>' +
-          '<td>' + item.Name + '</td>' +
-          '<td>' + item.CallSign + '</td>' +
-          '<td>' + item.Destination + '</td>' +
-          '<td>' + new Date(item.LastUpdated).toLocaleString() + '</td>' +
-          '<td>' + item.Latitude + '</td>' +
-          '<td>' + item.Longitude + '</td>' +
-          '<td>' + item.Cog + '</td>' +
-          '<td>' + item.Sog + '</td>' +
-          '<td>' + item.Type + '</td>' +
-          '<td>' + item.MaximumStaticDraught + '</td>' +
-          '<td>' + item.NumMessages + '</td>' +
-          '<td>' + item.ImoNumber + '</td>' +
-          '<td>' + item.TrueHeading + '</td>' +
-          '</tr>';
-      });
-      document.querySelector('#stateTable tbody').innerHTML = tbody;
+  let table;
 
-      // Initialize DataTables with custom DOM, page length, and responsive settings
-      $('#stateTable').DataTable({
-        responsive: true,
-        pageLength: 100,
-        // DOM configuration to place search and length dropdown on the same row.
-        dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>" +
-             "<'row'<'col-sm-12'tr>>" +
-             "<'row'<'col-sm-5'i><'col-sm-7'p>>",
-        order: [[0, "asc"]]  // Default sorting by UserID
-      });
-    })
-    .catch(error => console.error('Error fetching state data:', error));
+  // Function to fetch and update the table data
+  function updateData() {
+    fetch('/state/')
+      .then(response => response.json())
+      .then(data => {
+        let newData = [];
+        Object.keys(data).forEach(userID => {
+          const item = data[userID];
+          newData.push([
+            item.UserID || '',
+            item.Name || '',
+            item.CallSign || '',
+            item.Destination || '',
+            item.LastUpdated ? new Date(item.LastUpdated).toLocaleString() : '',
+            item.Latitude || '',
+            item.Longitude || '',
+            item.Cog || '',
+            item.Sog || '',
+            item.Type || '',
+            item.MaximumStaticDraught || '',
+            item.NumMessages || '',
+            item.ImoNumber || '',
+            item.TrueHeading || ''
+          ]);
+        });
+        table.clear();
+        table.rows.add(newData);
+        table.draw(false);
+      })
+      .catch(error => console.error('Error fetching state data:', error));
+  }
+
+  $(document).ready(function() {
+    // Initialize DataTable with explicit column definitions
+    table = $('#stateTable').DataTable({
+      responsive: true,
+      pageLength: 100,
+      dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>" +
+           "<'row'<'col-sm-12'tr>>" +
+           "<'row'<'col-sm-5'i><'col-sm-7'p>>",
+      order: [[0, "asc"]],
+      columns: [
+        { title: "MMSI" },
+        { title: "Name" },
+        { title: "CallSign" },
+        { title: "Destination" },
+        { title: "Last Updated" },
+        { title: "Latitude" },
+        { title: "Longitude" },
+        { title: "Cog" },
+        { title: "Sog" },
+        { title: "Type" },
+        { title: "Max Static Draught" },
+        { title: "NumMessages" },
+        { title: "ImoNumber" },
+        { title: "True Heading" }
+      ]
+    });
+
+    // Initial data fetch
+    updateData();
+    // Poll the source every 10 seconds for updates
+    setInterval(updateData, 10000);
+  });
 </script>
 </body>
 </html>
