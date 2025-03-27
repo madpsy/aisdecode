@@ -9,7 +9,7 @@ AIS Decoder and Web based Tracker for serial (and USB) NMEA hardware. Tested wit
 ```
 Usage of aisdecode:
   -aggregator string
-    	Aggregator host/ip:port (optional)
+    	Comma delimited list of aggregator host/ip:port (optional)
   -baud int
     	Baud rate (default: 38400), ignored if -serial-port is not specified (default 38400)
   -debug
@@ -26,6 +26,8 @@ Usage of aisdecode:
     	Serial port device (optional)
   -show-decodes
     	Output the decoded messages
+  -state-file string
+    	Path to state file (optional). Overrides the default location of web-root/state.json
   -udp-listen-port int
     	UDP listen port for incoming NMEA data (default: 8101)
   -update-interval int
