@@ -27,7 +27,7 @@
         <th>Country</th>
         <th>Name</th>
         <th>CallSign</th>
-        <th>AISType</th>
+        <th>AISClass</th>
         <th>Destination</th>
         <th>Last Updated</th>
         <th>Latitude</th>
@@ -83,7 +83,7 @@
             country || '',
             item.Name || '',
             item.CallSign || '',
-            item.AISType || '',
+            item.AISClass || '',
             item.Destination || '',
             item.LastUpdated ? new Date(item.LastUpdated).toLocaleString() : '',
             item.Latitude || '',
@@ -118,7 +118,7 @@
         { title: "Country" },
         { title: "Name" },
         { title: "CallSign" },
-        { title: "AISType" },
+        { title: "AISClass" },
         { title: "Destination" },
         { title: "Last Updated" },
         { title: "Latitude" },
