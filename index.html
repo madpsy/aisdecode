@@ -410,10 +410,11 @@
     };
 
 	map.on('mousemove', function(e) {
-	  document.getElementById('latlong-display').textContent =
-	    `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
+	  if (!focusedVessel) {
+	    document.getElementById('latlong-display').textContent =
+	      `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
+	  }
 	});
-
 
         // Helper function to clear all live logs and show a placeholder.
         function clearLiveLogs() {
@@ -613,6 +614,19 @@ function createBoatIcon(type) {
     popupAnchor: [0, -25]
   });
 }
+
+function updateLatLongDisplay() {
+  const latlongDisplay = document.getElementById('latlong-display');
+  if (focusedVessel && vesselData[focusedVessel]) {
+    const lat = vesselData[focusedVessel].Latitude;
+    const lon = vesselData[focusedVessel].Longitude;
+    if (typeof lat === 'number' && typeof lon === 'number') {
+      latlongDisplay.innerHTML = `<strong>${lat.toFixed(4)}, ${lon.toFixed(4)}</strong>`;
+    }
+  }
+}
+setInterval(updateLatLongDisplay, 500);
+
 
         // Global objects to store markers, vessel data, and track histories.
         const vesselMarkers = {};
