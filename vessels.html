@@ -24,6 +24,7 @@
     <thead>
       <tr>
         <th>MMSI</th>
+        <th>Country</th>
         <th>Name</th>
         <th>CallSign</th>
         <th>AISType</th>
@@ -52,6 +53,15 @@
 <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
 <script>
   let table;
+  let midsMapping = {};
+
+  // Load mids.json mapping on page load
+  fetch('/mids.json')
+    .then(response => response.json())
+    .then(data => {
+      midsMapping = data;
+    })
+    .catch(error => console.error('Error fetching mids mapping:', error));
 
   // Function to fetch and update the table data
   function updateData() {
@@ -61,8 +71,16 @@
         let newData = [];
         Object.keys(data).forEach(userID => {
           const item = data[userID];
+          // Look up the country name using the MID field.
+          // We assume that item.MID corresponds to a key in midsMapping.
+          let country = '';
+          if(item.MID && midsMapping[item.MID]) {
+            // The country name is the 4th element in the array (index 3)
+            country = midsMapping[item.MID][3] || '';
+          }
           newData.push([
             item.UserID || '',
+            country || '',
             item.Name || '',
             item.CallSign || '',
             item.AISType || '',
@@ -97,6 +115,7 @@
       order: [[0, "asc"]],
       columns: [
         { title: "MMSI" },
+        { title: "Country" },
         { title: "Name" },
         { title: "CallSign" },
         { title: "AISType" },

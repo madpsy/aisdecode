@@ -115,13 +115,13 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
         if shipType, ok := reportB["ShipType"]; ok {
             baseData["Type"] = shipType
         }
-        // Mark AISType as "B" because ReportB is present.
-        baseData["AISType"] = "B"
+        // Mark AISClass as "B" because ReportB is present.
+        baseData["AISClass"] = "B"
     }
     
-    // Default AISType to "A" if it has not been set yet.
-    if _, ok := baseData["AISType"]; !ok {
-        baseData["AISType"] = "A"
+    // Default AISClass to "A" if it has not been set yet.
+    if _, ok := baseData["AISClass"]; !ok {
+        baseData["AISClass"] = "A"
     }
     
     return baseData
@@ -290,6 +290,8 @@ func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]m
 			"Latitude":   		v["Latitude"],
 			"Longitude":  		v["Longitude"],
 			"TrueHeading":  	v["TrueHeading"],
+			"AISClass":             v["AISClass"],
+			"MID":                  v["MID"],
 		}
 	}
 	return summary
@@ -633,11 +635,11 @@ func main() {
 		    continue
 		}
 		vesselID := fmt.Sprintf("%.0f", userIDFloat)
-		var MID string
+		var MID int
 		if len(vesselID) >= 3 {
-		    MID = vesselID[:3]
+		    MID, _ = strconv.Atoi(vesselID[:3])
 		} else {
-		    MID = vesselID
+		    MID, _ = strconv.Atoi(vesselID)
 		}
 		newData["MID"] = MID
 
@@ -846,11 +848,11 @@ func main() {
 			    continue
 			}
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
-			var MID string
+			var MID int
 			if len(vesselID) >= 3 {
-			    MID = vesselID[:3]
+			    MID, _ = strconv.Atoi(vesselID[:3])
 			} else {
-			    MID = vesselID
+			    MID, _ = strconv.Atoi(vesselID)
 			}
 			newData["MID"] = MID
 	

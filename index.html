@@ -376,6 +376,21 @@
         const isMobile = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
+
+	let mids = {};
+	fetch('mids.json')
+	  .then(response => {
+	    if (!response.ok) {
+	      throw new Error(`Network error: ${response.status}`);
+	    }
+	    return response.json();
+	  })
+	  .then(data => {
+	    mids = data;
+	  })
+	  .catch(error => {
+	    console.error('Error loading mids.json:', error);
+	  });
     
         // Global variable to store the currently focused vessel (if any).
         let focusedVessel = null;
@@ -578,34 +593,46 @@ map.on('click', () => {
         /**
          * Build popup content from vessel data.
          */
-    function createPopupContent(data) {
-      const lines = [];
-      let name = data.Name ? data.Name : "Unknown Vessel";
-      // Append callsign in brackets next to the name if it exists
-      if (data.CallSign) {
-        name += ` (${data.CallSign})`;
-      }
-      const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : "N/A";
-      lines.push(`<strong>${name}</strong>`);
-      lines.push(`Last Update: ${lastSeen}`);
-      lines.push(`MMSI: ${data.UserID}`);
-      lines.push(`Destination: ${data.Destination && data.Destination.trim() !== "" ? data.Destination : 'NO DEST'}`);
-      if (data.Sog !== undefined) { lines.push(`Speed Over Ground: ${data.Sog} kn`); }
-      if (data.Type !== undefined) { 
-        const typeDescription = staticTypeMapping[data.Type] || data.Type;
-        lines.push(`Type: ${typeDescription}`);
-      }
-      if (data.MaximumStaticDraught !== undefined) { 
-        lines.push(`Maximum Draught: ${data.MaximumStaticDraught} m`); 
-      }
-      if (data.NavigationalStatus !== undefined) {
-        const navStatusDescription = navigationalStatusMapping[data.NavigationalStatus] || data.NavigationalStatus;
-        lines.push(`Nav Status: ${navStatusDescription}`);
-      }
-      return `<div class="popup-content">${lines.join('<br>')}</div>`;
+function createPopupContent(data) {
+  const lines = [];
+  let name = data.Name ? data.Name : "Unknown Vessel";
+  if (data.CallSign) {
+    name += ` (${data.CallSign})`;
+  }
+  const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : "N/A";
+  lines.push(`<strong>${name}</strong>`);
+  lines.push(`Last Update: ${lastSeen}`);
+  lines.push(`MMSI: ${data.UserID}`);
+  
+  // Use the lookupMID function to display the 3-character MID code
+  if (data.MID) {
+    const midCode = lookupMID(data.MID);
+    lines.push(`Country: ${midCode}`);
+  }
+  
+  lines.push(`Destination: ${data.Destination && data.Destination.trim() !== "" ? data.Destination : 'NO DEST'}`);
+  if (data.Sog !== undefined) { lines.push(`Speed Over Ground: ${data.Sog} kn`); }
+  if (data.Type !== undefined) { 
+    const typeDescription = staticTypeMapping[data.Type] || data.Type;
+    lines.push(`Type: ${typeDescription}`);
+  }
+  if (data.MaximumStaticDraught !== undefined) { 
+    lines.push(`Maximum Draught: ${data.MaximumStaticDraught} m`); 
+  }
+  if (data.NavigationalStatus !== undefined) {
+    const navStatusDescription = navigationalStatusMapping[data.NavigationalStatus] || data.NavigationalStatus;
+    lines.push(`Nav Status: ${navStatusDescription}`);
+  }
+  return `<div class="popup-content">${lines.join('<br>')}</div>`;
+}
+
+    
+   function lookupMID(mid) {
+    if (mids.hasOwnProperty(mid)) {
+       return mids[mid][3] || "Unknown";
     }
-    
-    
+    return "Unknown";
+   }
     
     
         function createDetailContent(data) {
@@ -613,6 +640,10 @@ map.on('click', () => {
           const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : "N/A";
           lines.push(`Last Update: ${lastSeen}`);
           lines.push(`MMSI: ${data.UserID}`);
+	  if (data.MID) {
+	    const midCode = lookupMID(data.MID);
+	    lines.push(`Country: ${midCode}`);
+	  }
           if (data.CallSign) { lines.push(`Call Sign: ${data.CallSign}`); }
           if (data.ImoNumber) { lines.push(`IMO Number: ${data.ImoNumber}`); }
           lines.push(`Destination: ${data.Destination && data.Destination.trim() !== "" ? data.Destination : 'NO DEST'}`);
