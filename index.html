@@ -625,7 +625,6 @@ function updateLatLongDisplay() {
     }
   }
 }
-setInterval(updateLatLongDisplay, 500);
 
 
         // Global objects to store markers, vessel data, and track histories.
@@ -1080,6 +1079,9 @@ if (!showStationary) {
             // Update popup content with the updated data.
             const popupContent = createPopupContent(vesselData[userID]);
             vesselMarkers[userID].getPopup().setContent(popupContent);
+            if (focusedVessel === userID) {
+              updateLatLongDisplay();
+            }
 
             // If a new TrueHeading is provided, update the marker's rotation.
             if (message.data.TrueHeading !== undefined) {
@@ -1585,6 +1587,8 @@ function focusOnVessel(userID, initialFocus = true) {
   focusedVessel = userID;
   vesselMarkers[userID].setZIndexOffset(1000);
   const vessel = vesselData[userID];
+
+  updateLatLongDisplay();
 
   // Build two lines for additional details.
   // For example, line 1: Destination and Navigation Status.
