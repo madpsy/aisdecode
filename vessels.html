@@ -26,6 +26,7 @@
         <th>MMSI</th>
         <th>Name</th>
         <th>CallSign</th>
+        <th>AISType</th>
         <th>Destination</th>
         <th>Last Updated</th>
         <th>Latitude</th>
@@ -64,6 +65,7 @@
             item.UserID || '',
             item.Name || '',
             item.CallSign || '',
+            item.AISType || '',
             item.Destination || '',
             item.LastUpdated ? new Date(item.LastUpdated).toLocaleString() : '',
             item.Latitude || '',
@@ -97,6 +99,7 @@
         { title: "MMSI" },
         { title: "Name" },
         { title: "CallSign" },
+        { title: "AISType" },
         { title: "Destination" },
         { title: "Last Updated" },
         { title: "Latitude" },

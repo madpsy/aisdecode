@@ -96,6 +96,7 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
             baseData["Name"] = name
         }
     }
+
     // Elevate selected fields from ReportB while keeping the nested structure.
     if reportB, ok := newData["ReportB"].(map[string]interface{}); ok {
         // Elevate CallSign from ReportB.
@@ -114,34 +115,43 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
         if shipType, ok := reportB["ShipType"]; ok {
             baseData["Type"] = shipType
         }
+        // Mark AISType as "B" because ReportB is present.
+        baseData["AISType"] = "B"
     }
-
+    
+    // Default AISType to "A" if it has not been set yet.
+    if _, ok := baseData["AISType"]; !ok {
+        baseData["AISType"] = "A"
+    }
+    
     return baseData
 }
 
 // filterCompleteVesselData filters vessels that have all required fields.
 func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[string]map[string]interface{} {
-	filteredData := make(map[string]map[string]interface{})
-	for id, vesselInfo := range vesselData {
-		hasLat := vesselInfo["Latitude"] != nil
-		hasLon := vesselInfo["Longitude"] != nil
-
-		// Set default for CallSign if missing.
-		if vesselInfo["CallSign"] == nil {
-			vesselInfo["CallSign"] = "NOCALL"
-		}
-
-		// Set default for Name if missing or empty.
-		if name, ok := vesselInfo["Name"].(string); !ok || strings.TrimSpace(name) == "" {
-			vesselInfo["Name"] = "NONAME"
-		}
-
-		// Only include vessels with required Latitude and Longitude.
-		if hasLat && hasLon {
-			filteredData[id] = vesselInfo
-		}
-	}
-	return filteredData
+    filteredData := make(map[string]map[string]interface{})
+    for id, vesselInfo := range vesselData {
+        // Check if Latitude and Longitude exist and are valid numbers.
+        lat, latOk := vesselInfo["Latitude"].(float64)
+        lon, lonOk := vesselInfo["Longitude"].(float64)
+        if !latOk || !lonOk {
+            continue
+        }
+        // As an extra precaution, ensure the numbers fall within valid ranges.
+        if lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+            continue
+        }
+        // Set default for CallSign if missing.
+        if vesselInfo["CallSign"] == nil {
+            vesselInfo["CallSign"] = "NOCALL"
+        }
+        // Set default for Name if missing or empty.
+        if name, ok := vesselInfo["Name"].(string); !ok || strings.TrimSpace(name) == "" {
+            vesselInfo["Name"] = "NONAME"
+        }
+        filteredData[id] = vesselInfo
+    }
+    return filteredData
 }
 
 // isInterfaceMapEqual compares two maps recursively.
@@ -226,19 +236,41 @@ func filterWindow(window []dedupeState, cutoff time.Time) []dedupeState {
 }
 
 func cleanInvalidData(data map[string]interface{}) {
+    // Clean TrueHeading: remove if set to 511.
     if th, ok := data["TrueHeading"].(float64); ok && th == 511 {
         delete(data, "TrueHeading")
     }
+    // Clean Cog: remove if set to 360.
     if cog, ok := data["Cog"].(float64); ok && cog == 360 {
         delete(data, "Cog")
     }
-    if lat, ok := data["Latitude"].(float64); ok && lat == 91 {
-        delete(data, "Latitude")
+    // Validate Latitude.
+    if latVal, exists := data["Latitude"]; exists {
+        if lat, ok := latVal.(float64); ok {
+            // Remove if latitude is outside the valid range.
+            if lat < -90 || lat > 90 {
+                delete(data, "Latitude")
+            }
+        } else {
+            // If not a valid float (for example an empty string), remove it.
+            delete(data, "Latitude")
+        }
     }
-    if lon, ok := data["Longitude"].(float64); ok && lon == 181 {
-        delete(data, "Longitude")
+    // Validate Longitude.
+    if lonVal, exists := data["Longitude"]; exists {
+        if lon, ok := lonVal.(float64); ok {
+            // Remove if longitude is outside the valid range.
+            if lon < -180 || lon > 180 {
+                delete(data, "Longitude")
+            }
+        } else {
+            // If not a valid float (for example an empty string), remove it.
+            delete(data, "Longitude")
+        }
     }
 }
+
+
 
 func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]map[string]interface{} {
 	summary := make(map[string]map[string]interface{})
