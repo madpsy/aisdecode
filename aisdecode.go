@@ -633,6 +633,14 @@ func main() {
 		    continue
 		}
 		vesselID := fmt.Sprintf("%.0f", userIDFloat)
+		var MID string
+		if len(vesselID) >= 3 {
+		    MID = vesselID[:3]
+		} else {
+		    MID = vesselID
+		}
+		newData["MID"] = MID
+
 		roomName := "ais_data/" + vesselID
 		if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", string(finalMsg)); err != nil {
 		    log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
@@ -838,6 +846,14 @@ func main() {
 			    continue
 			}
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
+			var MID string
+			if len(vesselID) >= 3 {
+			    MID = vesselID[:3]
+			} else {
+			    MID = vesselID
+			}
+			newData["MID"] = MID
+	
 			roomName := "ais_data/" + vesselID
 			if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", string(finalMsg)); err != nil {
 			    log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
