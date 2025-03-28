@@ -143,11 +143,11 @@ func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[
         }
         // Set default for CallSign if missing.
         if vesselInfo["CallSign"] == nil {
-            vesselInfo["CallSign"] = "NOCALL"
+            vesselInfo["CallSign"] = "NO CALL"
         }
         // Set default for Name if missing or empty.
         if name, ok := vesselInfo["Name"].(string); !ok || strings.TrimSpace(name) == "" {
-            vesselInfo["Name"] = "NONAME"
+            vesselInfo["Name"] = "NO NAME"
         }
         filteredData[id] = vesselInfo
     }

@@ -306,15 +306,11 @@
     <input type="checkbox" id="openseamap-overlay" checked>
     Map Overlay
   </label>
-        <label>
-    <input type="checkbox" id="filter-nocallsign">
-    No Callsign
-  </label>
-        <label>
+  <label>
     <input type="checkbox" id="show-paths" checked>
     Show Paths
   </label>
-        <label>
+  <label>
     <input type="checkbox" id="stationary" checked>
     Stationary
   </label>
@@ -472,26 +468,26 @@ map.on('click', () => {
         };
     
         const staticTypeMapping = {
-          0: "Not available (default)",
-          1: "Reserved for future use",
-          2: "Reserved for future use",
-          3: "Reserved for future use",
-          4: "Reserved for future use",
-          5: "Reserved for future use",
-          6: "Reserved for future use",
-          7: "Reserved for future use",
-          8: "Reserved for future use",
-          9: "Reserved for future use",
-          10: "Reserved for future use",
-          11: "Reserved for future use",
-          12: "Reserved for future use",
-          13: "Reserved for future use",
-          14: "Reserved for future use",
-          15: "Reserved for future use",
-          16: "Reserved for future use",
-          17: "Reserved for future use",
-          18: "Reserved for future use",
-          19: "Reserved for future use",
+          0: "Not available",
+          1: "Reserved",
+          2: "Reserved",
+          3: "Reserved",
+          4: "Reserved",
+          5: "Reserved",
+          6: "Reserved",
+          7: "Reserved",
+          8: "Reserved",
+          9: "Reserved",
+          10: "Reserved",
+          11: "Reserved",
+          12: "Reserved",
+          13: "Reserved",
+          14: "Reserved",
+          15: "Reserved",
+          16: "Reserved",
+          17: "Reserved",
+          18: "Reserved",
+          19: "Reserved",
           20: "Wing in ground (WIG)",
           21: "Wing in ground (WIG)",
           22: "Wing in ground (WIG)",
@@ -504,7 +500,7 @@ map.on('click', () => {
           29: "Wing in ground (WIG)",
           30: "Fishing",
           31: "Towing",
-          32: "Towing: length exceeds 200m or breadth exceeds 25m",
+          32: "Towing: length>200m, breadth>25m",
           33: "Dredging or underwater ops",
           34: "Diving ops",
           35: "Military ops",
@@ -531,7 +527,7 @@ map.on('click', () => {
           56: "Spare - Local Vessel",
           57: "Spare - Local Vessel",
           58: "Medical Transport",
-          59: "Noncombatant ship according to RR Resolution No. 18",
+          59: "Noncombatant ship",
           60: "Passenger",
           61: "Passenger",
           62: "Passenger",
@@ -595,36 +591,43 @@ map.on('click', () => {
          */
 function createPopupContent(data) {
   const lines = [];
+  // Top line: Always show name, callsign, and class.
   let name = data.Name ? data.Name : "Unknown Vessel";
   if (data.CallSign) {
     name += ` (${data.CallSign})`;
   }
-  const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : "N/A";
+  if (data.AISClass) {
+    name += ` | ${data.AISClass}`;
+  }
   lines.push(`<strong>${name}</strong>`);
-  lines.push(`Last Update: ${lastSeen}`);
-  lines.push(`MMSI: ${data.UserID}`);
   
-  // Use the lookupMID function to display the 3-character MID code
+  // Add subsequent lines only if they have valid (non-null/non-empty) values.
+  addLine(lines, "Last Update", data.lastUpdate ? timeAgo(data.lastUpdate) : null);
+  addLine(lines, "MMSI", data.UserID);
+  
   if (data.MID) {
     const midCode = lookupMID(data.MID);
-    lines.push(`Country: ${midCode}`);
+    addLine(lines, "Country", midCode);
   }
   
-  lines.push(`Destination: ${data.Destination && data.Destination.trim() !== "" ? data.Destination : 'NO DEST'}`);
-  if (data.Sog !== undefined) { lines.push(`Speed Over Ground: ${data.Sog} kn`); }
+  addLine(lines, "Destination", data.Destination && data.Destination.trim() !== "" ? data.Destination : null);
+  addLine(lines, "Speed Over Ground", (data.Sog != null ? `${data.Sog} kn` : null));
+  
   if (data.Type !== undefined) { 
     const typeDescription = staticTypeMapping[data.Type] || data.Type;
-    lines.push(`Type: ${typeDescription}`);
+    addLine(lines, "Type", typeDescription);
   }
-  if (data.MaximumStaticDraught !== undefined) { 
-    lines.push(`Maximum Draught: ${data.MaximumStaticDraught} m`); 
-  }
+  
+  addLine(lines, "Maximum Draught", (data.MaximumStaticDraught != null ? `${data.MaximumStaticDraught} m` : null));
+  
   if (data.NavigationalStatus !== undefined) {
     const navStatusDescription = navigationalStatusMapping[data.NavigationalStatus] || data.NavigationalStatus;
-    lines.push(`Nav Status: ${navStatusDescription}`);
+    addLine(lines, "Nav Status", navStatusDescription);
   }
+  
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
 }
+
 
     
    function lookupMID(mid) {
@@ -634,84 +637,112 @@ function createPopupContent(data) {
     return "Unknown";
    }
     
+
+function buildTooltipLine(...values) {
+  return values
+    .filter(val => val !== null && val !== undefined && (typeof val === "string" ? val.trim() !== "" : true))
+    .join(" | ");
+}
     
-        function createDetailContent(data) {
-          const lines = [];
-          const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : "N/A";
-          lines.push(`Last Update: ${lastSeen}`);
-          lines.push(`MMSI: ${data.UserID}`);
-	  if (data.MID) {
-	    const midCode = lookupMID(data.MID);
-	    lines.push(`Country: ${midCode}`);
-	  }
-          if (data.CallSign) { lines.push(`Call Sign: ${data.CallSign}`); }
-          if (data.ImoNumber) { lines.push(`IMO Number: ${data.ImoNumber}`); }
-          lines.push(`Destination: ${data.Destination && data.Destination.trim() !== "" ? data.Destination : 'NO DEST'}`);
-          if (data.Sog !== undefined) { lines.push(`Speed Over Ground: ${data.Sog} kn`); }
-          if (data.Cog !== undefined) { lines.push(`Course Over Ground: ${data.Cog}°`); }
-          if (data.Type !== undefined) { 
-            const typeDescription = staticTypeMapping[data.Type] || data.Type;
-            lines.push(`Type: ${typeDescription}`);
-          }
-          if (data.Dimension) {
-            const d = data.Dimension;
-            lines.push(`Dimensions (from ref):`);
-            lines.push(`- bow: ${d.A} m`);
-            lines.push(`- stern: ${d.B} m`);
-            lines.push(`- port: ${d.C} m`);
-            lines.push(`- starboard: ${d.D} m`);
-          }
-          if (data.Eta) {
-            const e = data.Eta;
-            const now = new Date();
-            const etaDate = new Date(now.getFullYear(), e.Month - 1, e.Day, e.Hour, e.Minute);
-            const etaFormatted = etaDate.toLocaleString('ja-JP', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false
-            });
-            lines.push(`ETA: ${etaFormatted}`);
-          }
-          if (data.FixType !== undefined) {
-            const fixDescription = fixTypeMapping[data.FixType] || data.FixType;
-            lines.push(`Fix Type: ${fixDescription}`);
-          }
-          if (data.MaximumStaticDraught !== undefined) { 
-            lines.push(`Maximum Draught (m): ${data.MaximumStaticDraught}`); 
-          }
-          lines.push(`Position Msg ID: ${data.MessageID}`);
-          if (data.Latitude !== undefined && data.Longitude !== undefined) {
-            lines.push(`Latitude: ${data.Latitude.toFixed(4)}`);
-            lines.push(`Longitude: ${data.Longitude.toFixed(4)}`);
-          }
-          if (data.TrueHeading !== undefined && data.TrueHeading < 360) { 
-            lines.push(`True Heading: ${data.TrueHeading}°`); 
-          }
-          if (data.NavigationalStatus !== undefined) {
-            const navStatusDescription = navigationalStatusMapping[data.NavigationalStatus] || data.NavigationalStatus;
-            lines.push(`Nav Status: ${navStatusDescription}`);
-          }
-          if (data.RateOfTurn !== undefined) { 
-            lines.push(`Rate Of Turn: ${data.RateOfTurn}°/min`); 
-          }
-          if (data.Timestamp !== undefined) { 
-            lines.push(`Timestamp: ${data.Timestamp}`); 
-          }
-          if (data.PositionAccuracy !== undefined) { 
-            lines.push(`Position Accuracy: ${data.PositionAccuracy}`); 
-          }
-          if (data.CommunicationState !== undefined) { 
-            const comm = decodeCommunicationState(data.CommunicationState);
-            lines.push(`Communication State:`);
-            lines.push(`- Sync State: ${comm.syncState}`);
-            lines.push(`- Slot Timeout: ${comm.slotTimeout}`);
-            lines.push(`- Slot Offset: ${comm.slotOffset}`);
-          }
-          return `<div class="popup-content">${lines.join('<br>')}</div>`;
-        }
+// Helper to add a line if the value is valid
+function addLine(lines, label, value, formatFn) {
+  if (value !== null && value !== undefined && value !== "") {
+    lines.push(`${label}: ${formatFn ? formatFn(value) : value}`);
+  }
+}
+
+function createDetailContent(data) {
+  const lines = [];
+  const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : null;
+  addLine(lines, "Last Update", lastSeen);
+  addLine(lines, "MMSI", data.UserID);
+  addLine(lines, "AIS Class", data.AISClass);
+  
+  if (data.MID) {
+    const midCode = lookupMID(data.MID);
+    addLine(lines, "Country", midCode);
+  }
+  
+  addLine(lines, "Call Sign", data.CallSign);
+  addLine(lines, "IMO Number", data.ImoNumber);
+  
+  // Destination: show a default text if it's empty
+  if (data.Destination && data.Destination.trim() !== "") {
+    addLine(lines, "Destination", data.Destination);
+  } else {
+    lines.push("Destination: NO DEST");
+  }
+  
+  addLine(lines, "Speed Over Ground", (data.Sog != null ? `${data.Sog} kn` : null));
+  addLine(lines, "Course Over Ground", (data.Cog != null ? `${data.Cog}°` : null));
+  
+  if (data.Type != null) {
+    const typeDescription = staticTypeMapping[data.Type] || data.Type;
+    addLine(lines, "Type", typeDescription);
+  }
+  
+  if (data.Dimension) {
+    const d = data.Dimension;
+    // Calculate overall length and width, but only add if non-zero.
+    const totalLength = (Number(d.A) || 0) + (Number(d.B) || 0);
+    const totalWidth = (Number(d.C) || 0) + (Number(d.D) || 0);
+    if (totalLength > 0 && totalWidth > 0) {
+      lines.push(`Dimensions: ${totalLength}m x ${totalWidth}m`);
+    }
+  }
+  
+  if (data.Eta) {
+    const e = data.Eta;
+    const now = new Date();
+    const etaDate = new Date(now.getFullYear(), e.Month - 1, e.Day, e.Hour, e.Minute);
+    const etaFormatted = etaDate.toLocaleString('ja-JP', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    lines.push(`ETA: ${etaFormatted}`);
+  }
+  
+  if (data.FixType != null) {
+    const fixDescription = fixTypeMapping[data.FixType] || data.FixType;
+    addLine(lines, "Fix Type", fixDescription);
+  }
+  
+  addLine(lines, "Maximum Draught (m)", data.MaximumStaticDraught);
+  addLine(lines, "Position Msg ID", data.MessageID);
+  
+  if (data.Latitude != null && data.Longitude != null) {
+    addLine(lines, "Latitude", data.Latitude.toFixed(4));
+    addLine(lines, "Longitude", data.Longitude.toFixed(4));
+  }
+  
+  if (data.TrueHeading != null && data.TrueHeading < 360) {
+    addLine(lines, "True Heading", `${data.TrueHeading}°`);
+  }
+  
+  if (data.NavigationalStatus != null) {
+    const navStatusDescription = navigationalStatusMapping[data.NavigationalStatus] || data.NavigationalStatus;
+    addLine(lines, "Nav Status", navStatusDescription);
+  }
+  
+  addLine(lines, "Rate Of Turn", (data.RateOfTurn != null ? `${data.RateOfTurn}°/min` : null));
+  addLine(lines, "Timestamp", data.Timestamp);
+  addLine(lines, "Position Accuracy", data.PositionAccuracy);
+  
+  if (data.CommunicationState != null) {
+    const comm = decodeCommunicationState(data.CommunicationState);
+    lines.push("Communication State:");
+    lines.push(`- Sync State: ${comm.syncState}`);
+    lines.push(`- Slot Timeout: ${comm.slotTimeout}`);
+    lines.push(`- Slot Offset: ${comm.slotOffset}`);
+  }
+  
+  return `<div class="popup-content">${lines.join('<br>')}</div>`;
+}
+
     
     
         // Adjust map bounds based on whether a vessel is focused.
@@ -750,34 +781,6 @@ function createPopupContent(data) {
           const days = Math.floor(hours / 24);
           return days + " days ago";
         }
-    
-    function updateNoCallsignMarkers() {
-      const showNoCallsign = document.getElementById('filter-nocallsign').checked;
-      const showPaths = document.getElementById('show-paths').checked;
-      for (const mmsi in vesselData) {
-        const vesselState = vesselData[mmsi];
-        const hasCallSign = (vesselState.CallSign || "").trim().length > 0;
-        if (!hasCallSign && !showNoCallsign) {
-          if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-            map.removeLayer(vesselMarkers[mmsi]);
-          }
-          if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
-            map.removeLayer(vesselTracks[mmsi]);
-          }
-        } else {
-          if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
-            map.addLayer(vesselMarkers[mmsi]);
-          }
-          if (vesselTracks[mmsi]) {
-            if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
-              map.addLayer(vesselTracks[mmsi]);
-            } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
-              map.removeLayer(vesselTracks[mmsi]);
-            }
-          }
-        }
-      }
-    }
     
 function updateStationaryMarkers() {
   const showStationary = document.getElementById('stationary').checked;
@@ -1304,8 +1307,6 @@ function updateStationaryMarkers() {
           }
           for (const mmsi in data) {
             const vesselState = data[mmsi];
-            const showNoCallsign = document.getElementById('filter-nocallsign').checked;
-            const hasCallSign = (vesselState.CallSign || "").trim().length > 0;
             if (!vesselData[mmsi]) {
               vesselData[mmsi] = Object.assign({}, vesselState);
               vesselData[mmsi].track = [];
@@ -1326,17 +1327,7 @@ function updateStationaryMarkers() {
                 }
               }
             }
-            if (!hasCallSign && !showNoCallsign) {
-              if (vesselMarkers[mmsi]) {
-                map.removeLayer(vesselMarkers[mmsi]);
-                delete vesselMarkers[mmsi];
-              }
-              if (vesselTracks[mmsi]) {
-                map.removeLayer(vesselTracks[mmsi]);
-                delete vesselTracks[mmsi];
-              }
-              continue;
-            }
+           
             const popupContent = createPopupContent(vesselData[mmsi]);
             if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
               const lat = vesselState.Latitude;
@@ -1449,15 +1440,6 @@ function updateStationaryMarkers() {
           updateOverlay();
           location.reload();
         });
-    
-        document.getElementById('filter-nocallsign').addEventListener('change', () => {
-          updateOverlay();
-          updateFocussedVisibility();
-          updateNoCallsignMarkers();
-          if (document.getElementById('auto-zoom').checked) {
-            adjustMapBounds();
-          }
-        });
 
 	document.getElementById('stationary').addEventListener('change', updateStationaryMarkers);
     
@@ -1502,33 +1484,43 @@ function updateStationaryMarkers() {
   
 
         // Focus on a particular vessel.
-        function focusOnVessel(userID, initialFocus = true) {
-          if (focusedVessel !== userID) {
-            clearLiveLogs();
-            if (instantChannel) {
-              unsubscribeInstantUpdates();
-            }
-            subscribeInstantUpdates(userID);
-          }
+function focusOnVessel(userID, initialFocus = true) {
+  if (focusedVessel !== userID) {
+    clearLiveLogs();
+    if (instantChannel) {
+      unsubscribeInstantUpdates();
+    }
+    subscribeInstantUpdates(userID);
+  }
 
-       // If another vessel was previously focused, reset its tooltip.
-       if (focusedVessel && focusedVessel !== userID) {
-         const prevVessel = vesselData[focusedVessel];
-         vesselMarkers[focusedVessel].getTooltip().setContent(prevVessel.Name);
-         vesselMarkers[focusedVessel].setZIndexOffset(0);
-       }
-     
-       focusedVessel = userID;
-       vesselMarkers[userID].setZIndexOffset(1000);
-       const vessel = vesselData[userID];
-       const typeDescription = staticTypeMapping[vessel.Type] || vessel.Type;
-       const navStatusDescription = navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus;
-       const extraFields = [];
-       extraFields.push(`| ${vessel.CallSign}`);
-       extraFields.push(`${vessel.Destination && vessel.Destination.trim() !== "" ? vessel.Destination : 'NO DEST'} | ${navStatusDescription}`);
-       extraFields.push(`${typeDescription} | ${vessel.MaximumStaticDraught} m | ${vessel.Sog} kn | ${vessel.TrueHeading}°`);
-       const newTooltipContent = `${vessel.Name} ${extraFields.join('<br>')}`;
-       vesselMarkers[userID].getTooltip().setContent(newTooltipContent);
+  // Reset tooltip for previous focused vessel.
+  if (focusedVessel && focusedVessel !== userID) {
+    const prevVessel = vesselData[focusedVessel];
+    vesselMarkers[focusedVessel].getTooltip().setContent(prevVessel.Name);
+    vesselMarkers[focusedVessel].setZIndexOffset(0);
+  }
+  
+  focusedVessel = userID;
+  vesselMarkers[userID].setZIndexOffset(1000);
+  const vessel = vesselData[userID];
+  
+  // Build two lines for additional details.
+  // For example, line 1: Destination and Navigation Status.
+  const line1 = buildTooltipLine(
+    vessel.Destination,
+    navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus
+  );
+  // And line 2: Vessel Type, Maximum Draught, Speed, and True Heading.
+  const line2 = buildTooltipLine(
+    staticTypeMapping[vessel.Type] || vessel.Type,
+    (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
+    (vessel.Sog != null ? `${vessel.Sog} kn` : null),
+    (vessel.TrueHeading != null ? `${vessel.TrueHeading}°` : null)
+  );
+  
+  // The tooltip now has the top line (vessel.Name) and two additional lines.
+  const newTooltipContent = `${vessel.Name}<br>${line1}<br>${line2}`;
+  vesselMarkers[userID].getTooltip().setContent(newTooltipContent);
 
        const tooltipEl = vesselMarkers[userID].getTooltip().getElement();
        if (tooltipEl) {
@@ -1678,7 +1670,6 @@ function showFlashMessage(message, parentEl) {
        });
     
        window.addEventListener('load', () => {
-         updateNoCallsignMarkers();
 	 updateStationaryMarkers();
          adjustMapBounds();
 	 // Check if a "UserID" query parameter exists in the URL.
@@ -1697,7 +1688,6 @@ function showFlashMessage(message, parentEl) {
     
     document.getElementById('show-paths').addEventListener('change', function() {
       const showPaths = this.checked;
-      const showNoCallsign = document.getElementById('filter-nocallsign').checked;
       for (const mmsi in vesselTracks) {
         const vessel = vesselData[mmsi];
         const hasCallSign = vessel && (vessel.CallSign || "").trim().length > 0;
@@ -1711,7 +1701,6 @@ function showFlashMessage(message, parentEl) {
           }
         }
       }
-      updateNoCallsignMarkers();
       updateFocussedVisibility();
     });
 
@@ -1743,13 +1732,18 @@ updateNauticalScale();
 function updateFocussedTooltip() {
   if (focusedVessel && vesselData[focusedVessel]) {
     const vessel = vesselData[focusedVessel];
-    const typeDescription = staticTypeMapping[vessel.Type] || vessel.Type;
-    const navStatusDescription = navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus;
-    const extraFields = [];
-    extraFields.push(`| ${vessel.CallSign}`);
-    extraFields.push(`${vessel.Destination && vessel.Destination.trim() !== "" ? vessel.Destination : 'NO DEST'} | ${navStatusDescription}`);
-    extraFields.push(`${typeDescription} | ${vessel.MaximumStaticDraught} m | ${vessel.Sog} kn | ${vessel.TrueHeading}°`);
-    const newTooltipContent = `${vessel.Name} ${extraFields.join('<br>')}`;
+    const line1 = buildTooltipLine(
+      vessel.Destination,
+      navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus
+    );
+    const line2 = buildTooltipLine(
+      staticTypeMapping[vessel.Type] || vessel.Type,
+      (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
+      (vessel.Sog != null ? `${vessel.Sog} kn` : null),
+      (vessel.TrueHeading != null ? `${vessel.TrueHeading}°` : null)
+    );
+    
+    const newTooltipContent = `${vessel.Name}<br>${line1}<br>${line2}`;
     vesselMarkers[focusedVessel].getTooltip().setContent(newTooltipContent);
   }
 }
