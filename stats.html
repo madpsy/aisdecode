@@ -172,7 +172,13 @@
 
     // --- Helper: Update Navigational Status ---
     function updateNavigationalStatus(statusValue) {
-      const statusText = navigationalStatusMapping[statusValue] || statusValue;
+      let statusText;
+      if (statusValue === null || statusValue === undefined || statusValue === '') {
+        statusText = "N/A";
+      } else {
+        // Use the mapping if available, otherwise fallback to the provided statusValue.
+        statusText = navigationalStatusMapping[statusValue] || statusValue;
+      }
       const statusElem = document.getElementById('navigational-status');
       if (statusElem) {
         statusElem.textContent = statusText;

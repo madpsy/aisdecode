@@ -828,40 +828,56 @@ function createDetailContent(data) {
 
 function updateStationaryMarkers() {
   const showStationary = document.getElementById('stationary').checked;
+  const onlyFocussed = document.getElementById('only-focussed').checked;
   const now = Date.now();
 
   for (const mmsi in vesselData) {
     const vesselState = vesselData[mmsi];
 
+    // When "Only Tracked" is enabled, skip any vessel that's not focused.
+    if (onlyFocussed && focusedVessel && mmsi !== focusedVessel) {
+      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+        map.removeLayer(vesselMarkers[mmsi]);
+      }
+      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+        map.removeLayer(vesselTracks[mmsi]);
+      }
+      continue; // Skip further processing for non-focused vessels.
+    }
+
     if (vesselState.lastUpdate) {
       const ageSeconds = (now - vesselState.lastUpdate) / 1000;
 
-      if (!showStationary) {
-        // Remove vessel if it hasn't updated in over 120 seconds...
-        if (ageSeconds > 120) {
-          if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-            map.removeLayer(vesselMarkers[mmsi]);
-          }
-          if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
-            map.removeLayer(vesselTracks[mmsi]);
-          }
-          continue;
-        }
-
-        // Remove vessel if Sog is not a valid number or if it's stationary (<= 0.5)
-        if (typeof vesselState.Sog !== "number" || vesselState.Sog <= 0.5) {
-          if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-            map.removeLayer(vesselMarkers[mmsi]);
-          }
-          if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
-            map.removeLayer(vesselTracks[mmsi]);
-          }
-          continue;
-        }
+if (!showStationary) {
+  // Skip removal logic for the vessel in focus.
+  if (mmsi !== focusedVessel) {
+    // Remove vessel if it hasn't updated in over 120 seconds.
+    if (ageSeconds > 120) {
+      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+        map.removeLayer(vesselMarkers[mmsi]);
       }
+      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+        map.removeLayer(vesselTracks[mmsi]);
+      }
+      continue;
     }
 
-    // If we haven't removed it, make sure markers/tracks are visible.
+    // Remove vessel if SOG is not a valid number or if it's stationary (<= 0.5 kn)
+    if (typeof vesselState.Sog !== "number" || vesselState.Sog <= 0.5) {
+      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
+        map.removeLayer(vesselMarkers[mmsi]);
+      }
+      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
+        map.removeLayer(vesselTracks[mmsi]);
+      }
+      continue;
+    }
+  }
+}
+
+    }
+
+    // If we haven't removed the marker, make sure markers and tracks are visible.
     if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
       map.addLayer(vesselMarkers[mmsi]);
     }
@@ -879,6 +895,7 @@ function updateStationaryMarkers() {
     adjustMapBounds();
   }
 }
+
 
         // Update the known vessels overlay.
         function updateOverlay() {
@@ -1317,6 +1334,10 @@ function updateStationaryMarkers() {
         socket.on('connect', () => {
           document.getElementById('status-dot').style.background = 'green';
           document.getElementById('status-text').textContent = 'Connected';
+	  // If a vessel is focused, resubscribe to its channel.
+	  if (focusedVessel) {
+	    subscribeInstantUpdates(focusedVessel);
+  	}
         });
 
         // Listen for the socket disconnection event.
