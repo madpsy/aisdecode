@@ -591,7 +591,7 @@
         "US",
         "USA",
         "",
-        "United States of America"
+        "United States"
     ],
     "339": [
         "JM",
@@ -603,13 +603,13 @@
         "KN",
         "KNA",
         "",
-        "Saint Kitts and Nevis"
+        "St. Kitts and Nevis"
     ],
     "343": [
         "LC",
         "LCA",
         "",
-        "Saint Lucia"
+        "St. Lucia"
     ],
     "345": [
         "MX",
@@ -693,7 +693,7 @@
         "PM",
         "SPM",
         "",
-        "Saint Pierre and Miquelon"
+        "St. Pierre and Miquelon"
     ],
     "362": [
         "TT",
@@ -765,31 +765,31 @@
         "VC",
         "VCT",
         "",
-        "Saint Vincent and the Grenadines"
+        "St. Vincent and the Grenadines"
     ],
     "376": [
         "VC",
         "VCT",
         "",
-        "Saint Vincent and the Grenadines"
+        "St. Vincent and the Grenadines"
     ],
     "377": [
         "VC",
         "VCT",
         "",
-        "Saint Vincent and the Grenadines"
+        "St. Vincent and the Grenadines"
     ],
     "378": [
         "VG",
         "VGB",
         "",
-        "British Virgin Islands"
+        "Virgin Islands"
     ],
     "379": [
         "VI",
         "VIR",
         "",
-        "United States Virgin Islands"
+        "US Virgin Islands"
     ],
     "401": [
         "AF",
@@ -933,13 +933,13 @@
         "PS",
         "PSE",
         "",
-        "State of Palestine"
+        "Palestine"
     ],
     "445": [
         "KP",
         "PRK",
         "",
-        "Democratic People's Republic of Korea"
+        "Rep. of Korea"
     ],
     "447": [
         "KW",
@@ -1305,7 +1305,7 @@
         "FR",
         "FRA",
         "TF",
-        "Saint Paul and Amsterdam Islands"
+        "St. Paul and Amsterdam Islands"
     ],
     "608": [
         "GB",
@@ -1575,7 +1575,7 @@
         "SH",
         "SHN",
         "",
-        "Saint Helena"
+        "St. Helena"
     ],
     "666": [
         "SO",
