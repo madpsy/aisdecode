@@ -754,12 +754,12 @@ function updateStationaryMarkers() {
 
   for (const mmsi in vesselData) {
     const vesselState = vesselData[mmsi];
-    if (typeof vesselState.Sog === "number" && vesselState.lastUpdate) {
+
+    if (vesselState.lastUpdate) {
       const ageSeconds = (now - vesselState.lastUpdate) / 1000;
 
-      // Only apply removal logic if the stationary checkbox is NOT checked.
       if (!showStationary) {
-        // Remove vessels that haven't updated in over 120 seconds.
+        // Remove vessel if it hasn't updated in over 120 seconds...
         if (ageSeconds > 120) {
           if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
             map.removeLayer(vesselMarkers[mmsi]);
@@ -770,8 +770,8 @@ function updateStationaryMarkers() {
           continue;
         }
 
-        // Optionally, if you want to remove stationary vessels (SOG <= 0.5) when not in stationary mode:
-        if (vesselState.Sog <= 0.5) {
+        // Remove vessel if Sog is not a valid number or if it's stationary (<= 0.5)
+        if (typeof vesselState.Sog !== "number" || vesselState.Sog <= 0.5) {
           if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
             map.removeLayer(vesselMarkers[mmsi]);
           }
@@ -781,18 +781,18 @@ function updateStationaryMarkers() {
           continue;
         }
       }
+    }
 
-      // If the 'stationary' checkbox is checked, always ensure the vessel markers/tracks are visible.
-      if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
-        map.addLayer(vesselMarkers[mmsi]);
-      }
-      if (vesselTracks[mmsi]) {
-        const showPaths = document.getElementById('show-paths').checked;
-        if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
-          map.addLayer(vesselTracks[mmsi]);
-        } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
-          map.removeLayer(vesselTracks[mmsi]);
-        }
+    // If we haven't removed it, make sure markers/tracks are visible.
+    if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
+      map.addLayer(vesselMarkers[mmsi]);
+    }
+    if (vesselTracks[mmsi]) {
+      const showPaths = document.getElementById('show-paths').checked;
+      if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
+        map.addLayer(vesselTracks[mmsi]);
+      } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
+        map.removeLayer(vesselTracks[mmsi]);
       }
     }
   }

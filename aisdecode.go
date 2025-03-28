@@ -81,19 +81,42 @@ func appendToWindowWithLock(message string, window *[]dedupeState, mutex *sync.M
 
 // mergeMaps merges newData into baseData. Values in newData override those in baseData.
 func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} {
-	if baseData == nil {
-		baseData = make(map[string]interface{})
-	}
-	for key, value := range newData {
-		// For these keys, always update.
-		if key == "Latitude" || key == "Longitude" || key == "CallSign" {
-			baseData[key] = value
-		} else {
-			// Always update other keys, even if they have a default (e.g., 0) value.
-			baseData[key] = value
-		}
-	}
-	return baseData
+    if baseData == nil {
+        baseData = make(map[string]interface{})
+    }
+    // Merge all top-level keys from newData.
+    for key, value := range newData {
+        baseData[key] = value
+    }
+
+    // Elevate selected fields from ReportA while keeping the nested structure.
+    if reportA, ok := newData["ReportA"].(map[string]interface{}); ok {
+        // Elevate Name from ReportA.
+        if name, ok := reportA["Name"].(string); ok && strings.TrimSpace(name) != "" {
+            baseData["Name"] = name
+        }
+    }
+    // Elevate selected fields from ReportB while keeping the nested structure.
+    if reportB, ok := newData["ReportB"].(map[string]interface{}); ok {
+        // Elevate CallSign from ReportB.
+        if cs, ok := reportB["CallSign"].(string); ok && strings.TrimSpace(cs) != "" {
+            baseData["CallSign"] = cs
+        }
+        // Elevate Dimension.
+        if dim, ok := reportB["Dimension"]; ok {
+            baseData["Dimension"] = dim
+        }
+        // Elevate FixType.
+        if fixType, ok := reportB["FixType"]; ok {
+            baseData["FixType"] = fixType
+        }
+        // Elevate ShipType as Type.
+        if shipType, ok := reportB["ShipType"]; ok {
+            baseData["Type"] = shipType
+        }
+    }
+
+    return baseData
 }
 
 // filterCompleteVesselData filters vessels that have all required fields.
@@ -202,22 +225,20 @@ func filterWindow(window []dedupeState, cutoff time.Time) []dedupeState {
 	return filtered
 }
 
-func isInvalidData(data map[string]interface{}) bool {
-	if th, ok := data["TrueHeading"].(float64); ok && th == 511 {
-		return true
-	}
-	if cog, ok := data["Cog"].(float64); ok && cog == 360 {
-		return true
-	}
-	if lat, ok := data["Latitude"].(float64); ok && lat == 91 {
-		return true
-	}
-	if lon, ok := data["Longitude"].(float64); ok && lon == 181 {
-		return true
-	}
-	return false
+func cleanInvalidData(data map[string]interface{}) {
+    if th, ok := data["TrueHeading"].(float64); ok && th == 511 {
+        delete(data, "TrueHeading")
+    }
+    if cog, ok := data["Cog"].(float64); ok && cog == 360 {
+        delete(data, "Cog")
+    }
+    if lat, ok := data["Latitude"].(float64); ok && lat == 91 {
+        delete(data, "Latitude")
+    }
+    if lon, ok := data["Longitude"].(float64); ok && lon == 181 {
+        delete(data, "Longitude")
+    }
 }
-
 
 func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]map[string]interface{} {
 	summary := make(map[string]map[string]interface{})
@@ -527,58 +548,64 @@ func main() {
 		}
 		appendToWindowWithLock(rawNmea, &aggregatorDedupeWindow, &aggregatorDedupeMutex)
 
-			decoded, err := nmeaCodec.ParseSentence(rawNmea)
-			if err != nil {
-				log.Printf("Error decoding sentence: %v", err)
-				continue
-			}
-			if decoded == nil || decoded.Packet == nil {
-				continue
-			}
+		decoded, err := nmeaCodec.ParseSentence(rawNmea)
+		if err != nil {
+		    log.Printf("Error decoding sentence: %v", err)
+		    continue
+		}
+		if decoded == nil || decoded.Packet == nil {
+		    continue
+		}
 
-			// Prepare the structured AIS message.
-			typeName := fmt.Sprintf("%T", decoded.Packet)
-			typeName = strings.TrimPrefix(typeName, "*")
-			aisMsg := AISMessage{
-				Type:      typeName,
-				Data:      decoded.Packet,
-				Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-			}
-			finalMsg, err := json.Marshal(aisMsg)
-			if err != nil {
-				log.Printf("Error marshaling AISMessage: %v", err)
-				continue
-			}
-			if *showDecodes {
-				log.Println("Decoded AIS Packet:", string(finalMsg))
-			}
-			// Send AIS message to the dynamic room (vessel-specific)
-			var newData map[string]interface{}
-			{
-				b, err := json.Marshal(decoded.Packet)
-				if err != nil {
-					log.Printf("Error marshaling AIS packet: %v", err)
-					continue
-				}
-				if err := json.Unmarshal(b, &newData); err != nil {
-					log.Printf("Error unmarshaling AIS packet to map: %v", err)
-					continue
-				}
-			}
-			userIDFloat, ok := newData["UserID"].(float64)
-			if !ok {
-				availableKeys := make([]string, 0, len(newData))
-				for key := range newData {
-					availableKeys = append(availableKeys, key)
-				}
-				log.Printf("Vessel packet missing or invalid UserID field. Available keys: %v", availableKeys)
-				continue
-			}
-			vesselID := fmt.Sprintf("%.0f", userIDFloat)
-			roomName := "ais_data/" + vesselID
-			if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", string(finalMsg)); err != nil {
-				log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
-			}
+		// Convert the decoded packet to a map for cleaning.
+		var newData map[string]interface{}
+		{
+		    b, err := json.Marshal(decoded.Packet)
+		    if err != nil {
+		        log.Printf("Error marshaling AIS packet: %v", err)
+		        continue
+		    }
+		    if err := json.Unmarshal(b, &newData); err != nil {
+		        log.Printf("Error unmarshaling AIS packet to map: %v", err)
+		        continue
+		    }
+		}
+
+		// Clean the invalid data before constructing the final message.
+		cleanInvalidData(newData)
+
+		// Build the AIS message with cleaned data.
+		typeName := "ais.PositionReport" // Or derive this as needed.
+		aisMsg := AISMessage{
+		    Type:      typeName,
+		    Data:      newData,
+		    Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		finalMsg, err := json.Marshal(aisMsg)
+		if err != nil {
+		    log.Printf("Error marshaling AISMessage: %v", err)
+		    continue
+		}
+		if *showDecodes {
+		    log.Println("Decoded AIS Packet:", string(finalMsg))
+		}
+
+		// Use the same newData to extract the UserID.
+		userIDFloat, ok := newData["UserID"].(float64)
+		if !ok {
+		    availableKeys := make([]string, 0, len(newData))
+		    for key := range newData {
+		        availableKeys = append(availableKeys, key)
+		    }
+		    log.Printf("Vessel packet missing or invalid UserID field. Available keys: %v", availableKeys)
+		    continue
+		}
+		vesselID := fmt.Sprintf("%.0f", userIDFloat)
+		roomName := "ais_data/" + vesselID
+		if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", string(finalMsg)); err != nil {
+		    log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
+		}
+
 
 			// Forward to aggregator if enabled.
 			if len(aggregatorConns) > 0 {
@@ -597,11 +624,7 @@ func main() {
 			// Process vessel data update.
 			vesselDataMutex.Lock()
 
-			if isInvalidData(newData) {
-			    log.Printf("Skipping update for vessel %s due to invalid data values", vesselID)
-			    vesselDataMutex.Unlock()
-			    continue
-			}
+			cleanInvalidData(newData)
 
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
@@ -739,63 +762,63 @@ func main() {
 				continue
 			}
 
-			// Prepare the structured AIS message.
-			typeName := fmt.Sprintf("%T", decoded.Packet)
-			typeName = strings.TrimPrefix(typeName, "*")
+			// Convert the decoded packet to a map so we can clean it.
+			var newData map[string]interface{}
+			{
+			    b, err := json.Marshal(decoded.Packet)
+			    if err != nil {
+			        log.Printf("Error marshaling AIS packet: %v", err)
+			        continue
+			    }
+			    if err := json.Unmarshal(b, &newData); err != nil {
+			        log.Printf("Error unmarshaling AIS packet to map: %v", err)
+			        continue
+			    }
+			}
+
+			// Clean the invalid data.
+			cleanInvalidData(newData)
+			
+			// Build the AIS message with cleaned data.
+			typeName := "ais.PositionReport"
 			aisMsg := AISMessage{
-				Type:      typeName,
-				Data:      decoded.Packet,
-				Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+			    Type:      typeName,
+			    Data:      newData,
+			    Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 			}
 			finalMsg, err := json.Marshal(aisMsg)
 			if err != nil {
-				log.Printf("Error marshaling AISMessage: %v", err)
-				continue
+			    log.Printf("Error marshaling AISMessage: %v", err)
+			    continue
 			}
 			if *showDecodes {
-				log.Println("Decoded AIS Packet:", string(finalMsg))
+			    log.Println("Decoded AIS Packet:", string(finalMsg))
 			}
-			// Send AIS message to the dynamic room (vessel-specific)
-			var newData map[string]interface{}
-			{
-				b, err := json.Marshal(decoded.Packet)
-				if err != nil {
-					log.Printf("Error marshaling AIS packet: %v", err)
-					continue
-				}
-				if err := json.Unmarshal(b, &newData); err != nil {
-					log.Printf("Error unmarshaling AIS packet to map: %v", err)
-					continue
-				}
-			}
-			userIDFloat, ok := newData["UserID"].(float64)
+		
+			// Use the same 	newData to extract the UserID.
+				userIDFloat, ok := newData["UserID"].(float64)
 			if !ok {
-				availableKeys := make([]string, 0, len(newData))
-				for key := range newData {
-					availableKeys = append(availableKeys, key)
-				}
-				log.Printf("Vessel packet missing or invalid UserID field. Available keys: %v", availableKeys)
-				continue
+			    availableKeys := make([]string, 0, len(newData))
+			    for key := range newData {
+			        availableKeys = append(availableKeys, key)
+			    }
+			    log.Printf("Vessel packet missing or invalid UserID field. Available keys: %v", availableKeys)
+			    continue
 			}
 			vesselID := fmt.Sprintf("%.0f", userIDFloat)
 			roomName := "ais_data/" + vesselID
 			if err := sioServer.To(socket.Room(roomName)).Emit("ais_data", string(finalMsg)); err != nil {
-				log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
+			    log.Printf("Error sending decoded AIS data to room %s: %v", roomName, err)
 			}
+
+			// Update vessel state using the same newData.
 			vesselDataMutex.Lock()
-
-			if isInvalidData(newData) {
-			    log.Printf("Skipping update for vessel %s due to invalid data values", vesselID)
-			    vesselDataMutex.Unlock()
-			    continue
-			}
-
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			if count, ok := merged["NumMessages"].(float64); ok {
-				merged["NumMessages"] = count + 1
+			    merged["NumMessages"] = count + 1
 			} else {
-				merged["NumMessages"] = 1.0
+			    merged["NumMessages"] = 1.0
 			}
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
