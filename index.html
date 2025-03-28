@@ -306,11 +306,11 @@
     <input type="checkbox" id="openseamap-overlay" checked>
     Map Overlay
   </label>
-  <label>
+        <label>
     <input type="checkbox" id="show-paths" checked>
     Show Paths
   </label>
-  <label>
+        <label>
     <input type="checkbox" id="stationary" checked>
     Stationary
   </label>
@@ -398,7 +398,7 @@
         }).addTo(map);
     
         // OpenSeaMap overlay layer (enabled by default).
-        const openSeaMapLayer = L.tileLayer('http://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+        const openSeaMapLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
           attribution: 'Map data: &copy; OpenSeaMap contributors'
         }).addTo(map);
     
@@ -440,16 +440,6 @@ map.on('click', () => {
   }
 });
     
-        // Define a custom boat icon using inline SVG.
-    const boatIcon = L.divIcon({
-      html: `<svg width="20" height="50" viewBox="0 0 20 50">
-      <path d="M5 45 L15 45 L15 30 Q10 5,5 30 Z" stroke="blue" fill="blue" stroke-width="2" />
-    </svg>`,
-      className: 'boat-icon',
-      iconSize: [20, 50],
-      iconAnchor: [10, 25],
-      popupAnchor: [0, -25]
-    });
     
         // Mapping objects for Fix Type, Nav Status, and Static Message Types.
         const fixTypeMapping = { 0: "No Fix", 1: "GPS Fix", 2: "DGPS Fix" };
@@ -569,7 +559,61 @@ map.on('click', () => {
           98: "Other Type",
           99: "Other Type"
         };
-    
+
+const vesselColorPalette = [
+  "#e6194b", // Red
+  "#3cb44b", // Green
+  "#ffe119", // Yellow
+  "#4363d8", // Blue
+  "#f58231", // Orange
+  "#911eb4", // Purple
+  "#46f0f0", // Cyan
+  "#f032e6", // Magenta
+  "#bcf60c", // Lime
+  "#008080", // Teal
+  "#e6beff", // Lavender
+  "#9a6324", // Brown
+  "#aaffc3", // Mint
+  "#808000", // Olive
+  "#ffd8b1", // Peach
+  "#003366"  // Navy
+];
+
+// Hash function that returns a numeric index based on a string.
+function hashStringToIndex(str, max) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash) % max;
+}
+
+// Get a consistent color for a given vessel type.
+// It uses staticTypeMapping (or falls back to the type itself) to get the description.
+function getColorForVesselTypeConsistent(type) {
+  // If the type is falsy (undefined, null, empty), return blue.
+  if (!type) return "blue";
+  const description = staticTypeMapping[type] || type;
+  const index = hashStringToIndex(description, vesselColorPalette.length);
+  return vesselColorPalette[index];
+}
+
+
+// Create a custom boat icon using your existing SVG, but with the stroke and fill set to the vessel type's color.
+function createBoatIcon(type) {
+  const color = getColorForVesselTypeConsistent(type);
+  const svgHtml = `<svg width="20" height="50" viewBox="0 0 20 50">
+    <path d="M5 45 L15 45 L15 30 Q10 5,5 30 Z" stroke="${color}" fill="${color}" stroke-width="2" />
+  </svg>`;
+  return L.divIcon({
+    html: svgHtml,
+    className: 'boat-icon',
+    iconSize: [20, 50],
+    iconAnchor: [10, 25],
+    popupAnchor: [0, -25]
+  });
+}
+
         // Global objects to store markers, vessel data, and track histories.
         const vesselMarkers = {};
         const vesselData = {};   // keyed by MMSI/UserID
@@ -1175,7 +1219,8 @@ function updateStationaryMarkers() {
                 const lat = vesselData[userID].Latitude;
                 const lon = vesselData[userID].Longitude;
                 const popupContent = createPopupContent(vesselData[userID]);
-                const marker = L.marker([lat, lon], { icon: boatIcon }).addTo(map);
+                const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[userID].Type || null) }).addTo(map);
+
     	    marker.on('add', function() {
     	      const markerElem = marker.getElement();
     	      if (markerElem) {
@@ -1366,7 +1411,8 @@ function updateStationaryMarkers() {
                   setTimeout(() => markerElem.classList.remove('enlarge'), 500);
                 }
               } else {
-                const marker = L.marker([lat, lon], { icon: boatIcon }).addTo(map);
+                const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[userID].Type || null) }).addTo(map);
+
                 marker.bindPopup(popupContent, { autoPan: false });
                 if (vesselState.Name) {
                   marker.bindTooltip(vesselState.Name, {

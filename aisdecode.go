@@ -123,6 +123,16 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
     if _, ok := baseData["AISClass"]; !ok {
         baseData["AISClass"] = "A"
     }
+
+    // --- New: Append NameExtension to Name if present ---
+    if ext, ok := baseData["NameExtension"].(string); ok && strings.TrimSpace(ext) != "" {
+        if name, ok := baseData["Name"].(string); ok && strings.TrimSpace(name) != "" {
+            baseData["Name"] = name + ext
+        } else {
+            baseData["Name"] = ext
+        }
+        delete(baseData, "NameExtension")
+    }
     
     return baseData
 }
