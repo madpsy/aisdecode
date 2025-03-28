@@ -561,22 +561,22 @@ map.on('click', () => {
         };
 
 const vesselColorPalette = [
-  "#e6194b", // Red
-  "#3cb44b", // Green
-  "#ffe119", // Yellow
-  "#4363d8", // Blue
-  "#f58231", // Orange
-  "#911eb4", // Purple
-  "#46f0f0", // Cyan
-  "#f032e6", // Magenta
-  "#bcf60c", // Lime
+  "#DC143C", // Crimson Red
+  "#32CD32", // Bright Green
+  "#FFD700", // Gold Yellow
+  "#4169E1", // Royal Blue
+  "#FF8C00", // Dark Orange
+  "#8A2BE2", // Blue Violet
+  "#00BFFF", // Deep Sky Blue
+  "#FF00FF", // Fuchsia
+  "#7FFF00", // Chartreuse
   "#008080", // Teal
-  "#e6beff", // Lavender
-  "#9a6324", // Brown
-  "#aaffc3", // Mint
-  "#808000", // Olive
-  "#ffd8b1", // Peach
-  "#003366"  // Navy
+  "#EE82EE", // Violet
+  "#A52A2A", // Saddle Brown
+  "#66CDAA", // Medium Aquamarine
+  "#9ACD32", // Yellow Green
+  "#FF7F50", // Coral
+  "#1E90FF"  // Dodger Blue
 ];
 
 // Hash function that returns a numeric index based on a string.
@@ -1566,7 +1566,7 @@ function focusOnVessel(userID, initialFocus = true) {
   );
 
   // The tooltip now has the top line (vessel.Name) and two additional lines.
-  const newTooltipContent = `${vessel.Name}<br>${line1}<br>${line2}`;
+  const newTooltipContent = `${vessel.Name} (${vessel.CallSign})<br>${line1}<br>${line2}`;
   vesselMarkers[userID].getTooltip().setContent(newTooltipContent);
 
        const tooltipEl = vesselMarkers[userID].getTooltip().getElement();
@@ -1790,7 +1790,7 @@ function updateFocussedTooltip() {
       (vessel.TrueHeading != null ? `${vessel.TrueHeading}°` : null)
     );
 
-    const newTooltipContent = `${vessel.Name}<br>${line1}<br>${line2}`;
+    const newTooltipContent = `${vessel.Name} (${vessel.CallSign})<br>${line1}<br>${line2}`;
     vesselMarkers[focusedVessel].getTooltip().setContent(newTooltipContent);
   }
 }
