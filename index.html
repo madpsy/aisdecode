@@ -784,7 +784,11 @@ function hydrateTrackHistory(userID) {
           if (nearest) {
             const [timestamp, lat, lon] = nearest.info;
             const localTime = new Date(timestamp).toLocaleString();
-            const popupContent = `<strong>${localTime}</strong><br>
+            const vessel = vesselData[userID];
+            const name = vessel.Name ? vessel.Name : "Unknown Vessel";
+            const callsign = vessel.CallSign ? vessel.CallSign : "N/A";
+            const popupContent = `<strong>${name} (${callsign})</strong><br>
+				  ${localTime}<br>
                                   ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
             L.popup({ closeButton: false, autoPan: false })
               .setLatLng(nearest.ptLatLng)
