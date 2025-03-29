@@ -26,8 +26,8 @@ Usage of aisdecode:
     	Serial port device (optional)
   -show-decodes
     	Output the decoded messages
-  -state-file string
-    	Path to state file (optional). Overrides the default location of web-root/state.json
+  -state-dir string
+    	Directory to store state (optional). Overrides the default location of web-root
   -udp-listen-port int
     	UDP listen port for incoming NMEA data (default: 8101)
   -update-interval int
