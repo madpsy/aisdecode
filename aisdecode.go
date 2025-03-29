@@ -123,19 +123,24 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
         }
         // Elevate Dimension.
         if dim, ok := reportB["Dimension"]; ok {
-            baseData["Dimension"] = dim
+        baseData["Dimension"] = dim
         }
         // Elevate FixType.
         if fixType, ok := reportB["FixType"]; ok {
             baseData["FixType"] = fixType
         }
-        // Elevate ShipType as Type.
+        // Elevate ShipType as Type only if it's not already set to a non-zero value.
         if shipType, ok := reportB["ShipType"]; ok {
-            baseData["Type"] = shipType
+            currentType, exists := baseData["Type"]
+            // Check if currentType exists and is non-zero.
+            if !exists || currentType == 0 || currentType == "0" {
+                baseData["Type"] = shipType
+            }
         }
         // Mark AISClass as "B" because ReportB is present.
         baseData["AISClass"] = "B"
     }
+
     
     // Default AISClass to "A" if it has not been set yet.
     if _, ok := baseData["AISClass"]; !ok {

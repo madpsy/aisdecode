@@ -601,9 +601,9 @@ function getColorForVesselTypeConsistent(type) {
 
 
 // Create a custom boat icon using your existing SVG, but with the stroke and fill set to the vessel type's color.
-function createBoatIcon(type) {
+function createBoatIcon(type, heading = 0) {
   const color = getColorForVesselTypeConsistent(type);
-  const svgHtml = `<svg width="20" height="50" viewBox="0 0 20 50">
+  const svgHtml = `<svg width="20" height="50" viewBox="0 0 20 50" style="transform: rotate(${heading}deg); transform-origin: center;">
     <path d="M5 45 L15 45 L15 30 Q10 5,5 30 Z" stroke="${color}" fill="${color}" stroke-width="2" />
   </svg>`;
   return L.divIcon({
@@ -638,13 +638,12 @@ function hydrateTrackHistory(userID) {
       // Parse the CSV formatted history into an array of points.
       // Each point is an array: [timestamp, latitude, longitude]
       const newPoints = csvData.trim().split('\n').map(line => {
-        const parts = line.split(',');
-        return [
-          parts[0],                     // Timestamp string
-          parseFloat(parts[1]),         // Latitude
-          parseFloat(parts[2])          // Longitude
-        ];
-      });
+	  const parts = line.split(',');
+	  const lat = parseFloat(parts[1]);
+	  const lon = parseFloat(parts[2]);
+	  // Only return the point if both lat and lon are valid numbers
+	  return (!isNaN(lat) && !isNaN(lon)) ? [parts[0], lat, lon] : null;
+	}).filter(point => point !== null);
 
       // Retrieve the current track history (or start with an empty array).
       const currentTrack = vesselData[userID].track || [];
@@ -1171,8 +1170,6 @@ if (!showStationary) {
             if (focusedVessel === userID) {
               updateLatLongDisplay();
             }
-
-            // If a new TrueHeading is provided, update the marker's rotation.
 	    const heading =
 		  (message.data.TrueHeading !== undefined && message.data.TrueHeading < 360)
 		    ? message.data.TrueHeading
@@ -1345,7 +1342,10 @@ if (!showStationary) {
                 const lat = vesselData[userID].Latitude;
                 const lon = vesselData[userID].Longitude;
                 const popupContent = createPopupContent(vesselData[userID]);
-                const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[userID].Type || null) }).addTo(map);
+		const heading = (vesselData[userID].TrueHeading !== undefined && vesselData[userID].TrueHeading < 360)
+		  ? vesselData[userID].TrueHeading
+		  : vesselData[userID].Cog || 0;
+                const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[userID].Type || null, heading) }).addTo(map);
 
 		marker.on('add', function() {
 		  const markerElem = marker.getElement();
@@ -1553,9 +1553,10 @@ if (!showStationary) {
                   setTimeout(() => markerElem.classList.remove('enlarge'), 500);
                 }
               } else {
-                const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[mmsi].Type || null) }).addTo(map);
-
-
+		const heading = (vesselData[mmsi].TrueHeading !== undefined && vesselData[mmsi].TrueHeading < 360)
+		  ? vesselData[mmsi].TrueHeading
+		  : vesselData[mmsi].Cog || 0;
+		const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[mmsi].Type || null, heading) }).addTo(map);
                 marker.bindPopup(popupContent, { autoPan: false });
                 if (vesselState.Name) {
                   marker.bindTooltip(vesselState.Name, {
