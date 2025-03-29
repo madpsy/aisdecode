@@ -496,6 +496,7 @@
     
     // --- 6. Load Initial State from /state.json ---
 // --- 6. Load Initial State from /state/<UserID>
+// --- 6. Load Initial State from /state/<UserID>
 function loadInitialState() {
   fetch('/state/' + userID)
     .then(response => response.json())
@@ -504,6 +505,7 @@ function loadInitialState() {
         document.getElementById('vessel-name').innerHTML = vesselState.Name + " (" + vesselState.CallSign + ")";
         updatePositionAccuracyDot(vesselState.PositionAccuracy);
         updateNavigationalStatus(vesselState.NavigationalStatus);
+
         // Update SOG chart.
         if (vesselState.Sog !== undefined) {
           const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
@@ -511,19 +513,30 @@ function loadInitialState() {
         } else {
           addSogDataPoint(Date.now(), 0);
         }
-        // Update both the compass and direction charts.
-        if (vesselState.TrueHeading !== undefined && vesselState.Cog !== undefined) {
+
+        // Update both the compass and direction charts based on available data
+        if (vesselState.Cog !== undefined && vesselState.TrueHeading !== undefined) {
+          // Both COG and TrueHeading are available
           const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
           addDirectionDataPoint(ts, vesselState.TrueHeading, vesselState.Cog);
           updateCompassCharts(vesselState.TrueHeading, vesselState.Cog);
+        } else if (vesselState.Cog !== undefined) {
+          // Only COG is available
+          const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+          addDirectionDataPoint(ts, 0, vesselState.Cog); // Use 0 for TrueHeading when only COG is available
+          updateCompassCharts(0, vesselState.Cog);
         } else {
-          addDirectionDataPoint(Date.now(), 0, 0);
-          updateCompassCharts(0, 0);
+          // Neither COG nor TrueHeading is available
+          const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+          addDirectionDataPoint(ts, 0, 0);
+          updateCompassCharts(0, 0); // Default to 0 when no data is available
         }
+
         // Update Latitude and Longitude if available.
         if (vesselState.Latitude !== undefined && vesselState.Longitude !== undefined) {
           updateLatLongDisplay(vesselState.Latitude, vesselState.Longitude);
         }
+
         // Update Maximum Static Draught display.
         if (vesselState.MaximumStaticDraught !== undefined) {
           document.getElementById('max-draught').textContent = vesselState.MaximumStaticDraught + " m";
@@ -562,36 +575,57 @@ loadInitialState();
       updateServerConnectedDot(false);
     });
     
-    socket.on("ais_data", (message) => {
-      if (typeof message === "string") {
-        try { message = JSON.parse(message); }
-        catch (e) { console.error("Error parsing ais_data message:", e); return; }
+socket.on("ais_data", (message) => {
+  if (typeof message === "string") {
+    try { 
+      message = JSON.parse(message); 
+    }
+    catch (e) { 
+      console.error("Error parsing ais_data message:", e); 
+      return; 
+    }
+  }
+
+  if (message.type === "ais.PositionReport" && message.data) {
+    if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
+      const ts = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
+      lastMessageTimestamp = ts;
+      messageTimestamps.push(ts);
+
+      // Log the COG and TrueHeading values for debugging
+      console.log("COG:", message.data.Cog, "TrueHeading:", message.data.TrueHeading);
+
+      if (message.data.Cog !== undefined && message.data.TrueHeading !== undefined) {
+        addDirectionDataPoint(ts, message.data.TrueHeading, message.data.Cog);
+        updateCompassCharts(message.data.TrueHeading, message.data.Cog);
+      } else if (message.data.Cog !== undefined) {
+        // Only COG is available
+        addDirectionDataPoint(ts, 0, message.data.Cog);  // Use 0 for TrueHeading
+        updateCompassCharts(0, message.data.Cog);
+      } else {
+        // Neither COG nor TrueHeading is available
+        addDirectionDataPoint(ts, 0, 0);
+        updateCompassCharts(0, 0);  // Default to 0 for both
       }
-      if (message.type === "ais.PositionReport" && message.data) {
-        if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
-          const ts = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
-          lastMessageTimestamp = ts;
-	  messageTimestamps.push(ts);
-          if (message.data.Sog !== undefined) {
-            addSogDataPoint(ts, message.data.Sog);
-          }
-          if (message.data.TrueHeading !== undefined && message.data.Cog !== undefined) {
-            addDirectionDataPoint(ts, message.data.TrueHeading, message.data.Cog);
-            updateCompassCharts(message.data.TrueHeading, message.data.Cog);
-          }
-          if (message.data.PositionAccuracy !== undefined) {
-            updatePositionAccuracyDot(message.data.PositionAccuracy);
-          }
-          if (message.data.NavigationalStatus !== undefined) {
-            updateNavigationalStatus(message.data.NavigationalStatus);
-          }
-          // Update Latitude and Longitude if provided.
-          if (message.data.Latitude !== undefined && message.data.Longitude !== undefined) {
-            updateLatLongDisplay(message.data.Latitude, message.data.Longitude);
-          }
-        }
+
+      if (message.data.Sog !== undefined) {
+        addSogDataPoint(ts, message.data.Sog);
       }
-    });
+
+      if (message.data.PositionAccuracy !== undefined) {
+        updatePositionAccuracyDot(message.data.PositionAccuracy);
+      }
+
+      if (message.data.NavigationalStatus !== undefined) {
+        updateNavigationalStatus(message.data.NavigationalStatus);
+      }
+
+      if (message.data.Latitude !== undefined && message.data.Longitude !== undefined) {
+        updateLatLongDisplay(message.data.Latitude, message.data.Longitude);
+      }
+    }
+  }
+});
     
     // --- 8. Reset Button: Clear all charts and refetch state ---
     document.getElementById('reset-button').addEventListener('click', () => {
