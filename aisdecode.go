@@ -322,14 +322,16 @@ func main() {
 	updateInterval := flag.Int("update-interval", 10, "Update interval in seconds for emitting latest vessel data (default: 10)")
 	expireAfter := flag.Duration("expire-after", 60*time.Minute, "Expire vessel data if no update is received within this duration (default: 60m)")
 	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
-	stateFile := flag.String("state-file", "", "Path to state file (optional). Overrides the default location of web-root/state.json")
+	stateDir := flag.String("state-dir", "", "Directory to store state (optional). Overrides the default location of web-root")
 
 	flag.Parse()
 
 	// Determine the state file path within the web root.
-	statePath := filepath.Join(*webRoot, "state.json")
-	if *stateFile != "" {
-	    statePath = *stateFile
+	var statePath string
+	if *stateDir != "" {
+	    statePath = filepath.Join(*stateDir, "state.json")
+	} else {
+	    statePath = filepath.Join(*webRoot, "state.json")
 	}
 
 	if !*noState {
