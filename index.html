@@ -626,6 +626,88 @@ function updateLatLongDisplay() {
   }
 }
 
+function hydrateTrackHistory(userID) {
+  fetch(`/history/${userID}/24`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`History fetch failed with status: ${response.status}`);
+      }
+      return response.text();
+    })
+    .then(csvData => {
+      // Parse the CSV formatted history into an array of points.
+      // Each point is an array: [timestamp, latitude, longitude]
+      const newPoints = csvData.trim().split('\n').map(line => {
+        const parts = line.split(',');
+        return [
+          parts[0],                     // Timestamp string
+          parseFloat(parts[1]),         // Latitude
+          parseFloat(parts[2])          // Longitude
+        ];
+      });
+
+      // Retrieve the current track history (or start with an empty array).
+      const currentTrack = vesselData[userID].track || [];
+      
+      // Merge the current track with the new points.
+      const mergedTrack = currentTrack.concat(newPoints);
+      
+      // Sort the merged track by time (assuming the timestamp is ISO formatted).
+      mergedTrack.sort((a, b) => new Date(a[0]) - new Date(b[0]));
+
+      // Remove duplicate entries.
+      // Two points are considered duplicates if they have identical timestamp, latitude, and longitude.
+      const dedupedTrack = [];
+      mergedTrack.forEach(point => {
+        if (
+          dedupedTrack.length === 0 ||
+          dedupedTrack[dedupedTrack.length - 1][0] !== point[0] ||
+          dedupedTrack[dedupedTrack.length - 1][1] !== point[1] ||
+          dedupedTrack[dedupedTrack.length - 1][2] !== point[2]
+        ) {
+          dedupedTrack.push(point);
+        }
+      });
+
+      // Update the vessel's track history in your data store.
+      vesselData[userID].track = dedupedTrack;
+      
+      // Update the polyline on the map with the new set of track points.
+      if (vesselTracks[userID]) {
+  vesselTracks[userID].options.interactive = true; // ensure the polyline receives mouse events
+
+  vesselTracks[userID].on('mousemove', function(e) {
+    const nearest = getNearestTrackPoint(e, vesselData[userID].track);
+    if (nearest) {
+      const [timestamp, lat, lon] = nearest.info;
+      const localTime = new Date(timestamp).toLocaleString();
+      const popupContent = `<strong>${localTime}</strong><br>
+                            ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+      L.popup({ closeButton: false, autoPan: false })
+        .setLatLng(nearest.ptLatLng)
+        .setContent(popupContent)
+        .openOn(map);
+    }
+  });
+
+  vesselTracks[userID].on('mouseout', function() {
+    map.closePopup();
+  });
+} else {
+        vesselTracks[userID] = L.polyline(getLatLngs(dedupedTrack), {
+          color: vesselData[userID].color,
+          weight: 3,
+          opacity: 0.8
+        }).addTo(map);
+      }
+      
+      // Save the updated vessel data back into localStorage.
+      localStorage.setItem('vesselData', JSON.stringify(vesselData));
+    })
+    .catch(error => {
+      console.error('Error hydrating track history:', error);
+    });
+}
 
         // Global objects to store markers, vessel data, and track histories.
         const vesselMarkers = {};
@@ -706,6 +788,10 @@ function addLine(lines, label, value, formatFn) {
   if (value !== null && value !== undefined && value !== "") {
     lines.push(`${label}: ${formatFn ? formatFn(value) : value}`);
   }
+}
+
+function getLatLngs(track) {
+  return track.map(pt => [pt[1], pt[2]]);
 }
 
 function createDetailContent(data) {
@@ -1308,13 +1394,13 @@ if (!showStationary) {
                 }
                 vesselMarkers[userID] = marker;
               }
-              if (vesselData[userID].track && vesselData[userID].track.length > 0) {
-                vesselTracks[userID] = L.polyline(vesselData[userID].track, {
-                  color: vesselData[userID].color,
-                  weight: 3,
-                  opacity: 0.8
-                }).addTo(map);
-              }
+		if (vesselData[userID].track && vesselData[userID].track.length > 0) {
+		  vesselTracks[userID] = L.polyline(getLatLngs(vesselData[userID].track), {
+		    color: vesselData[userID].color,
+		    weight: 3,
+		    opacity: 0.8
+		  }).addTo(map);
+		}
             });
             adjustMapBounds();
             updateOverlay();
@@ -1403,7 +1489,7 @@ if (!showStationary) {
               const track = vesselData[mmsi].track;
               const lastPoint = track[track.length - 1];
               if (!lastPoint || Math.abs(lastPoint[0] - vesselState.Latitude) > tolerance || Math.abs(lastPoint[1] - vesselState.Longitude) > tolerance) {
-                track.push([vesselState.Latitude, vesselState.Longitude]);
+                track.push([vesselState.LastUpdated, vesselState.Latitude, vesselState.Longitude]);
                 if (track.length > 10000) {
                   track.shift();
                 }
@@ -1473,14 +1559,15 @@ if (!showStationary) {
                 vesselMarkers[mmsi] = marker;
               }
               if (vesselTracks[mmsi]) {
-                vesselTracks[mmsi].setLatLngs(vesselData[mmsi].track);
-              } else {
-                vesselTracks[mmsi] = L.polyline(vesselData[mmsi].track, {
-                  color: vesselData[mmsi].color,
-                  weight: 3,
-                  opacity: 0.8
-                }).addTo(map);
-              }
+		  vesselTracks[mmsi].setLatLngs(getLatLngs(vesselData[mmsi].track));
+	      } else {
+		  vesselTracks[mmsi] = L.polyline(getLatLngs(vesselData[mmsi].track), {
+		    color: vesselData[mmsi].color,
+		    weight: 3,
+		    opacity: 0.8
+		  }).addTo(map);
+	      }
+
             } else {
               if (vesselMarkers[mmsi]) {
                 vesselMarkers[mmsi].getPopup().setContent(popupContent);
@@ -1566,8 +1653,27 @@ if (!showStationary) {
 	    });
 	}
 
+// Function to find the nearest point on the polyline track to the mouse event latlng.
+function getNearestTrackPoint(e, track) {
+  const mouseLatLng = e.latlng;
+  let minDistance = Infinity;
+  let nearestPoint = null;
+  
+  // Iterate over each point in the track (each point is [timestamp, lat, lon])
+  track.forEach(pt => {
+    // Create a Leaflet LatLng object for comparison.
+    const ptLatLng = L.latLng(pt[1], pt[2]);
+    const distance = mouseLatLng.distanceTo(ptLatLng);
+    if (distance < minDistance) {
+      minDistance = distance;
+      nearestPoint = { ptLatLng, info: pt };
+    }
+  });
+  return nearestPoint;
+}
 
-        // Focus on a particular vessel.
+
+// Focus on a particular vessel.
 function focusOnVessel(userID, initialFocus = true) {
   if (focusedVessel !== userID) {
     clearLiveLogs();
@@ -1575,6 +1681,7 @@ function focusOnVessel(userID, initialFocus = true) {
       unsubscribeInstantUpdates();
     }
     subscribeInstantUpdates(userID);
+    hydrateTrackHistory(userID);
   }
 
   // Reset tooltip for previous focused vessel.

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"math"
 
 	"go.bug.st/serial"
 
@@ -64,6 +65,23 @@ var (
 	aggregatorDedupeWindow []dedupeState
 	aggregatorDedupeMutex  sync.Mutex
 )
+
+var vesselHistoryMutex sync.Mutex
+var vesselLastCoordinates = make(map[string]struct{ lat, lon float64 })
+
+
+func haversine(lat1, lon1, lat2, lon2 float64) float64 {
+	const R = 6371000 // Earth radius in meters.
+	dLat := (lat2 - lat1) * math.Pi / 180.0
+	dLon := (lon2 - lon1) * math.Pi / 180.0
+	lat1Rad := lat1 * math.Pi / 180.0
+	lat2Rad := lat2 * math.Pi / 180.0
+
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1Rad)*math.Cos(lat2Rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return R * c
+}
 
 // isDuplicateWithLock checks for duplicates while holding the given mutex.
 func isDuplicateWithLock(message string, window *[]dedupeState, mutex *sync.Mutex, duration time.Duration) bool {
@@ -280,7 +298,28 @@ func cleanInvalidData(data map[string]interface{}) {
     }
 }
 
+// appendHistory appends a new history record for the given vessel.
+func appendHistory(baseDir, userID string, lat, lon float64, timestamp string) error {
+	historyDir := filepath.Join(baseDir, "history")
+	// Create the history directory if it doesn't exist.
+	if err := os.MkdirAll(historyDir, 0755); err != nil {
+		return err
+	}
+	filePath := filepath.Join(historyDir, userID+".csv")
+	// Open the file in append mode (or create it if it doesn't exist).
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
+	// Write a CSV line: timestamp,latitude,longitude.
+	line := fmt.Sprintf("%s,%.6f,%.6f\n", timestamp, lat, lon)
+	if _, err := f.WriteString(line); err != nil {
+		return err
+	}
+	return nil
+}
 
 func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]map[string]interface{} {
 	summary := make(map[string]map[string]interface{})
@@ -341,6 +380,13 @@ func main() {
 	        log.Fatalf("Cannot write to state file %s: %v", statePath, err)
 	    }
 	    f.Close()
+	}
+
+	var historyBase string
+	if *stateDir != "" {
+  	    historyBase = *stateDir
+	} else {
+	    historyBase = *webRoot
 	}
 
 	// Initialize previous vessel data.
@@ -502,6 +548,58 @@ func main() {
 	    }
 	})
 
+	http.HandleFunc("/history/", func(w http.ResponseWriter, r *http.Request) {
+	    // URL should be /history/<userid>/<hours>
+	    path := strings.TrimPrefix(r.URL.Path, "/history/")
+	    parts := strings.Split(path, "/")
+	    if len(parts) != 2 {
+	        http.Error(w, "Invalid URL. Expected format: /history/<userid>/<hours>", http.StatusBadRequest)
+	        return
+	    }
+	    userID := parts[0]
+	    hoursStr := parts[1]
+	    hours, err := strconv.Atoi(hoursStr)
+	    if err != nil {
+	        http.Error(w, "Invalid hours parameter", http.StatusBadRequest)
+	        return
+	    }
+	    cutoffTime := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+	    
+	    // Build the file path to the vessel's history CSV.
+	    filePath := filepath.Join(historyBase, "history", userID+".csv")
+	    f, err := os.Open(filePath)
+	    if err != nil {
+	        http.Error(w, "History file not found", http.StatusNotFound)
+	        return
+	    }
+	    defer f.Close()
+    
+	    w.Header().Set("Content-Type", "text/csv")
+	    scanner := bufio.NewScanner(f)
+	    for scanner.Scan() {
+	        line := scanner.Text()
+	        if strings.TrimSpace(line) == "" {
+	            continue
+	        }
+	        // Each line is expected to be in the format: timestamp,latitude,longitude
+	        fields := strings.Split(line, ",")
+	        if len(fields) != 3 {
+	            continue
+	        }
+	        ts, err := time.Parse(time.RFC3339Nano, fields[0])
+	        if err != nil {
+	            continue
+	        }
+	        if ts.After(cutoffTime) || ts.Equal(cutoffTime) {
+	            // Write the matching CSV line.
+	            fmt.Fprintln(w, line)
+	        }
+	    }
+	    if err := scanner.Err(); err != nil {
+	        http.Error(w, "Error reading history file", http.StatusInternalServerError)
+	        return
+	    }
+	})
 
 	go func() {
 		addr := fmt.Sprintf(":%d", *wsPort)
@@ -689,6 +787,30 @@ func main() {
 			}
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
+
+			
+			// Append to vessel history only if lat/lon have changed.
+			if lat, ok := merged["Latitude"].(float64); ok {
+			    if lon, ok := merged["Longitude"].(float64); ok {
+			        vesselHistoryMutex.Lock()
+			        last, exists := vesselLastCoordinates[vesselID]
+			        distance := 0.0
+			        if exists {
+			            distance = haversine(last.lat, last.lon, lat, lon)
+			        }
+			        if !exists || distance >= 10.0 {
+			            ts := merged["LastUpdated"].(string)
+				    if !*noState {  // Only append history if state persistence is enabled.
+				        if err := appendHistory(historyBase, vesselID, lat, lon, ts); err != nil {
+				            log.Printf("Error appending history for vessel %s: %v", vesselID, err)
+				        }
+				    }
+			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
+			        }
+			        vesselHistoryMutex.Unlock()
+			    }
+			}
+
 			vesselDataMutex.Lock()
 			latestData := filterCompleteVesselData(vesselData)
 			vesselDataMutex.Unlock()
@@ -884,6 +1006,30 @@ func main() {
 			}
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
+
+			// Append to vessel history only if lat/lon have changed.
+			if lat, ok := merged["Latitude"].(float64); ok {
+			    if lon, ok := merged["Longitude"].(float64); ok {
+			        vesselHistoryMutex.Lock()
+			        last, exists := vesselLastCoordinates[vesselID]
+			        distance := 0.0
+			        if exists {
+			            distance = haversine(last.lat, last.lon, lat, lon)
+			        }
+			        if !exists || distance >= 10.0 {
+			            ts := merged["LastUpdated"].(string)
+				    if !*noState {  // Only append history if state persistence is enabled.
+				       if err := appendHistory(historyBase, vesselID, lat, lon, ts); err != nil {
+				           log.Printf("Error appending history for vessel %s: %v", vesselID, err)
+				       }
+				   }
+			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
+			        }
+			        vesselHistoryMutex.Unlock()
+			    }
+			}
+
+
 			vesselDataMutex.Lock()
 			latestData := filterCompleteVesselData(vesselData)
 			vesselDataMutex.Unlock()
