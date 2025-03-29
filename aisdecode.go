@@ -347,6 +347,7 @@ func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]m
 			"NumMessages":          v["NumMessages"],
 			"Destination":          v["Destination"],
 			"Sog":                  v["Sog"],
+			"Cog":                  v["Cog"],
 			"Type":                 v["Type"],
 			"MaximumStaticDraught": v["MaximumStaticDraught"],
 			"NavigationalStatus":   v["NavigationalStatus"],

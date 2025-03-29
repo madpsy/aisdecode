@@ -603,6 +603,7 @@ function getColorForVesselTypeConsistent(type) {
 // Create a custom boat icon using your existing SVG, but with the stroke and fill set to the vessel type's color.
 function createBoatIcon(type, heading = 0) {
   const color = getColorForVesselTypeConsistent(type);
+  // Ensure the rotation logic applies even when no TrueHeading is present, using COG if TrueHeading is unavailable
   const svgHtml = `<svg width="20" height="50" viewBox="0 0 20 50" style="transform: rotate(${heading}deg); transform-origin: center;">
     <path d="M5 45 L15 45 L15 30 Q10 5,5 30 Z" stroke="${color}" fill="${color}" stroke-width="2" />
   </svg>`;
@@ -1131,67 +1132,82 @@ if (!showStationary) {
 
       // Define the generic handler that updates the vessel's data
       // and its marker position on the map.
-      instantHandler = function(message) {
-        // Parse string messages if needed.
-        if (typeof message === "string") {
-          try {
-            message = JSON.parse(message);
-          } catch (e) {
-            console.error("Error parsing message:", e);
-            return;
+instantHandler = function(message) {
+  // Parse string messages if needed.
+  if (typeof message === "string") {
+    try {
+      message = JSON.parse(message);
+    } catch (e) {
+      console.error("Error parsing message:", e);
+      return;
+    }
+  }
+
+  // Since we're subscribed to a single vessel's channel, no vessel filtering is needed here.
+  // However, you can still filter by message type if you want.
+  if (!allowedMessageTypes[message.type]) {
+    return;
+  }
+
+  // Update each field present in the incoming message.
+  if (message.data && message.data.UserID) {
+    Object.keys(message.data).forEach(field => {
+      vesselData[userID][field] = message.data[field];
+    });
+  }
+
+  if (message.timestamp) {
+    vesselData[userID].lastUpdate = new Date(message.timestamp).getTime();
+  }
+
+  // If the message includes a new position, update the marker position and popup.
+  if (typeof message.data.Latitude === "number" &&
+      typeof message.data.Longitude === "number") {
+    if (vesselMarkers[userID]) {
+      vesselMarkers[userID].setLatLng([message.data.Latitude, message.data.Longitude]);
+      // Update popup content with the updated data.
+      const popupContent = createPopupContent(vesselData[userID]);
+      vesselMarkers[userID].getPopup().setContent(popupContent);
+      if (focusedVessel === userID) {
+        updateLatLongDisplay();
+      }
+	const heading =
+	  (message.data.TrueHeading !== undefined && message.data.TrueHeading < 360)
+	    ? message.data.TrueHeading
+	    : message.data.Cog || 0;
+      if (heading !== undefined) {
+        const markerElem = vesselMarkers[userID].getElement() || vesselMarkers[userID]._icon;
+        if (markerElem) {
+          const svg = markerElem.querySelector('svg');
+          if (svg) {
+            svg.style.transform = `rotate(${heading}deg)`;
           }
         }
+      }
+    }
+    
+    // Add the new position to the vessel's track array immediately.
+    vesselData[userID].track = vesselData[userID].track || [];
+    vesselData[userID].track.push([message.timestamp, message.data.Latitude, message.data.Longitude]);
+    
+    // Update the vessel's polyline with the new track points.
+    if (vesselTracks[userID]) {
+      vesselTracks[userID].setLatLngs(getLatLngs(vesselData[userID].track));
+    } else {
+      vesselTracks[userID] = L.polyline(getLatLngs(vesselData[userID].track), {
+        color: vesselData[userID].color,
+        weight: 3,
+        opacity: 0.8
+      }).addTo(map);
+    }
+  }
 
-        // Since we're subscribed to a single vessel's channel, no vessel filtering is needed here.
-        // However, you can still filter by message type if you want.
-        if (!allowedMessageTypes[message.type]) {
-          return;
-        }
+  // Update the vessel detail overlay.
+  updateVesselDetailOverlay();
 
-        // Update each field present in the incoming message.
-        if (message.data && message.data.UserID) {
-          Object.keys(message.data).forEach(field => {
-            vesselData[userID][field] = message.data[field];
-          });
-        }
-
-        if (message.timestamp) {
-          vesselData[userID].lastUpdate = new Date(message.timestamp).getTime();
-        }
-
-        // If the message includes a new position, update the marker position and popup.
-        if (typeof message.data.Latitude === "number" &&
-            typeof message.data.Longitude === "number") {
-          if (vesselMarkers[userID]) {
-            vesselMarkers[userID].setLatLng([message.data.Latitude, message.data.Longitude]);
-            // Update popup content with the updated data.
-            const popupContent = createPopupContent(vesselData[userID]);
-            vesselMarkers[userID].getPopup().setContent(popupContent);
-            if (focusedVessel === userID) {
-              updateLatLongDisplay();
-            }
-	    const heading =
-		  (message.data.TrueHeading !== undefined && message.data.TrueHeading < 360)
-		    ? message.data.TrueHeading
-		    : message.data.Cog;
-            if (heading !== undefined) {
-              const markerElem = vesselMarkers[userID].getElement() || vesselMarkers[userID]._icon;
-              if (markerElem) {
-                const svg = markerElem.querySelector('svg');
-                if (svg) {
-                  svg.style.transform = `rotate(${heading}deg)`;
-                }
-              }
-            }
-          }
-        }
-
-        // Update the vessel detail overlay.
-        updateVesselDetailOverlay();
-
-        // Also, add the message to the live logs modal.
-        addLiveLogEntry(message);
-      };
+  // Also, add the message to the live logs modal.
+  addLiveLogEntry(message);
+};
 
       // Attach the handler.
       socket.on("ais_data", instantHandler);
@@ -1342,9 +1358,12 @@ if (!showStationary) {
                 const lat = vesselData[userID].Latitude;
                 const lon = vesselData[userID].Longitude;
                 const popupContent = createPopupContent(vesselData[userID]);
-		const heading = (vesselData[userID].TrueHeading !== undefined && vesselData[userID].TrueHeading < 360)
-		  ? vesselData[userID].TrueHeading
-		  : vesselData[userID].Cog || 0;
+		const heading = (typeof vesselData[mmsi].TrueHeading === 'number' && vesselData[mmsi].TrueHeading < 360)
+		  ? vesselData[mmsi].TrueHeading
+		  : (typeof vesselData[mmsi].Cog === 'number' && vesselData[mmsi].Cog >= 0 && vesselData[mmsi].Cog < 360)
+		    ? vesselData[mmsi].Cog
+		    : 0;  // Default to 0° if neither TrueHeading nor Cog is valid
+
                 const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[userID].Type || null, heading) }).addTo(map);
 
 		marker.on('add', function() {
@@ -1352,10 +1371,12 @@ if (!showStationary) {
 		  if (markerElem) {
 		    const svg = markerElem.querySelector('svg');
 		    if (svg) {
-		      const heading =
-		        (vesselData[userID].TrueHeading !== undefined && vesselData[userID].TrueHeading < 360)
-		          ? vesselData[userID].TrueHeading
-		          : vesselData[userID].Cog;
+		      const heading = 
+ 			 (typeof vesselData[userID].TrueHeading === 'number' && vesselData[userID].TrueHeading < 360)
+			    ? vesselData[userID].TrueHeading
+			    : (typeof vesselData[userID].Cog === 'number' && vesselData[userID].Cog >= 0 && vesselData[userID].Cog < 360)
+			      ? vesselData[userID].Cog
+			      : 0;  // Default to 0° if neither TrueHeading nor Cog is valid
 		      if (heading !== undefined) {
 		        svg.style.transform = `rotate(${heading}deg)`;
 		      }
@@ -1520,10 +1541,11 @@ if (!showStationary) {
     	    if (markerElem) {
     	      const svg = markerElem.querySelector('svg');
     	      if (svg) {
-		const heading =
-		  (vesselState.TrueHeading !== undefined && vesselState.TrueHeading < 360)
-		    ? vesselState.TrueHeading
-		    : vesselState.Cog;
+		const heading = (typeof vesselState.TrueHeading === 'number' && vesselState.TrueHeading < 360)
+		  ? vesselState.TrueHeading
+		  : (typeof vesselState.Cog === 'number' && vesselState.Cog >= 0 && vesselState.Cog < 360) 
+		    ? vesselState.Cog 
+		    : 0;  // Default to 0° if neither TrueHeading nor Cog is valid.
 		if (heading !== undefined) {
 	    	        svg.style.transform = `rotate(${heading}deg)`;
 		}
@@ -1553,9 +1575,11 @@ if (!showStationary) {
                   setTimeout(() => markerElem.classList.remove('enlarge'), 500);
                 }
               } else {
-		const heading = (vesselData[mmsi].TrueHeading !== undefined && vesselData[mmsi].TrueHeading < 360)
+		const heading = (typeof vesselData[mmsi].TrueHeading === 'number' && vesselData[mmsi].TrueHeading < 360)
 		  ? vesselData[mmsi].TrueHeading
-		  : vesselData[mmsi].Cog || 0;
+		  : (typeof vesselData[mmsi].Cog === 'number' && vesselData[mmsi].Cog >= 0 && vesselData[mmsi].Cog < 360)
+		    ? vesselData[mmsi].Cog
+		    : 0;  // Default to 0° if neither TrueHeading nor Cog is valid
 		const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[mmsi].Type || null, heading) }).addTo(map);
                 marker.bindPopup(popupContent, { autoPan: false });
                 if (vesselState.Name) {
