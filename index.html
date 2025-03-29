@@ -674,26 +674,29 @@ function hydrateTrackHistory(userID) {
       
       // Update the polyline on the map with the new set of track points.
       if (vesselTracks[userID]) {
-  vesselTracks[userID].options.interactive = true; // ensure the polyline receives mouse events
-
-  vesselTracks[userID].on('mousemove', function(e) {
-    const nearest = getNearestTrackPoint(e, vesselData[userID].track);
-    if (nearest) {
-      const [timestamp, lat, lon] = nearest.info;
-      const localTime = new Date(timestamp).toLocaleString();
-      const popupContent = `<strong>${localTime}</strong><br>
-                            ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-      L.popup({ closeButton: false, autoPan: false })
-        .setLatLng(nearest.ptLatLng)
-        .setContent(popupContent)
-        .openOn(map);
-    }
-  });
-
-  vesselTracks[userID].on('mouseout', function() {
-    map.closePopup();
-  });
-} else {
+        // Update the existing polyline's coordinates.
+        vesselTracks[userID].setLatLngs(getLatLngs(dedupedTrack));
+        vesselTracks[userID].options.interactive = true; // Ensure interactivity
+        
+        // Reattach event handlers (if needed)
+        vesselTracks[userID].on('mousemove', function(e) {
+          const nearest = getNearestTrackPoint(e, vesselData[userID].track);
+          if (nearest) {
+            const [timestamp, lat, lon] = nearest.info;
+            const localTime = new Date(timestamp).toLocaleString();
+            const popupContent = `<strong>${localTime}</strong><br>
+                                  ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+            L.popup({ closeButton: false, autoPan: false })
+              .setLatLng(nearest.ptLatLng)
+              .setContent(popupContent)
+              .openOn(map);
+          }
+        });
+        vesselTracks[userID].on('mouseout', function() {
+          map.closePopup();
+        });
+      } else {
+        // Create a new polyline if it doesn't exist.
         vesselTracks[userID] = L.polyline(getLatLngs(dedupedTrack), {
           color: vesselData[userID].color,
           weight: 3,
