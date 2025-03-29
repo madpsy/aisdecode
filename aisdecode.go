@@ -804,7 +804,7 @@ func main() {
 			vesselDataMutex.Unlock()
 
 			
-			// Append to vessel history only if lat/lon have changed.
+			// Append to vessel history only if lat/lon have changed by an acceptable amount.
 			if lat, ok := merged["Latitude"].(float64); ok {
 			    if lon, ok := merged["Longitude"].(float64); ok {
 			        vesselHistoryMutex.Lock()
@@ -813,18 +813,27 @@ func main() {
 			        if exists {
 			            distance = haversine(last.lat, last.lon, lat, lon)
 			        }
-			        if !exists || distance >= 10.0 {
-			            ts := merged["LastUpdated"].(string)
-				    if !*noState {  // Only append history if state persistence is enabled.
-				        if err := appendHistory(historyBase, vesselID, lat, lon, ts); err != nil {
-				            log.Printf("Error appending history for vessel %s: %v", vesselID, err)
-				        }
-				    }
+			        // If there's a previous reading and the new reading is out-of-bound (i.e. a jump of less than 10 m or more than 10 km)
+			        if exists && (distance < 10.0 || distance > 10000.0) {
+			            // Update stored location to reset the baseline for future comparisons.
 			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
+			            vesselHistoryMutex.Unlock()
+			            // Skip further processing for this message.
+			            continue
 			        }
+			        // No previous reading exists, or the change is acceptable.
+			        ts := merged["LastUpdated"].(string)
+			        if !*noState {  // Only append history if state persistence is enabled.
+			            if err := appendHistory(historyBase, vesselID, lat, lon, ts); err != nil {
+			                log.Printf("Error appending history for vessel %s: %v", vesselID, err)
+			            }
+			        }
+			        // Update the stored location.
+			        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
 			        vesselHistoryMutex.Unlock()
 			    }
 			}
+
 
 			vesselDataMutex.Lock()
 			latestData := filterCompleteVesselData(vesselData)
@@ -1022,7 +1031,7 @@ func main() {
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 
-			// Append to vessel history only if lat/lon have changed.
+			// Append to vessel history only if lat/lon have changed by an acceptable amount.
 			if lat, ok := merged["Latitude"].(float64); ok {
 			    if lon, ok := merged["Longitude"].(float64); ok {
 			        vesselHistoryMutex.Lock()
@@ -1031,19 +1040,26 @@ func main() {
 			        if exists {
 			            distance = haversine(last.lat, last.lon, lat, lon)
 			        }
-			        if !exists || distance >= 10.0 {
-			            ts := merged["LastUpdated"].(string)
-				    if !*noState {  // Only append history if state persistence is enabled.
-				       if err := appendHistory(historyBase, vesselID, lat, lon, ts); err != nil {
-				           log.Printf("Error appending history for vessel %s: %v", vesselID, err)
-				       }
-				   }
+			        // If there's a previous reading and the new reading is out-of-bound (i.e. a jump of less than 10 m or more than 10 km)
+			        if exists && (distance < 10.0 || distance > 10000.0) {
+			            // Update stored location to reset the baseline for future comparisons.
 			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
+			            vesselHistoryMutex.Unlock()
+			            // Skip further processing for this message.
+			            continue
 			        }
+			        // No previous reading exists, or the change is acceptable.
+			        ts := merged["LastUpdated"].(string)
+			        if !*noState {  // Only append history if state persistence is enabled.
+			            if err := appendHistory(historyBase, vesselID, lat, lon, ts); err != nil {
+			                log.Printf("Error appending history for vessel %s: %v", vesselID, err)
+			            }
+			        }
+			        // Update the stored location.
+			        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
 			        vesselHistoryMutex.Unlock()
 			    }
 			}
-
 
 			vesselDataMutex.Lock()
 			latestData := filterCompleteVesselData(vesselData)
