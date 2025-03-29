@@ -227,6 +227,45 @@
           z-index: 1100;
           display: none;  /* Hidden by default */
     }
+
+#vessel-legend {
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  padding: 5px;
+  background-color: rgba(255, 255, 255, 0.95);
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  max-height: 350px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+#vessel-legend h4 {
+  margin: 3px 0;
+  font-size: 16px;
+  text-align: center;
+}
+
+#vessel-legend .legend-item {
+  display: flex;
+  align-items: center;
+  margin: 0;   
+  padding: 0; 
+  line-height: 1; 
+}
+
+#vessel-legend .legend-item svg {
+  margin: 0 3px 0 0;  
+  width: 30px;
+  height: 30px; 
+}
+
+#vessel-legend .legend-item span {
+  margin: 0; 
+  padding: 0; 
+  font-size: 14px;
+  line-height: 1; 
+}
     </style>
 </head>
 
@@ -314,6 +353,11 @@
     <input type="checkbox" id="stationary" checked>
     Stationary
   </label>
+        <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Legend</button>
+    </div>
+
+    <div id="vessel-legend" style="position: absolute; top: 210px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
+        <div id="legend-content"></div>
     </div>
 
     <!-- Known vessels overlay (bottom left) -->
@@ -625,6 +669,62 @@ function updateLatLongDisplay() {
       latlongDisplay.innerHTML = `<strong>${lat.toFixed(4)}, ${lon.toFixed(4)}</strong>`;
     }
   }
+}
+
+function updateLegend() {
+
+  const legend = document.getElementById('vessel-legend');
+  const currentDisplay = window.getComputedStyle(legend).display;
+  
+  if (currentDisplay === 'none') {
+    return; // If the legend is hidden, don't update it
+  }
+
+  // Get the top 5 vessel types
+  const vesselTypes = {};
+
+  // Loop through the vessel data to gather vessel types
+  for (const userID in vesselData) {
+    const vessel = vesselData[userID];
+    if (vessel.Type) {
+      const typeDescription = staticTypeMapping[vessel.Type] || vessel.Type;
+      const typeColor = getColorForVesselTypeConsistent(vessel.Type);
+
+      if (!vesselTypes[typeDescription]) {
+        vesselTypes[typeDescription] = {
+          count: 0,
+          color: typeColor,
+        };
+      }
+      vesselTypes[typeDescription].count += 1;
+    }
+  }
+
+  // Get the top 5 types based on count
+  const topTypes = Object.keys(vesselTypes)
+    .sort((a, b) => vesselTypes[b].count - vesselTypes[a].count)
+    .slice(0, 5);
+
+  let legendContent = '';
+  topTypes.forEach(type => {
+    const count = vesselTypes[type].count;
+    const color = vesselTypes[type].color;
+
+    legendContent += `
+      <div class="legend-item">
+        <svg width="20" height="50" viewBox="0 0 20 50" style="transform: rotate(0deg); transform-origin: center;">
+          <path d="M5 45 L15 45 L15 30 Q10 5,5 30 Z" stroke="${color}" fill="${color}" stroke-width="2" />
+        </svg>
+        <span>${type} (${count})</span>
+      </div>
+    `;
+  });
+
+  // Update the legend content
+  document.getElementById('legend-content').innerHTML = legendContent;
+
+  // Display the legend
+  document.getElementById('vessel-legend').style.display = 'block';
 }
 
 function hydrateTrackHistory(userID) {
@@ -1358,10 +1458,10 @@ instantHandler = function(message) {
                 const lat = vesselData[userID].Latitude;
                 const lon = vesselData[userID].Longitude;
                 const popupContent = createPopupContent(vesselData[userID]);
-		const heading = (typeof vesselData[mmsi].TrueHeading === 'number' && vesselData[mmsi].TrueHeading < 360)
-		  ? vesselData[mmsi].TrueHeading
-		  : (typeof vesselData[mmsi].Cog === 'number' && vesselData[mmsi].Cog >= 0 && vesselData[mmsi].Cog < 360)
-		    ? vesselData[mmsi].Cog
+		const heading = (typeof vesselData[userID].TrueHeading === 'number' && vesselData[userID].TrueHeading < 360)
+		  ? vesselData[userID].TrueHeading
+		  : (typeof vesselData[userID].Cog === 'number' && vesselData[userID].Cog >= 0 && vesselData[userID].Cog < 360)
+		    ? vesselData[userID].Cog
 		    : 0;  // Default to 0° if neither TrueHeading nor Cog is valid
 
                 const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[userID].Type || null, heading) }).addTo(map);
@@ -1989,6 +2089,27 @@ function updateFocussedTooltip() {
   }
 }
 setInterval(updateFocussedTooltip, 1000);
+
+
+// Call updateLegend periodically to keep the legend up to date
+setInterval(updateLegend, 5000); // Update every 5 seconds
+
+document.getElementById('toggle-legend').addEventListener('click', function() {
+  const legend = document.getElementById('vessel-legend');
+  const currentDisplay = window.getComputedStyle(legend).display;
+  if (currentDisplay === 'none') {
+    updateLegend();
+    legend.style.display = 'block';
+    this.textContent = 'Hide Legend';
+  } else {
+    legend.style.display = 'none';
+    this.textContent = 'Show Legend';
+  }
+});
+const legend = document.getElementById('vessel-legend');
+legend.style.display = 'block';
+updateLegend();
+document.getElementById('toggle-legend').textContent = 'Hide Legend';
 
     document.getElementById('live-log-search').addEventListener('input', applyLogFilters);
 
