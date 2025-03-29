@@ -1170,12 +1170,16 @@ if (!showStationary) {
             }
 
             // If a new TrueHeading is provided, update the marker's rotation.
-            if (message.data.TrueHeading !== undefined) {
+	    const heading =
+		  (message.data.TrueHeading !== undefined && message.data.TrueHeading < 360)
+		    ? message.data.TrueHeading
+		    : message.data.Cog;
+            if (heading !== undefined) {
               const markerElem = vesselMarkers[userID].getElement() || vesselMarkers[userID]._icon;
               if (markerElem) {
                 const svg = markerElem.querySelector('svg');
                 if (svg) {
-                  svg.style.transform = `rotate(${message.data.TrueHeading}deg)`;
+                  svg.style.transform = `rotate(${heading}deg)`;
                 }
               }
             }
@@ -1340,14 +1344,20 @@ if (!showStationary) {
                 const popupContent = createPopupContent(vesselData[userID]);
                 const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[userID].Type || null) }).addTo(map);
 
-    	    marker.on('add', function() {
-    	      const markerElem = marker.getElement();
-    	      if (markerElem) {
-    	        const svg = markerElem.querySelector('svg');
-    	        if (svg) {
-    	          svg.style.transform = `rotate(${vesselData[userID].TrueHeading}deg)`;
-    	        }
-    	      }
+		marker.on('add', function() {
+		  const markerElem = marker.getElement();
+		  if (markerElem) {
+		    const svg = markerElem.querySelector('svg');
+		    if (svg) {
+		      const heading =
+		        (vesselData[userID].TrueHeading !== undefined && vesselData[userID].TrueHeading < 360)
+		          ? vesselData[userID].TrueHeading
+		          : vesselData[userID].Cog;
+		      if (heading !== undefined) {
+		        svg.style.transform = `rotate(${heading}deg)`;
+		      }
+		    }
+		  }
     	      if (markerElem) {
     	       const svg = markerElem.querySelector('svg');
     		 if (svg) {
