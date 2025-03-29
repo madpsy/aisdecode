@@ -1706,9 +1706,13 @@ function focusOnVessel(userID, initialFocus = true) {
 
   // Reset tooltip for previous focused vessel.
   if (focusedVessel && focusedVessel !== userID) {
-    const prevVessel = vesselData[focusedVessel];
-    vesselMarkers[focusedVessel].getTooltip().setContent(prevVessel.Name);
-    vesselMarkers[focusedVessel].setZIndexOffset(0);
+    const prevMarker = vesselMarkers[focusedVessel];
+    // Reset tooltip to default content and close it
+    prevMarker.getTooltip().setContent(vesselData[focusedVessel].Name);
+    prevMarker.closeTooltip();
+    // Reset z-index and remove any focus styling
+    prevMarker.setZIndexOffset(0);
+    prevMarker.getElement()?.classList.remove('enlarge');
   }
 
   focusedVessel = userID;
