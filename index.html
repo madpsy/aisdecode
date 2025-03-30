@@ -682,6 +682,42 @@ function updateLatLongDisplay() {
   }
 }
 
+function attachPolylineEvents(polyline, userID) {
+  polyline.on('mousemove', function(e) {
+    const nearest = getNearestTrackPoint(e, vesselData[userID].track);
+    if (nearest) {
+      const [timestamp, lat, lon, sog, cog, trueHeading] = nearest.info;
+      const localTime = new Date(timestamp).toLocaleString();
+      const vessel = vesselData[userID];
+      const name = vessel.Name || "Unknown Vessel";
+      const callsign = vessel.CallSign || "N/A";
+      
+      let popupContent = `<strong>${name} (${callsign})</strong><br>
+                          ${localTime}<br>
+                          ${lat.toFixed(4)}, ${lon.toFixed(4)}<br>`;
+      if (sog !== null) {
+        popupContent += `Speed: ${sog} kn<br>`;
+      }
+      if (cog !== null) {
+        popupContent += `Course: ${cog}°<br>`;
+      }
+      if (trueHeading !== null) {
+        popupContent += `Heading: ${trueHeading}°<br>`;
+      }
+      
+      L.popup({ closeButton: false, autoPan: false })
+        .setLatLng(nearest.ptLatLng)
+        .setContent(popupContent)
+        .openOn(map);
+    }
+  });
+  
+  polyline.on('mouseout', function() {
+    map.closePopup();
+  });
+}
+
+
 function updateLegend() {
 
   const legend = document.getElementById('vessel-legend');
@@ -834,8 +870,10 @@ function hydrateTrackHistory(userID) {
         vesselTracks[userID] = L.polyline(getLatLngs(dedupedTrack), {
           color: vesselData[userID].color,
           weight: 3,
-          opacity: 0.8
+          opacity: 0.8,
+	  interactive: true
         }).addTo(map);
+	attachPolylineEvents(vesselTracks[userID], userID);
       }
       
       // Save the updated vessel data back into localStorage.
@@ -1338,8 +1376,10 @@ instantHandler = function(message) {
       vesselTracks[userID] = L.polyline(getLatLngs(vesselData[userID].track), {
         color: vesselData[userID].color,
         weight: 3,
-        opacity: 0.8
+        opacity: 0.8,
+ 	interactive: true
       }).addTo(map);
+      attachPolylineEvents(vesselTracks[userID], userID);
     }
   }
 
@@ -1573,8 +1613,10 @@ instantHandler = function(message) {
 		  vesselTracks[userID] = L.polyline(getLatLngs(vesselData[userID].track), {
 		    color: vesselData[userID].color,
 		    weight: 3,
-		    opacity: 0.8
+		    opacity: 0.8,
+		    interactive: true
 		  }).addTo(map);
+		  attachPolylineEvents(vesselTracks[userID], userID);
 		}
             });
             adjustMapBounds();
@@ -1759,8 +1801,10 @@ instantHandler = function(message) {
 		  vesselTracks[mmsi] = L.polyline(getLatLngs(vesselData[mmsi].track), {
 		    color: vesselData[mmsi].color,
 		    weight: 3,
-		    opacity: 0.8
+		    opacity: 0.8,
+		    interactive: true
 		  }).addTo(map);
+		  attachPolylineEvents(vesselTracks[mmsi], mmsi);
 	      }
 
             } else {
