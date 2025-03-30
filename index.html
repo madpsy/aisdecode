@@ -1024,7 +1024,7 @@ function createDetailContent(data) {
           if (focusedVessel) {
             let bounds = L.latLngBounds([]);
             bounds.extend(vesselMarkers[focusedVessel].getLatLng());
-            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
           } else {
             const allLatLngs = [];
             for (const key in vesselMarkers) {
@@ -1986,7 +1986,7 @@ function showFlashMessage(message, parentEl) {
           if (initialFocus || document.getElementById('auto-zoom').checked) {
             let bounds = L.latLngBounds([]);
             bounds.extend(vesselMarkers[userID].getLatLng());
-            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
           }
 
           updateFocussedVisibility();
