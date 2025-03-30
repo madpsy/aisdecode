@@ -1919,7 +1919,7 @@ function focusOnVessel(userID, initialFocus = true) {
 	    if (vesselData[userID].UserID) {
 	      // Build the Lookup link and add a (Link) button after the vessel name.
 	      headerEl.innerHTML = `${vesselData[userID].Name}
-	        <br><a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vesselData[userID].UserID}" target="_blank">Lookup</a> |
+	        <br><a href="https://www.vesselfinder.com/vessels/details/${vesselData[userID].UserID}" target="_blank">Lookup</a> |
 	        <span id="copy-link" style="cursor:pointer; color:blue;">Link</span>`;
 	    } else {
 	      headerEl.textContent = "Vessel Details";
