@@ -186,44 +186,104 @@
     
         // --- Helper: Filter and update chart data based on selected time period ---
 	function filterChartData() {
-	  const periodSelect = document.getElementById('time-period');
-	  const selectedValue = periodSelect.value; // For API call, e.g., "1", "3", or "9999" for All.
-	  const selectedText = periodSelect.options[periodSelect.selectedIndex].text;
-	  let periodMs = 0;
-	
-	  if (selectedText === "All") {
-	    periodMs = Infinity;
-	  } else if (selectedText.indexOf("minute") !== -1) {
-	    // Extract number of minutes from text (e.g., "10 minutes" or "30 minutes")
-	    const minutes = parseFloat(selectedText);
-	    periodMs = minutes * 60 * 1000;
-	  } else if (selectedText.indexOf("hour") !== -1) {
-	    // Extract number of hours
-	    const hours = parseFloat(selectedText);
-	    periodMs = hours * 60 * 60 * 1000;
-	  } else {
-	    // Fallback if parsing fails; default to one hour.
-	    periodMs = 60 * 60 * 1000;
-	  }
-	
-	  const threshold = Date.now() - periodMs;
-	  
-	  // Update SOG chart.
-	  const filteredSogData = (periodMs === Infinity) ? allSogData : allSogData.filter(item => item.timestamp >= threshold);
-	  sogChart.data.labels = filteredSogData.map(item => new Date(item.timestamp));
-	  sogChart.data.datasets[0].data = filteredSogData.map(item => item.sog);
-	  sogChart.update();
-  
-	  // Update Direction chart.
-	  const filteredDirectionData = (periodMs === Infinity) ? allDirectionData : allDirectionData.filter(item => item.timestamp >= threshold);
-	  directionChart.data.labels = filteredDirectionData.map(item => new Date(item.timestamp));
-	  directionChart.data.datasets[0].data = filteredDirectionData.map(item => item.trueHeading);
-	  directionChart.data.datasets[1].data = filteredDirectionData.map(item => item.cog);
-	  directionChart.update();
+  const periodSelect = document.getElementById('time-period');
+  const selectedValue = periodSelect.value;
+  const selectedText = periodSelect.options[periodSelect.selectedIndex].text;
+  let periodMs = 0;
 
-	  // Update Unique Positions count using the number of filtered SOG points.
-	  document.getElementById('unique-positions').textContent = filteredSogData.length;
-	}
+  if (selectedText === "All") {
+    periodMs = Infinity;
+  } else if (selectedText.indexOf("minute") !== -1) {
+    const minutes = parseFloat(selectedText);
+    periodMs = minutes * 60 * 1000;
+  } else if (selectedText.indexOf("hour") !== -1) {
+    const hours = parseFloat(selectedText);
+    periodMs = hours * 60 * 60 * 1000;
+  } else {
+    periodMs = 60 * 60 * 1000;
+  }
+
+  const threshold = Date.now() - periodMs;
+  
+  // Filter SOG data
+  const filteredSogData = (periodMs === Infinity)
+    ? allSogData
+    : allSogData.filter(item => item.timestamp >= threshold);
+
+  // Update the main speed dataset
+  sogChart.data.labels = filteredSogData.map(item => new Date(item.timestamp));
+  sogChart.data.datasets[0].data = filteredSogData.map(item => item.sog);
+
+  // If there is data, calculate statistics and create constant-line arrays
+ if (filteredSogData.length > 0) {
+  const speeds = filteredSogData.map(item => item.sog);
+  const maxSpeed = parseFloat(Math.max(...speeds).toFixed(1));
+  const minSpeed = parseFloat(Math.min(...speeds).toFixed(1));
+  const avgSpeed = parseFloat((speeds.reduce((sum, val) => sum + val, 0) / speeds.length).toFixed(1));
+  
+  // Build constant arrays matching the number of labels
+  const maxArray = sogChart.data.labels.map(() => maxSpeed);
+  const minArray = sogChart.data.labels.map(() => minSpeed);
+  const avgArray = sogChart.data.labels.map(() => avgSpeed);
+  
+  // If extra datasets haven't been added yet, add them
+  if (sogChart.data.datasets.length < 4) {
+    sogChart.data.datasets.push({
+      label: 'Max Speed',
+      data: maxArray,
+      borderColor: 'red',
+      borderDash: [5, 5],
+      fill: false,
+      pointRadius: 0,
+      tension: 0
+    });
+    sogChart.data.datasets.push({
+      label: 'Min Speed',
+      data: minArray,
+      borderColor: 'green',
+      borderDash: [5, 5],
+      fill: false,
+      pointRadius: 0,
+      tension: 0
+    });
+    sogChart.data.datasets.push({
+      label: 'Average Speed',
+      data: avgArray,
+      borderColor: 'orange',
+      borderDash: [5, 5],
+      fill: false,
+      pointRadius: 0,
+      tension: 0
+    });
+  } else {
+    // Otherwise, update the existing datasets
+    sogChart.data.datasets[1].data = maxArray;
+    sogChart.data.datasets[2].data = minArray;
+    sogChart.data.datasets[3].data = avgArray;
+  }
+} else {
+    // If no data is available, clear the extra datasets if they exist.
+    if (sogChart.data.datasets.length >= 4) {
+      sogChart.data.datasets[1].data = [];
+      sogChart.data.datasets[2].data = [];
+      sogChart.data.datasets[3].data = [];
+    }
+  }
+
+  sogChart.update();
+
+  // Update Direction chart as before.
+  const filteredDirectionData = (periodMs === Infinity)
+    ? allDirectionData
+    : allDirectionData.filter(item => item.timestamp >= threshold);
+  directionChart.data.labels = filteredDirectionData.map(item => new Date(item.timestamp));
+  directionChart.data.datasets[0].data = filteredDirectionData.map(item => item.trueHeading);
+  directionChart.data.datasets[1].data = filteredDirectionData.map(item => item.cog);
+  directionChart.update();
+
+  document.getElementById('unique-positions').textContent = filteredSogData.length;
+}
+
 
         // --- Event listener for time period changes ---
         document.getElementById('time-period').addEventListener('change', () => {
@@ -275,7 +335,7 @@
         const sogData = {
           labels: [],
           datasets: [{
-            label: 'Speed on Ground (kn)',
+            label: 'Current Speed',
             data: [],
             fill: false,
             borderColor: 'blue',
