@@ -69,6 +69,115 @@ var (
 var vesselHistoryMutex sync.Mutex
 var vesselLastCoordinates = make(map[string]struct{ lat, lon float64 })
 
+// cleanupHistoryFiles scans the "history" directory under baseDir and removes
+// any records older than expireAfter. It writes the valid records to a temporary file
+// and then replaces the original file. If no valid records remain, the file is deleted.
+func cleanupHistoryFiles(baseDir string, expireAfter time.Duration) {
+	historyDir := filepath.Join(baseDir, "history")
+	files, err := os.ReadDir(historyDir)
+	if err != nil {
+		log.Printf("Error reading history directory %s: %v", historyDir, err)
+		return
+	}
+
+	cutoffTime := time.Now().UTC().Add(-expireAfter)
+
+	for _, file := range files {
+		// Process only CSV files (skip directories and non-CSV files)
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".csv") {
+			continue
+		}
+		filePath := filepath.Join(historyDir, file.Name())
+
+		// Open the original file for reading.
+		origFile, err := os.Open(filePath)
+		if err != nil {
+			log.Printf("Error opening file %s: %v", filePath, err)
+			continue
+		}
+		scanner := bufio.NewScanner(origFile)
+		var validLines []string
+
+		// Read the file line by line and keep only records newer than cutoffTime.
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			// Assume CSV format: timestamp,latitude,longitude,... etc.
+			fields := strings.Split(line, ",")
+			if len(fields) < 1 {
+				continue
+			}
+			ts, err := time.Parse(time.RFC3339Nano, fields[0])
+			if err != nil {
+				// If the timestamp doesn't parse, skip this record.
+				continue
+			}
+			if ts.After(cutoffTime) || ts.Equal(cutoffTime) {
+				validLines = append(validLines, line)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			log.Printf("Error reading file %s: %v", filePath, err)
+		}
+		origFile.Close()
+
+		// Write valid lines to a temporary file.
+		tempFilePath := filePath + ".tmp"
+		tempFile, err := os.Create(tempFilePath)
+		if err != nil {
+			log.Printf("Error creating temp file for %s: %v", filePath, err)
+			continue
+		}
+		for _, line := range validLines {
+			if _, err := tempFile.WriteString(line + "\n"); err != nil {
+				log.Printf("Error writing to temp file %s: %v", tempFilePath, err)
+				break
+			}
+		}
+		tempFile.Close()
+
+		// Check if the temporary file is empty.
+		info, err := os.Stat(tempFilePath)
+		if err != nil {
+			log.Printf("Error stating temp file %s: %v", tempFilePath, err)
+			continue
+		}
+		if info.Size() == 0 {
+			// If no records remain, remove both the original and temp file.
+			if err := os.Remove(filePath); err != nil {
+				log.Printf("Error removing file %s: %v", filePath, err)
+			}
+			os.Remove(tempFilePath)
+		} else {
+			// Atomically replace the original file with the temporary file.
+			if err := os.Rename(tempFilePath, filePath); err != nil {
+				log.Printf("Error renaming temp file %s to %s: %v", tempFilePath, filePath, err)
+			}
+		}
+	}
+}
+
+func scheduleDailyCleanup(historyBase string, expireAfter time.Duration) {
+	now := time.Now()
+	// Calculate next midnight: create a time value for midnight of the next day.
+	nextMidnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+	durationUntilMidnight := nextMidnight.Sub(now)
+	
+	// Wait until midnight.
+	time.AfterFunc(durationUntilMidnight, func() {
+		log.Println("Running scheduled daily history cleanup at midnight.")
+		cleanupHistoryFiles(historyBase, expireAfter)
+		
+		// After the first cleanup at midnight, schedule it to run every 24 hours.
+		ticker := time.NewTicker(24 * time.Hour)
+		for range ticker.C {
+			log.Println("Running scheduled daily history cleanup at midnight.")
+			cleanupHistoryFiles(historyBase, expireAfter)
+		}
+	})
+}
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 	const R = 6371000 // Earth radius in meters.
@@ -402,6 +511,11 @@ func main() {
   	    historyBase = *stateDir
 	} else {
 	    historyBase = *webRoot
+	}
+
+	if !*noState {
+		cleanupHistoryFiles(historyBase, *expireAfter)
+		scheduleDailyCleanup(historyBase, *expireAfter)
 	}
 
 	// Initialize previous vessel data.
