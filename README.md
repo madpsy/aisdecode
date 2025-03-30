@@ -19,7 +19,7 @@ Usage of aisdecode:
   -dump-vessel-data
     	Log the latest vessel data to the screen whenever it is updated
   -expire-after duration
-    	Expire vessel data if no update is received within this duration (default: 60m)
+    	Expire vessel data if no update is received within this duration (default: 24h)
   -no-state
     	When specified, do not save or load the state (default: false)
   -serial-port string
