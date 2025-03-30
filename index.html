@@ -626,25 +626,31 @@ const vesselColorPalette = [
   "#B22222", // Firebrick Red
   "#3CB371", // Medium Sea Green
   "#FF1493", // Deep Pink
-  "#4B0082"  // Indigo
+  "#4B0082", // Indigo
+  "#00FF00", // Lime
+  "#00FFFF", // Cyan
+  "#FF4500", // Orange Red
+  "#00CED1"  // Dark Turquoise
 ];
 
-// Hash function that returns a numeric index based on a string.
-function hashStringToIndex(str, max) {
-  let hash = 0;
+function djb2Hash(str) {
+  let hash = 5381;
   for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    hash = ((hash << 5) + hash) + str.charCodeAt(i); // hash * 33 + c
   }
-  return Math.abs(hash) % max;
+  return hash >>> 0; // Ensure a positive integer
 }
 
-// Get a consistent color for a given vessel type.
-// It uses staticTypeMapping (or falls back to the type itself) to get the description.
+function hashStringToIndex(type, description, modulo) {
+  const combined = type + description;
+  return djb2Hash(combined) % modulo;
+}
+
+
 function getColorForVesselTypeConsistent(type) {
-  // If the type is falsy (undefined, null, empty), return blue.
   if (!type) return "blue";
   const description = staticTypeMapping[type] || type;
-  const index = hashStringToIndex(description, vesselColorPalette.length);
+  const index = hashStringToIndex(type, description, vesselColorPalette.length);
   return vesselColorPalette[index];
 }
 
