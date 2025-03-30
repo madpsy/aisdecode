@@ -82,9 +82,10 @@
             <span id="position-accuracy-dot" title="Position Accuracy" style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:5px;"></span>
         </div>
         <div id="status-container">
-            Status: <span id="navigational-status">Loading...</span>
+            Nav Status: <span id="navigational-status">Loading...</span>
             <br> Max Draught: <span id="max-draught">Loading...</span>
             <br> Last Position: <span id="last-message-time">Loading...</span>
+	    <br> Unique Positions: <span id="unique-positions">Loading...</span>
         </div>
         <div id="time-period-container">
             Time Period:
@@ -184,44 +185,46 @@
         }
     
         // --- Helper: Filter and update chart data based on selected time period ---
-    function filterChartData() {
-      const periodSelect = document.getElementById('time-period');
-      const selectedValue = periodSelect.value; // For API call, e.g., "1", "3", or "9999" for All.
-      const selectedText = periodSelect.options[periodSelect.selectedIndex].text;
-      let periodMs = 0;
-    
-      if (selectedText === "All") {
-        periodMs = Infinity;
-      } else if (selectedText.indexOf("minute") !== -1) {
-        // Extract number of minutes from text (e.g., "10 minutes" or "30 minutes")
-        const minutes = parseFloat(selectedText);
-        periodMs = minutes * 60 * 1000;
-      } else if (selectedText.indexOf("hour") !== -1) {
-        // Extract number of hours
-        const hours = parseFloat(selectedText);
-        periodMs = hours * 60 * 60 * 1000;
-      } else {
-        // Fallback if parsing fails; default to one hour.
-        periodMs = 60 * 60 * 1000;
-      }
-    
-      const threshold = Date.now() - periodMs;
-      
-      // Update SOG chart.
-      const filteredSogData = (periodMs === Infinity) ? allSogData : allSogData.filter(item => item.timestamp >= threshold);
-      sogChart.data.labels = filteredSogData.map(item => new Date(item.timestamp));
-      sogChart.data.datasets[0].data = filteredSogData.map(item => item.sog);
-      sogChart.update();
-      
-      // Update Direction chart.
-      const filteredDirectionData = (periodMs === Infinity) ? allDirectionData : allDirectionData.filter(item => item.timestamp >= threshold);
-      directionChart.data.labels = filteredDirectionData.map(item => new Date(item.timestamp));
-      directionChart.data.datasets[0].data = filteredDirectionData.map(item => item.trueHeading);
-      directionChart.data.datasets[1].data = filteredDirectionData.map(item => item.cog);
-      directionChart.update();
-    }
-    
-        
+	function filterChartData() {
+	  const periodSelect = document.getElementById('time-period');
+	  const selectedValue = periodSelect.value; // For API call, e.g., "1", "3", or "9999" for All.
+	  const selectedText = periodSelect.options[periodSelect.selectedIndex].text;
+	  let periodMs = 0;
+	
+	  if (selectedText === "All") {
+	    periodMs = Infinity;
+	  } else if (selectedText.indexOf("minute") !== -1) {
+	    // Extract number of minutes from text (e.g., "10 minutes" or "30 minutes")
+	    const minutes = parseFloat(selectedText);
+	    periodMs = minutes * 60 * 1000;
+	  } else if (selectedText.indexOf("hour") !== -1) {
+	    // Extract number of hours
+	    const hours = parseFloat(selectedText);
+	    periodMs = hours * 60 * 60 * 1000;
+	  } else {
+	    // Fallback if parsing fails; default to one hour.
+	    periodMs = 60 * 60 * 1000;
+	  }
+	
+	  const threshold = Date.now() - periodMs;
+	  
+	  // Update SOG chart.
+	  const filteredSogData = (periodMs === Infinity) ? allSogData : allSogData.filter(item => item.timestamp >= threshold);
+	  sogChart.data.labels = filteredSogData.map(item => new Date(item.timestamp));
+	  sogChart.data.datasets[0].data = filteredSogData.map(item => item.sog);
+	  sogChart.update();
+  
+	  // Update Direction chart.
+	  const filteredDirectionData = (periodMs === Infinity) ? allDirectionData : allDirectionData.filter(item => item.timestamp >= threshold);
+	  directionChart.data.labels = filteredDirectionData.map(item => new Date(item.timestamp));
+	  directionChart.data.datasets[0].data = filteredDirectionData.map(item => item.trueHeading);
+	  directionChart.data.datasets[1].data = filteredDirectionData.map(item => item.cog);
+	  directionChart.update();
+
+	  // Update Unique Positions count using the number of filtered SOG points.
+	  document.getElementById('unique-positions').textContent = filteredSogData.length;
+	}
+
         // --- Event listener for time period changes ---
         document.getElementById('time-period').addEventListener('change', () => {
           loadHistoryData(); // re-fetch history when the period changes

@@ -46,6 +46,10 @@ var (
 
 var previousVesselData map[string]map[string]interface{}
 
+// Global map to track message timestamps per vessel.
+var vesselMsgTimestamps = make(map[string][]time.Time)
+var vesselMsgTimestampsMutex sync.Mutex
+
 // Global flag and mutex for change detection.
 var (
 	changeAvailable bool
@@ -922,15 +926,29 @@ func main() {
 
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
-			if count, ok := merged["NumMessages"].(float64); ok {
-				merged["NumMessages"] = count + 1
-			} else {
-				merged["NumMessages"] = 1.0
+			// Get current time
+			now := time.Now().UTC()
+
+			// Lock the timestamp map for the current vessel.
+			vesselMsgTimestampsMutex.Lock()
+			vesselMsgTimestamps[vesselID] = append(vesselMsgTimestamps[vesselID], now)
+			
+			// Remove timestamps older than expire-after.
+			cutoff := now.Add(-*expireAfter)
+			validTimestamps := vesselMsgTimestamps[vesselID][:0]
+			for _, t := range vesselMsgTimestamps[vesselID] {
+			    if t.After(cutoff) {
+			        validTimestamps = append(validTimestamps, t)
+			    }
 			}
+			vesselMsgTimestamps[vesselID] = validTimestamps
+			vesselMsgTimestampsMutex.Unlock()
+
+			// Set rolling total for NumMessages.
+			merged["NumMessages"] = float64(len(validTimestamps))
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 
-			
 			// Append to vessel history only if lat/lon have changed by an acceptable amount.
 			if lat, ok := merged["Latitude"].(float64); ok {
 			    if lon, ok := merged["Longitude"].(float64); ok {
@@ -1176,11 +1194,27 @@ func main() {
 			vesselDataMutex.Lock()
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
-			if count, ok := merged["NumMessages"].(float64); ok {
-			    merged["NumMessages"] = count + 1
-			} else {
-			    merged["NumMessages"] = 1.0
+			// Get current time
+			now := time.Now().UTC()
+
+			// Lock the timestamp map for the current vessel.
+			vesselMsgTimestampsMutex.Lock()
+			vesselMsgTimestamps[vesselID] = append(vesselMsgTimestamps[vesselID], now)
+
+			// Remove timestamps older than expire-after.
+			cutoff := now.Add(-*expireAfter)
+			validTimestamps := vesselMsgTimestamps[vesselID][:0]
+			for _, t := range vesselMsgTimestamps[vesselID] {
+			    if t.After(cutoff) {
+			        validTimestamps = append(validTimestamps, t)
+			    }
 			}
+			vesselMsgTimestamps[vesselID] = validTimestamps
+			vesselMsgTimestampsMutex.Unlock()
+
+			// Set rolling total for NumMessages.
+			merged["NumMessages"] = float64(len(validTimestamps))
+
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 
@@ -1253,6 +1287,31 @@ func main() {
 			log.Printf("Error reading from serial port: %v", err)
 		}
 	}
+    	go func() {
+        	ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
+	        for range ticker.C {
+	            now := time.Now().UTC()
+	            cutoff := now.Add(-*expireAfter)
+	            vesselMsgTimestampsMutex.Lock()
+	            for vesselID, timestamps := range vesselMsgTimestamps {
+	                valid := timestamps[:0]
+	                for _, t := range timestamps {
+	                    if t.After(cutoff) {
+	                        valid = append(valid, t)
+	                    }
+	                }
+	                vesselMsgTimestamps[vesselID] = valid
+
+        	        // Also update the vesselData if it exists.
+	                vesselDataMutex.Lock()
+	                if vessel, exists := vesselData[vesselID]; exists {
+	                    vessel["NumMessages"] = float64(len(valid))
+	                }
+	                vesselDataMutex.Unlock()
+	            }
+	            vesselMsgTimestampsMutex.Unlock()
+	        }
+	}()
 	// Wait forever.
 	select {}
 }
