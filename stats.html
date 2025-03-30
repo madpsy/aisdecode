@@ -9,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Include a date adapter for Chart.js (using date-fns) -->
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
     <!-- Socket.IO client (assumes the same server is serving it) -->
     <script src="/socket.io.min.js"></script>
     <style>
@@ -153,6 +154,8 @@
           8: "Under Way Sailing",
           15: "Not Defined"
         };
+
+	Chart.register(ChartZoom);
     
         // --- Helper: Update the Position Accuracy Dot ---
         function updatePositionAccuracyDot(isAccurate) {
@@ -161,6 +164,18 @@
             dot.style.backgroundColor = isAccurate ? 'green' : 'red';
           }
         }
+
+	function computeCircularDifference(trueHeading, cog) {
+	  // Check for a valid trueHeading
+	  if (trueHeading === null || trueHeading === undefined || isNaN(trueHeading)) {
+	    return null; // or return cog, or 0, based on your needs
+	  }
+	  let diff = cog - trueHeading;
+	  // Normalize to the range [-180, 180]
+	  diff = ((diff + 180) % 360) - 180;
+	  // Return the minimal angle as a positive value
+	  return Math.abs(diff);
+	}
         
         // --- Helper: Update the Server Connected Dot ---
         function updateServerConnectedDot(isConnected) {
@@ -273,13 +288,18 @@
   sogChart.update();
 
   // Update Direction chart as before.
-  const filteredDirectionData = (periodMs === Infinity)
-    ? allDirectionData
-    : allDirectionData.filter(item => item.timestamp >= threshold);
-  directionChart.data.labels = filteredDirectionData.map(item => new Date(item.timestamp));
-  directionChart.data.datasets[0].data = filteredDirectionData.map(item => item.trueHeading);
-  directionChart.data.datasets[1].data = filteredDirectionData.map(item => item.cog);
-  directionChart.update();
+const filteredDirectionData = (periodMs === Infinity)
+  ? allDirectionData
+  : allDirectionData.filter(item => item.timestamp >= threshold);
+directionChart.data.labels = filteredDirectionData.map(item => new Date(item.timestamp));
+directionChart.data.datasets[0].data = filteredDirectionData.map(item => item.trueHeading);
+directionChart.data.datasets[1].data = filteredDirectionData.map(item => item.cog);
+
+// NEW: Calculate the difference between COG and True Heading.
+directionChart.data.datasets[2].data = filteredDirectionData.map(item => {
+  return computeCircularDifference(item.trueHeading, item.cog);
+});
+directionChart.update();
 
   document.getElementById('unique-positions').textContent = filteredSogData.length;
 }
@@ -342,27 +362,40 @@
             tension: 0.1
           }]
         };
-        const sogChart = new Chart(ctxSog, {
-          type: 'line',
-          data: sogData,
-          options: {
-            responsive: true,
-            animation: { duration: 0 },
-            scales: {
-              x: {
-                type: 'time',
-                time: {
-                  unit: 'second',
-                  tooltipFormat: 'HH:mm:ss',
-                  displayFormats: { second: 'HH:mm:ss' }
-                }
-              },
-              y: {
-                title: { display: true, text: 'Speed (kn)' }
-              }
-            }
-          }
-        });
+const sogChart = new Chart(ctxSog, {
+  type: 'line',
+  data: sogData,
+  options: {
+    responsive: true,
+    animation: { duration: 0 },
+    scales: {
+      x: {
+        type: 'time',
+        time: {
+          unit: 'second',
+          tooltipFormat: 'HH:mm:ss',
+          displayFormats: { second: 'HH:mm:ss' }
+        }
+      },
+      y: {
+        title: { display: true, text: 'Speed (kn)' }
+      }
+    },
+    plugins: {
+      zoom: {
+	        pan: { enabled: true, mode: 'x' },
+        zoom: {
+          wheel: { enabled: true },
+          drag: { enabled: true, backgroundColor: 'rgba(54, 162, 235, 0.3)' },
+          pinch: { enabled: true },
+          mode: 'x',
+          doubleClickReset: true
+       }
+      }
+    }
+  }
+});
+
         
         function addSogDataPoint(timestamp, sogValue) {
           const currentSogNum = Number(parseFloat(sogValue).toFixed(1));
@@ -494,51 +527,83 @@
           document.getElementById('cogLabel').textContent = "Course: " + cog + "°";
           cogCompass.update();
         }
-        
+
+const directionData = {
+  labels: [],
+  datasets: [
+    {
+      label: 'Heading (°)',
+      data: [],
+      fill: false,
+      borderColor: 'red',
+      tension: 0.1
+    },
+    {
+      label: 'Course (°)',
+      data: [],
+      fill: false,
+      borderColor: 'green',
+      tension: 0.1
+    },
+    {
+      label: 'Circular Diff (°)',
+      data: [],
+      fill: false,
+      borderColor: 'blue',
+      tension: 0.1
+    }
+  ]
+};
+
+
         // --- 5. Set Up the Direction (Line) Chart ---
         const ctxDirection = document.getElementById('directionChart').getContext('2d');
-        const directionData = {
-          labels: [],
-          datasets: [
-            {
-              label: 'True Heading (°)',
-              data: [],
-              fill: false,
-              borderColor: 'red',
-              tension: 0.1
-            },
-            {
-              label: 'Course Over Ground (°)',
-              data: [],
-              fill: false,
-              borderColor: 'green',
-              tension: 0.1
-            }
-          ]
-        };
-        const directionChart = new Chart(ctxDirection, {
-          type: 'line',
-          data: directionData,
-          options: {
-            responsive: true,
-            animation: { duration: 0 },
-            scales: {
-              x: {
-                type: 'time',
-                time: {
-                  unit: 'second',
-                  tooltipFormat: 'HH:mm:ss',
-                  displayFormats: { second: 'HH:mm:ss' }
-                }
-              },
-              y: {
-                min: 0,
-                max: 360,
-                title: { display: true, text: 'Degrees' }
-              }
-            }
-          }
-        });
+const directionChart = new Chart(ctxDirection, {
+  type: 'line',
+  data: directionData,
+  options: {
+    responsive: true,
+    animation: { duration: 0 },
+    scales: {
+      x: {
+        type: 'time',
+        time: {
+          unit: 'second',
+          tooltipFormat: 'HH:mm:ss',
+          displayFormats: { second: 'HH:mm:ss' }
+        }
+      },
+      y: {
+        min: 0,
+        max: 360,
+        title: { display: true, text: 'Degrees' }
+      }
+    },
+    plugins: {
+      zoom: {
+	        pan: { enabled: true, mode: 'x' },
+        zoom: {
+          wheel: { enabled: true },
+          drag: { enabled: true, backgroundColor: 'rgba(54, 162, 235, 0.3)' },
+          pinch: { enabled: true },
+          mode: 'x',
+          doubleClickReset: true
+       }
+      }
+    }
+  }
+});
+
+document.getElementById('sogChart').addEventListener('dblclick', () => {
+  sogChart.resetZoom();
+});
+
+document.getElementById('directionChart').addEventListener('dblclick', () => {
+  directionChart.resetZoom();
+});
+
+
+
         
         function addDirectionDataPoint(timestamp, trueHeading, cog) {
           allDirectionData.push({ timestamp: timestamp, trueHeading: trueHeading, cog: cog });
@@ -563,8 +628,10 @@
                 updateNavigationalStatus(vesselState.NavigationalStatus);
                 if (vesselState.Sog !== undefined) {
                   const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+		  lastMessageTimestamp = ts;
                   addSogDataPoint(ts, vesselState.Sog);
                 } else {
+		  lastMessageTimestamp = Date.now();
                   addSogDataPoint(Date.now(), 0);
                 }
                 if (vesselState.Cog !== undefined && vesselState.TrueHeading !== undefined) {
@@ -625,15 +692,12 @@
               const sog = parts[3].trim() !== "" ? parseFloat(parts[3]) : null;
               const cog = parts[4].trim() !== "" ? parseFloat(parts[4]) : null;
               const trueHeading = parts[5].trim() !== "" ? parseFloat(parts[5]) : null;
-              console.log("Parsed CSV line:", { ts, sog, cog, trueHeading });
               if (!isNaN(ts)) {
                 allSogData.push({ timestamp: ts, sog: sog });
                 allDirectionData.push({ timestamp: ts, trueHeading: trueHeading, cog: cog });
               }
             }
           });
-          console.log("All SOG Data:", allSogData);
-          console.log("All Direction Data:", allDirectionData);
           // Update charts with the loaded history.
           filterChartData();
         })
@@ -674,7 +738,6 @@
               const ts = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
               lastMessageTimestamp = ts;
               messageTimestamps.push(ts);
-              console.log("COG:", message.data.Cog, "TrueHeading:", message.data.TrueHeading);
               const cog = message.data.Cog !== undefined && message.data.Cog !== null ? message.data.Cog : lastCog;
               if (cog !== lastCog) {
                 lastCog = cog;
