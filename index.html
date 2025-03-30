@@ -742,14 +742,21 @@ function hydrateTrackHistory(userID) {
     })
     .then(csvData => {
       // Parse the CSV formatted history into an array of points.
-      // Each point is an array: [timestamp, latitude, longitude]
+      // Each point is an array: [timestamp, latitude, longitude, sog, cog, trueHeading]
       const newPoints = csvData.trim().split('\n').map(line => {
-	  const parts = line.split(',');
-	  const lat = parseFloat(parts[1]);
-	  const lon = parseFloat(parts[2]);
-	  // Only return the point if both lat and lon are valid numbers
-	  return (!isNaN(lat) && !isNaN(lon)) ? [parts[0], lat, lon] : null;
-	}).filter(point => point !== null);
+        const parts = line.split(',');
+        const lat = parseFloat(parts[1]);
+        const lon = parseFloat(parts[2]);
+        // Only return the point if both lat and lon are valid numbers.
+        if (isNaN(lat) || isNaN(lon)) {
+          return null;
+        }
+        // Parse extra fields; if empty, use null.
+        const sog = parts[3] && parts[3].trim() !== "" ? parseFloat(parts[3]) : null;
+        const cog = parts[4] && parts[4].trim() !== "" ? parseFloat(parts[4]) : null;
+        const trueHeading = parts[5] && parts[5].trim() !== "" ? parseFloat(parts[5]) : null;
+        return [parts[0], lat, lon, sog, cog, trueHeading];
+      }).filter(point => point !== null);
 
       // Retrieve the current track history (or start with an empty array).
       const currentTrack = vesselData[userID].track || [];
@@ -778,34 +785,46 @@ function hydrateTrackHistory(userID) {
       vesselData[userID].track = dedupedTrack;
       
       // Update the polyline on the map with the new set of track points.
+      // Note: getLatLngs will extract only the latitude and longitude.
       if (vesselTracks[userID]) {
-        // Update the existing polyline's coordinates.
         vesselTracks[userID].setLatLngs(getLatLngs(dedupedTrack));
-        vesselTracks[userID].options.interactive = true; // Ensure interactivity
-        
-        // Reattach event handlers (if needed)
-        vesselTracks[userID].on('mousemove', function(e) {
-          const nearest = getNearestTrackPoint(e, vesselData[userID].track);
-          if (nearest) {
-            const [timestamp, lat, lon] = nearest.info;
-            const localTime = new Date(timestamp).toLocaleString();
-            const vessel = vesselData[userID];
-            const name = vessel.Name ? vessel.Name : "Unknown Vessel";
-            const callsign = vessel.CallSign ? vessel.CallSign : "N/A";
-            const popupContent = `<strong>${name} (${callsign})</strong><br>
-				  ${localTime}<br>
-                                  ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-            L.popup({ closeButton: false, autoPan: false })
-              .setLatLng(nearest.ptLatLng)
-              .setContent(popupContent)
-              .openOn(map);
-          }
-        });
+        vesselTracks[userID].options.interactive = true;
+        // (Re)attach event handlers if needed...
+	vesselTracks[userID].on('mousemove', function(e) {
+	  const nearest = getNearestTrackPoint(e, vesselData[userID].track);
+	  if (nearest) {
+	    const [timestamp, lat, lon, sog, cog, trueHeading] = nearest.info;
+	    const localTime = new Date(timestamp).toLocaleString();
+	    const vessel = vesselData[userID];
+	    const name = vessel.Name ? vessel.Name : "Unknown Vessel";
+	    const callsign = vessel.CallSign ? vessel.CallSign : "N/A";
+
+	    // Build the popup content.
+	    let popupContent = `<strong>${name} (${callsign})</strong><br>
+	                        ${localTime}<br>
+	                        ${lat.toFixed(4)}, ${lon.toFixed(4)}<br>`;
+	    // Append extra values if available.
+	    if (sog !== null) {
+	      popupContent += `Speed: ${sog} kn<br>`;
+	    }
+	    if (cog !== null) {
+	      popupContent += `Course: ${cog}°<br>`;
+	    }
+	    if (trueHeading !== null) {
+	      popupContent += `Heading: ${trueHeading}°<br>`;
+	    }
+	    
+	    L.popup({ closeButton: false, autoPan: false })
+	      .setLatLng(nearest.ptLatLng)
+	      .setContent(popupContent)
+	      .openOn(map);
+	  }
+	});
+
         vesselTracks[userID].on('mouseout', function() {
           map.closePopup();
         });
       } else {
-        // Create a new polyline if it doesn't exist.
         vesselTracks[userID] = L.polyline(getLatLngs(dedupedTrack), {
           color: vesselData[userID].color,
           weight: 3,
@@ -862,7 +881,7 @@ function createPopupContent(data) {
   }
 
   addLine(lines, "Destination", data.Destination && data.Destination.trim() !== "" ? data.Destination : null);
-  addLine(lines, "Speed Over Ground", (data.Sog != null ? `${data.Sog} kn` : null));
+  addLine(lines, "Speed", (data.Sog != null ? `${data.Sog} kn` : null));
 
   if (data.Type !== undefined) {
     const typeDescription = staticTypeMapping[data.Type] || data.Type;
@@ -928,8 +947,12 @@ function createDetailContent(data) {
     lines.push("Destination: NO DEST");
   }
 
-  addLine(lines, "Speed Over Ground", (data.Sog != null ? `${data.Sog} kn` : null));
-  addLine(lines, "Course Over Ground", (data.Cog != null ? `${data.Cog}°` : null));
+  addLine(lines, "Speed", (data.Sog != null ? `${data.Sog} kn` : null));
+  addLine(lines, "Course", (data.Cog != null ? `${data.Cog}°` : null));
+
+  if (data.TrueHeading != null && data.TrueHeading < 360) {
+    addLine(lines, "Heading", `${data.TrueHeading}°`);
+  }
 
   if (data.Type != null) {
     const typeDescription = staticTypeMapping[data.Type] || data.Type;
@@ -972,10 +995,6 @@ function createDetailContent(data) {
   if (data.Latitude != null && data.Longitude != null) {
     addLine(lines, "Latitude", data.Latitude.toFixed(4));
     addLine(lines, "Longitude", data.Longitude.toFixed(4));
-  }
-
-  if (data.TrueHeading != null && data.TrueHeading < 360) {
-    addLine(lines, "True Heading", `${data.TrueHeading}°`);
   }
 
   if (data.NavigationalStatus != null) {
@@ -1860,7 +1879,7 @@ function focusOnVessel(userID, initialFocus = true) {
     vessel.Destination,
     navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus
   );
-  // And line 2: Vessel Type, Maximum Draught, Speed, and True Heading.
+  // And line 2: Vessel Type, Maximum Draught, Speed, and Heading.
   const line2 = buildTooltipLine(
     staticTypeMapping[vessel.Type] || vessel.Type,
     (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),

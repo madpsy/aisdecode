@@ -313,7 +313,7 @@ func cleanInvalidData(data map[string]interface{}) {
 }
 
 // appendHistory appends a new history record for the given vessel.
-func appendHistory(baseDir, userID string, lat, lon float64, timestamp string) error {
+func appendHistory(baseDir, userID string, lat, lon float64, sog, cog, trueHeading, timestamp string) error {
 	historyDir := filepath.Join(baseDir, "history")
 	// Create the history directory if it doesn't exist.
 	if err := os.MkdirAll(historyDir, 0755); err != nil {
@@ -327,8 +327,8 @@ func appendHistory(baseDir, userID string, lat, lon float64, timestamp string) e
 	}
 	defer f.Close()
 
-	// Write a CSV line: timestamp,latitude,longitude.
-	line := fmt.Sprintf("%s,%.6f,%.6f\n", timestamp, lat, lon)
+	// Write a CSV line: timestamp,latitude,longitude,SOG,COG,TrueHeading.
+	line := fmt.Sprintf("%s,%.6f,%.6f,%s,%s,%s\n", timestamp, lat, lon, sog, cog, trueHeading)
 	if _, err := f.WriteString(line); err != nil {
 		return err
 	}
@@ -579,7 +579,7 @@ func main() {
 	        return
 	    }
 	    cutoffTime := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
-	    
+
 	    // Build the file path to the vessel's history CSV.
 	    filePath := filepath.Join(historyBase, "history", userID+".csv")
 	    f, err := os.Open(filePath)
@@ -588,7 +588,7 @@ func main() {
 	        return
 	    }
 	    defer f.Close()
-    
+
 	    w.Header().Set("Content-Type", "text/csv")
 	    scanner := bufio.NewScanner(f)
 	    for scanner.Scan() {
@@ -596,18 +596,31 @@ func main() {
 	        if strings.TrimSpace(line) == "" {
 	            continue
 	        }
-	        // Each line is expected to be in the format: timestamp,latitude,longitude
+	        // Split the line by commas.
 	        fields := strings.Split(line, ",")
-	        if len(fields) != 3 {
+	        if len(fields) < 3 {
+	            // Not enough data, skip.
 	            continue
 	        }
+
+	        // Parse the timestamp.
 	        ts, err := time.Parse(time.RFC3339Nano, fields[0])
 	        if err != nil {
 	            continue
 	        }
 	        if ts.After(cutoffTime) || ts.Equal(cutoffTime) {
-	            // Write the matching CSV line.
-	            fmt.Fprintln(w, line)
+	            // Check how many fields are present.
+	            if len(fields) == 3 {
+	                // Old data: append empty fields for SOG, COG, TrueHeading.
+	                fmt.Fprintf(w, "%s,%s,%s,,,\n", fields[0], fields[1], fields[2])
+        	    } else if len(fields) >= 6 {
+	                // New data: output first six fields.
+	                fmt.Fprintf(w, "%s,%s,%s,%s,%s,%s\n", fields[0], fields[1], fields[2], fields[3], fields[4], fields[5])
+	            } else {
+	                // If you have a mix (or more fields than expected), you could either handle them
+	                // or skip them. Here we choose to skip.
+	                continue
+	            }
 	        }
 	    }
 	    if err := scanner.Err(); err != nil {
@@ -822,12 +835,38 @@ func main() {
 			            continue
 			        }
 			        // No previous reading exists, or the change is acceptable.
-			        ts := merged["LastUpdated"].(string)
-			        if !*noState {  // Only append history if state persistence is enabled.
-			            if err := appendHistory(historyBase, vesselID, lat, lon, ts); err != nil {
-			                log.Printf("Error appending history for vessel %s: %v", vesselID, err)
-			            }
-			        }
+				ts := merged["LastUpdated"].(string)
+
+				// Extract SOG
+				var sogStr string
+				if sog, ok := merged["Sog"].(float64); ok {
+					sogStr = fmt.Sprintf("%.2f", sog)
+				} else {
+					sogStr = "" // leave empty if missing
+				}
+				
+				// Extract COG
+				var cogStr string
+				if cog, ok := merged["Cog"].(float64); ok {
+					cogStr = fmt.Sprintf("%.2f", cog)
+				} else {
+					cogStr = "" // leave empty if missing
+				}
+
+				// Extract TrueHeading
+				var trueHeadingStr string
+				if th, ok := merged["TrueHeading"].(float64); ok {
+					trueHeadingStr = fmt.Sprintf("%.2f", th)
+				} else {
+					trueHeadingStr = "" // leave empty if missing
+				}
+
+				if !*noState { // Only append history if state persistence is enabled.
+					if err := appendHistory(historyBase, vesselID, lat, lon, sogStr, cogStr, trueHeadingStr, ts); err != nil {
+						log.Printf("Error appending history for vessel %s: %v", vesselID, err)
+					}
+				}
+
 			        // Update the stored location.
 			        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
 			        vesselHistoryMutex.Unlock()
@@ -1049,12 +1088,37 @@ func main() {
 			            continue
 			        }
 			        // No previous reading exists, or the change is acceptable.
-			        ts := merged["LastUpdated"].(string)
-			        if !*noState {  // Only append history if state persistence is enabled.
-			            if err := appendHistory(historyBase, vesselID, lat, lon, ts); err != nil {
-			                log.Printf("Error appending history for vessel %s: %v", vesselID, err)
-			            }
-			        }
+				ts := merged["LastUpdated"].(string)
+
+				// Extract SOG
+				var sogStr string
+				if sog, ok := merged["Sog"].(float64); ok {
+					sogStr = fmt.Sprintf("%.2f", sog)
+				} else {
+					sogStr = "" // leave empty if missing
+				}
+				
+				// Extract COG
+				var cogStr string
+				if cog, ok := merged["Cog"].(float64); ok {
+					cogStr = fmt.Sprintf("%.2f", cog)
+				} else {
+					cogStr = "" // leave empty if missing
+				}
+
+				// Extract TrueHeading
+				var trueHeadingStr string
+				if th, ok := merged["TrueHeading"].(float64); ok {
+					trueHeadingStr = fmt.Sprintf("%.2f", th)
+				} else {
+					trueHeadingStr = "" // leave empty if missing
+				}
+
+				if !*noState { // Only append history if state persistence is enabled.
+					if err := appendHistory(historyBase, vesselID, lat, lon, sogStr, cogStr, trueHeadingStr, ts); err != nil {
+						log.Printf("Error appending history for vessel %s: %v", vesselID, err)
+					}
+				}
 			        // Update the stored location.
 			        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
 			        vesselHistoryMutex.Unlock()
