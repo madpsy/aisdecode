@@ -1172,43 +1172,51 @@ if (!showStationary) {
 
 
         // Update the known vessels overlay.
-        function updateOverlay() {
-          const filterText = document.getElementById('vessel-filter').value.toLowerCase();
-          const vessels = Object.values(vesselData).filter(v =>
-            v.Name && v.lastUpdate &&
-            (!filterText ||
-              v.Name.toLowerCase().includes(filterText) ||
-              (v.CallSign && v.CallSign.toLowerCase().includes(filterText)) ||
-              v.UserID.toString().includes(filterText)
-            )
-          );
-	  document.getElementById('vessel-count').textContent = 'Total: ' + vessels.length;
-          vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
-          const topVessels = vessels.slice(0, 100);
-          let content = "";
-          topVessels.forEach(v => {
-            const name = v.Name;
-            const callsign = v.CallSign ? v.CallSign : "N/A";
-            const lastSeen = timeAgo(v.lastUpdate);
-            const numMessages = v.NumMessages || 0;
-            content += `<div class="vessel-entry" data-userid="${v.UserID}">
-                          <div class="vessel-name">${name}</div>
-                          <div class="vessel-callsign">Call Sign: ${callsign}</div>
-                          <div class="vessel-timestamp">${lastSeen} | ${numMessages} msgs</div>
-                        </div>`;
-          });
-          document.getElementById('overlay-content').innerHTML = content;
+function updateOverlay() {
+  const filterText = document.getElementById('vessel-filter').value.toLowerCase();
+  // Get all known vessels (with valid Name and lastUpdate)
+  const allVessels = Object.values(vesselData).filter(v => v.Name && v.lastUpdate);
+  // Filter the vessels further based on the filter input
+  const vessels = allVessels.filter(v =>
+    !filterText ||
+    v.Name.toLowerCase().includes(filterText) ||
+    (v.CallSign && v.CallSign.toLowerCase().includes(filterText)) ||
+    v.UserID.toString().includes(filterText)
+  );
+  
+  // 'known' is the total number of vessels available
+  const known = allVessels.length;
+  
+  vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
+  const topVessels = vessels.slice(0, 100);
+  document.getElementById('vessel-count').textContent =
+    `${topVessels.length} of ${known} vessels`;
+  
+  let content = "";
+  topVessels.forEach(v => {
+    const name = v.Name;
+    const callsign = v.CallSign ? v.CallSign : "N/A";
+    const lastSeen = timeAgo(v.lastUpdate);
+    const numMessages = v.NumMessages || 0;
+    content += `<div class="vessel-entry" data-userid="${v.UserID}">
+                  <div class="vessel-name">${name}</div>
+                  <div class="vessel-callsign">Call Sign: ${callsign}</div>
+                  <div class="vessel-timestamp">${lastSeen} | ${numMessages} msgs</div>
+                </div>`;
+  });
+  document.getElementById('overlay-content').innerHTML = content;
 
-          document.querySelectorAll('.vessel-entry').forEach(entry => {
-            entry.addEventListener('click', (event) => {
-              event.stopPropagation();
-              const userID = entry.getAttribute('data-userid');
-	      document.getElementById('stationary').checked = true;
-	      updateStationaryMarkers();
-              focusOnVessel(userID);
-            });
-          });
-        }
+  document.querySelectorAll('.vessel-entry').forEach(entry => {
+    entry.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const userID = entry.getAttribute('data-userid');
+      document.getElementById('stationary').checked = true;
+      updateStationaryMarkers();
+      focusOnVessel(userID);
+    });
+  });
+}
+
 
         // Periodically update the vessel detail overlay.
         function updateVesselDetailOverlay() {
