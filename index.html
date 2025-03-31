@@ -298,10 +298,11 @@
   bottom: 5px; /* Adjust as needed */
   left: 50%;
   transform: translateX(-50%);
-  color: black;
+  color: blue;
   text-decoration: none;
   font-size: 12px;
   z-index: 1500;
+  font-weight: bold;
 }
 
     </style>
@@ -1844,8 +1845,12 @@ instantHandler = function(message) {
                 }
                 vesselMarkers[mmsi].off('click');
                 vesselMarkers[mmsi].on('click', function(e) {
-                  e.stopPropagation();
-                  e.preventDefault();
+		if (e && typeof e.stopPropagation === 'function') {
+		  e.stopPropagation();
+		}
+                if (e && typeof e.preventDefault === 'function') {
+ 		 e.preventDefault();
+		}
                   focusOnVessel(mmsi);
                 });
                 if (markerElem) {
@@ -1870,8 +1875,12 @@ instantHandler = function(message) {
                   attachTooltipClick(marker, mmsi);
                 }
                 marker.on('click', function(e) {
-                  e.stopPropagation();
-                  e.preventDefault();
+                  if (e && typeof e.stopPropagation === 'function') {
+ 		     e.stopPropagation();
+		  }
+                  if (e && typeof e.preventDefault === 'function') {
+ 		    e.preventDefault();
+		  }
                   focusOnVessel(mmsi);
                 });
                 if (!isMobile) {
@@ -1933,7 +1942,9 @@ instantHandler = function(message) {
               const ttEl = tooltip.getElement();
               if (ttEl) {
                 ttEl.addEventListener('click', (e) => {
-                  e.stopPropagation();
+                  if (e && typeof e.stopPropagation === 'function') {
+ 		     e.stopPropagation();
+		   }
                   focusOnVessel(userID);
                 });
               }
@@ -2061,7 +2072,9 @@ function focusOnVessel(userID, initialFocus = true) {
 const copyLinkEl = document.getElementById('copy-link');
 if (copyLinkEl) {
   copyLinkEl.addEventListener('click', (e) => {
-    e.stopPropagation();
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation();
+    }
     const currentUrl = window.location.href.split('?')[0];
     const copyUrl = `${currentUrl}?UserID=${vesselData[userID].UserID}`;
 
