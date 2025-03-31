@@ -266,6 +266,31 @@
   font-size: 14px;
   line-height: 1; 
 }
+
+#slider-container {
+  position: absolute;
+  bottom: 20px;          /* Adjust vertical position as needed */
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 5px;
+  padding: 0px;
+  z-index: 1200;         /* Higher than the scale's 1100 */
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  text-align: center;
+}
+
+#slider-container label {
+  display: block;
+  margin-bottom: 2px;
+}
+
+#slider-container input {
+  width: 100%;
+  margin-bottom: 2px;
+}
+
     </style>
 </head>
 
@@ -287,7 +312,7 @@
     </div>
     <div id="nm-scale" style="
     position: absolute;
-    bottom: 20px;
+    top: 40px;
     left: 50%;
     transform: translateX(-50%);
     background: rgba(255, 255, 255, 0.8);
@@ -295,7 +320,7 @@
     border-radius: 5px;
     z-index: 1100;
     font-family: Arial, sans-serif;
-    font-size: 14px;
+    font-size: 12px;
     text-align: center;
 ">
         <div id="scale-bar" style="
@@ -380,8 +405,17 @@
 
     <button id="stats-button">Stats</button>
     <button id="live-logs">Messages</button>
-
     <button id="clear-history">Clear History</button>
+    <div id="slider-container">
+ 	 <label for="history-slider">
+  	    History: <span id="history-value">6</span> hrs
+ 	 </label>
+  	<input type="range" id="history-slider" min="1" max="24" value="6" step="1">
+ 	<label for="age-slider">
+	    Age: <span id="age-value">24</span> hrs
+ 	</label>
+	<input type="range" id="age-slider" min="1" max="24" value="24" step="1">
+    </div>
 
     <!-- Live Logs Overlay (draggable) -->
     <div id="live-logs-overlay">
@@ -682,6 +716,21 @@ function updateLatLongDisplay() {
   }
 }
 
+function clearHistory() {
+  localStorage.removeItem('vesselData');
+  Object.keys(vesselMarkers).forEach(userID => {
+    map.removeLayer(vesselMarkers[userID]);
+  });
+  Object.keys(vesselTracks).forEach(userID => {
+    map.removeLayer(vesselTracks[userID]);
+  });
+  Object.keys(vesselData).forEach(key => delete vesselData[key]);
+  Object.keys(vesselMarkers).forEach(key => delete vesselMarkers[key]);
+  Object.keys(vesselTracks).forEach(key => delete vesselTracks[key]);
+  updateOverlay();
+  location.reload();
+}
+
 function attachPolylineEvents(polyline, userID) {
   polyline.on('mousemove', function(e) {
     const nearest = getNearestTrackPoint(e, vesselData[userID].track);
@@ -775,7 +824,9 @@ function updateLegend() {
 }
 
 function hydrateTrackHistory(userID) {
-  fetch(`/history/${userID}/24`)
+  const historySlider = document.getElementById('history-slider');
+  const maxHistory = historySlider.value;
+  fetch(`/history/${userID}/${maxHistory}`)
     .then(response => {
       if (!response.ok) {
         throw new Error(`History fetch failed with status: ${response.status}`);
@@ -1687,6 +1738,7 @@ instantHandler = function(message) {
             console.error("Received invalid data format:", data);
             return;
           }
+
           const newIDs = new Set(Object.keys(data));
           for (const mmsi in vesselData) {
             if (!newIDs.has(mmsi)) {
@@ -1700,6 +1752,19 @@ instantHandler = function(message) {
           }
           for (const mmsi in data) {
             const vesselState = data[mmsi];
+	    const vesselTimestamp = new Date(vesselState.LastUpdated).getTime();
+   	    const maxAgeHours = parseInt(ageSlider.value, 10);
+	    const now = Date.now();
+
+    	    if ((now - vesselTimestamp) > maxAgeHours * 3600000) {
+            if (vesselMarkers[mmsi]) map.removeLayer(vesselMarkers[mmsi]);
+            if (vesselTracks[mmsi]) map.removeLayer(vesselTracks[mmsi]);
+  	      delete vesselData[mmsi];
+  	      delete vesselMarkers[mmsi];
+	      delete vesselTracks[mmsi];
+      	      continue;
+	    }
+
             if (!vesselData[mmsi]) {
               vesselData[mmsi] = Object.assign({}, vesselState);
               vesselData[mmsi].track = [];
@@ -1707,8 +1772,8 @@ instantHandler = function(message) {
             } else {
               Object.assign(vesselData[mmsi], vesselState);
             }
-	    vesselData[mmsi].LastUpdated = vesselState.LastUpdated;
-	    vesselData[mmsi].lastUpdate = new Date(vesselState.LastUpdated).getTime();
+    	    vesselData[mmsi].LastUpdated = vesselState.LastUpdated;
+	    vesselData[mmsi].lastUpdate = vesselTimestamp;
 	    if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
 	      const tolerance = 1e-5;
 	      const track = vesselData[mmsi].track;
@@ -1844,20 +1909,7 @@ instantHandler = function(message) {
 
         document.getElementById('vessel-filter').addEventListener('input', updateOverlay);
 
-        document.getElementById('clear-history').addEventListener('click', () => {
-          localStorage.removeItem('vesselData');
-          Object.keys(vesselMarkers).forEach(userID => {
-            map.removeLayer(vesselMarkers[userID]);
-          });
-          Object.keys(vesselTracks).forEach(userID => {
-            map.removeLayer(vesselTracks[userID]);
-          });
-          Object.keys(vesselData).forEach(key => delete vesselData[key]);
-          Object.keys(vesselMarkers).forEach(key => delete vesselMarkers[key]);
-          Object.keys(vesselTracks).forEach(key => delete vesselTracks[key]);
-          updateOverlay();
-          location.reload();
-        });
+        document.getElementById('clear-history').addEventListener('click', clearHistory);
 
 	document.getElementById('stationary').addEventListener('change', updateStationaryMarkers);
 
@@ -2151,20 +2203,13 @@ function showFlashMessage(message, parentEl) {
 // Conversion: 1 nautical mile = 1852 meters.
 function updateNauticalScale() {
   const scaleLabel = document.getElementById('scale-label');
-  // Fixed pixel length for the scale bar (100px in this example)
   const scalePx = 100;
   const center = map.getCenter();
-  // Convert the center to container coordinates.
   const point = map.latLngToContainerPoint(center);
-  // Create a point that is 'scalePx' pixels to the right.
   const pointX = L.point(point.x + scalePx, point.y);
-  // Convert that back to geographic coordinates.
   const latLngX = map.containerPointToLatLng(pointX);
-  // Calculate the distance in meters.
   const distanceMeters = center.distanceTo(latLngX);
-  // Convert meters to nautical miles.
   const distanceNM = distanceMeters / 1852;
-  // Update the scale label with the value rounded to one decimal place.
   scaleLabel.textContent = `${distanceNM.toFixed(1)} NM`;
 }
 
@@ -2215,6 +2260,57 @@ updateLegend();
 document.getElementById('toggle-legend').textContent = 'Hide Legend';
 
     document.getElementById('live-log-search').addEventListener('input', applyLogFilters);
+
+const ageSlider = document.getElementById('age-slider');
+const ageValueDisplay = document.getElementById('age-value');
+ageSlider.addEventListener('input', () => {
+  ageValueDisplay.textContent = ageSlider.value;
+  clearHistory();
+});
+
+const historySlider = document.getElementById('history-slider');
+const historyValueDisplay = document.getElementById('history-value');
+historySlider.addEventListener('input', () => {
+  historyValueDisplay.textContent = historySlider.value;
+});
+
+document.addEventListener("DOMContentLoaded", function() {
+  // History slider elements
+  const historySlider = document.getElementById("history-slider");
+  const historyValueDisplay = document.getElementById("history-value");
+  
+  // Age slider elements
+  const ageSlider = document.getElementById("age-slider");
+  const ageValueDisplay = document.getElementById("age-value");
+  
+  // Load saved history slider value if available
+  const savedHistory = localStorage.getItem("historySliderValue");
+  if (savedHistory !== null) {
+    historySlider.value = savedHistory;
+    historyValueDisplay.textContent = savedHistory;
+  }
+  
+  // Load saved age slider value if available
+  const savedAge = localStorage.getItem("ageSliderValue");
+  if (savedAge !== null) {
+    ageSlider.value = savedAge;
+    ageValueDisplay.textContent = savedAge;
+  }
+  
+  // Save new history slider value on input
+  historySlider.addEventListener("input", () => {
+    const currentValue = historySlider.value;
+    historyValueDisplay.textContent = currentValue;
+    localStorage.setItem("historySliderValue", currentValue);
+  });
+  
+  // Save new age slider value on input
+  ageSlider.addEventListener("input", () => {
+    const currentValue = ageSlider.value;
+    ageValueDisplay.textContent = currentValue;
+    localStorage.setItem("ageSliderValue", currentValue);
+  });
+});
 
         // Utility: Generate a random hex color.
         function randomColor() {
