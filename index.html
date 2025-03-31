@@ -464,6 +464,8 @@
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
 
+	let userLatLng = null;
+
 	let mids = {};
 	fetch('mids.json')
 	  .then(response => {
@@ -1125,24 +1127,56 @@ function createDetailContent(data) {
 
 
 
-        // Adjust map bounds based on whether a vessel is focused.
-        function adjustMapBounds() {
-          if (focusedVessel) {
-            let bounds = L.latLngBounds([]);
-            bounds.extend(vesselMarkers[focusedVessel].getLatLng());
-            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
-          } else {
-            const allLatLngs = [];
-            for (const key in vesselMarkers) {
-              if (vesselMarkers.hasOwnProperty(key) && map.hasLayer(vesselMarkers[key])) {
-                allLatLngs.push(vesselMarkers[key].getLatLng());
-              }
-            }
-            if (allLatLngs.length > 0) {
-              map.fitBounds(allLatLngs, { padding: [50, 50] });
-            }
-         }
-       }
+function adjustMapBounds() {
+  if (userLatLng) {
+    if (focusedVessel) {
+      // When a vessel is focused, include both the user's location and that vessel.
+      let bounds = L.latLngBounds([userLatLng, vesselMarkers[focusedVessel].getLatLng()]);
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
+    } else {
+      // When no vessel is focused, find the vessel marker nearest to the user.
+      let closestMarker = null;
+      let closestDistance = Infinity;
+      for (const key in vesselMarkers) {
+        if (vesselMarkers.hasOwnProperty(key) && map.hasLayer(vesselMarkers[key])) {
+          let markerLatLng = vesselMarkers[key].getLatLng();
+          let distance = L.latLng(userLatLng).distanceTo(markerLatLng);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestMarker = vesselMarkers[key];
+          }
+        }
+      }
+      if (closestMarker) {
+        // Define a threshold distance in meters (adjust this value as needed)
+        const threshold = 5000; // e.g. 5 km
+        if (closestDistance < threshold) {
+          // If the closest vessel is really close, use the default zoom (like on page load).
+          map.setView(userLatLng, 10);
+        } else {
+          // Otherwise, fit bounds to include both the user and the closest vessel.
+          let bounds = L.latLngBounds([userLatLng, closestMarker.getLatLng()]);
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 10 });
+        }
+      } else {
+        // If no vessel markers exist, center on the user.
+        map.setView(userLatLng, 10);
+      }
+    }
+  } else {
+    // Fallback: if the user's location is unknown, use all vessel markers.
+    let bounds = L.latLngBounds([]);
+    for (const key in vesselMarkers) {
+      if (vesselMarkers.hasOwnProperty(key) && map.hasLayer(vesselMarkers[key])) {
+        bounds.extend(vesselMarkers[key].getLatLng());
+      }
+    }
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [50, 50] });
+    }
+  }
+}
+
 
         document.getElementById('auto-zoom').addEventListener('change', (event) => {
           if (event.target.checked) {
@@ -2191,11 +2225,10 @@ function showFlashMessage(message, parentEl) {
 
 window.addEventListener('load', () => {
   updateStationaryMarkers();
-
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const userLatLng = [position.coords.latitude, position.coords.longitude];
+        userLatLng = [position.coords.latitude, position.coords.longitude];
         const userMarker = L.marker(userLatLng)
           .addTo(map)
         
