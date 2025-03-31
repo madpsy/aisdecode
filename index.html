@@ -283,12 +283,12 @@
 
 #slider-container label {
   display: block;
-  margin-bottom: 2px;
+  margin: 0 5px 0 0;
 }
 
 #slider-container input {
   width: 100%;
-  margin-bottom: 2px;
+  margin: 0 10px 0 0;
 }
 
     </style>
@@ -381,12 +381,12 @@
         <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Legend</button>
     </div>
 
-    <div id="vessel-legend" style="position: absolute; top: 220px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
+    <div id="vessel-legend" style="display: none; position: absolute; top: 220px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
         <div id="legend-content"></div>
     </div>
 
     <!-- Known vessels overlay (bottom left) -->
-    <div id="vessel-overlay">
+    <div id="vessel-overlay" style="display: none;">
         <!-- Filter input box -->
         <input type="text" id="vessel-filter" placeholder="Filter vessels...">
         <div id="vessel-count" style="text-align: left; margin-bottom: 0px;">Total: 0</div>
@@ -400,7 +400,7 @@
     </div>
 
     <!-- Toggle Buttons -->
-    <button id="toggle-known-overlay" class="toggle-button">Hide Vessels</button>
+    <button id="toggle-known-overlay" class="toggle-button">Show Vessels</button>
     <button id="toggle-detail-overlay" class="toggle-button">Hide Details</button>
 
     <button id="stats-button">Stats</button>
@@ -2254,10 +2254,7 @@ document.getElementById('toggle-legend').addEventListener('click', function() {
     this.textContent = 'Show Legend';
   }
 });
-const legend = document.getElementById('vessel-legend');
-legend.style.display = 'block';
-updateLegend();
-document.getElementById('toggle-legend').textContent = 'Hide Legend';
+
 
     document.getElementById('live-log-search').addEventListener('input', applyLogFilters);
 
