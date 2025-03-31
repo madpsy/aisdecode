@@ -643,36 +643,33 @@ map.on('click', () => {
         };
 
 const vesselColorPalette = [
-  "#E6194B", // Vibrant Red
-  "#3CB44B", // Vibrant Green
-  "#FFE119", // Vibrant Yellow
-  "#0082C8", // Vibrant Blue
-  "#F58231", // Vibrant Orange
-  "#911EB4", // Vibrant Purple
-  "#46F0F0", // Vibrant Cyan
-  "#F032E6", // Vibrant Magenta
-  "#FF00FF", // Fuchsia
-  "#FFD700", // Gold
-  "#DC143C", // Crimson
-  "#00BFFF", // Deep Sky Blue
-  "#FF69B4", // Hot Pink
   "#FF4500", // Orange Red
-  "#1E90FF", // Dodger Blue
+  "#00CED1", // Dark Turquoise
+  "#F58231", // Vibrant Orange
+  "#FF00FF", // Fuchsia
+  "#FF69B4", // Hot Pink
+  "#FF8C00", // Dark Orange
+  "#8A2BE2", // Blue Violet
+  "#0082C8", // Vibrant Blue
   "#FF1493", // Deep Pink
+  "#E6194B", // Vibrant Red
+  "#46F0F0", // Vibrant Cyan
+  "#00BFFF", // Deep Sky Blue
+  "#00FF00", // Lime
+  "#F032E6", // Vibrant Magenta
+  "#FFD700", // Gold
   "#FF6347", // Tomato
+  "#DC143C", // Crimson
+  "#FFE119", // Vibrant Yellow
   "#40E0D0", // Turquoise
   "#DA70D6", // Orchid
-  "#8A2BE2", // Blue Violet
-  "#FF8C00", // Dark Orange
-  "#00CED1", // Dark Turquoise
-  "#00FF00", // Lime
+  "#911EB4", // Vibrant Purple
   "#FF7F50", // Coral
-  "#00FFAA"  // Mint
+  "#3CB44B"  // Vibrant Green
 ];
 
-
 function djb2Hash(str) {
-  let hash = 5381;
+  let hash = 8393;
   for (let i = 0; i < str.length; i++) {
     hash = ((hash << 5) + hash) + str.charCodeAt(i); // hash * 33 + c
   }
