@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"bufio"
 	"encoding/json"
 	"flag"
@@ -181,6 +182,74 @@ func scheduleDailyCleanup(historyBase string, expireAfter time.Duration) {
 			cleanupHistoryFiles(historyBase, expireAfter)
 		}
 	})
+}
+
+func externalLookupCall(vesselID string, lookupURL string) {
+	// Prepare JSON body: {"MMSI": vesselID}
+	reqBody, err := json.Marshal(map[string]string{"MMSI": vesselID})
+	if err != nil {
+		log.Printf("Error marshaling JSON for external lookup for vessel %s: %v", vesselID, err)
+		return
+	}
+
+	// Create an HTTP client with a 1-second timeout.
+	client := &http.Client{Timeout: 1 * time.Second}
+	resp, err := client.Post(lookupURL, "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+
+	// Decode the response.
+	var respData map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+		log.Printf("Error decoding external lookup response for vessel %s: %v", vesselID, err)
+		return
+	}
+
+	// Check that the response contains an MMSI field matching the vesselID.
+	mmsiVal, ok := respData["MMSI"]
+	if !ok || fmt.Sprintf("%v", mmsiVal) != vesselID {
+		log.Printf("External lookup response MMSI mismatch for vessel %s", vesselID)
+		return
+	}
+
+	// Check for a valid Name field.
+	nameVal, ok := respData["Name"]
+	if !ok {
+		log.Printf("External lookup response missing Name for vessel %s", vesselID)
+		return
+	}
+	nameStr, ok := nameVal.(string)
+	if !ok || strings.TrimSpace(nameStr) == "" {
+		log.Printf("External lookup response has invalid Name for vessel %s", vesselID)
+		return
+	}
+
+	// Optionally, get CallSign if it exists.
+	var callSignStr string
+	if cs, ok := respData["CallSign"]; ok {
+		if csStr, ok := cs.(string); ok && strings.TrimSpace(csStr) != "" {
+			callSignStr = csStr
+		}
+	}
+
+	// Update vessel state with the lookup results.
+	vesselDataMutex.Lock()
+	defer vesselDataMutex.Unlock()
+	if vessel, exists := vesselData[vesselID]; exists {
+		vessel["Name"] = nameStr
+		if callSignStr != "" {
+			vessel["CallSign"] = callSignStr
+		}
+		// Optionally update LastUpdated.
+		vessel["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+		log.Printf("External lookup updated vessel %s: Name=%s, CallSign=%s", vesselID, nameStr, callSignStr)
+	}
 }
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
@@ -505,6 +574,7 @@ func main() {
 	expireAfter := flag.Duration("expire-after", 24*time.Hour, "Expire vessel data if no update is received within this duration (default: 24h)")
 	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
 	stateDir := flag.String("state-dir", "", "Directory to store state (optional). Overrides the default location of web-root")
+	externalLookupURL := flag.String("external-lookup", "", "URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)")
 
 	flag.Parse()
 
@@ -964,6 +1034,12 @@ func main() {
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
 
+			if *externalLookupURL != "" {
+			   if name, ok := merged["Name"].(string); !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
+	  		   	go externalLookupCall(vesselID, *externalLookupURL)
+			   }
+			}
+
 			// Append to vessel history only if lat/lon have changed by an acceptable amount.
 			if lat, ok := merged["Latitude"].(float64); ok {
 			    if lon, ok := merged["Longitude"].(float64); ok {
@@ -1232,6 +1308,12 @@ func main() {
 
 			vesselData[vesselID] = merged
 			vesselDataMutex.Unlock()
+
+			if *externalLookupURL != "" {
+				if name, ok := merged["Name"].(string); !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
+					go externalLookupCall(vesselID, *externalLookupURL)
+				}
+			}
 
 			// Append to vessel history only if lat/lon have changed by an acceptable amount.
 			if lat, ok := merged["Latitude"].(float64); ok {
