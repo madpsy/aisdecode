@@ -293,6 +293,16 @@
   width: 100%;
   margin: 0 10px 0 0;
 }
+#github-link {
+  position: absolute;
+  bottom: 5px; /* Adjust as needed */
+  left: 50%;
+  transform: translateX(-50%);
+  color: black;
+  text-decoration: none;
+  font-size: 12px;
+  z-index: 1500;
+}
 
     </style>
 </head>
@@ -419,7 +429,7 @@
  	</label>
 	<input type="range" id="age-slider" min="1" max="24" value="24" step="1">
     </div>
-
+    <a href="https://github.com/madpsy/aisdecode" target="_blank" id="github-link">GitHub</a>
     <!-- Live Logs Overlay (draggable) -->
     <div id="live-logs-overlay">
         <div id="live-logs-header">
@@ -2186,21 +2196,29 @@ function showFlashMessage(message, parentEl) {
 
     document.getElementById('show-paths').addEventListener('change', function() {
       const showPaths = this.checked;
-      for (const mmsi in vesselTracks) {
-        const vessel = vesselData[mmsi];
-        const hasCallSign = vessel && (vessel.CallSign || "").trim().length > 0;
-        if (showPaths && (hasCallSign || showNoCallsign)) {
-          if (!map.hasLayer(vesselTracks[mmsi])) {
-            map.addLayer(vesselTracks[mmsi]);
+      const onlyFocussed = document.getElementById('only-focussed').checked;
+      if (onlyFocussed && focusedVessel) {
+        // Only toggle the focused vessel's track.
+        if (vesselTracks[focusedVessel]) {
+          if (showPaths && !map.hasLayer(vesselTracks[focusedVessel])) {
+            map.addLayer(vesselTracks[focusedVessel]);
+          } else if (!showPaths && map.hasLayer(vesselTracks[focusedVessel])) {
+            map.removeLayer(vesselTracks[focusedVessel]);
           }
-        } else {
-          if (map.hasLayer(vesselTracks[mmsi])) {
+        }
+      } else {
+        // Toggle tracks for all vessels.
+        for (const mmsi in vesselTracks) {
+          if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
+            map.addLayer(vesselTracks[mmsi]);
+          } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
             map.removeLayer(vesselTracks[mmsi]);
           }
         }
       }
       updateFocussedVisibility();
     });
+
 
 // Conversion: 1 nautical mile = 1852 meters.
 function updateNauticalScale() {
