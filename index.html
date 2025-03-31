@@ -890,54 +890,61 @@ function hydrateTrackHistory(userID) {
       // Update the vessel's track history in your data store.
       vesselData[userID].track = dedupedTrack;
       
-      // Update the polyline on the map with the new set of track points.
+      // Immediately apply the history filter based on the current slider value.
+      const now = Date.now();
+      const historyHours = parseInt(document.getElementById("history-slider").value, 10);
+      const filteredTrack = dedupedTrack.filter(pt => {
+        const pointTime = new Date(pt[0]).getTime();
+        return (now - pointTime) <= historyHours * 3600000;
+      });
+      
+      // Update the polyline on the map with the filtered set of track points.
       // Note: getLatLngs will extract only the latitude and longitude.
       if (vesselTracks[userID]) {
-        vesselTracks[userID].setLatLngs(getLatLngs(dedupedTrack));
+        vesselTracks[userID].setLatLngs(getLatLngs(filteredTrack));
         vesselTracks[userID].options.interactive = true;
         // (Re)attach event handlers if needed...
-	vesselTracks[userID].on('mousemove', function(e) {
-	  const nearest = getNearestTrackPoint(e, vesselData[userID].track);
-	  if (nearest) {
-	    const [timestamp, lat, lon, sog, cog, trueHeading] = nearest.info;
-	    const localTime = new Date(timestamp).toLocaleString();
-	    const vessel = vesselData[userID];
-	    const name = vessel.Name ? vessel.Name : "Unknown Vessel";
-	    const callsign = vessel.CallSign ? vessel.CallSign : "N/A";
+        vesselTracks[userID].on('mousemove', function(e) {
+          const nearest = getNearestTrackPoint(e, vesselData[userID].track);
+          if (nearest) {
+            const [timestamp, lat, lon, sog, cog, trueHeading] = nearest.info;
+            const localTime = new Date(timestamp).toLocaleString();
+            const vessel = vesselData[userID];
+            const name = vessel.Name ? vessel.Name : "Unknown Vessel";
+            const callsign = vessel.CallSign ? vessel.CallSign : "N/A";
 
-	    // Build the popup content.
-	    let popupContent = `<strong>${name} (${callsign})</strong><br>
-	                        ${localTime}<br>
-	                        ${lat.toFixed(4)}, ${lon.toFixed(4)}<br>`;
-	    // Append extra values if available.
-	    if (sog !== null) {
-	      popupContent += `Speed: ${sog} kn<br>`;
-	    }
-	    if (cog !== null) {
-	      popupContent += `Course: ${cog}°<br>`;
-	    }
-	    if (trueHeading !== null) {
-	      popupContent += `Heading: ${trueHeading}°<br>`;
-	    }
-	    
-	    L.popup({ closeButton: false, autoPan: false })
-	      .setLatLng(nearest.ptLatLng)
-	      .setContent(popupContent)
-	      .openOn(map);
-	  }
-	});
+            // Build the popup content.
+            let popupContent = `<strong>${name} (${callsign})</strong><br>
+                                ${localTime}<br>
+                                ${lat.toFixed(4)}, ${lon.toFixed(4)}<br>`;
+            if (sog !== null) {
+              popupContent += `Speed: ${sog} kn<br>`;
+            }
+            if (cog !== null) {
+              popupContent += `Course: ${cog}°<br>`;
+            }
+            if (trueHeading !== null) {
+              popupContent += `Heading: ${trueHeading}°<br>`;
+            }
+            
+            L.popup({ closeButton: false, autoPan: false })
+              .setLatLng(nearest.ptLatLng)
+              .setContent(popupContent)
+              .openOn(map);
+          }
+        });
 
         vesselTracks[userID].on('mouseout', function() {
           map.closePopup();
         });
       } else {
-        vesselTracks[userID] = L.polyline(getLatLngs(dedupedTrack), {
+        vesselTracks[userID] = L.polyline(getLatLngs(filteredTrack), {
           color: vesselData[userID].color,
           weight: 3,
           opacity: 0.8,
-	  interactive: true
+          interactive: true
         }).addTo(map);
-	attachPolylineEvents(vesselTracks[userID], userID);
+        attachPolylineEvents(vesselTracks[userID], userID);
       }
       
       // Save the updated vessel data back into localStorage.
@@ -1032,6 +1039,17 @@ function addLine(lines, label, value, formatFn) {
 function getLatLngs(track) {
   return track.map(pt => [pt[1], pt[2]]);
 }
+
+function filterTrackPoints(track) {
+  const historyHours = parseInt(document.getElementById("history-slider").value, 10);
+  const now = Date.now();
+  return track.filter(pt => {
+    // Convert the point's timestamp to milliseconds.
+    const pointTime = new Date(pt[0]).getTime();
+    return (now - pointTime) <= historyHours * 3600000;
+  });
+}
+
 
 function createDetailContent(data) {
   const lines = [];
@@ -1487,15 +1505,15 @@ instantHandler = function(message) {
       message.data.TrueHeading != null ? message.data.TrueHeading : null
     ]);
     
-    // Update the vessel's polyline with the new track points.
+    const filteredTrack = filterTrackPoints(vesselData[userID].track);
     if (vesselTracks[userID]) {
-      vesselTracks[userID].setLatLngs(getLatLngs(vesselData[userID].track));
+      vesselTracks[userID].setLatLngs(getLatLngs(filteredTrack));
     } else {
-      vesselTracks[userID] = L.polyline(getLatLngs(vesselData[userID].track), {
+      vesselTracks[userID] = L.polyline(getLatLngs(filteredTrack), {
         color: vesselData[userID].color,
         weight: 3,
         opacity: 0.8,
- 	interactive: true
+        interactive: true
       }).addTo(map);
       attachPolylineEvents(vesselTracks[userID], userID);
     }
@@ -1936,16 +1954,17 @@ instantHandler = function(message) {
                 }
                 vesselMarkers[mmsi] = marker;
               }
-              if (vesselTracks[mmsi]) {
-		  vesselTracks[mmsi].setLatLngs(getLatLngs(vesselData[mmsi].track));
+              const filteredTrack = filterTrackPoints(vesselData[mmsi].track);
+	      if (vesselTracks[mmsi]) {
+	        vesselTracks[mmsi].setLatLngs(getLatLngs(filteredTrack));
 	      } else {
-		  vesselTracks[mmsi] = L.polyline(getLatLngs(vesselData[mmsi].track), {
-		    color: vesselData[mmsi].color,
-		    weight: 3,
-		    opacity: 0.8,
-		    interactive: true
-		  }).addTo(map);
-		  attachPolylineEvents(vesselTracks[mmsi], mmsi);
+	        vesselTracks[mmsi] = L.polyline(getLatLngs(filteredTrack), {
+	          color: vesselData[mmsi].color,
+	          weight: 3,
+	          opacity: 0.8,
+	          interactive: true
+	        }).addTo(map);
+	        attachPolylineEvents(vesselTracks[mmsi], mmsi);
 	      }
 
             } else {
@@ -2373,9 +2392,14 @@ document.getElementById('toggle-legend').addEventListener('click', function() {
 
 const ageSlider = document.getElementById('age-slider');
 const ageValueDisplay = document.getElementById('age-value');
+let ageDebounceTimer = null;
+
 ageSlider.addEventListener('input', () => {
   ageValueDisplay.textContent = ageSlider.value;
-  clearHistory();
+  clearTimeout(ageDebounceTimer);
+  ageDebounceTimer = setTimeout(() => {
+    clearHistory();
+  }, 500); // milliseconds
 });
 
 const historySlider = document.getElementById('history-slider');
@@ -2421,6 +2445,33 @@ document.addEventListener("DOMContentLoaded", function() {
     localStorage.setItem("ageSliderValue", currentValue);
   });
 });
+
+let historyDebounceTimer = null;
+document.getElementById("history-slider").addEventListener("input", () => {
+  const historyHours = parseInt(document.getElementById("history-slider").value, 10);
+  historyValueDisplay.textContent = historyHours;
+  
+  const now = Date.now();
+  // Immediately update the polyline tracks for all vessels using the new slider value.
+  for (let userID in vesselData) {
+    if (vesselData[userID].track && vesselTracks[userID]) {
+      const filteredTrack = vesselData[userID].track.filter(pt => {
+        const pointTime = new Date(pt[0]).getTime();
+        return (now - pointTime) <= historyHours * 3600000;
+      });
+      vesselTracks[userID].setLatLngs(getLatLngs(filteredTrack));
+    }
+  }
+  
+  // Debounce the fetch for additional history data for the focused vessel.
+  clearTimeout(historyDebounceTimer);
+  historyDebounceTimer = setTimeout(() => {
+    if (focusedVessel) {
+      hydrateTrackHistory(focusedVessel);
+    }
+  }, 500); // Adjust debounce delay as needed.
+});
+
 
         // Utility: Generate a random hex color.
         function randomColor() {

@@ -74,6 +74,11 @@ var (
 var vesselHistoryMutex sync.Mutex
 var vesselLastCoordinates = make(map[string]struct{ lat, lon float64 })
 
+var (
+    pendingVesselDataMutex sync.Mutex
+    pendingVesselData      = make(map[string]map[string]interface{})
+)
+
 // cleanupHistoryFiles scans the "history" directory under baseDir and removes
 // any records older than expireAfter. It writes the valid records to a temporary file
 // and then replaces the original file. If no valid records remain, the file is deleted.
@@ -284,69 +289,75 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
     if baseData == nil {
         baseData = make(map[string]interface{})
     }
-    // Merge all top-level keys from newData.
+    // Merge all top-level keys from newData, but protect the "Name" field.
     for key, value := range newData {
-        baseData[key] = value
+        if key == "Name" {
+            incomingName, ok := value.(string)
+            if !ok || strings.TrimSpace(incomingName) == "" {
+                // Skip updating if the new name is empty.
+                continue
+            }
+            // If baseData already has a non-empty name, do not override it.
+            if existingName, exists := baseData["Name"].(string); exists && strings.TrimSpace(existingName) != "" {
+                continue
+            }
+            baseData["Name"] = incomingName
+        } else {
+            baseData[key] = value
+        }
     }
 
     // Elevate selected fields from ReportA while keeping the nested structure.
     if reportA, ok := newData["ReportA"].(map[string]interface{}); ok {
-        // Elevate Name from ReportA.
         if name, ok := reportA["Name"].(string); ok && strings.TrimSpace(name) != "" {
-            baseData["Name"] = name
+            if existingName, exists := baseData["Name"].(string); !exists || strings.TrimSpace(existingName) == "" {
+                baseData["Name"] = name
+            }
         }
     }
 
-    // Elevate selected fields from ReportB while keeping the nested structure.
+    // Continue with your other merging logic (e.g. ReportB, AISClass, etc.).
     if reportB, ok := newData["ReportB"].(map[string]interface{}); ok {
-        // Elevate CallSign from ReportB.
         if cs, ok := reportB["CallSign"].(string); ok && strings.TrimSpace(cs) != "" {
             baseData["CallSign"] = cs
         }
-        // Elevate Dimension.
         if dim, ok := reportB["Dimension"]; ok {
             baseData["Dimension"] = dim
         }
-        // Elevate FixType.
         if fixType, ok := reportB["FixType"]; ok {
             baseData["FixType"] = fixType
         }
-        // Elevate ShipType as Type.
         if shipType, ok := reportB["ShipType"]; ok {
-            // Check if shipType is numeric and equals 0.
             if shipTypeFloat, ok := shipType.(float64); ok {
-                // Only update if the current value is nil or shipTypeFloat is not 0.
                 if shipTypeFloat != 0 || baseData["Type"] == nil {
                     baseData["Type"] = shipType
                 }
             } else if shipTypeStr, ok := shipType.(string); ok {
-                // If shipType is a string, update unless it's "0"
                 if shipTypeStr != "0" || baseData["Type"] == nil {
                     baseData["Type"] = shipType
                 }
             } else {
-                // For any other type, update normally.
                 baseData["Type"] = shipType
             }
         }
-        // Mark AISClass as "B" because ReportB is present.
         baseData["AISClass"] = "B"
     }
     
-    // Default AISClass to "A" if it has not been set yet.
     if _, ok := baseData["AISClass"]; !ok {
         baseData["AISClass"] = "A"
     }
 
-    // --- New: Append NameExtension to Name if present ---
-    if ext, ok := baseData["NameExtension"].(string); ok && strings.TrimSpace(ext) != "" {
-        if name, ok := baseData["Name"].(string); ok && strings.TrimSpace(name) != "" {
-            baseData["Name"] = name + ext
-        } else {
-            baseData["Name"] = ext
-        }
-        delete(baseData, "NameExtension")
-    }
+	if ext, ok := baseData["NameExtension"].(string); ok && strings.TrimSpace(ext) != "" {
+	    if name, ok := baseData["Name"].(string); ok && strings.TrimSpace(name) != "" {
+	        // Only append extension if it isn't already present.
+	        if !strings.HasSuffix(name, ext) {
+	            baseData["Name"] = name + ext
+	        }
+	    } else {
+	        baseData["Name"] = ext
+	    }
+	    delete(baseData, "NameExtension")
+	}
     
     return baseData
 }
@@ -1042,61 +1053,99 @@ func main() {
 
 			// Append to vessel history only if lat/lon have changed by an acceptable amount.
 			if lat, ok := merged["Latitude"].(float64); ok {
-			    if lon, ok := merged["Longitude"].(float64); ok {
+   			 if lon, ok := merged["Longitude"].(float64); ok {
 			        vesselHistoryMutex.Lock()
 			        last, exists := vesselLastCoordinates[vesselID]
 			        distance := 0.0
 			        if exists {
 			            distance = haversine(last.lat, last.lon, lat, lon)
 			        }
-			        // If there's a previous reading and the new reading is out-of-bound (i.e. a jump of less than 10 m or more than 10 km)
-			        if exists && (distance < 10.0 || distance > 10000.0) {
-			            // Update stored location to reset the baseline for future comparisons.
-			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
+			
+			        // Check for spurious jump: if the distance is greater than 10 km.
+			        if exists && distance > 10000.0 {
+			            pendingVesselDataMutex.Lock()
+			            if pending, found := pendingVesselData[vesselID]; found {
+			                // Compare new reading to the already pending one.
+			                pLat, ok1 := pending["Latitude"].(float64)
+			                pLon, ok2 := pending["Longitude"].(float64)
+			                if ok1 && ok2 {
+			                    pendingDistance := haversine(pLat, pLon, lat, lon)
+			                    if pendingDistance <= 10000.0 {
+			                        // The new reading is close enough to the pending update.
+			                        // Commit the pending update to the vessel's current state.
+			                        vesselDataMutex.Lock()
+			                        vesselData[vesselID] = pending
+			                        vesselDataMutex.Unlock()
+			                        // Update the baseline coordinate.
+			                        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{pLat, pLon}
+			
+			                        // Append the pending update to history.
+			                        ts := pending["LastUpdated"].(string)
+			                        var sogStr, cogStr, trueHeadingStr string
+			                        if sog, ok := pending["Sog"].(float64); ok {
+			                            sogStr = fmt.Sprintf("%.2f", sog)
+				                        }
+			                        if cog, ok := pending["Cog"].(float64); ok {
+			                            cogStr = fmt.Sprintf("%.2f", cog)
+			                        }
+			                        if th, ok := pending["TrueHeading"].(float64); ok {
+			                            trueHeadingStr = fmt.Sprintf("%.2f", th)
+			                        }
+			                        if !*noState {
+			                            if err := appendHistory(historyBase, vesselID, pLat, pLon, sogStr, cogStr, trueHeadingStr, ts); err != nil {
+			                                log.Printf("Error appending history for vessel %s: %v", vesselID, err)
+			                            }
+			                        }
+			                        // Remove the pending update.
+			                        delete(pendingVesselData, vesselID)
+			                    } else {
+			                        // The new update is still far from the pending one; update the pending update.
+			                        pendingVesselData[vesselID] = merged
+			                    }
+			                }
+			            } else {
+			                // No pending update exists yet—store this spurious reading.
+			                pendingVesselData[vesselID] = merged
+			            }
+			            pendingVesselDataMutex.Unlock()
 			            vesselHistoryMutex.Unlock()
-			            // Skip further processing for this message.
+			            // Do not update the current state with this spurious reading.
 			            continue
 			        }
-			        // No previous reading exists, or the change is acceptable.
-				ts := merged["LastUpdated"].(string)
-
-				// Extract SOG
-				var sogStr string
-				if sog, ok := merged["Sog"].(float64); ok {
-					sogStr = fmt.Sprintf("%.2f", sog)
-				} else {
-					sogStr = "" // leave empty if missing
-				}
-				
-				// Extract COG
-				var cogStr string
-				if cog, ok := merged["Cog"].(float64); ok {
-					cogStr = fmt.Sprintf("%.2f", cog)
-				} else {
-					cogStr = "" // leave empty if missing
-				}
-
-				// Extract TrueHeading
-				var trueHeadingStr string
-				if th, ok := merged["TrueHeading"].(float64); ok {
-					trueHeadingStr = fmt.Sprintf("%.2f", th)
-				} else {
-					trueHeadingStr = "" // leave empty if missing
-				}
-
-				if !*noState { // Only append history if state persistence is enabled.
-					if err := appendHistory(historyBase, vesselID, lat, lon, sogStr, cogStr, trueHeadingStr, ts); err != nil {
-						log.Printf("Error appending history for vessel %s: %v", vesselID, err)
-					}
-				}
-
-			        // Update the stored location.
+			
+			        // For very small movements (<10 m), keep the current behavior.
+			        if exists && distance < 10.0 {
+			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
+			            vesselHistoryMutex.Unlock()
+			            continue
+			        }
+			
+			        // Otherwise, the update is within acceptable bounds.
+			        // Commit the update normally.
+			        ts := merged["LastUpdated"].(string)
+			        var sogStr, cogStr, trueHeadingStr string
+			        if sog, ok := merged["Sog"].(float64); ok {
+			            sogStr = fmt.Sprintf("%.2f", sog)
+			        }
+			        if cog, ok := merged["Cog"].(float64); ok {
+			            cogStr = fmt.Sprintf("%.2f", cog)
+			        }
+			        if th, ok := merged["TrueHeading"].(float64); ok {
+			            trueHeadingStr = fmt.Sprintf("%.2f", th)
+			        }
+			
+			        // Append the valid update to history.
+			        if !*noState {
+			            if err := appendHistory(historyBase, vesselID, lat, lon, sogStr, cogStr, trueHeadingStr, ts); err != nil {
+			                log.Printf("Error appending history for vessel %s: %v", vesselID, err)
+			            }
+			        }
+			        // Update the baseline coordinate for future comparisons.
 			        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
 			        vesselHistoryMutex.Unlock()
 			    }
 			}
-
-
+						
 			vesselDataMutex.Lock()
 			latestData := filterCompleteVesselData(vesselData)
 			vesselDataMutex.Unlock()
@@ -1317,54 +1366,94 @@ func main() {
 
 			// Append to vessel history only if lat/lon have changed by an acceptable amount.
 			if lat, ok := merged["Latitude"].(float64); ok {
-			    if lon, ok := merged["Longitude"].(float64); ok {
+    			if lon, ok := merged["Longitude"].(float64); ok {
 			        vesselHistoryMutex.Lock()
 			        last, exists := vesselLastCoordinates[vesselID]
 			        distance := 0.0
 			        if exists {
 			            distance = haversine(last.lat, last.lon, lat, lon)
 			        }
-			        // If there's a previous reading and the new reading is out-of-bound (i.e. a jump of less than 10 m or more than 10 km)
-			        if exists && (distance < 10.0 || distance > 10000.0) {
-			            // Update stored location to reset the baseline for future comparisons.
+			
+			        // Check for spurious jump: if the distance is greater than 10 km.
+			        if exists && distance > 10000.0 {
+			            pendingVesselDataMutex.Lock()
+			            if pending, found := pendingVesselData[vesselID]; found {
+			                // Compare new reading to the already pending one.
+			                pLat, ok1 := pending["Latitude"].(float64)
+			                pLon, ok2 := pending["Longitude"].(float64)
+			                if ok1 && ok2 {
+			                    pendingDistance := haversine(pLat, pLon, lat, lon)
+			                    if pendingDistance <= 10000.0 {
+			                        // The new reading is close enough to the pending update.
+			                        // Commit the pending update to the vessel's current state.
+			                        vesselDataMutex.Lock()
+			                        vesselData[vesselID] = pending
+			                        vesselDataMutex.Unlock()
+			                        // Update the baseline coordinate.
+			                        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{pLat, pLon}
+			
+			                        // Append the pending update to history.
+			                        ts := pending["LastUpdated"].(string)
+			                        var sogStr, cogStr, trueHeadingStr string
+			                        if sog, ok := pending["Sog"].(float64); ok {
+			                            sogStr = fmt.Sprintf("%.2f", sog)
+			                        }
+			                        if cog, ok := pending["Cog"].(float64); ok {
+			                            cogStr = fmt.Sprintf("%.2f", cog)
+			                        }
+			                        if th, ok := pending["TrueHeading"].(float64); ok {
+			                            trueHeadingStr = fmt.Sprintf("%.2f", th)
+			                        }
+			                        if !*noState {
+			                            if err := appendHistory(historyBase, vesselID, pLat, pLon, sogStr, cogStr, trueHeadingStr, ts); err != nil {
+			                                log.Printf("Error appending history for vessel %s: %v", vesselID, err)
+			                            }
+			                        }
+			                        // Remove the pending update.
+			                        delete(pendingVesselData, vesselID)
+			                    } else {
+			                        // The new update is still far from the pending one; update the pending update.
+			                        pendingVesselData[vesselID] = merged
+			                    }
+			                }
+			            } else {
+			                // No pending update exists yet—store this spurious reading.
+			                pendingVesselData[vesselID] = merged
+			            }
+			            pendingVesselDataMutex.Unlock()
+			            vesselHistoryMutex.Unlock()
+			            // Do not update the current state with this spurious reading.
+			            continue			
+			        }
+
+			        // For very small movements (<10 m), keep the current behavior.
+			        if exists && distance < 10.0 {
 			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
 			            vesselHistoryMutex.Unlock()
-			            // Skip further processing for this message.
 			            continue
 			        }
-			        // No previous reading exists, or the change is acceptable.
-				ts := merged["LastUpdated"].(string)
-
-				// Extract SOG
-				var sogStr string
-				if sog, ok := merged["Sog"].(float64); ok {
-					sogStr = fmt.Sprintf("%.2f", sog)
-				} else {
-					sogStr = "" // leave empty if missing
-				}
-				
-				// Extract COG
-				var cogStr string
-				if cog, ok := merged["Cog"].(float64); ok {
-					cogStr = fmt.Sprintf("%.2f", cog)
-				} else {
-					cogStr = "" // leave empty if missing
-				}
-
-				// Extract TrueHeading
-				var trueHeadingStr string
-				if th, ok := merged["TrueHeading"].(float64); ok {
-					trueHeadingStr = fmt.Sprintf("%.2f", th)
-				} else {
-					trueHeadingStr = "" // leave empty if missing
-				}
-
-				if !*noState { // Only append history if state persistence is enabled.
-					if err := appendHistory(historyBase, vesselID, lat, lon, sogStr, cogStr, trueHeadingStr, ts); err != nil {
-						log.Printf("Error appending history for vessel %s: %v", vesselID, err)
-					}
-				}
-			        // Update the stored location.
+			
+			        // Otherwise, the update is within acceptable bounds.
+			        // Commit the update normally.
+			        ts := merged["LastUpdated"].(string)
+			        var sogStr, cogStr, trueHeadingStr string
+			        if sog, ok := merged["Sog"].(float64); ok {
+			            sogStr = fmt.Sprintf("%.2f", sog)
+			        }
+			        if cog, ok := merged["Cog"].(float64); ok {
+			            cogStr = fmt.Sprintf("%.2f", cog)
+			        }
+			        if th, ok := merged["TrueHeading"].(float64); ok {
+			            trueHeadingStr = fmt.Sprintf("%.2f", th)
+			        }
+			
+			        // Append the valid update to history.
+			        if !*noState {
+			            if err := appendHistory(historyBase, vesselID, lat, lon, sogStr, cogStr, trueHeadingStr, ts); err != nil {
+			                log.Printf("Error appending history for vessel %s: %v", vesselID, err)
+			            }
+			        }
+			        // Update the baseline coordinate for future comparisons.
 			        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
 			        vesselHistoryMutex.Unlock()
 			    }
