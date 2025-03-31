@@ -2357,16 +2357,16 @@ setInterval(updateLegend, 5000); // Update every 5 seconds
 
 document.getElementById('toggle-legend').addEventListener('click', function() {
   const legend = document.getElementById('vessel-legend');
-  const currentDisplay = window.getComputedStyle(legend).display;
-  if (currentDisplay === 'none') {
-    updateLegend();
-    legend.style.display = 'block';
+  if (window.getComputedStyle(legend).display === 'none') {
+    legend.style.display = 'block';  // Make it visible first
+    updateLegend();                  // Then update the content immediately
     this.textContent = 'Hide Legend';
   } else {
     legend.style.display = 'none';
     this.textContent = 'Show Legend';
   }
 });
+
 
 
     document.getElementById('live-log-search').addEventListener('input', applyLogFilters);
