@@ -332,10 +332,25 @@ func compareValues(currentValue, previousValue interface{}) bool {
 			return false
 		}
 		return isInterfaceMapEqual(currentTyped, previousTyped)
+	case []interface{}:
+		previousTyped, ok := previousValue.([]interface{})
+		if !ok {
+			return false
+		}
+		if len(currentTyped) != len(previousTyped) {
+			return false
+		}
+		for i := range currentTyped {
+			if !compareValues(currentTyped[i], previousTyped[i]) {
+				return false
+			}
+		}
+		return true
 	default:
 		return currentValue == previousValue
 	}
 }
+
 
 // isDataChanged compares currentData and previousData.
 func isDataChanged(currentData, previousData map[string]map[string]interface{}) bool {
