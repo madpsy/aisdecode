@@ -519,6 +519,7 @@ map.on('click', () => {
 
     clearLiveLogs();
     updateFocussedVisibility();
+    updateStationaryMarkers();
   }
 });
 
@@ -1680,6 +1681,7 @@ instantHandler = function(message) {
             });
             adjustMapBounds();
             updateOverlay();
+	    updateStationaryMarkers();
           } catch (e) {
             console.error("Error loading stored vessel data", e);
           }
