@@ -1272,7 +1272,7 @@ function updateOverlay() {
   const filterText = document.getElementById('vessel-filter').value.toLowerCase();
   // Get all known vessels (with valid Name and lastUpdate)
   const allVessels = Object.values(vesselData).filter(v => v.Name && v.lastUpdate);
-  // Filter the vessels further based on the filter input
+  // Filter based on the input
   const vessels = allVessels.filter(v =>
     !filterText ||
     v.Name.toLowerCase().includes(filterText) ||
@@ -1285,8 +1285,23 @@ function updateOverlay() {
   
   vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
   const topVessels = vessels.slice(0, 100);
+  
+  // Count how many vessels are currently visible on the map.
+  const bounds = map.getBounds();
+  let visibleCount = 0;
+  // Loop through the vesselMarkers and count only those which are on the map and within the current bounds.
+  for (const mmsi in vesselMarkers) {
+    if (map.hasLayer(vesselMarkers[mmsi])) {
+      const markerLatLng = vesselMarkers[mmsi].getLatLng();
+      if (bounds.contains(markerLatLng)) {
+        visibleCount++;
+      }
+    }
+  }
+  
+  // Update the overlay count text with the visible count.
   document.getElementById('vessel-count').textContent =
-    `${topVessels.length} of ${known} vessels`;
+    `${topVessels.length} of ${known} vessels (${visibleCount})`;
   
   let content = "";
   topVessels.forEach(v => {
@@ -1312,7 +1327,6 @@ function updateOverlay() {
     });
   });
 }
-
 
         // Periodically update the vessel detail overlay.
         function updateVesselDetailOverlay() {
