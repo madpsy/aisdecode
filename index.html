@@ -848,22 +848,16 @@ function updateLegend() {
 }
 
 function createReceiverIcon() {
-  // Define your SVG for an antenna (adjust the shapes, colors, and sizes as needed)
   const svgHtml = `
-    <svg width="30" height="30" viewBox="0 0 30 30">
-      <!-- A simple antenna: a receiver "dish" and an antenna line -->
-      <circle cx="15" cy="15" r="5" fill="#000" />
-      <line x1="15" y1="20" x2="15" y2="30" stroke="#000" stroke-width="2" />
-      <!-- Radiating signal lines -->
-      <line x1="15" y1="15" x2="22" y2="8" stroke="#000" stroke-width="2" />
-      <line x1="15" y1="15" x2="8" y2="8" stroke="#000" stroke-width="2" />
-    </svg>
+<svg width="20" height="20" viewBox="0 0 20 20">
+  <circle cx="10" cy="10" r="10" fill="red" />
+</svg>
   `;
   return L.divIcon({
     html: svgHtml,
     className: '',
-    iconSize: [30, 30],
-    iconAnchor: [15, 15]
+    iconSize: [20, 20],
+    iconAnchor: [10, 10]
   });
 }
 
@@ -2380,7 +2374,7 @@ window.addEventListener('load', () => {
 	    this.closePopup();
 	  }, 1000);
 	});
-          marker.bindTooltip(receiver.name, { 
+          marker.bindTooltip(`RX: ${receiver.name}`, { 
             permanent: true, 
             direction: 'top', 
             className: 'receiver-tooltip' 
