@@ -442,21 +442,25 @@
             <span id="live-logs-title">Live Messages</span>
             <button id="close-live-logs">X</button>
         </div>
-        <div id="live-logs-filters" style="padding: 2px; border-bottom: 1px solid #ccc; font-size: 12px;">
-            <label style="white-space: nowrap;">
-      <input type="checkbox" class="log-filter" value="ais.PositionReport" checked> Position
-    </label>
-            <label style="white-space: nowrap;">
-      <input type="checkbox" class="log-filter" value="ais.ShipStaticData" checked> Static
-    </label>
-            <label style="white-space: nowrap;">
-      <input type="checkbox" class="log-filter" value="ais.StandardClassBPositionReport" checked> Std. B
-    </label>
-            <label style="white-space: nowrap;">
-      <input type="checkbox" class="log-filter" value="ais.ExtendedClassBPositionReport" checked> Ext. B
-    </label>
-            <input type="text" id="live-log-search" placeholder="Search logs..." style="width:100%; margin-top:5px; padding:3px; font-size:12px;">
-        </div>
+	<div id="live-logs-filters" style="padding: 2px; border-bottom: 1px solid #ccc; font-size: 12px;">
+	  <label style="white-space: nowrap;">
+	    <input type="checkbox" id="log-filter-all" checked> All
+	  </label>
+	  <label style="white-space: nowrap;">
+	    <input type="checkbox" class="log-filter" value="ais.PositionReport" checked> Position
+	  </label>
+	  <label style="white-space: nowrap;">
+	    <input type="checkbox" class="log-filter" value="ais.ShipStaticData" checked> Static
+	  </label>
+	  <label style="white-space: nowrap;">
+	    <input type="checkbox" class="log-filter" value="ais.StandardClassBPositionReport" checked> Std. B
+	  </label>
+	  <label style="white-space: nowrap;">
+	    <input type="checkbox" class="log-filter" value="ais.ExtendedClassBPositionReport" checked> Ext. B
+	  </label>
+	  <input type="text" id="live-log-search" placeholder="Search logs..." style="width:100%; margin-top:5px; padding:3px; font-size:12px;">
+</div>
+
         <div id="live-logs-content"></div>
     </div>
 
@@ -1586,41 +1590,27 @@ instantHandler = function(message) {
     }
 
 
-    function applyLogFilters() {
-      const logEntries = liveLogsContent.querySelectorAll('.log-entry');
-      const searchQuery = document.getElementById('live-log-search').value.toLowerCase();
+function applyLogFilters() {
+  const logEntries = liveLogsContent.querySelectorAll('.log-entry');
+  const searchQuery = document.getElementById('live-log-search').value.toLowerCase();
+  const showAll = document.getElementById('log-filter-all')?.checked;
 
-      logEntries.forEach(entry => {
-        // Get the message type from the data attribute.
-        const type = entry.getAttribute('data-type');
-        const matchesType = liveLogFilters[type];
-
-        // If the type filter is not enabled, hide the entry.
-        if (!matchesType) {
-          entry.style.display = 'none';
-          return;
-        }
-
-        // If there's no search query, revert to the full HTML.
-        if (!searchQuery) {
-          entry.innerHTML = entry.dataset.fullHtml;
-          entry.style.display = '';
-          return;
-        }
-
-        // If a search query exists, rebuild the content.
+  logEntries.forEach(entry => {
+    // If "All" is checked, ignore type filtering
+    if (showAll) {
+      if (!searchQuery) {
+        entry.innerHTML = entry.dataset.fullHtml;
+        entry.style.display = '';
+      } else {
+        // Rebuild content based on search query if one exists
         const msg = entry.originalMessage;
-        // Start with the timestamp.
         const logTimestamp = msg.timestamp
           ? new Date(msg.timestamp).toLocaleTimeString()
           : new Date().toLocaleTimeString();
         let newHtml = `<div class="log-timestamp" style="font-size:10px;color:#888;margin-bottom:2px;">${logTimestamp}</div>`;
-
         let fieldMatched = false;
-        // Iterate over each field in the message data.
         for (const field in msg.data) {
           const value = msg.data[field];
-          // Check if the field name or value matches the search query.
           if (
             field.toLowerCase().includes(searchQuery) ||
             String(value).toLowerCase().includes(searchQuery)
@@ -1629,18 +1619,58 @@ instantHandler = function(message) {
             fieldMatched = true;
           }
         }
-
-        // If at least one field matched, show the new HTML; otherwise, hide the entry.
         if (fieldMatched) {
           entry.innerHTML = newHtml;
           entry.style.display = '';
         } else {
           entry.style.display = 'none';
         }
-      });
+      }
+      return; // Skip further type filtering.
     }
 
+    // Otherwise, filter by type as before.
+    const type = entry.getAttribute('data-type');
+    const matchesType = liveLogFilters[type];
 
+    if (!matchesType) {
+      entry.style.display = 'none';
+      return;
+    }
+
+    if (!searchQuery) {
+      entry.innerHTML = entry.dataset.fullHtml;
+      entry.style.display = '';
+      return;
+    }
+
+    // Apply search filtering if a query exists.
+    const msg = entry.originalMessage;
+    const logTimestamp = msg.timestamp
+      ? new Date(msg.timestamp).toLocaleTimeString()
+      : new Date().toLocaleTimeString();
+    let newHtml = `<div class="log-timestamp" style="font-size:10px;color:#888;margin-bottom:2px;">${logTimestamp}</div>`;
+    let fieldMatched = false;
+    for (const field in msg.data) {
+      const value = msg.data[field];
+      if (
+        field.toLowerCase().includes(searchQuery) ||
+        String(value).toLowerCase().includes(searchQuery)
+      ) {
+        newHtml += formatLogField(field, value);
+        fieldMatched = true;
+      }
+    }
+    if (fieldMatched) {
+      entry.innerHTML = newHtml;
+      entry.style.display = '';
+    } else {
+      entry.style.display = 'none';
+    }
+  });
+}
+
+	document.getElementById('log-filter-all').addEventListener('change', applyLogFilters);
 
         // When the Live Logs button is clicked.
         document.getElementById('live-logs').addEventListener('click', () => {

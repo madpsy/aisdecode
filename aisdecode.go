@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 	"math"
+	"reflect"
 
 	"go.bug.st/serial"
 	"github.com/google/uuid"
@@ -230,6 +231,44 @@ func scheduleDailyCleanup(historyBase string, expireAfter time.Duration) {
 			cleanupHistoryFiles(historyBase, expireAfter)
 		}
 	})
+}
+
+func getMessageTypeName(packet interface{}) string {
+    t := reflect.TypeOf(packet)
+    if t.Kind() == reflect.Ptr {
+        t = t.Elem()
+    }
+    fullName := t.String() // e.g., "ais.PositionReport"
+    parts := strings.Split(fullName, ".")
+    if len(parts) > 0 {
+        return parts[len(parts)-1] // e.g., "PositionReport"
+    }
+    return fullName
+}
+
+func logDecodedMessage(packet interface{}, logDir string) {
+    msgType := getMessageTypeName(packet)
+    filePath := filepath.Join(logDir, msgType+".json")
+
+    // Marshal the packet to JSON.
+    b, err := json.Marshal(packet)
+    if err != nil {
+        log.Printf("Error marshaling packet for logging: %v", err)
+        return
+    }
+
+    // Open the file in append mode (or create it if necessary).
+    f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+    if err != nil {
+        log.Printf("Error opening log file %s: %v", filePath, err)
+        return
+    }
+    defer f.Close()
+
+    // Append the JSON data with a newline.
+    if _, err := f.Write(append(b, '\n')); err != nil {
+        log.Printf("Error writing to log file %s: %v", filePath, err)
+    }
 }
 
 func externalLookupCall(vesselID string, lookupURL string) {
@@ -657,6 +696,7 @@ func main() {
 	externalLookupURL := flag.String("external-lookup", "", "URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)")
 	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push myinfo.json to on startup (optional)")
 	restrictUUIDsFlag := flag.Bool("restrict-uuids", false, "If specified, restricts which receiver UUIDs can be sent to us. Expects a JSON file at <state dir>/allowed-uuids.json with a list of allowed UUIDs")
+	logAllDecodesDir := flag.String("log-all-decodes", "", "Directory path to log every decoded message (optional)")
 
 	flag.Parse()
 
@@ -675,6 +715,13 @@ func main() {
 	        log.Fatalf("Cannot write to state file %s: %v", statePath, err)
 	    }
 	    f.Close()
+	}
+
+	if *logAllDecodesDir != "" {
+	    if err := os.MkdirAll(*logAllDecodesDir, 0755); err != nil {
+	        log.Fatalf("Failed to create log directory %s: %v", *logAllDecodesDir, err)
+	    }
+	    log.Printf("Logging all decodes to directory: %s", *logAllDecodesDir)
 	}
 
 	var historyBase string
@@ -1271,6 +1318,10 @@ func main() {
 		    continue
 		}
 
+		if *logAllDecodesDir != "" {
+		    logDecodedMessage(decoded.Packet, *logAllDecodesDir)
+		}
+
 		// Convert the decoded packet to a map for cleaning.
 		var newData map[string]interface{}
 		{
@@ -1599,6 +1650,10 @@ func main() {
 		}
 			if decoded == nil || decoded.Packet == nil {
 				continue
+			}
+
+			if *logAllDecodesDir != "" {
+			    logDecodedMessage(decoded.Packet, *logAllDecodesDir)
 			}
 
 			// Convert the decoded packet to a map so we can clean it.
