@@ -249,41 +249,36 @@
   background-color: rgba(255, 255, 255, 0.95);
   border: 1px solid #ccc;
   border-radius: 5px;
-  max-height: 350px;
+  width: 150px;
+  height: 200px;
   overflow-y: auto;
   z-index: 1000;
-}
-
-#vessel-legend h4 {
-  margin: 3px 0;
-  font-size: 16px;
-  text-align: center;
 }
 
 #vessel-legend .legend-item {
   display: flex;
   align-items: center;
-  margin: 0;   
-  padding: 0; 
-  line-height: 1; 
+  margin: 4px 0;  
+  padding: 0;
+  line-height: 1;
 }
 
 #vessel-legend .legend-item svg {
-  margin: 0 3px 0 0;  
-  width: 30px;
-  height: 30px; 
+  margin-right: 5px; 
+  width: 20px;   
+  height: 20px;
 }
 
 #vessel-legend .legend-item span {
-  margin: 0; 
-  padding: 0; 
+  flex: 1;
   font-size: 14px;
-  line-height: 1; 
+  line-height: 1;
 }
+
 
 #slider-container {
   position: absolute;
-  bottom: 20px;          /* Adjust vertical position as needed */
+  bottom: 20px;  
   left: 50%;
   transform: translateX(-50%);
   background: rgba(255, 255, 255, 0.8);
@@ -822,8 +817,7 @@ function updateLegend() {
 
   // Get the top 5 types based on count
   const topTypes = Object.keys(vesselTypes)
-    .sort((a, b) => vesselTypes[b].count - vesselTypes[a].count)
-    .slice(0, 5);
+    .sort((a, b) => vesselTypes[b].count - vesselTypes[a].count);
 
   let legendContent = '';
   topTypes.forEach(type => {
