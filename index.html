@@ -2282,6 +2282,10 @@ function showFlashMessage(message, parentEl) {
        });
 
 window.addEventListener('load', () => {
+  const params = new URLSearchParams(window.location.search);
+  const userIDParam = params.get('UserID');
+  const skipUserZoom = Boolean(userIDParam);
+
   updateStationaryMarkers();
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
@@ -2290,7 +2294,9 @@ window.addEventListener('load', () => {
         const userMarker = L.marker(userLatLng)
           .addTo(map)
         
-        map.setView(userLatLng, 10);
+        if (!skipUserZoom) {
+          map.setView(userLatLng, 10);
+        }
 
         // Allow some time for vessel markers to load or update
         setTimeout(() => {
@@ -2382,8 +2388,7 @@ window.addEventListener('load', () => {
         });
       }
     })
-  const params = new URLSearchParams(window.location.search);
-  const userIDParam = params.get('UserID');
+
   if (userIDParam) {
     // Delay the focus call to allow vessel markers to load
     setTimeout(() => {
