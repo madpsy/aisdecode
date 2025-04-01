@@ -10,6 +10,8 @@ AIS Decoder and Web based Tracker for serial (and USB) NMEA hardware. Tested wit
 Usage of aisdecode:
   -aggregator string
     	Comma delimited list of aggregator host/ip:port (optional)
+  -aggregator-public-url string
+    	Public aggregator URL to push myinfo.json to on startup (optional)
   -baud int
     	Baud rate (default: 38400), ignored if -serial-port is not specified (default 38400)
   -debug
