@@ -22,6 +22,8 @@ Usage of aisdecode:
     	Log the latest vessel data to the screen whenever it is updated
   -expire-after duration
     	Expire vessel data if no update is received within this duration (default: 24h)
+  -log-all-decodes string
+    	Directory path to log every decoded message (optional)
   -no-state
     	When specified, do not save or load the state (default: false)
   -restrict-uuids
