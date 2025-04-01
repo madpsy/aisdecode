@@ -332,7 +332,7 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
     if baseData == nil {
         baseData = make(map[string]interface{})
     }
-    // Merge all top-level keys from newData, but protect the "Name" field.
+    // Merge all top-level keys from newData, with special logic for "Name".
     for key, value := range newData {
         if key == "Name" {
             incomingName, ok := value.(string)
@@ -340,10 +340,29 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
                 // Skip updating if the new name is empty.
                 continue
             }
-            // If baseData already has a non-empty name that is not "NO NAME", do not override it.
-            if existingName, exists := baseData["Name"].(string); exists &&
-                strings.TrimSpace(existingName) != "" &&
-                strings.ToUpper(strings.TrimSpace(existingName)) != "NO NAME" {
+            incomingName = strings.TrimSpace(incomingName)
+            
+            // Determine the effective current name by stripping any NameExtension.
+            effectiveCurrentName := ""
+            if existingName, exists := baseData["Name"].(string); exists && strings.TrimSpace(existingName) != "" {
+                effectiveCurrentName = strings.TrimSpace(existingName)
+                var ext string
+                // Check for a NameExtension in baseData.
+                if e, ok := baseData["NameExtension"].(string); ok && strings.TrimSpace(e) != "" {
+                    ext = strings.TrimSpace(e)
+                }
+                // Also check if newData carries a NameExtension.
+                if e, ok := newData["NameExtension"].(string); ok && strings.TrimSpace(e) != "" {
+                    ext = strings.TrimSpace(e)
+                }
+                if ext != "" && strings.HasSuffix(effectiveCurrentName, ext) {
+                    effectiveCurrentName = strings.TrimSuffix(effectiveCurrentName, ext)
+                    effectiveCurrentName = strings.TrimSpace(effectiveCurrentName)
+                }
+            }
+            // If there's an effective current name that is valid (not "NO NAME")
+            // and it matches the incoming name, then skip updating.
+            if effectiveCurrentName != "" && strings.ToUpper(effectiveCurrentName) != "NO NAME" && effectiveCurrentName == incomingName {
                 continue
             }
             baseData["Name"] = incomingName
@@ -357,8 +376,9 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
         if name, ok := reportA["Name"].(string); ok && strings.TrimSpace(name) != "" {
             if existingName, exists := baseData["Name"].(string); !exists ||
                 strings.TrimSpace(existingName) == "" ||
-                strings.ToUpper(strings.TrimSpace(existingName)) == "NO NAME" {
-                baseData["Name"] = name
+                strings.ToUpper(strings.TrimSpace(existingName)) == "NO NAME" ||
+                strings.TrimSpace(existingName) != strings.TrimSpace(name) {
+                baseData["Name"] = strings.TrimSpace(name)
             }
         }
     }
@@ -394,9 +414,10 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
         baseData["AISClass"] = "A"
     }
 
+    // Handle NameExtension: if present, append it if not already there.
     if ext, ok := baseData["NameExtension"].(string); ok && strings.TrimSpace(ext) != "" {
+        ext = strings.TrimSpace(ext)
         if name, ok := baseData["Name"].(string); ok && strings.TrimSpace(name) != "" {
-            // Only append extension if it isn't already present.
             if !strings.HasSuffix(name, ext) {
                 baseData["Name"] = name + ext
             }
@@ -408,6 +429,7 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
     
     return baseData
 }
+
 
 // filterCompleteVesselData filters vessels that have all required fields.
 func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[string]map[string]interface{} {
