@@ -40,4 +40,19 @@ Usage of aisdecode:
     	WebSocket port (default: 8100)
 ```
 
+Example manual cURL to set a receiver location:
+
+```
+curl -X PUT \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uuid": "450e8272-e29b-41a3-b421-446655446543",
+    "name": "MM3NDH",
+    "description": "AIS receiver",
+    "latitude": "54.65434",
+    "longitude": "-4.4312"
+}' \
+  https://127.0.0.1:8100/receivers
+```
+
 ![aisdecode](images/aisdecode.png)
