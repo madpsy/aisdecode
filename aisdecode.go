@@ -630,6 +630,7 @@ func main() {
 	stateDir := flag.String("state-dir", "", "Directory to store state (optional). Overrides the default location of web-root")
 	externalLookupURL := flag.String("external-lookup", "", "URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)")
 	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push myinfo.json to on startup (optional)")
+	restrictUUIDsFlag := flag.Bool("restrict-uuids", false, "If specified, restricts which receiver UUIDs can be sent to us. Expects a JSON file at <state dir>/allowed-uuids.json with a list of allowed UUIDs.")
 
 	flag.Parse()
 
@@ -991,6 +992,31 @@ func main() {
 	            return
 	        }
 
+        	if *restrictUUIDsFlag {
+	            allowedFilePath := filepath.Join(stateDirectory, "allowed-uuids.json")
+	            allowedData, err := os.ReadFile(allowedFilePath)
+	            if err != nil {
+	                http.Error(w, "Not allowed: allowed UUIDs file not found", http.StatusForbidden)
+	                return
+	            }
+	            var allowedList []string
+	            if err := json.Unmarshal(allowedData, &allowedList); err != nil {
+	                http.Error(w, "Not allowed: invalid allowed UUIDs file", http.StatusForbidden)
+	                return
+	            }
+	            uuidFound := false
+	            for _, allowed := range allowedList {
+	                if rec["uuid"] == allowed {
+	                    uuidFound = true
+	                    break
+	                }
+	            }
+	            if !uuidFound {
+	                http.Error(w, "Not allowed: receiver UUID not in allowed list", http.StatusForbidden)
+	                return
+	            }
+	        }
+
 	        // Use the helper function to validate the payload.
 	        if !isValidReceiver(rec) {
 	            http.Error(w, "Invalid receiver fields", http.StatusBadRequest)
@@ -1103,6 +1129,10 @@ func main() {
 	            } else {
 	                log.Printf("Skipping invalid receiver with uuid: %s", rec["uuid"])
 	            }
+	        }
+
+	        for _, rec := range validResponse {
+	            delete(rec, "uuid")
 	        }
 
 	        w.Header().Set("Content-Type", "application/json")
