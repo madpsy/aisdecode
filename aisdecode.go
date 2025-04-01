@@ -630,7 +630,7 @@ func main() {
 	stateDir := flag.String("state-dir", "", "Directory to store state (optional). Overrides the default location of web-root")
 	externalLookupURL := flag.String("external-lookup", "", "URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)")
 	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push myinfo.json to on startup (optional)")
-	restrictUUIDsFlag := flag.Bool("restrict-uuids", false, "If specified, restricts which receiver UUIDs can be sent to us. Expects a JSON file at <state dir>/allowed-uuids.json with a list of allowed UUIDs.")
+	restrictUUIDsFlag := flag.Bool("restrict-uuids", false, "If specified, restricts which receiver UUIDs can be sent to us. Expects a JSON file at <state dir>/allowed-uuids.json with a list of allowed UUIDs")
 
 	flag.Parse()
 
