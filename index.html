@@ -447,16 +447,16 @@
 	    <input type="checkbox" id="log-filter-all" checked> All
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="ais.PositionReport" checked> Position
+	    <input type="checkbox" class="log-filter" value="PositionReport" checked> Position
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="ais.ShipStaticData" checked> Static
+	    <input type="checkbox" class="log-filter" value="ShipStaticData" checked> Static
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="ais.StandardClassBPositionReport" checked> Std. B
+	    <input type="checkbox" class="log-filter" value="StandardClassBPositionReport" checked> Std. B
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="ais.ExtendedClassBPositionReport" checked> Ext. B
+	    <input type="checkbox" class="log-filter" value="ExtendedClassBPositionReport" checked> Ext. B
 	  </label>
 	  <input type="text" id="live-log-search" placeholder="Search logs..." style="width:100%; margin-top:5px; padding:3px; font-size:12px;">
 </div>
@@ -506,10 +506,13 @@
         }).addTo(map);
 
     const allowedMessageTypes = {
-      "ais.PositionReport": true,
-      "ais.ShipStaticData": true,
-      "ais.StandardClassBPositionReport": true,
-      "ais.ExtendedClassBPositionReport": true
+      "PositionReport": true,
+      "ShipStaticData": true,
+      "StandardClassBPositionReport": true,
+      "ExtendedClassBPositionReport": true,
+      "AidsToNavigationReport": true,
+      "BaseStationReport": true,
+      "BinaryBroadcastMessage": true
     };
 
 	map.on('mousemove', function(e) {
@@ -2285,10 +2288,10 @@ function showFlashMessage(message, parentEl) {
        });
 
     const liveLogFilters = {
-      "ais.PositionReport": true,
-      "ais.ShipStaticData": true,
-      "ais.StandardClassBPositionReport": true,
-      "ais.ExtendedClassBPositionReport": true
+      "PositionReport": true,
+      "ShipStaticData": true,
+      "StandardClassBPositionReport": true,
+      "ExtendedClassBPositionReport": true
     };
 
     document.querySelectorAll('.log-filter').forEach(checkbox => {

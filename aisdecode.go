@@ -233,6 +233,36 @@ func scheduleDailyCleanup(historyBase string, expireAfter time.Duration) {
 	})
 }
 
+
+// addMessageType adds the message type from the decoded packet to the vessel state.
+// It ensures the message type is only added once.
+func addMessageType(vessel map[string]interface{}, packet interface{}) {
+    msgType := getMessageTypeName(packet)
+    var mtypes []string
+    // Try to retrieve any existing MessageTypes.
+    if current, ok := vessel["MessageTypes"]; ok {
+        // It might be stored as []string or []interface{}
+        switch arr := current.(type) {
+        case []string:
+            mtypes = arr
+        case []interface{}:
+            for _, v := range arr {
+                if s, ok := v.(string); ok {
+                    mtypes = append(mtypes, s)
+                }
+            }
+        }
+    }
+    // Only add if not already present.
+    for _, mt := range mtypes {
+        if mt == msgType {
+            return
+        }
+    }
+    mtypes = append(mtypes, msgType)
+    vessel["MessageTypes"] = mtypes
+}
+
 func getMessageTypeName(packet interface{}) string {
     t := reflect.TypeOf(packet)
     if t.Kind() == reflect.Ptr {
@@ -512,6 +542,7 @@ func isInterfaceMapEqual(a, b map[string]interface{}) bool {
 }
 
 // compareValues helps compare two interface{} values.
+// compareValues helps compare two interface{} values.
 func compareValues(currentValue, previousValue interface{}) bool {
 	switch currentTyped := currentValue.(type) {
 	case map[string]interface{}:
@@ -534,11 +565,24 @@ func compareValues(currentValue, previousValue interface{}) bool {
 			}
 		}
 		return true
+	case []string:
+		previousTyped, ok := previousValue.([]string)
+		if !ok {
+			return false
+		}
+		if len(currentTyped) != len(previousTyped) {
+			return false
+		}
+		for i := range currentTyped {
+			if currentTyped[i] != previousTyped[i] {
+				return false
+			}
+		}
+		return true
 	default:
 		return currentValue == previousValue
 	}
 }
-
 
 // isDataChanged compares currentData and previousData.
 func isDataChanged(currentData, previousData map[string]map[string]interface{}) bool {
@@ -1340,7 +1384,7 @@ func main() {
 		cleanInvalidData(newData)
 
 		// Build the AIS message with cleaned data.
-		typeName := "ais.PositionReport" // Or derive this as needed.
+		typeName := getMessageTypeName(decoded.Packet)
 		aisMsg := AISMessage{
 		    Type:      typeName,
 		    Data:      newData,
@@ -1401,6 +1445,7 @@ func main() {
 
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+			addMessageType(merged, decoded.Packet)
 			// Get current time
 			now := time.Now().UTC()
 
@@ -1674,7 +1719,7 @@ func main() {
 			cleanInvalidData(newData)
 			
 			// Build the AIS message with cleaned data.
-			typeName := "ais.PositionReport"
+			typeName := getMessageTypeName(decoded.Packet)
 			aisMsg := AISMessage{
 			    Type:      typeName,
 			    Data:      newData,
@@ -1717,6 +1762,7 @@ func main() {
 			vesselDataMutex.Lock()
 			merged := mergeMaps(vesselData[vesselID], newData)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+			addMessageType(merged, decoded.Packet)
 			// Get current time
 			now := time.Now().UTC()
 
