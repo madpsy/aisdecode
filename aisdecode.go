@@ -340,8 +340,10 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
                 // Skip updating if the new name is empty.
                 continue
             }
-            // If baseData already has a non-empty name, do not override it.
-            if existingName, exists := baseData["Name"].(string); exists && strings.TrimSpace(existingName) != "" {
+            // If baseData already has a non-empty name that is not "NO NAME", do not override it.
+            if existingName, exists := baseData["Name"].(string); exists &&
+                strings.TrimSpace(existingName) != "" &&
+                strings.ToUpper(strings.TrimSpace(existingName)) != "NO NAME" {
                 continue
             }
             baseData["Name"] = incomingName
@@ -353,13 +355,15 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
     // Elevate selected fields from ReportA while keeping the nested structure.
     if reportA, ok := newData["ReportA"].(map[string]interface{}); ok {
         if name, ok := reportA["Name"].(string); ok && strings.TrimSpace(name) != "" {
-            if existingName, exists := baseData["Name"].(string); !exists || strings.TrimSpace(existingName) == "" {
+            if existingName, exists := baseData["Name"].(string); !exists ||
+                strings.TrimSpace(existingName) == "" ||
+                strings.ToUpper(strings.TrimSpace(existingName)) == "NO NAME" {
                 baseData["Name"] = name
             }
         }
     }
 
-    // Continue with your other merging logic (e.g. ReportB, AISClass, etc.).
+    // Continue with other merging logic (e.g. ReportB, AISClass, etc.).
     if reportB, ok := newData["ReportB"].(map[string]interface{}); ok {
         if cs, ok := reportB["CallSign"].(string); ok && strings.TrimSpace(cs) != "" {
             baseData["CallSign"] = cs
@@ -390,17 +394,17 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
         baseData["AISClass"] = "A"
     }
 
-	if ext, ok := baseData["NameExtension"].(string); ok && strings.TrimSpace(ext) != "" {
-	    if name, ok := baseData["Name"].(string); ok && strings.TrimSpace(name) != "" {
-	        // Only append extension if it isn't already present.
-	        if !strings.HasSuffix(name, ext) {
-	            baseData["Name"] = name + ext
-	        }
-	    } else {
-	        baseData["Name"] = ext
-	    }
-	    delete(baseData, "NameExtension")
-	}
+    if ext, ok := baseData["NameExtension"].(string); ok && strings.TrimSpace(ext) != "" {
+        if name, ok := baseData["Name"].(string); ok && strings.TrimSpace(name) != "" {
+            // Only append extension if it isn't already present.
+            if !strings.HasSuffix(name, ext) {
+                baseData["Name"] = name + ext
+            }
+        } else {
+            baseData["Name"] = ext
+        }
+        delete(baseData, "NameExtension")
+    }
     
     return baseData
 }
