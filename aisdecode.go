@@ -18,7 +18,7 @@ import (
 	"math"
 
 	"go.bug.st/serial"
-
+	"github.com/google/uuid"
 	ais "github.com/BertoldVdb/go-ais"
 	"github.com/BertoldVdb/go-ais/aisnmea"
 	"github.com/zishang520/engine.io/v2/types"
@@ -57,6 +57,8 @@ var (
 	changeMutex     sync.Mutex
 )
 
+var receiversMutex sync.Mutex
+
 // Deduplication state: stores messages and their timestamps.
 type dedupeState struct {
 	message   string
@@ -78,6 +80,47 @@ var (
     pendingVesselDataMutex sync.Mutex
     pendingVesselData      = make(map[string]map[string]interface{})
 )
+
+// Helper function to validate a receiver map.
+func isValidReceiver(rec map[string]string) bool {
+	// Check "uuid"
+	uuidStr, ok := rec["uuid"]
+	if !ok || strings.TrimSpace(uuidStr) == "" {
+		return false
+	}
+	if _, err := uuid.Parse(uuidStr); err != nil {
+		return false
+	}
+	// Check "name"
+	name, ok := rec["name"]
+	if !ok || strings.TrimSpace(name) == "" {
+		return false
+	}
+	// Check "description"
+	desc, ok := rec["description"]
+	if !ok || strings.TrimSpace(desc) == "" {
+		return false
+	}
+	// Check "latitude"
+	latStr, ok := rec["latitude"]
+	if !ok || strings.TrimSpace(latStr) == "" {
+		return false
+	}
+	lat, err := strconv.ParseFloat(latStr, 64)
+	if err != nil || lat < -90 || lat > 90 {
+		return false
+	}
+	// Check "longitude"
+	lonStr, ok := rec["longitude"]
+	if !ok || strings.TrimSpace(lonStr) == "" {
+		return false
+	}
+	lon, err := strconv.ParseFloat(lonStr, 64)
+	if err != nil || lon < -180 || lon > 180 {
+		return false
+	}
+	return true
+}
 
 // cleanupHistoryFiles scans the "history" directory under baseDir and removes
 // any records older than expireAfter. It writes the valid records to a temporary file
@@ -586,6 +629,7 @@ func main() {
 	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
 	stateDir := flag.String("state-dir", "", "Directory to store state (optional). Overrides the default location of web-root")
 	externalLookupURL := flag.String("external-lookup", "", "URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)")
+	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push myinfo.json to on startup (optional)")
 
 	flag.Parse()
 
@@ -617,6 +661,86 @@ func main() {
 		cleanupHistoryFiles(historyBase, *expireAfter)
 		scheduleDailyCleanup(historyBase, *expireAfter)
 	}
+
+	if !*noState {
+	    var myInfoPath string
+	    if *stateDir != "" {
+	        myInfoPath = filepath.Join(*stateDir, "myinfo.json")
+	    } else {
+	        myInfoPath = filepath.Join(*webRoot, "myinfo.json")
+	    }
+	    // myInfo holds the fields we want.
+	    myInfo := make(map[string]string)
+	    // Attempt to read the file if it exists.
+	    data, err := os.ReadFile(myInfoPath)
+	    if err == nil {
+	        if err := json.Unmarshal(data, &myInfo); err != nil {
+	            log.Printf("Error unmarshaling %s: %v", myInfoPath, err)
+	        }
+	    } else if !os.IsNotExist(err) {
+	        log.Printf("Error reading %s: %v", myInfoPath, err)
+	    }
+	
+	    // Check the uuid field. Generate a new one if missing or invalid.
+	    if uuidStr, ok := myInfo["uuid"]; !ok || strings.TrimSpace(uuidStr) == "" {
+	        myInfo["uuid"] = uuid.NewString()
+	    } else {
+	        if _, err := uuid.Parse(uuidStr); err != nil {
+	            myInfo["uuid"] = uuid.NewString()
+	        }
+	    }
+	    // Ensure other fields exist.
+	    if _, ok := myInfo["name"]; !ok {
+	        myInfo["name"] = ""
+	    }
+	    if _, ok := myInfo["description"]; !ok {
+	        myInfo["description"] = ""
+	    }
+	    if _, ok := myInfo["latitude"]; !ok {
+	        myInfo["latitude"] = ""
+	    }
+	    if _, ok := myInfo["longitude"]; !ok {
+	        myInfo["longitude"] = ""
+	    }
+	    // Write the updated myinfo.json back.
+	    b, err := json.MarshalIndent(myInfo, "", "  ")
+	    if err != nil {
+	        log.Printf("Error marshaling myinfo data: %v", err)
+	    } else {
+	        err = os.WriteFile(myInfoPath, b, 0644)
+	        if err != nil {
+	            log.Printf("Error writing myinfo file %s: %v", myInfoPath, err)
+	        }
+	    }
+
+		if *aggregatorPublicURL != "" {
+		    // Build the endpoint URL by ensuring no trailing slash.
+		    aggregatorEndpoint := strings.TrimRight(*aggregatorPublicURL, "/") + "/receivers"
+		    myinfoData, err := os.ReadFile(myInfoPath)
+		    if err != nil {
+		        log.Printf("Aggregator push: could not read myinfo.json: %v", err)
+		    } else {
+		        req, err := http.NewRequest("PUT", aggregatorEndpoint, bytes.NewReader(myinfoData))
+		        if err != nil {
+		            log.Printf("Aggregator push: failed to create PUT request: %v", err)
+		        } else {
+		            req.Header.Set("Content-Type", "application/json")
+		            client := &http.Client{Timeout: 5 * time.Second}
+		            resp, err := client.Do(req)
+		            if err != nil {
+		                log.Printf("Aggregator push: PUT request failed: %v", err)
+		            } else {
+		                if resp.StatusCode == http.StatusOK {
+		                    log.Printf("Aggregator push: successfully pushed myinfo.json to %s", aggregatorEndpoint)
+		                } else {
+		                    log.Printf("Aggregator push: received status code %d when pushing myinfo.json to %s", resp.StatusCode, aggregatorEndpoint)
+		                }
+		                resp.Body.Close()
+		            }
+		        }
+		    }
+		}
+	 }
 
 	// Initialize previous vessel data.
 	previousVesselData = make(map[string]map[string]interface{})
@@ -843,6 +967,150 @@ func main() {
 	    }
 	})
 
+	http.HandleFunc("/receivers", func(w http.ResponseWriter, r *http.Request) {
+	    if *noState {
+	        http.Error(w, "State persistence disabled", http.StatusForbidden)
+	        return
+	    }
+
+	    // Determine the directory in which state is stored.
+	    var stateDirectory string
+	    if *stateDir != "" {
+	        stateDirectory = *stateDir
+	    } else {
+	        stateDirectory = *webRoot
+	    }
+	    receiversPath := filepath.Join(stateDirectory, "receivers.json")
+
+	    switch r.Method {
+	    case "PUT":
+	        // Decode the incoming JSON payload.
+	        var rec map[string]string
+	        if err := json.NewDecoder(r.Body).Decode(&rec); err != nil {
+	            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+	            return
+	        }
+
+	        // Use the helper function to validate the payload.
+	        if !isValidReceiver(rec) {
+	            http.Error(w, "Invalid receiver fields", http.StatusBadRequest)
+	            return
+	        }
+
+	        // Set the LastUpdated field.
+	        rec["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+
+	        // Read, update (or append), and write back the receivers file.
+	        receiversMutex.Lock()
+	        defer receiversMutex.Unlock()
+
+	        var receivers []map[string]string
+	        data, err := os.ReadFile(receiversPath)
+	        if err == nil {
+	            if err := json.Unmarshal(data, &receivers); err != nil {
+	                receivers = []map[string]string{}
+	            }
+	        } else if !os.IsNotExist(err) {
+	            http.Error(w, "Error reading receivers state", http.StatusInternalServerError)
+	            return
+	        }
+
+	        // If an entry with the same UUID exists, update it.
+	        updated := false
+	        for i, rcv := range receivers {
+	            if rcv["uuid"] == rec["uuid"] {
+	                receivers[i] = rec
+	                updated = true
+	                break
+	            }
+	        }
+	        if !updated {
+	            receivers = append(receivers, rec)
+	        }
+
+	        newData, err := json.MarshalIndent(receivers, "", "  ")
+	        if err != nil {
+	            http.Error(w, "Error marshaling receivers state", http.StatusInternalServerError)
+	            return
+	        }
+	        if err := os.WriteFile(receiversPath, newData, 0644); err != nil {
+	            http.Error(w, "Error writing receivers state", http.StatusInternalServerError)
+	            return
+	        }
+	        w.WriteHeader(http.StatusOK)
+	        w.Write([]byte("Receiver info saved successfully"))
+        
+		case "GET":
+		    // Load our own info from myinfo.json.
+		    var myinfoPath string
+		    if *stateDir != "" {
+		        myinfoPath = filepath.Join(*stateDir, "myinfo.json")
+		    } else {
+		        myinfoPath = filepath.Join(*webRoot, "myinfo.json")
+		    }
+		    var myinfo map[string]string
+		    data, err := os.ReadFile(myinfoPath)
+		    if err == nil {
+		        if err := json.Unmarshal(data, &myinfo); err != nil {
+		            myinfo = make(map[string]string)
+		        }
+		    } else if os.IsNotExist(err) {
+		        myinfo = make(map[string]string)
+		    } else {
+		        http.Error(w, "Error reading myinfo", http.StatusInternalServerError)
+		        return
+		    }
+
+		    // Add LastUpdated based on file modification time.
+		    if fileInfo, err := os.Stat(myinfoPath); err == nil {
+		        myinfo["LastUpdated"] = fileInfo.ModTime().UTC().Format(time.RFC3339Nano)
+		    } else {
+		        myinfo["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+		    }
+
+		    // Validate myinfo and only include it if it passes the checks.
+		    validResponse := []map[string]string{}
+		    if isValidReceiver(myinfo) {
+		        validResponse = append(validResponse, myinfo)
+		    } else {
+		        log.Printf("myinfo.json did not pass validation and will be omitted from /receivers response")
+		    }
+
+		    // Load receivers info.
+		    receiversMutex.Lock()
+		    data, err = os.ReadFile(receiversPath)
+		    receiversMutex.Unlock()
+		    var receivers []map[string]string
+		    if err == nil {
+		        if err := json.Unmarshal(data, &receivers); err != nil {
+		            receivers = []map[string]string{}
+		        }
+		    } else if os.IsNotExist(err) {
+		        receivers = []map[string]string{}
+		    } else {
+		        http.Error(w, "Error reading receivers", http.StatusInternalServerError)
+		        return
+		    }
+
+		    // Filter out any receivers that do not pass validation.
+		    for _, rec := range receivers {
+		        if isValidReceiver(rec) {
+		            validResponse = append(validResponse, rec)
+		        } else {
+		            log.Printf("Skipping invalid receiver with uuid: %s", rec["uuid"])
+		        }
+		    }
+
+		    w.Header().Set("Content-Type", "application/json")
+		    if err := json.NewEncoder(w).Encode(validResponse); err != nil {
+		        http.Error(w, "Error encoding response", http.StatusInternalServerError)
+		    }
+
+			    default:
+			        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			    }
+	})
+	
 	go func() {
 		addr := fmt.Sprintf(":%d", *wsPort)
 		log.Printf("Starting HTTP/Socket.IO server on %s, serving web root: %s", addr, filepath.Clean(*webRoot))
