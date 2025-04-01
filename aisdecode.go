@@ -1040,75 +1040,79 @@ func main() {
 	        w.WriteHeader(http.StatusOK)
 	        w.Write([]byte("Receiver info saved successfully"))
         
-		case "GET":
-		    // Load our own info from myinfo.json.
-		    var myinfoPath string
-		    if *stateDir != "" {
-		        myinfoPath = filepath.Join(*stateDir, "myinfo.json")
-		    } else {
-		        myinfoPath = filepath.Join(*webRoot, "myinfo.json")
-		    }
-		    var myinfo map[string]string
-		    data, err := os.ReadFile(myinfoPath)
-		    if err == nil {
-		        if err := json.Unmarshal(data, &myinfo); err != nil {
-		            myinfo = make(map[string]string)
-		        }
-		    } else if os.IsNotExist(err) {
-		        myinfo = make(map[string]string)
-		    } else {
-		        http.Error(w, "Error reading myinfo", http.StatusInternalServerError)
-		        return
-		    }
+	    case "GET":
+	        // Load our own info from myinfo.json.
+	        var myinfoPath string
+	        if *stateDir != "" {
+	            myinfoPath = filepath.Join(*stateDir, "myinfo.json")
+	        } else {
+	            myinfoPath = filepath.Join(*webRoot, "myinfo.json")
+	        }
+	        var myinfo map[string]string
+	        data, err := os.ReadFile(myinfoPath)
+	        if err == nil {
+	            if err := json.Unmarshal(data, &myinfo); err != nil {
+	                myinfo = make(map[string]string)
+	            }
+	        } else if os.IsNotExist(err) {
+	            myinfo = make(map[string]string)
+	        } else {
+	            http.Error(w, "Error reading myinfo", http.StatusInternalServerError)
+	            return
+	        }
 
-		    // Add LastUpdated based on file modification time.
-		    if fileInfo, err := os.Stat(myinfoPath); err == nil {
-		        myinfo["LastUpdated"] = fileInfo.ModTime().UTC().Format(time.RFC3339Nano)
-		    } else {
-		        myinfo["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
-		    }
+	        // Add LastUpdated based on file modification time.
+	        if fileInfo, err := os.Stat(myinfoPath); err == nil {
+	            myinfo["LastUpdated"] = fileInfo.ModTime().UTC().Format(time.RFC3339Nano)
+	        } else {
+	            myinfo["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+	        }
+	        // Force local to true for myinfo.json.
+	        myinfo["local"] = "true"
 
-		    // Validate myinfo and only include it if it passes the checks.
-		    validResponse := []map[string]string{}
-		    if isValidReceiver(myinfo) {
-		        validResponse = append(validResponse, myinfo)
-		    } else {
-		        log.Printf("myinfo.json did not pass validation and will be omitted from /receivers response")
-		    }
+	        // Validate myinfo and only include it if it passes the checks.
+	        validResponse := []map[string]string{}
+	        if isValidReceiver(myinfo) {
+	            validResponse = append(validResponse, myinfo)
+	        } else {
+	            log.Printf("myinfo.json did not pass validation and will be omitted from /receivers response")
+	        }
 
-		    // Load receivers info.
-		    receiversMutex.Lock()
-		    data, err = os.ReadFile(receiversPath)
-		    receiversMutex.Unlock()
-		    var receivers []map[string]string
-		    if err == nil {
-		        if err := json.Unmarshal(data, &receivers); err != nil {
-		            receivers = []map[string]string{}
-		        }
-		    } else if os.IsNotExist(err) {
-		        receivers = []map[string]string{}
-		    } else {
-		        http.Error(w, "Error reading receivers", http.StatusInternalServerError)
-		        return
-		    }
+	        // Load receivers info.
+	        receiversMutex.Lock()
+	        data, err = os.ReadFile(receiversPath)
+	        receiversMutex.Unlock()
+	        var receivers []map[string]string
+	        if err == nil {
+	            if err := json.Unmarshal(data, &receivers); err != nil {
+	                receivers = []map[string]string{}
+	            }
+	        } else if os.IsNotExist(err) {
+	            receivers = []map[string]string{}
+	        } else {
+	            http.Error(w, "Error reading receivers", http.StatusInternalServerError)
+	            return
+	        }
 
-		    // Filter out any receivers that do not pass validation.
-		    for _, rec := range receivers {
-		        if isValidReceiver(rec) {
-		            validResponse = append(validResponse, rec)
-		        } else {
-		            log.Printf("Skipping invalid receiver with uuid: %s", rec["uuid"])
-		        }
-		    }
+	        // Filter out any receivers that do not pass validation.
+	        for _, rec := range receivers {
+	            // Override "local" to false for all receivers other than myinfo.json.
+	            rec["local"] = "false"
+	            if isValidReceiver(rec) {
+	                validResponse = append(validResponse, rec)
+	            } else {
+	                log.Printf("Skipping invalid receiver with uuid: %s", rec["uuid"])
+	            }
+	        }
 
-		    w.Header().Set("Content-Type", "application/json")
-		    if err := json.NewEncoder(w).Encode(validResponse); err != nil {
-		        http.Error(w, "Error encoding response", http.StatusInternalServerError)
-		    }
+	        w.Header().Set("Content-Type", "application/json")
+	        if err := json.NewEncoder(w).Encode(validResponse); err != nil {
+	            http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	        }
 
-			    default:
-			        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			    }
+		default:
+		    http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 	
 	go func() {
