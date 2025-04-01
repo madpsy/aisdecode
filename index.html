@@ -40,6 +40,17 @@
           border-radius: 3px;
           cursor: pointer;
         }
+        .receiver-tooltip {
+          font-family: Arial, sans-serif;
+          font-size: 10px;
+          font-weight: bold;
+          background: rgba(255, 255, 255, 0.9);
+          padding: 2px 4px;
+          border: 1px solid #aaa;
+          border-radius: 3px;
+          cursor: pointer;
+	  pointer-events: none;
+        }
         /* Style for the Clear History button */
         #clear-history {
           position: absolute;
@@ -836,6 +847,26 @@ function updateLegend() {
   document.getElementById('vessel-legend').style.display = 'block';
 }
 
+function createReceiverIcon() {
+  // Define your SVG for an antenna (adjust the shapes, colors, and sizes as needed)
+  const svgHtml = `
+    <svg width="30" height="30" viewBox="0 0 30 30">
+      <!-- A simple antenna: a receiver "dish" and an antenna line -->
+      <circle cx="15" cy="15" r="5" fill="#000" />
+      <line x1="15" y1="20" x2="15" y2="30" stroke="#000" stroke-width="2" />
+      <!-- Radiating signal lines -->
+      <line x1="15" y1="15" x2="22" y2="8" stroke="#000" stroke-width="2" />
+      <line x1="15" y1="15" x2="8" y2="8" stroke="#000" stroke-width="2" />
+    </svg>
+  `;
+  return L.divIcon({
+    html: svgHtml,
+    className: '',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15]
+  });
+}
+
 function hydrateTrackHistory(userID) {
   const historySlider = document.getElementById('history-slider');
   const maxHistory = historySlider.value;
@@ -1319,7 +1350,7 @@ function updateOverlay() {
   
   // Update the overlay count text with the visible count.
   document.getElementById('vessel-count').textContent =
-    `${topVessels.length} of ${known} vessels (${visibleCount})`;
+    `${topVessels.length} of ${known} vessels (${visibleCount} visible)`;
   
   let content = "";
   topVessels.forEach(v => {
@@ -2304,6 +2335,59 @@ window.addEventListener('load', () => {
   } else {
     adjustMapBounds();
   }
+
+  fetch('/receivers')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`Network error: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then(receivers => {
+      if (Array.isArray(receivers) && receivers.length > 0) {
+        receivers.forEach(receiver => {
+          const lat = parseFloat(receiver.latitude);
+          const lng = parseFloat(receiver.longitude);
+          if (isNaN(lat) || isNaN(lng)) return; // Skip if invalid coordinates
+
+          // Create a marker for the receiver
+          const marker = L.marker([lat, lng], { icon: createReceiverIcon() }).addTo(map);
+
+          // Convert LastUpdated to local time
+          const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
+
+          // Build the popup content
+          const popupContent = `
+            <strong>${receiver.name}</strong><br>
+            ${receiver.description}<br>
+            Updated: ${updatedLocalTime}
+          `;
+	  let popupCloseTimeout;
+          // Bind the popup and a permanent tooltip to the marker
+          marker.bindPopup(popupContent, { autoPan: true });
+	  marker.on('mouseover', function() {
+	  // Clear any scheduled popup close so it stays open
+	  if (popupCloseTimeout) {
+	    clearTimeout(popupCloseTimeout);
+	    popupCloseTimeout = null;
+	  }
+	  this.openPopup();
+	});
+
+	marker.on('mouseout', function() {
+	  // Delay closing the popup by 300ms (adjust as needed)
+	  popupCloseTimeout = setTimeout(() => {
+	    this.closePopup();
+	  }, 1000);
+	});
+          marker.bindTooltip(receiver.name, { 
+            permanent: true, 
+            direction: 'top', 
+            className: 'receiver-tooltip' 
+          }).openTooltip();
+        });
+      }
+    })
 });
 
     document.getElementById('show-paths').addEventListener('change', function() {
