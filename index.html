@@ -397,7 +397,7 @@
     <input type="checkbox" id="stationary" checked>
     Stationary
   </label>
-        <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Legend</button>
+        <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Types</button>
     </div>
 
     <div id="vessel-legend" style="display: none; position: absolute; top: 220px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
@@ -2468,10 +2468,10 @@ document.getElementById('toggle-legend').addEventListener('click', function() {
   if (window.getComputedStyle(legend).display === 'none') {
     legend.style.display = 'block';  // Make it visible first
     updateLegend();                  // Then update the content immediately
-    this.textContent = 'Hide Legend';
+    this.textContent = 'Hide Types';
   } else {
     legend.style.display = 'none';
-    this.textContent = 'Show Legend';
+    this.textContent = 'Show Types';
   }
 });
 
