@@ -2382,6 +2382,18 @@ window.addEventListener('load', () => {
         });
       }
     })
+  const params = new URLSearchParams(window.location.search);
+  const userIDParam = params.get('UserID');
+  if (userIDParam) {
+    // Delay the focus call to allow vessel markers to load
+    setTimeout(() => {
+      if (vesselMarkers[userIDParam]) {
+        focusOnVessel(userIDParam);
+      } else {
+        console.warn(`Vessel with UserID ${userIDParam} not found.`);
+      }
+    }, 1500);
+  }
 });
 
     document.getElementById('show-paths').addEventListener('change', function() {
