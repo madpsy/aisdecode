@@ -244,7 +244,7 @@
   // If extra datasets haven't been added yet, add them
   if (sogChart.data.datasets.length < 4) {
     sogChart.data.datasets.push({
-      label: 'Max Speed',
+      label: 'Max',
       data: maxArray,
       borderColor: 'red',
       borderDash: [5, 5],
@@ -253,7 +253,7 @@
       tension: 0
     });
     sogChart.data.datasets.push({
-      label: 'Min Speed',
+      label: 'Min',
       data: minArray,
       borderColor: 'green',
       borderDash: [5, 5],
@@ -262,7 +262,7 @@
       tension: 0
     });
     sogChart.data.datasets.push({
-      label: 'Average Speed',
+      label: 'Average',
       data: avgArray,
       borderColor: 'orange',
       borderDash: [5, 5],
