@@ -733,7 +733,7 @@ document.getElementById('directionChart').addEventListener('dblclick', () => {
               return;
             }
           }
-          if (message.type === "ais.PositionReport" && message.data) {
+          if (message.type === "PositionReport" && message.data) {
             if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
               const ts = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
               lastMessageTimestamp = ts;
