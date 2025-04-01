@@ -25,7 +25,7 @@ Usage of aisdecode:
   -no-state
     	When specified, do not save or load the state (default: false)
   -restrict-uuids
-    	If specified, restricts which receiver UUIDs can be sent to us. Expects a JSON file at <state dir>/allowed-uuids.json with a list of allowed UUIDs.
+    	If specified, restricts which receiver UUIDs can be sent to us. Expects a JSON file at <state dir>/allowed-uuids.json with a list of allowed UUIDs
   -serial-port string
     	Serial port device (optional)
   -show-decodes
