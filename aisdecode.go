@@ -17,6 +17,7 @@ import (
 	"time"
 	"math"
 	"reflect"
+	"net/url"
 
 	"go.bug.st/serial"
 	"github.com/google/uuid"
@@ -86,6 +87,11 @@ func cleanDedupeWindow(window *[]dedupeState, mutex *sync.Mutex, duration time.D
     mutex.Lock()
     defer mutex.Unlock()
     *window = filterWindow(*window, time.Now().Add(-duration))
+}
+
+func isValidURL(urlStr string) bool {
+    u, err := url.ParseRequestURI(urlStr)
+    return err == nil && u.Scheme != "" && u.Host != ""
 }
 
 // Helper function to validate a receiver map.
@@ -373,6 +379,14 @@ func externalLookupCall(vesselID string, lookupURL string) {
 		}
 	}
 
+        // Optionally extract and validate ImageURL if available.
+        var imageURLStr string
+        if img, ok := respData["ImageURL"]; ok {
+            if imgStr, ok := img.(string); ok && strings.TrimSpace(imgStr) != "" && isValidURL(imgStr) {
+                imageURLStr = imgStr
+            }
+        }
+
 	// Update vessel state with the lookup results.
 	vesselDataMutex.Lock()
 	defer vesselDataMutex.Unlock()
@@ -381,9 +395,12 @@ func externalLookupCall(vesselID string, lookupURL string) {
 		if callSignStr != "" {
 			vessel["CallSign"] = callSignStr
 		}
+		if imageURLStr != "" {
+	        	vessel["ImageURL"] = imageURLStr
+        	}
 		// Optionally update LastUpdated.
 		vessel["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
-		log.Printf("External lookup updated vessel %s: Name=%s, CallSign=%s", vesselID, nameStr, callSignStr)
+		log.Printf("External lookup updated vessel %s: Name=%s, CallSign=%s, ImageURL=%s", vesselID, nameStr, callSignStr, imageURLStr)
 	}
 }
 
