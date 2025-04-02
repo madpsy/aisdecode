@@ -233,6 +233,18 @@ func scheduleDailyCleanup(historyBase string, expireAfter time.Duration) {
 	})
 }
 
+func fallbackNameForMessageType(msgType string) (string, bool) {
+    switch msgType {
+    case "AidsToNavigationReport":
+        return "AtoN", true
+    case "BaseStationReport":
+        return "Base Station", true
+    case "StandardSearchAndRescueAircraftReport":
+        return "SAR Aircraft", true
+    default:
+        return "", false
+    }
+}
 
 // addMessageType adds the message type from the decoded packet to the vessel state.
 // It ensures the message type is only added once.
@@ -397,7 +409,7 @@ func appendToWindowWithLock(message string, window *[]dedupeState, mutex *sync.M
 }
 
 // mergeMaps merges newData into baseData. Values in newData override those in baseData.
-func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} {
+func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[string]interface{} {
     if baseData == nil {
         baseData = make(map[string]interface{})
     }
@@ -406,7 +418,6 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
         if key == "Name" {
             incomingName, ok := value.(string)
             if !ok || strings.TrimSpace(incomingName) == "" {
-                // Skip updating if the new name is empty.
                 continue
             }
             incomingName = strings.TrimSpace(incomingName)
@@ -496,9 +507,15 @@ func mergeMaps(baseData, newData map[string]interface{}) map[string]interface{} 
         delete(baseData, "NameExtension")
     }
     
+    // Fallback logic: if current Name is "NO NAME", then use fallback value based on msgType.
+    if name, ok := baseData["Name"].(string); ok && strings.ToUpper(strings.TrimSpace(name)) == "NO NAME" {
+        if fallback, valid := fallbackNameForMessageType(msgType); valid {
+            baseData["Name"] = fallback
+        }
+    }
+    
     return baseData
 }
-
 
 // filterCompleteVesselData filters vessels that have all required fields.
 func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[string]map[string]interface{} {
@@ -1444,7 +1461,8 @@ func main() {
 
 			cleanInvalidData(newData)
 
-			merged := mergeMaps(vesselData[vesselID], newData)
+			msgType := getMessageTypeName(decoded.Packet)
+			merged := mergeMaps(vesselData[vesselID], newData, msgType)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			addMessageType(merged, decoded.Packet)
 			// Get current time
@@ -1761,7 +1779,8 @@ func main() {
 
 			// Update vessel state using the same newData.
 			vesselDataMutex.Lock()
-			merged := mergeMaps(vesselData[vesselID], newData)
+			msgType := getMessageTypeName(decoded.Packet)
+			merged := mergeMaps(vesselData[vesselID], newData, msgType)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			addMessageType(merged, decoded.Packet)
 			// Get current time

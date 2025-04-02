@@ -532,7 +532,7 @@
 	map.on('mousemove', function(e) {
 	  if (!focusedVessel) {
 	    document.getElementById('latlong-display').textContent =
-	      `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
+	      `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
 	  }
 	});
 
@@ -788,7 +788,7 @@ function updateLatLongDisplay() {
     const lat = vesselData[focusedVessel].Latitude;
     const lon = vesselData[focusedVessel].Longitude;
     if (typeof lat === 'number' && typeof lon === 'number') {
-      latlongDisplay.innerHTML = `<strong>${lat.toFixed(4)}, ${lon.toFixed(4)}</strong>`;
+      latlongDisplay.innerHTML = `<strong>${lat.toFixed(5)}, ${lon.toFixed(5)}</strong>`;
     }
   }
 }
@@ -820,7 +820,7 @@ function attachPolylineEvents(polyline, userID) {
       
       let popupContent = `<strong>${name} (${callsign})</strong><br>
                           ${localTime}<br>
-                          ${lat.toFixed(4)}, ${lon.toFixed(4)}<br>`;
+                          ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>`;
       if (sog !== null) {
         popupContent += `Speed: ${sog} kn<br>`;
       }
@@ -993,7 +993,7 @@ function hydrateTrackHistory(userID) {
             // Build the popup content.
             let popupContent = `<strong>${name} (${callsign})</strong><br>
                                 ${localTime}<br>
-                                ${lat.toFixed(4)}, ${lon.toFixed(4)}<br>`;
+                                ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>`;
             if (sog !== null) {
               popupContent += `Speed: ${sog} kn<br>`;
             }
@@ -1197,8 +1197,8 @@ function createDetailContent(data) {
   addLine(lines, "Position Msg ID", data.MessageID);
 
   if (data.Latitude != null && data.Longitude != null) {
-    addLine(lines, "Latitude", data.Latitude.toFixed(4));
-    addLine(lines, "Longitude", data.Longitude.toFixed(4));
+    addLine(lines, "Latitude", data.Latitude.toFixed(5));
+    addLine(lines, "Longitude", data.Longitude.toFixed(5));
   }
 
   if (data.NavigationalStatus != null) {
@@ -2210,7 +2210,10 @@ function focusOnVessel(userID, initialFocus = true) {
   );
 
   // The tooltip now has the top line (vessel.Name) and two additional lines.
-  const newTooltipContent = `${vessel.Name} (${vessel.CallSign})<br>${line1}<br>${line2}`;
+  const tooltipLines = [`${vessel.Name} (${vessel.CallSign})`];
+  if (line1.trim()) tooltipLines.push(line1);
+  if (line2.trim()) tooltipLines.push(line2);
+  const newTooltipContent = tooltipLines.join('<br>');
   vesselMarkers[userID].getTooltip().setContent(newTooltipContent);
 
        const tooltipEl = vesselMarkers[userID].getTooltip().getElement();
@@ -2544,7 +2547,10 @@ function updateFocussedTooltip() {
       (vessel.TrueHeading != null ? `${vessel.TrueHeading}°` : null)
     );
 
-    const newTooltipContent = `${vessel.Name} (${vessel.CallSign})<br>${line1}<br>${line2}`;
+    const tooltipLines = [`${vessel.Name} (${vessel.CallSign})`];
+    if (line1.trim()) tooltipLines.push(line1);
+    if (line2.trim()) tooltipLines.push(line2);
+    const newTooltipContent = tooltipLines.join('<br>');
     vesselMarkers[focusedVessel].getTooltip().setContent(newTooltipContent);
   }
 }
