@@ -1131,6 +1131,7 @@ function createDetailContent(data) {
   const lines = [];
   const lastSeen = data.lastUpdate ? timeAgo(data.lastUpdate) : null;
   addLine(lines, "Last Update", lastSeen);
+  addLine(lines, "Messages", data.NumMessages);
   addLine(lines, "MMSI", data.UserID);
   addLine(lines, "AIS Class", data.AISClass);
 
