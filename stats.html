@@ -623,7 +623,8 @@ document.getElementById('directionChart').addEventListener('dblclick', () => {
             .then(response => response.json())
             .then(vesselState => {
               if (vesselState && vesselState.Name) {
-                document.getElementById('vessel-name').innerHTML = vesselState.Name + " (" + vesselState.CallSign + ")";
+                document.getElementById('vessel-name').innerHTML =
+    		    `<a href="/?UserID=${userID}" target="_blank">${vesselState.Name} (${vesselState.CallSign})</a>`;
                 updatePositionAccuracyDot(vesselState.PositionAccuracy);
                 updateNavigationalStatus(vesselState.NavigationalStatus);
                 if (vesselState.Sog !== undefined) {
