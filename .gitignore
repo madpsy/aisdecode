@@ -5,4 +5,5 @@
 go.mod
 go.sum
 vesselfinder/
+binarydecoder/
 build/
