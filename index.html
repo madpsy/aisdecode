@@ -1217,6 +1217,13 @@ function createDetailContent(data) {
     lines.push(`- Slot Offset: ${comm.slotOffset}`);
   }
 
+  if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
+    lines.push("Message Types:");
+    data.MessageTypes.forEach(type => {
+      lines.push(`- ${type}`);
+    });
+  }
+
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
 }
 
