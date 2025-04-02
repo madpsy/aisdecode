@@ -580,7 +580,7 @@ map.on('click', () => {
           6: "Aground",
           7: "Engaged in Fishing",
           8: "Under Way Sailing",
-          15: "Not Defined"
+          15: "Unknown"
         };
 
         const staticTypeMapping = {
@@ -2341,11 +2341,11 @@ function focusOnVessel(userID, initialFocus = true) {
 
   updateLatLongDisplay();
 
-  // Build two lines for additional details.
-  // For example, line 1: Destination and Navigation Status.
   const line1 = buildTooltipLine(
     vessel.Destination,
-    navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus
+    (navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus) !== 'Unknown'
+      ? (navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus)
+      : null
   );
   // And line 2: Vessel Type, Maximum Draught, Speed, and Heading.
   const line2 = buildTooltipLine(
@@ -2386,6 +2386,12 @@ function focusOnVessel(userID, initialFocus = true) {
 	      headerEl.innerHTML = `${vesselData[userID].Name}
 	        <br><a href="https://www.vesselfinder.com/vessels/details/${vesselData[userID].UserID}" target="_blank">Lookup</a> |
 	        <span id="copy-link" style="cursor:pointer; color:blue;">Link</span>`;
+		if (vesselData[userID].ImageURL) {
+   		   headerEl.innerHTML += `<br><img src="${vesselData[userID].ImageURL}" style="max-width: 100%; margin: 5px 0; height: auto;" alt="Vessel Image">`;
+		   detailOverlay.style.maxHeight = '400px';
+		} else {
+		  detailOverlay.style.maxHeight = '300px';
+		}
 	    } else {
 	      headerEl.textContent = "Vessel Details";
 	    }
@@ -2685,7 +2691,9 @@ function updateFocussedTooltip() {
     const vessel = vesselData[focusedVessel];
     const line1 = buildTooltipLine(
       vessel.Destination,
-      navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus
+      (navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus) !== 'Unknown'
+        ? (navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus)
+        : null
     );
     const line2 = buildTooltipLine(
       staticTypeMapping[vessel.Type] || vessel.Type,
