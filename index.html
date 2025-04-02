@@ -458,6 +458,18 @@
 	  <label style="white-space: nowrap;">
 	    <input type="checkbox" class="log-filter" value="ExtendedClassBPositionReport" checked> Ext. B
 	  </label>
+	  <label style="white-space: nowrap;">
+	    <input type="checkbox" class="log-filter" value="AidsToNavigationReport" checked> AtoN
+	  </label>
+	  <label style="white-space: nowrap;">
+	    <input type="checkbox" class="log-filter" value="BaseStationReport" checked> Base Stn
+	  </label>
+	  <label style="white-space: nowrap;">
+	    <input type="checkbox" class="log-filter" value="BinaryBroadcastMessage" checked> Binary
+	  </label>
+	  <label style="white-space: nowrap;">
+	    <input type="checkbox" class="log-filter" value="StandardSearchAndRescueAircraftReport" checked> SAR
+	  </label>
 	  <input type="text" id="live-log-search" placeholder="Search logs..." style="width:100%; margin-top:5px; padding:3px; font-size:12px;">
 </div>
 
@@ -512,7 +524,8 @@
       "ExtendedClassBPositionReport": true,
       "AidsToNavigationReport": true,
       "BaseStationReport": true,
-      "BinaryBroadcastMessage": true
+      "BinaryBroadcastMessage": true,
+      "StandardSearchAndRescueAircraftReport": true
     };
 
 	map.on('mousemove', function(e) {
@@ -2291,7 +2304,11 @@ function showFlashMessage(message, parentEl) {
       "PositionReport": true,
       "ShipStaticData": true,
       "StandardClassBPositionReport": true,
-      "ExtendedClassBPositionReport": true
+      "ExtendedClassBPositionReport": true,
+      "AidsToNavigationReport": true,
+      "BaseStationReport": true,
+      "BinaryBroadcastMessage": true,
+      "StandardSearchAndRescueAircraftReport": true
     };
 
     document.querySelectorAll('.log-filter').forEach(checkbox => {
