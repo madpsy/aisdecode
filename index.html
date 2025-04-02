@@ -731,7 +731,6 @@ function getColorForVesselTypeConsistent(type) {
 // Create a custom boat icon using your existing SVG, but with the stroke and fill set to the vessel type's color.
 function createBoatIcon(type, heading = 0) {
   const color = getColorForVesselTypeConsistent(type);
-  // Ensure the rotation logic applies even when no TrueHeading is present, using COG if TrueHeading is unavailable
   const svgHtml = `<svg width="20" height="50" viewBox="0 0 20 50" style="transform: rotate(${heading}deg); transform-origin: center;">
     <path d="M5 45 L15 45 L15 30 Q10 5,5 30 Z" stroke="${color}" fill="${color}" stroke-width="2" />
   </svg>`;
@@ -742,6 +741,44 @@ function createBoatIcon(type, heading = 0) {
     iconAnchor: [10, 25],
     popupAnchor: [0, -25]
   });
+}
+
+function getCustomIcon(vesselState, iconUrl) {
+  // Use TrueHeading if valid; otherwise, fallback to COG if valid; default to 0.
+  const heading = (typeof vesselState.TrueHeading === 'number' && vesselState.TrueHeading < 360)
+                    ? vesselState.TrueHeading
+                    : (typeof vesselState.Cog === 'number' && vesselState.Cog >= 0 && vesselState.Cog < 360)
+                      ? vesselState.Cog
+                      : 0;
+  return L.divIcon({
+    html: `<img src="${iconUrl}" style="transform: rotate(${heading}deg);" width="25" height="41">`,
+    className: '', // Use empty class to avoid extra styling
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34]
+  });
+}
+
+function getVesselIcon(vesselState) {
+  const types = vesselState.MessageTypes || [];
+  
+  if (types.includes('AidsToNavigationReport')) {
+    return getCustomIcon(vesselState, 'images/aids-to-navigation.png');
+  }
+  if (types.includes('BaseStationReport')) {
+    return getCustomIcon(vesselState, 'images/base-station.png');
+  }
+  if (types.includes('StandardSearchAndRescueAircraftReport')) {
+    return getCustomIcon(vesselState, 'images/sar-aircraft.png');
+  }
+  
+  // Compute heading using the same logic as in getCustomIcon
+  const heading = (typeof vesselState.TrueHeading === 'number' && vesselState.TrueHeading < 360)
+                    ? vesselState.TrueHeading
+                    : (typeof vesselState.Cog === 'number' && vesselState.Cog >= 0 && vesselState.Cog < 360)
+                      ? vesselState.Cog
+                      : 0;
+  return createBoatIcon(vesselState.Type, heading);
 }
 
 function updateLatLongDisplay() {
@@ -1740,13 +1777,10 @@ function applyLogFilters() {
                 const lat = vesselData[userID].Latitude;
                 const lon = vesselData[userID].Longitude;
                 const popupContent = createPopupContent(vesselData[userID]);
-		const heading = (typeof vesselData[userID].TrueHeading === 'number' && vesselData[userID].TrueHeading < 360)
-		  ? vesselData[userID].TrueHeading
-		  : (typeof vesselData[userID].Cog === 'number' && vesselData[userID].Cog >= 0 && vesselData[userID].Cog < 360)
-		    ? vesselData[userID].Cog
-		    : 0;  // Default to 0° if neither TrueHeading nor Cog is valid
-
-                const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[userID].Type || null, heading) }).addTo(map);
+		const marker = L.marker(
+		  [vesselData[userID].Latitude, vesselData[userID].Longitude],
+		  { icon: getVesselIcon(vesselData[userID]) }
+		).addTo(map);
 
 		marker.on('add', function() {
 		  const markerElem = marker.getElement();
@@ -1988,12 +2022,10 @@ function applyLogFilters() {
                   setTimeout(() => markerElem.classList.remove('enlarge'), 500);
                 }
               } else {
-		const heading = (typeof vesselData[mmsi].TrueHeading === 'number' && vesselData[mmsi].TrueHeading < 360)
-		  ? vesselData[mmsi].TrueHeading
-		  : (typeof vesselData[mmsi].Cog === 'number' && vesselData[mmsi].Cog >= 0 && vesselData[mmsi].Cog < 360)
-		    ? vesselData[mmsi].Cog
-		    : 0;  // Default to 0° if neither TrueHeading nor Cog is valid
-		const marker = L.marker([lat, lon], { icon: createBoatIcon(vesselData[mmsi].Type || null, heading) }).addTo(map);
+		const marker = L.marker(
+		  [vesselData[mmsi].Latitude, vesselData[mmsi].Longitude],
+		  { icon: getVesselIcon(vesselData[mmsi]) }
+		).addTo(map);
                 marker.bindPopup(popupContent, { autoPan: false });
                 if (vesselState.Name) {
                   marker.bindTooltip(vesselState.Name, {

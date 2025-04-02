@@ -716,6 +716,7 @@ func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]m
 			"TrueHeading":  	v["TrueHeading"],
 			"AISClass":             v["AISClass"],
 			"MID":                  v["MID"],
+			"MessageTypes":		v["MessageTypes"],
 		}
 	}
 	return summary
