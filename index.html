@@ -2290,6 +2290,18 @@ function getNearestTrackPoint(e, track) {
 
 // Focus on a particular vessel.
 function focusOnVessel(userID, initialFocus = true) {
+  if (focusedVessel && focusedVessel !== userID) {
+    if (vesselData[focusedVessel]) {
+      vesselData[focusedVessel].track = [];
+    }
+    const prevMarker = vesselMarkers[focusedVessel];
+    if (prevMarker) {
+      prevMarker.getTooltip().setContent(vesselData[focusedVessel].Name);
+      prevMarker.closeTooltip();
+      prevMarker.setZIndexOffset(0);
+      prevMarker.getElement()?.classList.remove('enlarge');
+    }
+  }
   if (focusedVessel !== userID) {
     clearLiveLogs();
     if (instantChannel) {
