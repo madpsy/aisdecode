@@ -759,8 +759,8 @@ function getCustomIcon(vesselState, iconUrl) {
       html: `<img src="${iconUrl}" style="transform: rotate(${heading}deg);" width="20" height="40">`,
       className: '', // Use empty class to avoid extra styling
       iconSize: [20, 40],
-      iconAnchor: [20, 20],
-      popupAnchor: [20, 20]
+      iconAnchor: [20, 0],
+      popupAnchor: [0, -20]
     });
 }
 
@@ -810,6 +810,49 @@ function clearHistory() {
   Object.keys(vesselTracks).forEach(key => delete vesselTracks[key]);
   updateOverlay();
   location.reload();
+}
+
+// Update markers based on viewport (with a 20% buffer)
+function updateMarkersInView() {
+  const bounds = map.getBounds().pad(0.2);
+  for (const mmsi in vesselMarkers) {
+    const marker = vesselMarkers[mmsi];
+    if (bounds.contains(marker.getLatLng())) {
+      if (!map.hasLayer(marker)) {
+        map.addLayer(marker);
+        // If the marker has a permanent tooltip, re-open it immediately
+        const tooltip = marker.getTooltip();
+        if (tooltip && tooltip.options && tooltip.options.permanent) {
+          marker.openTooltip();
+        }
+      }
+    } else {
+      if (map.hasLayer(marker)) {
+        map.removeLayer(marker);
+      }
+    }
+  }
+}
+
+
+// Update polylines (tracks) based on viewport (with a 20% buffer)
+function updateTracksInView() {
+  const bounds = map.getBounds().pad(0.2);
+  for (const mmsi in vesselTracks) {
+    const track = vesselTracks[mmsi];
+    const latlngs = track.getLatLngs();
+    // Check if any point in the track is within bounds.
+    let isVisible = latlngs.some(pt => bounds.contains(pt));
+    if (isVisible) {
+      if (!map.hasLayer(track)) {
+        map.addLayer(track);
+      }
+    } else {
+      if (map.hasLayer(track)) {
+        map.removeLayer(track);
+      }
+    }
+  }
 }
 
 function attachPolylineEvents(polyline, userID) {
@@ -1034,6 +1077,8 @@ function hydrateTrackHistory(userID) {
     .catch(error => {
       console.error('Error hydrating track history:', error);
     });
+    updateMarkersInView();
+    updateTracksInView();
 }
 
         // Global objects to store markers, vessel data, and track histories.
@@ -1371,6 +1416,8 @@ if (!showStationary) {
   if (document.getElementById('auto-zoom').checked) {
     adjustMapBounds();
   }
+  updateMarkersInView();
+  updateTracksInView();
 }
 
 
@@ -1479,6 +1526,8 @@ function updateOverlay() {
           }
         }
       }
+      updateMarkersInView();
+      updateTracksInView();
     }
 
 
@@ -2098,6 +2147,8 @@ function applyLogFilters() {
           updateOverlay();
           updateFocussedVisibility();
 	  updateStationaryMarkers();
+	  updateMarkersInView();
+	  updateTracksInView();
           localStorage.setItem('vesselData', JSON.stringify(vesselData));
           if (document.getElementById('auto-zoom').checked) {
             adjustMapBounds();
@@ -2661,6 +2712,11 @@ document.getElementById("history-slider").addEventListener("input", () => {
       hydrateTrackHistory(focusedVessel);
     }
   }, 500); // Adjust debounce delay as needed.
+});
+
+map.on('moveend zoomend', function() {
+  updateMarkersInView();
+  updateTracksInView();
 });
 
 

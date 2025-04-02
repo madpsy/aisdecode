@@ -82,6 +82,12 @@ var (
     pendingVesselData      = make(map[string]map[string]interface{})
 )
 
+func cleanDedupeWindow(window *[]dedupeState, mutex *sync.Mutex, duration time.Duration) {
+    mutex.Lock()
+    defer mutex.Unlock()
+    *window = filterWindow(*window, time.Now().Add(-duration))
+}
+
 // Helper function to validate a receiver map.
 func isValidReceiver(rec map[string]string) bool {
 	// Check "uuid"
@@ -1330,7 +1336,7 @@ func main() {
 	            log.Fatalf("Failed to create UDP connection for '%s': %v", addrStr, err)
 	        }
 	        aggregatorConns = append(aggregatorConns, conn)
-	        log.Printf("[DEBUG] Connected to aggregator at %s", udpAddr.String())
+	        log.Printf("Connected to aggregator at %s", udpAddr.String())
 	    }
 	    // Defer closing all aggregator connections.
 	    defer func() {
@@ -1949,6 +1955,16 @@ func main() {
 	            vesselMsgTimestampsMutex.Unlock()
 	        }
 	}()
+
+	go func() {
+	    ticker := time.NewTicker(1 * time.Minute)
+	    defer ticker.Stop()
+	    for range ticker.C {
+	        cleanDedupeWindow(&aggregatorDedupeWindow, &aggregatorDedupeMutex, windowDuration)
+	        cleanDedupeWindow(&websocketDedupeWindow, &websocketDedupeMutex, windowDuration)
+	    }
+	}()
+
 	// Wait forever.
 	select {}
 }
