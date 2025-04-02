@@ -487,10 +487,12 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
                 baseData["Type"] = shipType
             }
         }
-        baseData["AISClass"] = "B"
     }
     
-    if _, ok := baseData["AISClass"]; !ok {
+    // Set AISClass based on message type.
+    if msgType == "StandardClassBPositionReport" || msgType == "StaticDataReport" {
+        baseData["AISClass"] = "B"
+    } else if _, ok := baseData["AISClass"]; !ok {
         baseData["AISClass"] = "A"
     }
 

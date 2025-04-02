@@ -448,16 +448,19 @@
 	    <input type="checkbox" id="log-filter-all" checked> All
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="PositionReport" checked> Position
+	    <input type="checkbox" class="log-filter" value="PositionReport" checked> Position A
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="ShipStaticData" checked> Static
+	    <input type="checkbox" class="log-filter" value="StandardClassBPositionReport" checked> Position B
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="StandardClassBPositionReport" checked> Std. B
+	    <input type="checkbox" class="log-filter" value="ExtendedClassBPositionReport" checked> Extended B
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="ExtendedClassBPositionReport" checked> Ext. B
+	    <input type="checkbox" class="log-filter" value="ShipStaticData" checked> Static A
+	  </label>
+	  <label style="white-space: nowrap;">
+	    <input type="checkbox" class="log-filter" value="StaticDataReport" checked> Static B
 	  </label>
 	  <label style="white-space: nowrap;">
 	    <input type="checkbox" class="log-filter" value="AidsToNavigationReport" checked> AtoN
@@ -521,6 +524,7 @@
     const allowedMessageTypes = {
       "PositionReport": true,
       "ShipStaticData": true,
+      "StaticDataReport": true,
       "StandardClassBPositionReport": true,
       "ExtendedClassBPositionReport": true,
       "AidsToNavigationReport": true,
@@ -2347,6 +2351,7 @@ function showFlashMessage(message, parentEl) {
     const liveLogFilters = {
       "PositionReport": true,
       "ShipStaticData": true,
+      "StaticDataReport": true,
       "StandardClassBPositionReport": true,
       "ExtendedClassBPositionReport": true,
       "AidsToNavigationReport": true,
