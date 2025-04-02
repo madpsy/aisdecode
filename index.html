@@ -712,6 +712,18 @@ const vesselColorPalette = [
   "#3CB44B"  // Vibrant Green
 ];
 
+const friendlyMessageTypes = {
+  "PositionReport": "Position (A)",
+  "ShipStaticData": "Static (A)",
+  "StaticDataReport": "Static (B)",
+  "StandardClassBPositionReport": "Position (B std)",
+  "ExtendedClassBPositionReport": "Position (B ext)",
+  "AidsToNavigationReport": "AtoN",
+  "BaseStationReport": "Base Station",
+  "BinaryBroadcastMessage": "Binary Broadcast",
+  "StandardSearchAndRescueAircraftReport": "SAR"
+};
+
 function djb2Hash(str) {
   let hash = 8393;
   for (let i = 0; i < str.length; i++) {
@@ -1334,7 +1346,8 @@ function createDetailContent(data) {
   if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
     lines.push("Message Types:");
     data.MessageTypes.forEach(type => {
-      lines.push(`- ${type}`);
+      const friendlyName = friendlyMessageTypes[type] || type;
+      lines.push(`- ${friendlyName}`);
     });
   }
 
