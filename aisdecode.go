@@ -745,6 +745,7 @@ func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]m
 			"UserID":               v["UserID"],
 			"Name":                 v["Name"],
 			"CallSign":             v["CallSign"],
+			"ImageURL":		v["ImageURL"],
 			"LastUpdated":          v["LastUpdated"],
 			"NumMessages":          v["NumMessages"],
 			"Destination":          v["Destination"],
@@ -1514,9 +1515,18 @@ func main() {
 			vesselDataMutex.Unlock()
 
 			if *externalLookupURL != "" {
-			   if name, ok := merged["Name"].(string); !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
-	  		   	go externalLookupCall(vesselID, *externalLookupURL)
-			   }
+			    vesselDataMutex.Lock()
+			    _, exists := vesselData[vesselID]
+			    vesselDataMutex.Unlock()
+			
+			    if !exists {
+			        go externalLookupCall(vesselID, *externalLookupURL)
+			    } else {
+			        name, ok := merged["Name"].(string)
+			        if !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
+			            go externalLookupCall(vesselID, *externalLookupURL)
+			        }
+			    }
 			}
 
 			// Append to vessel history only if lat/lon have changed by an acceptable amount.
@@ -1833,9 +1843,18 @@ func main() {
 			vesselDataMutex.Unlock()
 
 			if *externalLookupURL != "" {
-				if name, ok := merged["Name"].(string); !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
-					go externalLookupCall(vesselID, *externalLookupURL)
-				}
+			    vesselDataMutex.Lock()
+			    _, exists := vesselData[vesselID]
+			    vesselDataMutex.Unlock()
+			
+			    if !exists {
+			        go externalLookupCall(vesselID, *externalLookupURL)
+			    } else {
+			        name, ok := merged["Name"].(string)
+			        if !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
+			            go externalLookupCall(vesselID, *externalLookupURL)
+			        }
+			    }
 			}
 
 			// Append to vessel history only if lat/lon have changed by an acceptable amount.
