@@ -441,8 +441,9 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
         if key == "Name" {
             incomingName, ok := value.(string)
             if !ok || strings.TrimSpace(incomingName) == "" {
-                continue
-            }
+              baseData["Name"] = "NO NAME"
+     	      continue
+    	    }
             incomingName = strings.TrimSpace(incomingName)
             
             // Determine the effective current name by stripping any NameExtension.
