@@ -514,10 +514,21 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
     }
     
     // Set AISClass based on message type.
-    if msgType == "StandardClassBPositionReport" || msgType == "StaticDataReport" {
-        baseData["AISClass"] = "B"
-    } else if _, ok := baseData["AISClass"]; !ok {
+    switch msgType {
+    case "ShipStaticData", "PositionReport":
+        // Class A messages: mark vessel as Class A.
         baseData["AISClass"] = "A"
+    case "AidsToNavigationReport":
+        baseData["AISClass"] = "AtoN"
+    case "BaseStationReport":
+        baseData["AISClass"] = "Base Station"
+    case "StandardSearchAndRescueAircraftReport":
+        baseData["AISClass"] = "SAR"
+    default:
+        // Default to Class B if no class has been set.
+        if _, ok := baseData["AISClass"]; !ok {
+            baseData["AISClass"] = "B"
+        }
     }
 
     // Handle NameExtension: if present, append it if not already there.
@@ -753,6 +764,7 @@ func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]m
 			"Sog":                  v["Sog"],
 			"Cog":                  v["Cog"],
 			"Type":                 v["Type"],
+			"Dimension": 		v["Dimension"],
 			"MaximumStaticDraught": v["MaximumStaticDraught"],
 			"NavigationalStatus":   v["NavigationalStatus"],
 			"Latitude":   		v["Latitude"],

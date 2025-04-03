@@ -2105,18 +2105,14 @@ function applyLogFilters() {
 	    const vesselTimestamp = new Date(vesselState.LastUpdated).getTime();
    	    const maxAgeHours = parseInt(ageSlider.value, 10);
 	    const now = Date.now();
-	    if (
-	      !vesselState.MessageTypes ||
-	      !Array.isArray(vesselState.MessageTypes) ||
-	      !vesselState.MessageTypes.some(type => allowedMessageTypes[type])
-	    ) {
-	      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-	        map.removeLayer(vesselMarkers[mmsi]);
-	      }
-	      delete vesselData[mmsi];
-	      delete vesselMarkers[mmsi];
+
+    	    if ((now - vesselTimestamp) > maxAgeHours * 3600000) {
+            if (vesselMarkers[mmsi]) map.removeLayer(vesselMarkers[mmsi]);
+            if (vesselTracks[mmsi]) map.removeLayer(vesselTracks[mmsi]);
+  	      delete vesselData[mmsi];
+  	      delete vesselMarkers[mmsi];
 	      delete vesselTracks[mmsi];
-	      continue; // Skip plotting this vessel.
+      	      continue;
 	    }
 
             if (!vesselData[mmsi]) {
