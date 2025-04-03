@@ -80,7 +80,7 @@
             country = midsMapping[item.MID][3] || '';
           }
           newData.push([
-            item.UserID ? `<a href="/?UserID=${item.UserID}">${item.UserID}</a>` : '',
+            item.UserID ? `<a href="/?UserID=${item.UserID}" target=_blank>${item.UserID}</a>` : '',
             country || '',
             item.Name || '',
             item.CallSign || '',
