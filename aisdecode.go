@@ -334,7 +334,7 @@ func externalLookupCall(vesselID string, lookupURL string) {
 	}
 
 	// Create an HTTP client with a 1-second timeout.
-	client := &http.Client{Timeout: 1 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Post(lookupURL, "application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		return
@@ -557,28 +557,29 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
 func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[string]map[string]interface{} {
     filteredData := make(map[string]map[string]interface{})
     for id, vesselInfo := range vesselData {
-        // Check if Latitude and Longitude exist and are valid numbers.
-        lat, latOk := vesselInfo["Latitude"].(float64)
-        lon, lonOk := vesselInfo["Longitude"].(float64)
-        if !latOk || !lonOk {
+        // Create a deep copy of the nested vesselInfo map.
+        copyInfo := make(map[string]interface{})
+        for k, v := range vesselInfo {
+            copyInfo[k] = v
+        }
+        // Validate Latitude and Longitude from the copied map.
+        lat, latOk := copyInfo["Latitude"].(float64)
+        lon, lonOk := copyInfo["Longitude"].(float64)
+        if !latOk || !lonOk || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
             continue
         }
-        // As an extra precaution, ensure the numbers fall within valid ranges.
-        if lat < -90 || lat > 90 || lon < -180 || lon > 180 {
-            continue
+        // Set defaults if missing.
+        if copyInfo["CallSign"] == nil {
+            copyInfo["CallSign"] = "NO CALL"
         }
-        // Set default for CallSign if missing.
-        if vesselInfo["CallSign"] == nil {
-            vesselInfo["CallSign"] = "NO CALL"
+        if name, ok := copyInfo["Name"].(string); !ok || strings.TrimSpace(name) == "" {
+            copyInfo["Name"] = "NO NAME"
         }
-        // Set default for Name if missing or empty.
-        if name, ok := vesselInfo["Name"].(string); !ok || strings.TrimSpace(name) == "" {
-            vesselInfo["Name"] = "NO NAME"
-        }
-        filteredData[id] = vesselInfo
+        filteredData[id] = copyInfo
     }
     return filteredData
 }
+
 
 // isInterfaceMapEqual compares two maps recursively.
 func isInterfaceMapEqual(a, b map[string]interface{}) bool {
@@ -1004,6 +1005,42 @@ func main() {
 				}
 			}
 			clientsMutex.Unlock()
+		})
+		client.On("requestState", func(args ...any) {
+		    log.Printf("Client %s requested latest vessel state", client.Id())
+    
+		    vesselDataMutex.Lock()
+		    completeData := filterCompleteVesselData(vesselData)
+		    vesselDataMutex.Unlock()
+
+		    stateJSON, err := json.Marshal(completeData)
+		    if err != nil {
+		        log.Printf("Error marshaling latest vessel state: %v", err)
+		        return
+		    }
+		
+		    if err := sioServer.To(socket.Room("latest_vessel_state")).Emit("latest_vessel_state", string(stateJSON)); err != nil {
+		        log.Printf("Error sending latest vessel state to client %s: %v", client.Id(), err)
+		    }
+		})
+
+		client.On("requestSummary", func(args ...any) {
+		    log.Printf("Client %s requested vessel summary", client.Id())
+		
+		    vesselDataMutex.Lock()
+		    completeData := filterCompleteVesselData(vesselData)
+		    summaryData := filterVesselSummary(completeData)
+		    vesselDataMutex.Unlock()
+
+		    summaryJSON, err := json.Marshal(summaryData)
+		    if err != nil {
+		        log.Printf("Error marshaling latest vessel summary: %v", err)
+		        return
+		    }
+		
+		    if err := sioServer.To(socket.Room("latest_vessel_summary")).Emit("latest_vessel_summary", string(summaryJSON)); err != nil {
+		        log.Printf("Error sending latest vessel state to client %s: %v", client.Id(), err)
+		    }
 		})
 	})
 
