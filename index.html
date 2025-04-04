@@ -1257,8 +1257,8 @@ function createPopupContent(data) {
   addLine(lines, "MMSI", data.UserID);
 
   if (data.MID) {
-    const midCode = lookupMID(data.MID);
-    addLine(lines, "Country", midCode);
+    const midData = lookupMID(data.MID);
+    addLine(lines, "Country", midData.country);
   }
 
   addLine(lines, "Destination", data.Destination && data.Destination.trim() !== "" ? data.Destination : null);
@@ -1281,12 +1281,18 @@ function createPopupContent(data) {
 
 
 
-   function lookupMID(mid) {
-    if (mids.hasOwnProperty(mid)) {
-       return mids[mid][3] || "Unknown";
-    }
-    return "Unknown";
-   }
+function lookupMID(mid) {
+  if (mids.hasOwnProperty(mid)) {
+    return {
+      shortcode: mids[mid][0] || "Unknown",   // Country short code
+      country: mids[mid][3] || "Unknown" // Country name
+    };
+  }
+  return {
+    shortcode: "ZZ",
+    country: "Unknown"
+  };
+}
 
 
 function buildTooltipLine(...values) {
@@ -1325,10 +1331,19 @@ function createDetailContent(data) {
   addLine(lines, "MMSI", data.UserID);
   addLine(lines, "AIS Class", data.AISClass);
 
-  if (data.MID) {
-    const midCode = lookupMID(data.MID);
-    addLine(lines, "Country", midCode);
-  }
+if (data.MID) {
+  const midData = lookupMID(data.MID);
+  const countryFlag = `
+    <div style="display: inline-flex; align-items: center; margin: 0;">
+      <span style="line-height: 20px; margin-right: 8px;">Flag:</span>
+      <img src="/flags/${midData.shortcode.toLowerCase()}.svg" 
+           alt="${midData.country} Flag" 
+           style="width: 30px; height: 20px; border: 1px solid black; object-fit: cover;"
+           title="${midData.country}">
+    </div>
+  `;
+  lines.push(countryFlag); // Add the flag with text directly to lines
+}
 
   addLine(lines, "Call Sign", data.CallSign);
   addLine(lines, "IMO Number", data.ImoNumber);
@@ -1417,8 +1432,6 @@ function createDetailContent(data) {
 
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
 }
-
-
 
 function adjustMapBounds() {
   if (focusedVessel) {

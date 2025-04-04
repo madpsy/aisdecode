@@ -34,6 +34,16 @@ type AISMessage struct {
 	Timestamp string      `json:"timestamp"`
 }
 
+type Port struct {
+    City    string  `json:"CITY"`
+    State   string  `json:"STATE"`
+    Country string  `json:"COUNTRY"`
+    Latitude  float64 `json:"LATITUDE"`
+    Longitude float64 `json:"LONGITUDE"`
+}
+
+var ports []Port
+
 // Global client list and mutex.
 var (
 	clients      []*socket.Socket
@@ -92,6 +102,57 @@ func cleanDedupeWindow(window *[]dedupeState, mutex *sync.Mutex, duration time.D
 func isValidURL(urlStr string) bool {
     u, err := url.ParseRequestURI(urlStr)
     return err == nil && u.Scheme != "" && u.Host != ""
+}
+
+func loadPorts(webRoot string) error {
+    filePath := filepath.Join(webRoot, "ports.json")
+    log.Printf("Looking for ports.json at: %s", filePath)
+    data, err := os.ReadFile(filePath)
+    if err != nil {
+        log.Fatalf("failed to read ports.json: %v", err)
+    }
+
+    if err := json.Unmarshal(data, &ports); err != nil {
+        log.Fatalf("failed to parse ports.json: %v", err)
+    }
+    return nil
+}
+
+// Get all ports within a given radius of lat/lon
+func getPortsWithinRadius(lat, lon, radius float64) []Port {
+    var result []Port
+    for _, port := range ports {
+        dist := haversine(lat, lon, port.Latitude, port.Longitude)
+        if dist <= radius {
+            result = append(result, port)
+        }
+    }
+    return result
+}
+
+// Get the closest port to a given lat/lon
+func getClosestPort(lat, lon float64) (Port, float64) {
+    var closestPort Port
+    minDistance := math.MaxFloat64
+    for _, port := range ports {
+        dist := haversine(lat, lon, port.Latitude, port.Longitude)
+        if dist < minDistance {
+            minDistance = dist
+            closestPort = port
+        }
+    }
+    return closestPort, minDistance
+}
+
+// Get all ports that match a given country
+func getPortsByCountry(country string) []Port {
+    var result []Port
+    for _, port := range ports {
+        if strings.EqualFold(port.Country, country) {
+            result = append(result, port)
+        }
+    }
+    return result
 }
 
 // Helper function to validate a receiver map.
@@ -809,6 +870,11 @@ func main() {
 	    statePath = filepath.Join(*webRoot, "state.json")
 	}
 
+
+         if err := loadPorts(*webRoot); err != nil {
+	    log.Fatalf("Failed to load ports: %v", err)
+	 }
+
 	if !*noState {
 	    // Try opening (or creating) the state file to ensure it is writable.
 	    f, err := os.OpenFile(statePath, os.O_WRONLY|os.O_CREATE, 0644)
@@ -1354,7 +1420,60 @@ func main() {
 		    http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-	
+		// Handle /ports endpoint
+		http.HandleFunc("/ports", func(w http.ResponseWriter, r *http.Request) {
+		    if r.Method != http.MethodPost {
+		        http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		        return
+		    }
+
+		    var requestData struct {
+		        Action    string  `json:"action"`
+		        Latitude  float64 `json:"latitude"`
+		        Longitude float64 `json:"longitude"`
+		        Radius    float64 `json:"radius"`
+		        Country   string  `json:"country"`
+		    }
+
+		    if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		        http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		        return
+		    }
+
+		    var response []Port
+		
+		    switch requestData.Action {
+		    case "within_radius":
+		        response = getPortsWithinRadius(requestData.Latitude, requestData.Longitude, requestData.Radius)
+		        if len(response) == 0 {
+		            http.Error(w, "No ports found within the specified radius", http.StatusNotFound)  // Return 404 if no ports found
+		            return
+		        }
+		    case "closest_port":
+		        closestPort, distance := getClosestPort(requestData.Latitude, requestData.Longitude)
+		        if (closestPort == Port{}) {  // Check if the closest port is empty
+		            http.Error(w, "No closest port found", http.StatusNotFound)  // Return 404 if no closest port found
+		            return
+		        }
+		        response = append(response, closestPort)
+		        log.Printf("Closest port is %s, %s, %s with distance: %.2f meters", closestPort.City, closestPort.Country, closestPort.State, distance)
+		    case "by_country":
+		        response = getPortsByCountry(requestData.Country)
+		        if len(response) == 0 {
+		            http.Error(w, "No ports found for the given country", http.StatusNotFound)  // Return 404 if no ports found
+		            return
+		        }
+		    default:
+		        http.Error(w, "Invalid action", http.StatusBadRequest)
+		        return
+		    }
+
+		    w.Header().Set("Content-Type", "application/json")
+		    if err := json.NewEncoder(w).Encode(response); err != nil {
+		        http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+		    }
+		})
+
 	go func() {
 		addr := fmt.Sprintf(":%d", *wsPort)
 		log.Printf("Starting HTTP/Socket.IO server on %s, serving web root: %s", addr, filepath.Clean(*webRoot))
