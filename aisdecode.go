@@ -27,6 +27,42 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
+type Metrics struct {
+	SerialMessagesPerSec    float64 `json:"serial_messages_per_sec"`
+	UDPMessagesPerSec       float64 `json:"udp_messages_per_sec"`
+	TotalMessages           int     `json:"total_messages"`
+	SerialMessagesPerMin    float64 `json:"serial_messages_per_min"`
+	UDPMessagesPerMin       float64 `json:"udp_messages_per_min"`
+	TotalDeduplications     int     `json:"total_deduplications"`
+	ActiveWebSockets        int     `json:"active_websockets"`
+	ActiveWebSocketRooms    map[string]int `json:"active_websocket_rooms"`
+	NumVesselsClassA        int     `json:"num_vessels_class_a"`
+	NumVesselsClassB        int     `json:"num_vessels_class_b"`
+	NumVesselsAtoN          int     `json:"num_vessels_atoN"`
+	NumVesselsBaseStation   int     `json:"num_vessels_base_station"`
+	NumVesselsSAR           int     `json:"num_vessels_sar"`
+	NewVesselsPerMin        int     `json:"new_vessels_per_min"`
+	NewVesselsPerHour       int     `json:"new_vessels_per_hour"`
+	TopTenVessels           []TopVessel `json:"top_ten_vessels"`
+}
+
+type TopVessel struct {
+	UserID       string `json:"user_id"`
+	NumMessages  int    `json:"num_messages"`
+}
+
+var (
+	serialMessages int
+	udpMessages    int
+	totalMessages  int
+	dedupeMessages int
+	activeClients  int
+	activeRooms    = make(map[string]int)
+	vesselCounts   = make(map[string]int) // tracks vessels per type (Class A, B, etc.)
+	newVessels     int
+	topVessels     []TopVessel
+)
+
 // AISMessage represents the structured JSON message sent to the ais_data room.
 type AISMessage struct {
 	Type      string      `json:"type"`
@@ -1049,6 +1085,11 @@ func main() {
 			log.Printf("Client %s unsubscribed from room %s", client.Id(), roomName)
 		})
 
+		client.On("subscribeMetrics", func(args ...any) {
+			client.Join("metrics")
+			log.Printf("Client %s subscribed to metrics room", client.Id())
+		})
+
 		vesselDataMutex.Lock()
 		completeData := filterCompleteVesselData(vesselData)
 		summaryData := filterVesselSummary(completeData)
@@ -1472,6 +1513,40 @@ func main() {
 		    if err := json.NewEncoder(w).Encode(response); err != nil {
 		        http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
 		    }
+		})
+
+		http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		    // Create a metrics object with the same data as the WebSocket room
+		    metrics := Metrics{
+		        SerialMessagesPerSec:   float64(serialMessages) / 1.0,
+		        UDPMessagesPerSec:      float64(udpMessages) / 1.0,
+		        TotalMessages:          totalMessages,
+		        SerialMessagesPerMin:   float64(serialMessages) * 60,
+		        UDPMessagesPerMin:      float64(udpMessages) * 60,
+		        TotalDeduplications:    dedupeMessages,
+		        ActiveWebSockets:       len(clients),
+		        ActiveWebSocketRooms:   activeRooms,
+		        NumVesselsClassA:       vesselCounts["Class A"],
+		        NumVesselsClassB:       vesselCounts["Class B"],
+		        NumVesselsAtoN:         vesselCounts["AtoN"],
+		        NumVesselsBaseStation:  vesselCounts["Base Station"],
+		        NumVesselsSAR:          vesselCounts["SAR"],
+		        NewVesselsPerMin:       newVessels,
+		        NewVesselsPerHour:      newVessels * 60,
+		        TopTenVessels:          topVessels,
+		    }
+		
+		    // Convert the metrics to JSON
+		    metricsJSON, err := json.Marshal(metrics)
+		    if err != nil {
+		        log.Printf("Error marshaling metrics: %v", err)
+		        http.Error(w, "Error marshaling metrics", http.StatusInternalServerError)
+		        return
+		    }
+		
+		    // Set the response header and write the JSON response
+		    w.Header().Set("Content-Type", "application/json")
+		    w.Write(metricsJSON)
 		})
 
 	go func() {
@@ -2167,6 +2242,42 @@ func main() {
 	        cleanDedupeWindow(&aggregatorDedupeWindow, &aggregatorDedupeMutex, windowDuration)
 	        cleanDedupeWindow(&websocketDedupeWindow, &websocketDedupeMutex, windowDuration)
 	    }
+	}()
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			metrics := Metrics{
+				SerialMessagesPerSec:   float64(serialMessages) / 1.0,
+				UDPMessagesPerSec:      float64(udpMessages) / 1.0,
+				TotalMessages:          totalMessages,
+				SerialMessagesPerMin:   float64(serialMessages) * 60,
+				UDPMessagesPerMin:      float64(udpMessages) * 60,
+				TotalDeduplications:    dedupeMessages,
+				ActiveWebSockets:       len(clients),
+				ActiveWebSocketRooms:   activeRooms,
+				NumVesselsClassA:       vesselCounts["Class A"],
+				NumVesselsClassB:       vesselCounts["Class B"],
+				NumVesselsAtoN:         vesselCounts["AtoN"],
+				NumVesselsBaseStation:  vesselCounts["Base Station"],
+				NumVesselsSAR:          vesselCounts["SAR"],
+				NewVesselsPerMin:       newVessels,
+				NewVesselsPerHour:      newVessels * 60,
+				TopTenVessels:          topVessels,
+			}
+
+			// Convert the metrics to JSON and emit it to the metrics room
+			metricsJSON, err := json.Marshal(metrics)
+			if err != nil {
+				log.Printf("Error marshaling metrics: %v", err)
+				continue
+			}
+
+			// Emit to all clients in the "metrics" room
+			sioServer.To("metrics").Emit("metrics_update", string(metricsJSON))
+		}
 	}()
 
 	// Wait forever.
