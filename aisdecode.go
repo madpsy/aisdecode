@@ -27,6 +27,11 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
+type SlidingWindowCounter struct {
+    mu     sync.Mutex
+    events []time.Time
+}
+
 type Metrics struct {
 	SerialMessagesPerSec    float64 `json:"serial_messages_per_sec"`
 	UDPMessagesPerSec       float64 `json:"udp_messages_per_sec"`
@@ -38,12 +43,10 @@ type Metrics struct {
 	ActiveWebSocketRooms    map[string]int `json:"active_websocket_rooms"`
 	NumVesselsClassA        int     `json:"num_vessels_class_a"`
 	NumVesselsClassB        int     `json:"num_vessels_class_b"`
-	NumVesselsAtoN          int     `json:"num_vessels_atoN"`
+	NumVesselsAtoN          int     `json:"num_vessels_aton"`
 	NumVesselsBaseStation   int     `json:"num_vessels_base_station"`
 	NumVesselsSAR           int     `json:"num_vessels_sar"`
-	NewVesselsPerMin        int     `json:"new_vessels_per_min"`
-	NewVesselsPerHour       int     `json:"new_vessels_per_hour"`
-	TopTenVessels           []TopVessel `json:"top_ten_vessels"`
+	TotalKnownVessels       int           `json:"total_known_vessels"`
 }
 
 type TopVessel struct {
@@ -52,15 +55,20 @@ type TopVessel struct {
 }
 
 var (
-	serialMessages int
-	udpMessages    int
-	totalMessages  int
-	dedupeMessages int
-	activeClients  int
-	activeRooms    = make(map[string]int)
-	vesselCounts   = make(map[string]int) // tracks vessels per type (Class A, B, etc.)
-	newVessels     int
-	topVessels     []TopVessel
+    	serialCounter 	SlidingWindowCounter
+    	udpCounter    	SlidingWindowCounter
+	totalMessages   int
+	dedupeMessages  int
+	activeClients   int
+	activeRooms     = make(map[string]int)
+	vesselCounts    = make(map[string]int) // tracks vessels per type (Class A, B, etc.)
+	newVessels      int
+	topVessels      []TopVessel
+)
+
+var (
+    roomsMutex  sync.Mutex
+    clientRooms = make(map[socket.SocketId][]string)
 )
 
 // AISMessage represents the structured JSON message sent to the ais_data room.
@@ -128,6 +136,57 @@ var (
     pendingVesselDataMutex sync.Mutex
     pendingVesselData      = make(map[string]map[string]interface{})
 )
+
+func (sw *SlidingWindowCounter) AddEvent() {
+    sw.mu.Lock()
+    defer sw.mu.Unlock()
+    sw.events = append(sw.events, time.Now())
+}
+
+func calculateVesselCounts() map[string]int {
+    // Initialize counts for each type.
+    counts := map[string]int{
+        "Class A":      0,
+        "Class B":      0,
+        "AtoN":         0,
+        "Base Station": 0,
+        "SAR":          0,
+    }
+    // Lock vesselData to safely iterate over it.
+    vesselDataMutex.Lock()
+    defer vesselDataMutex.Unlock()
+    for _, vessel := range vesselData {
+        if cls, ok := vessel["AISClass"].(string); ok {
+            switch cls {
+            case "A":
+                counts["Class A"]++
+            case "B":
+                counts["Class B"]++
+            case "AtoN":
+                counts["AtoN"]++
+            case "Base Station":
+                counts["Base Station"]++
+            case "SAR":
+                counts["SAR"]++
+            }
+        }
+    }
+    return counts
+}
+
+func (sw *SlidingWindowCounter) Count(duration time.Duration) int {
+    cutoff := time.Now().Add(-duration)
+    sw.mu.Lock()
+    defer sw.mu.Unlock()
+    // Make a copy of the events slice
+    eventsCopy := append([]time.Time(nil), sw.events...)
+    // Purge outdated events from the copy
+    i := 0
+    for i < len(eventsCopy) && eventsCopy[i].Before(cutoff) {
+        i++
+    }
+    return len(eventsCopy) - i
+}
 
 func cleanDedupeWindow(window *[]dedupeState, mutex *sync.Mutex, duration time.Duration) {
     mutex.Lock()
@@ -1056,6 +1115,10 @@ func main() {
 
 		// Force clients to join the latest vessel summary room.
 		client.Join(socket.Room("latest_vessel_summary"))
+		roomsMutex.Lock()
+		activeRooms["latest_vessel_summary"]++
+		clientRooms[client.Id()] = append(clientRooms[client.Id()], "latest_vessel_summary")
+		roomsMutex.Unlock()		
 		log.Printf("Client %s joined room latest_vessel_summary", client.Id())
 
 		// Listen for subscription events to join other rooms.
@@ -1069,6 +1132,10 @@ func main() {
 			}
 			client.Join(socket.Room(roomName))
 			log.Printf("Client %s subscribed to room %s", client.Id(), roomName)
+			roomsMutex.Lock()
+			activeRooms[roomName]++
+			clientRooms[client.Id()] = append(clientRooms[client.Id()], roomName)
+			roomsMutex.Unlock()
 		})
 
 		client.On("unsubscribe", func(args ...any) {
@@ -1083,11 +1150,32 @@ func main() {
 			}
 			client.Leave(socket.Room(roomName))
 			log.Printf("Client %s unsubscribed from room %s", client.Id(), roomName)
+			
+			roomsMutex.Lock()
+		        if count, exists := activeRooms[roomName]; exists && count > 0 {
+			        activeRooms[roomName]--
+			        if activeRooms[roomName] == 0 {
+			            delete(activeRooms, roomName) // Remove room if no users left.
+			        }
+			}
+			if rooms, exists := clientRooms[client.Id()]; exists {
+     		        	for i, r := range rooms {
+		        	        if r == roomName {
+				                clientRooms[client.Id()] = append(rooms[:i], rooms[i+1:]...)
+                				break
+            				}
+        			}
+    			}
+			roomsMutex.Unlock()
 		})
 
 		client.On("subscribeMetrics", func(args ...any) {
 			client.Join("metrics")
-			log.Printf("Client %s subscribed to metrics room", client.Id())
+			    client.Join("metrics")
+			    roomsMutex.Lock()
+			    activeRooms["metrics"]++
+			    roomsMutex.Unlock()
+			    log.Printf("Client %s subscribed to metrics room", client.Id())
 		})
 
 		vesselDataMutex.Lock()
@@ -1103,16 +1191,36 @@ func main() {
 			log.Printf("Error sending latest vessel summary to client %s: %v", client.Id(), err)
 		}
 		client.On("disconnect", func(args ...any) {
-			log.Printf("Socket.IO client disconnected: %s", client.Id())
-			clientsMutex.Lock()
-			for i, c := range clients {
-				if c == client {
-					clients = append(clients[:i], clients[i+1:]...)
-					break
-				}
-			}
-			clientsMutex.Unlock()
+		    log.Printf("Socket.IO client disconnected: %s", client.Id())
+
+		    // Remove the client from the global clients slice.
+		    clientsMutex.Lock()
+		    for i, c := range clients {
+		        if c == client {
+		            clients = append(clients[:i], clients[i+1:]...)
+		            break
+		        }
+		    }
+		    clientsMutex.Unlock()
+
+		    // Remove the client from all subscribed rooms and update activeRooms.
+		        roomsMutex.Lock()
+		        if rooms, exists := clientRooms[client.Id()]; exists {
+		            for _, roomName := range rooms {
+			            if count, exists := activeRooms[roomName]; exists && count > 0 {
+			                activeRooms[roomName]--
+				                if activeRooms[roomName] == 0 {
+				                    delete(activeRooms, roomName)
+				                }
+            		   }
+        		}
+		        // Remove the client's entry.
+		        delete(clientRooms, client.Id())
+		    }
+		    roomsMutex.Unlock()
 		})
+
+
 		client.On("requestState", func(args ...any) {
 		    log.Printf("Client %s requested latest vessel state", client.Id())
     
@@ -1516,24 +1624,34 @@ func main() {
 		})
 
 		http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		    vesselDataMutex.Lock()
+                    totalKnown := len(vesselData)
+                    vesselDataMutex.Unlock()
+		    counts := calculateVesselCounts()
+
+		    roomsMutex.Lock()
+		    roomsCopy := make(map[string]int)
+		    for room, count := range activeRooms {
+		        roomsCopy[room] = count
+		    }
+		    roomsMutex.Unlock()
+
 		    // Create a metrics object with the same data as the WebSocket room
 		    metrics := Metrics{
-		        SerialMessagesPerSec:   float64(serialMessages) / 1.0,
-		        UDPMessagesPerSec:      float64(udpMessages) / 1.0,
-		        TotalMessages:          totalMessages,
-		        SerialMessagesPerMin:   float64(serialMessages) * 60,
-		        UDPMessagesPerMin:      float64(udpMessages) * 60,
-		        TotalDeduplications:    dedupeMessages,
-		        ActiveWebSockets:       len(clients),
-		        ActiveWebSocketRooms:   activeRooms,
-		        NumVesselsClassA:       vesselCounts["Class A"],
-		        NumVesselsClassB:       vesselCounts["Class B"],
-		        NumVesselsAtoN:         vesselCounts["AtoN"],
-		        NumVesselsBaseStation:  vesselCounts["Base Station"],
-		        NumVesselsSAR:          vesselCounts["SAR"],
-		        NewVesselsPerMin:       newVessels,
-		        NewVesselsPerHour:      newVessels * 60,
-		        TopTenVessels:          topVessels,
+		        SerialMessagesPerSec:  float64(serialCounter.Count(1 * time.Second)),
+			SerialMessagesPerMin:  float64(serialCounter.Count(1 * time.Minute)),
+			UDPMessagesPerSec:     float64(udpCounter.Count(1 * time.Second)),
+			UDPMessagesPerMin:     float64(udpCounter.Count(1 * time.Minute)),
+			TotalMessages:         totalMessages,
+		        TotalDeduplications:   dedupeMessages,
+		        ActiveWebSockets:      len(clients),
+		        ActiveWebSocketRooms:  roomsCopy,
+        		NumVesselsClassA:      counts["Class A"],
+		        NumVesselsClassB:      counts["Class B"],
+		        NumVesselsAtoN:        counts["AtoN"],
+		        NumVesselsBaseStation: counts["Base Station"],
+		        NumVesselsSAR:         counts["SAR"],
+			TotalKnownVessels:     totalKnown,
 		    }
 		
 		    // Convert the metrics to JSON
@@ -1625,6 +1743,8 @@ func main() {
 			log.Printf("Error reading UDP message: %v", err)
 			continue
 		}
+		udpCounter.AddEvent()
+		totalMessages++
 		rawNmea := string(buf[:n])
 		currentTime := time.Now().UTC().Format(time.RFC3339Nano)
 		source := addr.String()
@@ -1636,6 +1756,7 @@ func main() {
 			if *debug {
 				log.Printf("[DEBUG] Dropped duplicate message from %s at %s: %s", source, currentTime, rawNmea)
 			}
+			dedupeMessages++
 			continue
 		}
 		appendToWindowWithLock(rawNmea, &aggregatorDedupeWindow, &aggregatorDedupeMutex)
@@ -1946,31 +2067,7 @@ func main() {
 		}
 	}()
 
-    	go func() {
-        	ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
-	        for range ticker.C {
-	            now := time.Now().UTC()
-	            cutoff := now.Add(-*expireAfter)
-	            vesselMsgTimestampsMutex.Lock()
-	            for vesselID, timestamps := range vesselMsgTimestamps {
-	                valid := timestamps[:0]
-	                for _, t := range timestamps {
-	                    if t.After(cutoff) {
-	                        valid = append(valid, t)
-	                    }
-	                }
-	                vesselMsgTimestamps[vesselID] = valid
 
-        	        // Also update the vesselData if it exists.
-	                vesselDataMutex.Lock()
-	                if vessel, exists := vesselData[vesselID]; exists {
-	                    vessel["NumMessages"] = float64(len(valid))
-	                }
-	                vesselDataMutex.Unlock()
-	            }
-	            vesselMsgTimestampsMutex.Unlock()
-	        }
-	}()
 
 	go func() {
 	    ticker := time.NewTicker(1 * time.Minute)
@@ -1984,25 +2081,35 @@ func main() {
 	go func() {
 	    ticker := time.NewTicker(1 * time.Second)
 	    defer ticker.Stop()
-
+	  
 	    for range ticker.C {
+		vesselDataMutex.Lock()
+	        totalKnown := len(vesselData)
+        	vesselDataMutex.Unlock()
+		counts := calculateVesselCounts()
+		
+		roomsMutex.Lock()
+	        roomsCopy := make(map[string]int)
+	    	for room, count := range activeRooms {
+	           roomsCopy[room] = count
+		}
+	        roomsMutex.Unlock()
+
 	        metrics := Metrics{
-	            SerialMessagesPerSec:  float64(serialMessages) / 1.0,
-	            UDPMessagesPerSec:     float64(udpMessages) / 1.0,
-	            TotalMessages:         totalMessages,
-	            SerialMessagesPerMin:  float64(serialMessages) * 60,
-	            UDPMessagesPerMin:     float64(udpMessages) * 60,
+            	    SerialMessagesPerSec:  float64(serialCounter.Count(1 * time.Second)),
+	            SerialMessagesPerMin:  float64(serialCounter.Count(1 * time.Minute)),
+        	    UDPMessagesPerSec:     float64(udpCounter.Count(1 * time.Second)),
+        	    UDPMessagesPerMin:     float64(udpCounter.Count(1 * time.Minute)),
+		    TotalMessages:         totalMessages,
 	            TotalDeduplications:   dedupeMessages,
 	            ActiveWebSockets:      len(clients),
-	            ActiveWebSocketRooms:  activeRooms,
-	            NumVesselsClassA:      vesselCounts["Class A"],
-	            NumVesselsClassB:      vesselCounts["Class B"],
-	            NumVesselsAtoN:        vesselCounts["AtoN"],
-	            NumVesselsBaseStation: vesselCounts["Base Station"],
-	            NumVesselsSAR:         vesselCounts["SAR"],
-	            NewVesselsPerMin:      newVessels,
-	            NewVesselsPerHour:     newVessels * 60,
-	            TopTenVessels:         topVessels,
+	            ActiveWebSocketRooms:  roomsCopy,
+           	    NumVesselsClassA:      counts["Class A"],
+	            NumVesselsClassB:      counts["Class B"],
+	            NumVesselsAtoN:        counts["AtoN"],
+        	    NumVesselsBaseStation: counts["Base Station"],
+        	    NumVesselsSAR:         counts["SAR"],
+		    TotalKnownVessels:     totalKnown,
 	        }
 
 	        metricsJSON, err := json.Marshal(metrics)
@@ -2020,6 +2127,39 @@ func main() {
 	    }
 	}()
 
+	go func() {
+	    ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
+	    for range ticker.C {
+	        now := time.Now().UTC()
+	        cutoff := now.Add(-*expireAfter)
+        
+	        // Step 1: Clean timestamps and calculate counts while holding vesselMsgTimestampsMutex.
+	        validCounts := make(map[string]int)
+	        vesselMsgTimestampsMutex.Lock()
+	        for vesselID, timestamps := range vesselMsgTimestamps {
+	            var valid []time.Time
+	            for _, t := range timestamps {
+	                if t.After(cutoff) {
+	                    valid = append(valid, t)
+	                }
+	            }
+	            vesselMsgTimestamps[vesselID] = valid
+	            validCounts[vesselID] = len(valid)
+	        }
+	        vesselMsgTimestampsMutex.Unlock()
+        
+	        // Step 2: Update vesselData with the computed counts.
+	        vesselDataMutex.Lock()
+	        for vesselID, count := range validCounts {
+	            if vessel, exists := vesselData[vesselID]; exists {
+	                vessel["NumMessages"] = float64(count)
+	            }
+	        }
+	        vesselDataMutex.Unlock()
+	    }
+	}()
+
+
 	// --- Read from serial port line-by-line (if -serial-port is specified) ---
 	if *serialPort != "" {
 	    scanner := bufio.NewScanner(port)
@@ -2033,6 +2173,8 @@ func main() {
 		if len(line) == 0 || (line[0] != '!' && line[0] != '$') {
 			continue
 		}
+		serialCounter.AddEvent()
+		totalMessages++
 		// Check deduplication for the serial data.
 		if *dedupeWindowDuration > 0 && isDuplicateWithLock(line, &websocketDedupeWindow, &websocketDedupeMutex, windowDuration) {
 			if *debug {

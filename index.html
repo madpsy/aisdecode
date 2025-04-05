@@ -31,7 +31,7 @@
 	  box-shadow: none;
 	  background: white;
 	  padding: 2px 4px;
-	  z-index: 2000;
+	  z-index: 1100;
 	}	
         /* CSS for the enlargement animation */
         .boat-icon.enlarge {
@@ -2588,7 +2588,7 @@ function focusOnVessel(userID, initialFocus = true) {
 
        const tooltipEl = vesselMarkers[userID].getTooltip().getElement();
        if (tooltipEl) {
-	  tooltipEl.style.zIndex = '1100';
+	  tooltipEl.style.zIndex = '1200';
        }
 
        document.getElementById('toggle-detail-overlay').style.display = 'block';
