@@ -180,6 +180,10 @@
       }
     });
 
+    socket.on("connect", function() {
+      socket.emit("subscribeMetrics");
+    });
+
     // Fetch historical metrics data from the /metrics endpoint.
     async function fetchHistoricalMetrics() {
       try {
