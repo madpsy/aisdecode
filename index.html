@@ -2782,9 +2782,19 @@ window.addEventListener('load', () => {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         userLatLng = [position.coords.latitude, position.coords.longitude];
-        const userMarker = L.marker(userLatLng)
+        const userMarker = L.marker(userLatLng, { draggable: true })
           .addTo(map)
-        
+
+      userMarker.on('dragend', function(e) {
+        const newPos = e.target.getLatLng();
+        userLatLng = [newPos.lat, newPos.lng];
+        document.getElementById('latlong-display').textContent =
+          `${newPos.lat.toFixed(5)}, ${newPos.lng.toFixed(5)}`;
+	if (document.getElementById('auto-zoom').checked) {
+		map.setView(newPos, map.getZoom());
+	}
+      });        
+
         if (!skipUserZoom) {
           map.setView(userLatLng, 10);
         }
