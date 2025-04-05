@@ -26,6 +26,13 @@
 	#vessel-detail a {
 	  text-decoration: none;
 	}
+	.port-marker-tooltip {
+	  border: none;
+	  box-shadow: none;
+	  background: white;
+	  padding: 2px 4px;
+	  z-index: 2000;
+	}	
         /* CSS for the enlargement animation */
         .boat-icon.enlarge {
           transform: scale(1.5);
@@ -1236,19 +1243,32 @@ function hydrateTrackHistory(userID) {
           return { syncState, slotTimeout, slotOffset };
         }
 
+// Global variable to store current port data
+let currentPorts = [];
+
 // Create a layer group for port markers
 const portLayerGroup = L.layerGroup().addTo(map);
 
 // Create a custom invisible icon
 const invisibleIcon = L.divIcon({
-  className: 'invisible-icon', 
+  className: 'invisible-icon',
   html: '', // Empty HTML content for an invisible icon
   iconSize: [0, 0]  // No size for the marker
 });
 
 // Create and add port markers with tooltips to the portLayerGroup
 function addPortMarkers(ports) {
-  // Remove any existing port markers from the layer group first
+  // Compare new ports with the current ones (using JSON stringify for a basic deep comparison)
+  // Depending on your data structure, you may want a more robust comparison.
+  if (JSON.stringify(ports) === JSON.stringify(currentPorts)) {
+    // If the data is the same, do nothing.
+    return;
+  }
+  
+  // Update the current ports cache
+  currentPorts = ports;
+
+  // Clear existing port markers
   portLayerGroup.clearLayers();
 
   ports.forEach(port => {
@@ -1257,8 +1277,8 @@ function addPortMarkers(ports) {
     // Create the marker with the invisible icon
     const portMarker = L.marker([LATITUDE, LONGITUDE], { icon: invisibleIcon });
 
-    // Add a permanent tooltip to the marker
-    portMarker.bindTooltip(CITY, { permanent: true, direction: 'top' });
+    const tooltipContent = `<img src="/images/port.png" style="width: 16px; height: 16px; vertical-align: middle; margin-right: 4px;" />${CITY}`;
+    portMarker.bindTooltip(tooltipContent, { permanent: true, direction: 'top', className: 'port-marker-tooltip' });
 
     // Add the marker to the portLayerGroup
     portMarker.addTo(portLayerGroup);
@@ -1268,26 +1288,23 @@ function addPortMarkers(ports) {
 let debounceTimeout;
 
 function fetchPorts() {
-  // Get the map's current center and zoom level
   const center = map.getCenter();
   const zoom = map.getZoom();
 
-  // Clear markers if zoom level is less than 10
-  if (zoom < 10) {
+  if (zoom < 8) {
     portLayerGroup.clearLayers();
-    console.log('Zoom level is less than 10, clearing markers');
-    return;  // Exit the function if zoom level is less than 10
+    currentPorts = [];
+    return; 
   }
 
-  // Only proceed if zoom level is 10 or higher
-  if (zoom >= 10) {
+  if (zoom >= 8) {
     // Adjust the radius based on zoom level (higher zoom = smaller radius)
     let radius;
 
-    if (zoom >= 16) {
-      radius = 40000;  // 40 km
+    if (zoom >= 8) {
+      radius = 100000;  // 100 km
     } else {
-      radius = 100000; // 100 km for zoom levels 12 to 15
+      radius = 200000; // 200 km 
     }
 
     // Prepare the POST request payload
@@ -1321,10 +1338,11 @@ function fetchPorts() {
   }
 }
 
-
 function removePortMarkers() {
   portLayerGroup.clearLayers();
+  currentPorts = [];
 }
+
 
         /**
          * Build popup content from vessel data.
@@ -2251,7 +2269,6 @@ function applyLogFilters() {
           const newIDs = new Set(Object.keys(data));
           for (const mmsi in vesselData) {
             if (!newIDs.has(mmsi)) {
-              console.log("Removing vessel with MMSI:", mmsi);
               if (vesselMarkers[mmsi]) map.removeLayer(vesselMarkers[mmsi]);
               if (vesselTracks[mmsi]) map.removeLayer(vesselTracks[mmsi]);
               delete vesselData[mmsi];
