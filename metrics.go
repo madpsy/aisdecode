@@ -299,25 +299,58 @@ func getCurrentMetrics() Metrics {
 // write out snapshots to a file. Call StartMetrics(stateDir, noState)
 // from your main() function.
 func StartMetrics(stateDir string, noState bool) {
-	// Ensure the state directory exists.
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
-		log.Printf("Error creating state directory: %v", err)
-	}
+    // Ensure the state directory exists.
+    if err := os.MkdirAll(stateDir, 0755); err != nil {
+        log.Printf("Error creating state directory: %v", err)
+    }
 
-	// Determine the full path of the metrics file.
-	filePath := filepath.Join(stateDir, "metrics.json")
-	// If the file doesn't exist, write default values.
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		defaultAgg := defaultMetricsAggregate()
-		mhMutex.Lock()
-		metricsHistory = MetricsHistory{
-			MinuteAggregates: []MetricsAggregate{defaultAgg},
-			HourAggregates:   []MetricsAggregate{defaultAgg},
-			DayAggregates:    []MetricsAggregate{defaultAgg},
-			WeekAggregates:   []MetricsAggregate{defaultAgg},
-			MonthAggregates:  []MetricsAggregate{defaultAgg},
-		}
-		mhMutex.Unlock()
+    filePath := filepath.Join(stateDir, "metrics.json")
+
+    if !noState {
+        // Try to read the existing state file.
+        if data, err := os.ReadFile(filePath); err == nil {
+            // If reading is successful, unmarshal into metricsHistory.
+            mhMutex.Lock()
+            err = json.Unmarshal(data, &metricsHistory)
+            mhMutex.Unlock()
+            if err != nil {
+                log.Printf("Error unmarshaling metrics history: %v", err)
+            } else {
+                log.Printf("Loaded metrics history from %s", filePath)
+            }
+        } else if os.IsNotExist(err) {
+            // File doesn't exist, write default state.
+            defaultAgg := defaultMetricsAggregate()
+            mhMutex.Lock()
+            metricsHistory = MetricsHistory{
+                MinuteAggregates: []MetricsAggregate{defaultAgg},
+                HourAggregates:   []MetricsAggregate{defaultAgg},
+                DayAggregates:    []MetricsAggregate{defaultAgg},
+                WeekAggregates:   []MetricsAggregate{defaultAgg},
+                MonthAggregates:  []MetricsAggregate{defaultAgg},
+            }
+            mhMutex.Unlock()
+            if err := writeMetricsHistory(stateDir); err != nil {
+                log.Printf("Error writing default metrics history: %v", err)
+            } else {
+                log.Printf("Wrote default metrics history to %s", filePath)
+            }
+        } else {
+            // Some other error occurred reading the file.
+            log.Printf("Error reading metrics history: %v", err)
+        }
+    } else {
+        // noState is true, initialize default state without reading file.
+        defaultAgg := defaultMetricsAggregate()
+        mhMutex.Lock()
+        metricsHistory = MetricsHistory{
+            MinuteAggregates: []MetricsAggregate{defaultAgg},
+            HourAggregates:   []MetricsAggregate{defaultAgg},
+            DayAggregates:    []MetricsAggregate{defaultAgg},
+            WeekAggregates:   []MetricsAggregate{defaultAgg},
+            MonthAggregates:  []MetricsAggregate{defaultAgg},
+        }
+        mhMutex.Unlock()
 		if err := writeMetricsHistory(stateDir); err != nil {
 			log.Printf("Error writing default metrics history: %v", err)
 		} else {
