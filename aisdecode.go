@@ -1103,6 +1103,15 @@ func main() {
 		}
 	}
 
+	var metricsStateDir string
+	   if *stateDir != "" {
+	       metricsStateDir = *stateDir
+	   } else {
+	       metricsStateDir = *webRoot
+	}
+
+	StartMetrics(metricsStateDir, *noState)
+
 	// --- Setup Socket.IO server ---
 	engineServer := types.CreateServer(nil)
 	sioServer := socket.NewServer(engineServer, nil)
@@ -1170,10 +1179,10 @@ func main() {
 		})
 
 		client.On("subscribeMetrics", func(args ...any) {
-			client.Join("metrics")
 			    client.Join("metrics")
 			    roomsMutex.Lock()
 			    activeRooms["metrics"]++
+			    clientRooms[client.Id()] = append(clientRooms[client.Id()], "metrics")
 			    roomsMutex.Unlock()
 			    log.Printf("Client %s subscribed to metrics room", client.Id())
 		})
@@ -1624,48 +1633,24 @@ func main() {
 		})
 
 		http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		    vesselDataMutex.Lock()
-                    totalKnown := len(vesselData)
-                    vesselDataMutex.Unlock()
-		    counts := calculateVesselCounts()
+	        	// Determine which directory to use for state.
+ 	        	var metricsFilePath string
+			if *stateDir != "" {
+			        metricsFilePath = filepath.Join(*stateDir, "metrics.json")
+		        } else {
+			        metricsFilePath = filepath.Join(*webRoot, "metrics.json")
+			}
 
-		    roomsMutex.Lock()
-		    roomsCopy := make(map[string]int)
-		    for room, count := range activeRooms {
-		        roomsCopy[room] = count
-		    }
-		    roomsMutex.Unlock()
+		        // Read the file.
+		        data, err := os.ReadFile(metricsFilePath)
+		        if err != nil {
+			        http.Error(w, "Error reading metrics file: "+err.Error(), http.StatusInternalServerError)
+		                return
+			}
 
-		    // Create a metrics object with the same data as the WebSocket room
-		    metrics := Metrics{
-		        SerialMessagesPerSec:  float64(serialCounter.Count(1 * time.Second)),
-			SerialMessagesPerMin:  float64(serialCounter.Count(1 * time.Minute)),
-			UDPMessagesPerSec:     float64(udpCounter.Count(1 * time.Second)),
-			UDPMessagesPerMin:     float64(udpCounter.Count(1 * time.Minute)),
-			TotalMessages:         totalMessages,
-		        TotalDeduplications:   dedupeMessages,
-		        ActiveWebSockets:      len(clients),
-		        ActiveWebSocketRooms:  roomsCopy,
-        		NumVesselsClassA:      counts["Class A"],
-		        NumVesselsClassB:      counts["Class B"],
-		        NumVesselsAtoN:        counts["AtoN"],
-		        NumVesselsBaseStation: counts["Base Station"],
-		        NumVesselsSAR:         counts["SAR"],
-			TotalKnownVessels:     totalKnown,
-		    }
-		
-		    // Convert the metrics to JSON
-		    metricsJSON, err := json.Marshal(metrics)
-		    if err != nil {
-		        log.Printf("Error marshaling metrics: %v", err)
-		        http.Error(w, "Error marshaling metrics", http.StatusInternalServerError)
-		        return
-		    }
-		
-		    // Set the response header and write the JSON response
-		    w.Header().Set("Content-Type", "application/json")
-		    w.Write(metricsJSON)
-		})
+		        w.Header().Set("Content-Type", "application/json")
+		        w.Write(data)
+	       })
 
 	go func() {
 		addr := fmt.Sprintf(":%d", *wsPort)

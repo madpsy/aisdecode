@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Metrics Dashboard</title>
+  <!-- Load Socket.IO client library -->
+  <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+  <!-- Load Chart.js library -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Load a date adapter for Chart.js (using date-fns in this example) -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    .chart-container {
+      width: 600px;
+      margin-bottom: 30px;
+    }
+    .live-data {
+      margin-bottom: 20px;
+    }
+    table {
+      border-collapse: collapse;
+      margin-bottom: 30px;
+    }
+    table, th, td {
+      border: 1px solid #ccc;
+      padding: 5px;
+    }
+    /* Digital Dashboard styles with black and green theme */
+    .digital-dashboard {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+    .digital-card {
+      background-color: #000;
+      color: limegreen;
+      border-radius: 8px;
+      padding: 20px;
+      min-width: 180px;
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    .digital-card h3 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      color: limegreen;
+    }
+    .digital-card p {
+      font-size: 24px;
+      margin: 0;
+      font-weight: bold;
+    }
+    /* Styling for individual websocket room cards using the same black/green theme */
+    .ws-room-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .ws-room-card {
+      background-color: #000;
+      color: limegreen;
+      border: 1px solid limegreen;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 14px;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <h1>Metrics Dashboard</h1>
+
+  <!-- Live Metrics Table Section -->
+  <div class="live-data">
+    <h2>Live Metrics (Table)</h2>
+    <div id="liveMetrics">
+      <!-- Live metrics will be inserted here -->
+    </div>
+  </div>
+
+  <!-- Digital Dashboard Section -->
+  <div class="live-data">
+    <h2>Live Metrics (Digital Dashboard)</h2>
+    <div class="digital-dashboard">
+      <!-- Digital card for serial_messages_per_sec -->
+      <div class="digital-card" id="card-serial_messages_per_sec">
+        <h3>Serial Msgs/sec</h3>
+        <p id="val-serial_messages_per_sec">--</p>
+      </div>
+      <!-- Digital card for serial_messages_per_min -->
+      <div class="digital-card" id="card-serial_messages_per_min">
+        <h3>Serial Msgs/min</h3>
+        <p id="val-serial_messages_per_min">--</p>
+      </div>
+      <!-- Digital card for udp_messages_per_sec -->
+      <div class="digital-card" id="card-udp_messages_per_sec">
+        <h3>UDP Msgs/sec</h3>
+        <p id="val-udp_messages_per_sec">--</p>
+      </div>
+      <!-- Digital card for udp_messages_per_min -->
+      <div class="digital-card" id="card-udp_messages_per_min">
+        <h3>UDP Msgs/min</h3>
+        <p id="val-udp_messages_per_min">--</p>
+      </div>
+      <!-- Digital card for active_websocket_rooms -->
+      <div class="digital-card" id="card-active_websocket_rooms">
+        <h3>Active Websocket Rooms</h3>
+        <div id="val-active_websocket_rooms" class="ws-room-container">
+          <!-- Individual room cards will be inserted here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Historical Metrics Charts -->
+  <h2>Historical Metrics</h2>
+  <div id="charts">
+    <!-- Charts will be inserted here -->
+  </div>
+
+  <script>
+    // Connect to the websocket server.
+    const socket = io();
+
+    // Subscribe to the metrics room.
+    socket.emit("subscribeMetrics");
+
+    // Update the live metrics table.
+    function updateLiveDisplay(metrics) {
+      const liveDiv = document.getElementById("liveMetrics");
+      let html = "<table><tr><th>Metric</th><th>Value</th></tr>";
+      for (const key in metrics) {
+        html += `<tr><td>${key}</td><td>${metrics[key]}</td></tr>`;
+      }
+      html += "</table>";
+      liveDiv.innerHTML = html;
+    }
+
+    // Update the digital dashboard cards.
+    function updateDigitalDashboard(metrics) {
+      // Update individual cards.
+      document.getElementById("val-serial_messages_per_sec").textContent =
+        metrics.serial_messages_per_sec !== undefined ? metrics.serial_messages_per_sec : "--";
+      document.getElementById("val-serial_messages_per_min").textContent =
+        metrics.serial_messages_per_min !== undefined ? metrics.serial_messages_per_min : "--";
+      document.getElementById("val-udp_messages_per_sec").textContent =
+        metrics.udp_messages_per_sec !== undefined ? metrics.udp_messages_per_sec : "--";
+      document.getElementById("val-udp_messages_per_min").textContent =
+        metrics.udp_messages_per_min !== undefined ? metrics.udp_messages_per_min : "--";
+
+      // Update active_websocket_rooms display.
+      const wsRoomsContainer = document.getElementById("val-active_websocket_rooms");
+      wsRoomsContainer.innerHTML = "";
+      if (metrics.active_websocket_rooms && typeof metrics.active_websocket_rooms === "object") {
+        for (const room in metrics.active_websocket_rooms) {
+          const count = metrics.active_websocket_rooms[room];
+          const roomCard = document.createElement("div");
+          roomCard.className = "ws-room-card";
+          roomCard.textContent = `${room}: ${count} user(s)`;
+          wsRoomsContainer.appendChild(roomCard);
+        }
+      } else {
+        wsRoomsContainer.textContent = "--";
+      }
+    }
+
+    // Listen for live metrics updates from the websocket.
+    socket.on("metrics_update", function(data) {
+      try {
+        const metrics = JSON.parse(data);
+        updateLiveDisplay(metrics);
+        updateDigitalDashboard(metrics);
+      } catch (e) {
+        console.error("Error parsing live metrics:", e);
+      }
+    });
+
+    // Fetch historical metrics data from the /metrics endpoint.
+    async function fetchHistoricalMetrics() {
+      try {
+        const response = await fetch("/metrics");
+        const data = await response.json();
+        return data;
+      } catch (e) {
+        console.error("Error fetching historical metrics:", e);
+        return null;
+      }
+    }
+
+    // Create a line chart for a given metric using Chart.js.
+    function createChart(ctx, label, timestamps, values) {
+      return new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: timestamps,
+          datasets: [{
+            label: label,
+            data: values,
+            fill: false,
+            borderColor: "blue"
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: {
+              type: "time",
+              time: {
+                tooltipFormat: "PPpp"
+              },
+              title: {
+                display: true,
+                text: "Time"
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: label
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Render historical charts based on fetched data.
+    async function renderHistoricalCharts() {
+      const historical = await fetchHistoricalMetrics();
+      if (!historical) return;
+
+      // Clear previous charts.
+      const container = document.getElementById("charts");
+      container.innerHTML = "";
+
+      // Example: Assume historical data has a key "minute_aggregates"
+      // which is an array of snapshot objects. Each snapshot has a timestamp and
+      // a property "serial_messages_per_sec" with an "ave" value.
+      if (historical.minute_aggregates && historical.minute_aggregates.length > 0) {
+        const div = document.createElement("div");
+        div.className = "chart-container";
+        const heading = document.createElement("h3");
+        heading.textContent = "1-Minute Snapshots (Hourly) - SerialMessagesPerSec (Average)";
+        div.appendChild(heading);
+        const canvas = document.createElement("canvas");
+        div.appendChild(canvas);
+        container.appendChild(div);
+
+        const timestamps = historical.minute_aggregates.map(snap => new Date(snap.timestamp));
+        const values = historical.minute_aggregates.map(snap => snap.serial_messages_per_sec.ave);
+        createChart(canvas.getContext("2d"), "SerialMessagesPerSec (avg)", timestamps, values);
+      }
+      // You can add similar blocks for other aggregation intervals.
+    }
+
+    // Render historical charts on page load.
+    renderHistoricalCharts();
+    // Optionally, re-fetch historical data periodically (e.g., every 5 minutes).
+    setInterval(renderHistoricalCharts, 5 * 60 * 1000);
+  </script>
+</body>
+</html>
