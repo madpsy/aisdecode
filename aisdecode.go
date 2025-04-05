@@ -1946,6 +1946,79 @@ func main() {
 		}
 	}()
 
+    	go func() {
+        	ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
+	        for range ticker.C {
+	            now := time.Now().UTC()
+	            cutoff := now.Add(-*expireAfter)
+	            vesselMsgTimestampsMutex.Lock()
+	            for vesselID, timestamps := range vesselMsgTimestamps {
+	                valid := timestamps[:0]
+	                for _, t := range timestamps {
+	                    if t.After(cutoff) {
+	                        valid = append(valid, t)
+	                    }
+	                }
+	                vesselMsgTimestamps[vesselID] = valid
+
+        	        // Also update the vesselData if it exists.
+	                vesselDataMutex.Lock()
+	                if vessel, exists := vesselData[vesselID]; exists {
+	                    vessel["NumMessages"] = float64(len(valid))
+	                }
+	                vesselDataMutex.Unlock()
+	            }
+	            vesselMsgTimestampsMutex.Unlock()
+	        }
+	}()
+
+	go func() {
+	    ticker := time.NewTicker(1 * time.Minute)
+	    defer ticker.Stop()
+	    for range ticker.C {
+	        cleanDedupeWindow(&aggregatorDedupeWindow, &aggregatorDedupeMutex, windowDuration)
+	        cleanDedupeWindow(&websocketDedupeWindow, &websocketDedupeMutex, windowDuration)
+	    }
+	}()
+
+	go func() {
+	    ticker := time.NewTicker(1 * time.Second)
+	    defer ticker.Stop()
+
+	    for range ticker.C {
+	        metrics := Metrics{
+	            SerialMessagesPerSec:  float64(serialMessages) / 1.0,
+	            UDPMessagesPerSec:     float64(udpMessages) / 1.0,
+	            TotalMessages:         totalMessages,
+	            SerialMessagesPerMin:  float64(serialMessages) * 60,
+	            UDPMessagesPerMin:     float64(udpMessages) * 60,
+	            TotalDeduplications:   dedupeMessages,
+	            ActiveWebSockets:      len(clients),
+	            ActiveWebSocketRooms:  activeRooms,
+	            NumVesselsClassA:      vesselCounts["Class A"],
+	            NumVesselsClassB:      vesselCounts["Class B"],
+	            NumVesselsAtoN:        vesselCounts["AtoN"],
+	            NumVesselsBaseStation: vesselCounts["Base Station"],
+	            NumVesselsSAR:         vesselCounts["SAR"],
+	            NewVesselsPerMin:      newVessels,
+	            NewVesselsPerHour:     newVessels * 60,
+	            TopTenVessels:         topVessels,
+	        }
+
+	        metricsJSON, err := json.Marshal(metrics)
+	        if err != nil {
+	            log.Printf("Error marshaling metrics: %v", err)
+	            continue
+	        }
+
+	        // Emit asynchronously so a slow client won't block the ticker loop.
+	        go func(msg string) {
+	            if err := sioServer.To("metrics").Emit("metrics_update", msg); err != nil {
+	                log.Printf("Error emitting metrics: %v", err)
+	            }
+	        }(string(metricsJSON))
+	    }
+	}()
 
 	// --- Read from serial port line-by-line (if -serial-port is specified) ---
 	if *serialPort != "" {
@@ -2209,76 +2282,7 @@ func main() {
 			log.Printf("Error reading from serial port: %v", err)
 		}
 	}
-    	go func() {
-        	ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
-	        for range ticker.C {
-	            now := time.Now().UTC()
-	            cutoff := now.Add(-*expireAfter)
-	            vesselMsgTimestampsMutex.Lock()
-	            for vesselID, timestamps := range vesselMsgTimestamps {
-	                valid := timestamps[:0]
-	                for _, t := range timestamps {
-	                    if t.After(cutoff) {
-	                        valid = append(valid, t)
-	                    }
-	                }
-	                vesselMsgTimestamps[vesselID] = valid
 
-        	        // Also update the vesselData if it exists.
-	                vesselDataMutex.Lock()
-	                if vessel, exists := vesselData[vesselID]; exists {
-	                    vessel["NumMessages"] = float64(len(valid))
-	                }
-	                vesselDataMutex.Unlock()
-	            }
-	            vesselMsgTimestampsMutex.Unlock()
-	        }
-	}()
-
-	go func() {
-	    ticker := time.NewTicker(1 * time.Minute)
-	    defer ticker.Stop()
-	    for range ticker.C {
-	        cleanDedupeWindow(&aggregatorDedupeWindow, &aggregatorDedupeMutex, windowDuration)
-	        cleanDedupeWindow(&websocketDedupeWindow, &websocketDedupeMutex, windowDuration)
-	    }
-	}()
-
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			metrics := Metrics{
-				SerialMessagesPerSec:   float64(serialMessages) / 1.0,
-				UDPMessagesPerSec:      float64(udpMessages) / 1.0,
-				TotalMessages:          totalMessages,
-				SerialMessagesPerMin:   float64(serialMessages) * 60,
-				UDPMessagesPerMin:      float64(udpMessages) * 60,
-				TotalDeduplications:    dedupeMessages,
-				ActiveWebSockets:       len(clients),
-				ActiveWebSocketRooms:   activeRooms,
-				NumVesselsClassA:       vesselCounts["Class A"],
-				NumVesselsClassB:       vesselCounts["Class B"],
-				NumVesselsAtoN:         vesselCounts["AtoN"],
-				NumVesselsBaseStation:  vesselCounts["Base Station"],
-				NumVesselsSAR:          vesselCounts["SAR"],
-				NewVesselsPerMin:       newVessels,
-				NewVesselsPerHour:      newVessels * 60,
-				TopTenVessels:          topVessels,
-			}
-
-			// Convert the metrics to JSON and emit it to the metrics room
-			metricsJSON, err := json.Marshal(metrics)
-			if err != nil {
-				log.Printf("Error marshaling metrics: %v", err)
-				continue
-			}
-
-			// Emit to all clients in the "metrics" room
-			sioServer.To("metrics").Emit("metrics_update", string(metricsJSON))
-		}
-	}()
 
 	// Wait forever.
 	select {}
