@@ -1716,8 +1716,8 @@ function updateOverlay() {
     }
 
     // Update the overlay count text with the visible count and the known vessels count
-    document.getElementById('vessel-count').textContent =
-        `${topVessels.length} of ${known} vessels (${visibleCount} visible)`;
+    document.getElementById('vessel-count').innerHTML =
+        `${topVessels.length} of ${known} vessels<br>${visibleCount} visible on map`;
 
     let content = "";
     topVessels.forEach(v => {
