@@ -120,15 +120,12 @@
   <!-- Historical Metrics Charts -->
   <h2>Historical Metrics</h2>
   <div id="charts">
-    <!-- Charts will be inserted here -->
+    <!-- Historical charts will be inserted here -->
   </div>
 
   <script>
     // Connect to the websocket server.
     const socket = io();
-
-    // Subscribe to the metrics room.
-    socket.emit("subscribeMetrics");
 
     // Update the live metrics table.
     function updateLiveDisplay(metrics) {
@@ -196,27 +193,44 @@
       }
     }
 
-    // Create a line chart for a given metric using Chart.js.
-    function createChart(ctx, label, timestamps, values) {
+    // --- Historical Charts Functions ---
+    // Calculate fixed time range: from 60 minutes ago to now.
+    function getFixedTimeRange() {
+      const now = new Date();
+      return {
+        min: new Date(now.getTime() - 60 * 60 * 1000),
+        max: now
+      };
+    }
+
+    // Create a line chart for multiple datasets.
+    function createMultiLineChart(ctx, labels, datasets, chartLabel) {
+      const timeRange = getFixedTimeRange();
       return new Chart(ctx, {
         type: "line",
         data: {
-          labels: timestamps,
-          datasets: [{
-            label: label,
-            data: values,
-            fill: false,
-            borderColor: "blue"
-          }]
+          labels: labels,
+          datasets: datasets
         },
         options: {
+          animation: { duration: 0 },
           responsive: true,
+          plugins: {
+            title: {
+              display: true,
+              text: chartLabel
+            }
+          },
           scales: {
             x: {
               type: "time",
               time: {
-                tooltipFormat: "PPpp"
+                tooltipFormat: "PPpp",
+                unit: "minute",
+                stepSize: 1
               },
+              min: timeRange.min,
+              max: timeRange.max,
               title: {
                 display: true,
                 text: "Time"
@@ -225,7 +239,53 @@
             y: {
               title: {
                 display: true,
-                text: label
+                text: chartLabel
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Create a stacked bar chart.
+    function createStackedBarChart(ctx, labels, datasets, chartLabel) {
+      const timeRange = getFixedTimeRange();
+      return new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: datasets
+        },
+        options: {
+          animation: { duration: 0 },
+          responsive: true,
+          plugins: {
+            title: {
+              display: true,
+              text: chartLabel
+            }
+          },
+          scales: {
+            x: {
+              stacked: true,
+              type: "time",
+              time: {
+                tooltipFormat: "PPpp",
+                unit: "minute",
+                stepSize: 1
+              },
+              min: timeRange.min,
+              max: timeRange.max,
+              title: {
+                display: true,
+                text: "Time"
+              }
+            },
+            y: {
+              stacked: true,
+              title: {
+                display: true,
+                text: "Number of Vessels"
               }
             }
           }
@@ -235,37 +295,115 @@
 
     // Render historical charts based on fetched data.
     async function renderHistoricalCharts() {
+      // Save the current scroll position.
+      const scrollPos = window.pageYOffset;
+
       const historical = await fetchHistoricalMetrics();
-      if (!historical) return;
+      if (!historical || !historical.minute_averages) return;
 
-      // Clear previous charts.
-      const container = document.getElementById("charts");
-      container.innerHTML = "";
+      // We assume minute_averages is an array with up to 60 snapshots.
+      const snapshots = historical.minute_averages;
+      // Extract timestamps.
+      const timestamps = snapshots.map(snap => new Date(snap.timestamp));
 
-      // Example: Assume historical data has a key "minute_aggregates"
-      // which is an array of snapshot objects. Each snapshot has a timestamp and
-      // a property "serial_messages_per_sec" with an "ave" value.
-      if (historical.minute_aggregates && historical.minute_aggregates.length > 0) {
-        const div = document.createElement("div");
-        div.className = "chart-container";
-        const heading = document.createElement("h3");
-        heading.textContent = "1-Minute Snapshots (Hourly) - SerialMessagesPerSec (Average)";
-        div.appendChild(heading);
-        const canvas = document.createElement("canvas");
-        div.appendChild(canvas);
-        container.appendChild(div);
+      // 1) Line chart for serial_messages_per_min and udp_messages_per_min.
+      const serialMsgsMin = snapshots.map(snap => snap.serial_messages_per_min.average);
+      const udpMsgsMin = snapshots.map(snap => snap.udp_messages_per_min.average);
+      const chartsDiv = document.getElementById("charts");
+      chartsDiv.innerHTML = ""; // Clear previous charts
 
-        const timestamps = historical.minute_aggregates.map(snap => new Date(snap.timestamp));
-        const values = historical.minute_aggregates.map(snap => snap.serial_messages_per_sec.ave);
-        createChart(canvas.getContext("2d"), "SerialMessagesPerSec (avg)", timestamps, values);
-      }
-      // You can add similar blocks for other aggregation intervals.
+      let container = document.createElement("div");
+      container.className = "chart-container";
+      let heading = document.createElement("h3");
+      heading.textContent = "Serial & UDP Messages per Minute (Last 60 minutes)";
+      container.appendChild(heading);
+      let canvas1 = document.createElement("canvas");
+      container.appendChild(canvas1);
+      chartsDiv.appendChild(container);
+      createMultiLineChart(canvas1.getContext("2d"), timestamps, [
+        {
+          label: "Serial Msgs/min",
+          data: serialMsgsMin,
+          fill: false,
+          borderColor: "blue"
+        },
+        {
+          label: "UDP Msgs/min",
+          data: udpMsgsMin,
+          fill: false,
+          borderColor: "red"
+        }
+      ], "Messages per Minute");
+
+      // 2) Stacked bar chart for vessel counts.
+      const classA = snapshots.map(snap => snap.num_vessels_class_a.average);
+      const classB = snapshots.map(snap => snap.num_vessels_class_b.average);
+      const aton = snapshots.map(snap => snap.num_vessels_aton.average);
+      const baseStation = snapshots.map(snap => snap.num_vessels_base_station.average);
+      const sar = snapshots.map(snap => snap.num_vessels_sar.average);
+      container = document.createElement("div");
+      container.className = "chart-container";
+      heading = document.createElement("h3");
+      heading.textContent = "Vessel Counts (Stacked, Last 60 minutes)";
+      container.appendChild(heading);
+      let canvas2 = document.createElement("canvas");
+      container.appendChild(canvas2);
+      chartsDiv.appendChild(container);
+      createStackedBarChart(canvas2.getContext("2d"), timestamps, [
+        {
+          label: "Class A",
+          data: classA,
+          backgroundColor: "rgba(54, 162, 235, 0.7)"
+        },
+        {
+          label: "Class B",
+          data: classB,
+          backgroundColor: "rgba(255, 99, 132, 0.7)"
+        },
+        {
+          label: "AtoN",
+          data: aton,
+          backgroundColor: "rgba(255, 206, 86, 0.7)"
+        },
+        {
+          label: "Base Station",
+          data: baseStation,
+          backgroundColor: "rgba(75, 192, 192, 0.7)"
+        },
+        {
+          label: "SAR",
+          data: sar,
+          backgroundColor: "rgba(153, 102, 255, 0.7)"
+        }
+      ], "Vessel Types");
+
+      // 3) Line chart for active_websockets.
+      const activeWebsockets = snapshots.map(snap => snap.active_websockets.average);
+      container = document.createElement("div");
+      container.className = "chart-container";
+      heading = document.createElement("h3");
+      heading.textContent = "Active Websockets (Last 60 minutes)";
+      container.appendChild(heading);
+      let canvas3 = document.createElement("canvas");
+      container.appendChild(canvas3);
+      chartsDiv.appendChild(container);
+      createMultiLineChart(canvas3.getContext("2d"), timestamps, [
+        {
+          label: "Active Websockets",
+          data: activeWebsockets,
+          fill: false,
+          borderColor: "green"
+        }
+      ], "Active Websockets");
+
+      // Restore the original scroll position after rendering the charts.
+      window.scrollTo(0, scrollPos);
     }
 
     // Render historical charts on page load.
     renderHistoricalCharts();
-    // Optionally, re-fetch historical data periodically (e.g., every 5 minutes).
-    setInterval(renderHistoricalCharts, 5 * 60 * 1000);
+    // Re-fetch and re-render historical data every minute.
+    setInterval(renderHistoricalCharts, 60 * 1000);
   </script>
 </body>
 </html>

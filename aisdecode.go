@@ -27,6 +27,8 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
+var startTime = time.Now()
+
 type SlidingWindowCounter struct {
     mu     sync.Mutex
     events []time.Time
@@ -46,7 +48,8 @@ type Metrics struct {
 	NumVesselsAtoN          int     `json:"num_vessels_aton"`
 	NumVesselsBaseStation   int     `json:"num_vessels_base_station"`
 	NumVesselsSAR           int     `json:"num_vessels_sar"`
-	TotalKnownVessels       int           `json:"total_known_vessels"`
+	TotalKnownVessels       int     `json:"total_known_vessels"`
+	UptimeSeconds           int     `json:"uptime_seconds"`
 }
 
 type TopVessel struct {
@@ -935,6 +938,7 @@ func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]m
 }
 
 func main() {
+	startTime := time.Now()
 	// Command-line flags.
 	serialPort := flag.String("serial-port", "", "Serial port device (optional)")
 	baud := flag.Int("baud", 38400, "Baud rate (default: 38400), ignored if -serial-port is not specified")
@@ -2079,6 +2083,7 @@ func main() {
 	           roomsCopy[room] = count
 		}
 	        roomsMutex.Unlock()
+		uptimeSeconds := int(time.Since(startTime).Seconds())
 
 	        metrics := Metrics{
             	    SerialMessagesPerSec:  float64(serialCounter.Count(1 * time.Second)),
@@ -2095,6 +2100,7 @@ func main() {
         	    NumVesselsBaseStation: counts["Base Station"],
         	    NumVesselsSAR:         counts["SAR"],
 		    TotalKnownVessels:     totalKnown,
+		    UptimeSeconds:         uptimeSeconds,
 	        }
 
 	        metricsJSON, err := json.Marshal(metrics)
