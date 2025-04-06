@@ -70,60 +70,131 @@
       font-size: 14px;
       text-align: left;
     }
+    /* Styling for collapsible sections */
+    details {
+      margin-bottom: 20px;
+      border: 1px solid #ccc;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    details summary {
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+      outline: none;
+    }
   </style>
 </head>
 <body>
   <h1>Metrics Dashboard</h1>
 
-  <!-- Live Metrics Table Section -->
-  <div class="live-data">
-    <h2>Live Metrics (Table)</h2>
-    <div id="liveMetrics">
-      <!-- Live metrics will be inserted here -->
+  <!-- Collapsible Live Metrics Table Section (collapsed by default) -->
+  <details>
+    <summary>Live Metrics (Table)</summary>
+    <div class="live-data">
+      <div id="liveMetrics">
+        <!-- Live metrics will be inserted here -->
+      </div>
     </div>
-  </div>
+  </details>
 
-  <!-- Digital Dashboard Section -->
-  <div class="live-data">
-    <h2>Live Metrics (Digital Dashboard)</h2>
-    <div class="digital-dashboard">
-      <!-- Digital card for serial_messages_per_sec -->
-      <div class="digital-card" id="card-serial_messages_per_sec">
-        <h3>Serial Msgs/sec</h3>
-        <p id="val-serial_messages_per_sec">--</p>
+  <!-- Collapsible Digital Dashboard Section (expanded by default) -->
+  <details open>
+    <summary>Live Metrics (Digital Dashboard)</summary>
+    <div class="live-data">
+      <!-- First row: other metrics -->
+      <div class="digital-dashboard">
+        <!-- Digital card for serial_messages_per_sec -->
+        <div class="digital-card" id="card-serial_messages_per_sec">
+          <h3>Serial Msgs/sec</h3>
+          <p id="val-serial_messages_per_sec">--</p>
+        </div>
+        <!-- Digital card for serial_messages_per_min -->
+        <div class="digital-card" id="card-serial_messages_per_min">
+          <h3>Serial Msgs/min</h3>
+          <p id="val-serial_messages_per_min">--</p>
+        </div>
+        <!-- Digital card for udp_messages_per_sec -->
+        <div class="digital-card" id="card-udp_messages_per_sec">
+          <h3>UDP Msgs/sec</h3>
+          <p id="val-udp_messages_per_sec">--</p>
+        </div>
+        <!-- Digital card for udp_messages_per_min -->
+        <div class="digital-card" id="card-udp_messages_per_min">
+          <h3>UDP Msgs/min</h3>
+          <p id="val-udp_messages_per_min">--</p>
+        </div>
+        <!-- Digital card for uptime_seconds -->
+        <div class="digital-card" id="card-uptime_seconds">
+          <h3>Uptime</h3>
+          <p id="val-uptime_seconds">--</p>
+        </div>
+        <!-- Digital card for total_messages -->
+        <div class="digital-card" id="card-total_message">
+          <h3>Total Messages</h3>
+          <p id="val-total_messages">--</p>
+        </div>
+        <!-- Digital card for total_deduplications -->
+        <div class="digital-card" id="card-total_deduplications">
+          <h3>Total Deduplications</h3>
+          <p id="val-total_deduplications">--</p>
+        </div>
+        <!-- Digital card for total_known_vessels -->
+        <div class="digital-card" id="card-total_known_vessels">
+          <h3>Total Known Vessels</h3>
+          <p id="val-total_known_vessels">--</p>
+        </div>
+        <!-- Digital card for active_websockets -->
+        <div class="digital-card" id="card-active_websockets">
+          <h3>Active Websockets</h3>
+          <p id="val-active_websockets">--</p>
+        </div>
       </div>
-      <!-- Digital card for serial_messages_per_min -->
-      <div class="digital-card" id="card-serial_messages_per_min">
-        <h3>Serial Msgs/min</h3>
-        <p id="val-serial_messages_per_min">--</p>
-      </div>
-      <!-- Digital card for udp_messages_per_sec -->
-      <div class="digital-card" id="card-udp_messages_per_sec">
-        <h3>UDP Msgs/sec</h3>
-        <p id="val-udp_messages_per_sec">--</p>
-      </div>
-      <!-- Digital card for udp_messages_per_min -->
-      <div class="digital-card" id="card-udp_messages_per_min">
-        <h3>UDP Msgs/min</h3>
-        <p id="val-udp_messages_per_min">--</p>
-      </div>
-      <!-- Digital card for active_websocket_rooms -->
-      <div class="digital-card" id="card-active_websocket_rooms">
-        <h3>Active Websocket Rooms</h3>
-        <div id="val-active_websocket_rooms" class="ws-room-container">
-          <!-- Individual room cards will be inserted here -->
+      <!-- Second row: Active websocket rooms -->
+      <div class="digital-dashboard">
+        <div class="digital-card" id="card-active_websocket_rooms">
+          <h3>Active Websocket Rooms</h3>
+          <div id="val-active_websocket_rooms" class="ws-room-container">
+            <!-- Individual room cards will be inserted here -->
+          </div>
         </div>
       </div>
     </div>
-  </div>
+  </details>
 
-  <!-- Historical Metrics Charts -->
-  <h2>Historical Metrics</h2>
-  <div id="charts">
-    <!-- Historical charts will be inserted here -->
-  </div>
+  <!-- Collapsible Historical Metrics Section (expanded by default) -->
+  <details open>
+    <summary>Historical Metrics</summary>
+    <div id="charts">
+      <!-- Historical charts will be inserted here -->
+    </div>
+  </details>
 
   <script>
+    // Helper function to format uptime in seconds to "0d 0h 4m 10s" format.
+    function formatUptime(seconds) {
+      const d = Math.floor(seconds / (3600 * 24));
+      const h = Math.floor((seconds % (3600 * 24)) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = Math.floor(seconds % 60);
+      return `${d}d ${h}h ${m}m ${s}s`;
+    }
+
+    // Helper function to format numbers.
+    // For total_messages and total_deduplications, if the value is under 1000 show the raw value.
+    // For other large numbers, abbreviate as needed.
+    function formatNumber(n) {
+      if (n < 1000) {
+        return n.toString();
+      } else if (n < 1000000) {
+        let result = n / 1000;
+        return (result % 1 === 0) ? result + "k" : result.toFixed(1) + "k";
+      } else {
+        let result = n / 1000000;
+        return (result % 1 === 0) ? result + "m" : result.toFixed(1) + "m";
+      }
+    }
+
     // Connect to the websocket server.
     const socket = io();
 
@@ -149,6 +220,26 @@
         metrics.udp_messages_per_sec !== undefined ? metrics.udp_messages_per_sec : "--";
       document.getElementById("val-udp_messages_per_min").textContent =
         metrics.udp_messages_per_min !== undefined ? metrics.udp_messages_per_min : "--";
+
+      // Update uptime_seconds with formatted uptime.
+      document.getElementById("val-uptime_seconds").textContent =
+        metrics.uptime_seconds !== undefined ? formatUptime(metrics.uptime_seconds) : "--";
+
+      // Update total_messages with raw value when under 1000.
+      document.getElementById("val-total_messages").textContent =
+        metrics.total_messages !== undefined ? formatNumber(metrics.total_messages) : "--";
+
+      // Update total_deduplications with raw value when under 1000.
+      document.getElementById("val-total_deduplications").textContent =
+        metrics.total_deduplications !== undefined ? formatNumber(metrics.total_deduplications) : "--";
+
+      // Update total_known_vessels.
+      document.getElementById("val-total_known_vessels").textContent =
+        metrics.total_known_vessels !== undefined ? metrics.total_known_vessels : "--";
+
+      // Update active_websockets.
+      document.getElementById("val-active_websockets").textContent =
+        metrics.active_websockets !== undefined ? metrics.active_websockets : "--";
 
       // Update active_websocket_rooms display.
       const wsRoomsContainer = document.getElementById("val-active_websocket_rooms");
