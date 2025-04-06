@@ -397,7 +397,11 @@
     <input type="checkbox" id="openseamap-overlay" checked>
     Map Overlay
   </label>
-        <label>
+  <label>
+    <input type="checkbox" id="show-ports">
+    Show Ports
+  </label>
+  <label>
     <input type="checkbox" id="show-paths" checked>
     History
   </label>
@@ -408,7 +412,7 @@
         <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Types</button>
     </div>
 
-    <div id="vessel-legend" style="display: none; position: absolute; top: 220px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
+    <div id="vessel-legend" style="display: none; position: absolute; top: 240px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
         <div id="legend-content"></div>
     </div>
 
@@ -3093,12 +3097,24 @@ document.getElementById("age-slider").addEventListener("input", () => {
 });
 
 map.on('moveend', function() {
-  clearTimeout(debounceTimeout);
-  debounceTimeout = setTimeout(() => {
-    fetchPorts();
-  }, 500);  // Wait for 500ms after the map view has stopped changing
+  if (document.getElementById('show-ports').checked) {
+	  clearTimeout(debounceTimeout);
+	  debounceTimeout = setTimeout(() => {
+	    fetchPorts();
+	  }, 500);  // Wait for 500ms after the map view has stopped changing
+  }
 });
-fetchPorts();
+if (document.getElementById('show-ports').checked) {
+  fetchPorts();
+}
+
+document.getElementById('show-ports').addEventListener('change', function() {
+  if (this.checked) {
+    fetchPorts(); // Load and display the ports
+  } else {
+    removePortMarkers(); // Hide all port markers
+  }
+});
 
         // Utility: Generate a random hex color.
         function randomColor() {
