@@ -2361,19 +2361,18 @@ function applyLogFilters() {
 	    	        svg.style.transform = `rotate(${heading}deg)`;
 		}
     	      }
-    	      // Add the enlarge effect
-    	      markerElem.classList.add('enlarge');
-    	      setTimeout(() => markerElem.classList.remove('enlarge'), 500);
     	    }
                 if (vesselState.Name && mmsi !== focusedVessel) {
                   vesselMarkers[mmsi].unbindTooltip();
-                  vesselMarkers[mmsi].bindTooltip(vesselState.Name, {
-                    permanent: true,
-                    direction: 'top',
-                    className: 'vessel-tooltip',
-                    interactive: true
-                  }).openTooltip();
-                  attachTooltipClick(vesselMarkers[mmsi], mmsi);
+		  if (map.getZoom() >= 10) {
+                    vesselMarkers[mmsi].bindTooltip(vesselState.Name, {
+                      permanent: true,
+                      direction: 'top',
+                      className: 'vessel-tooltip',
+                      interactive: true
+                    }).openTooltip();
+                    attachTooltipClick(vesselMarkers[mmsi], mmsi);
+                  }
                 }
                 vesselMarkers[mmsi].off('click');
                 vesselMarkers[mmsi].on('click', function(e) {
@@ -2530,18 +2529,36 @@ function getNearestTrackPoint(e, track) {
 
 // Focus on a particular vessel.
 function focusOnVessel(userID, initialFocus = true) {
+  // Unfocus previously focused vessel
   if (focusedVessel && focusedVessel !== userID) {
     if (vesselData[focusedVessel]) {
       vesselData[focusedVessel].track = [];
     }
     const prevMarker = vesselMarkers[focusedVessel];
     if (prevMarker) {
-      prevMarker.getTooltip().setContent(vesselData[focusedVessel].Name);
+      // If a tooltip exists, update its content; otherwise, bind a default one.
+      let prevTooltip = prevMarker.getTooltip();
+      if (!prevTooltip) {
+        prevMarker.bindTooltip(vesselData[focusedVessel].Name, {
+          permanent: true,
+          direction: 'top',
+          className: 'vessel-tooltip'
+        });
+        prevTooltip = prevMarker.getTooltip();
+      }
+      if (prevTooltip) {
+        prevTooltip.setContent(vesselData[focusedVessel].Name);
+      }
       prevMarker.closeTooltip();
       prevMarker.setZIndexOffset(0);
-      prevMarker.getElement()?.classList.remove('enlarge');
+      const prevElem = prevMarker.getElement();
+      if (prevElem) {
+        prevElem.classList.remove('enlarge');
+      }
     }
   }
+  
+  // Update subscriptions if focusing on a new vessel
   if (focusedVessel !== userID) {
     clearLiveLogs();
     if (instantChannel) {
@@ -2550,120 +2567,150 @@ function focusOnVessel(userID, initialFocus = true) {
     subscribeInstantUpdates(userID);
     hydrateTrackHistory(userID);
   }
-
-  // Reset tooltip for previous focused vessel.
+  
+  // (Optional) Reset tooltip for the previously focused vessel if needed
   if (focusedVessel && focusedVessel !== userID) {
     const prevMarker = vesselMarkers[focusedVessel];
-    // Reset tooltip to default content and close it
-    prevMarker.getTooltip().setContent(vesselData[focusedVessel].Name);
-    prevMarker.closeTooltip();
-    // Reset z-index and remove any focus styling
-    prevMarker.setZIndexOffset(0);
-    prevMarker.getElement()?.classList.remove('enlarge');
+    if (prevMarker) {
+      let prevTooltip = prevMarker.getTooltip();
+      if (!prevTooltip) {
+        prevMarker.bindTooltip(vesselData[focusedVessel].Name, {
+          permanent: true,
+          direction: 'top',
+          className: 'vessel-tooltip'
+        });
+        prevTooltip = prevMarker.getTooltip();
+      }
+      if (prevTooltip) {
+        prevTooltip.setContent(vesselData[focusedVessel].Name);
+      }
+      prevMarker.closeTooltip();
+      prevMarker.setZIndexOffset(0);
+      const prevElem = prevMarker.getElement();
+      if (prevElem) {
+        prevElem.classList.remove('enlarge');
+      }
+    }
   }
-
+  
+  // Set the new focused vessel.
   focusedVessel = userID;
-  vesselMarkers[userID].setZIndexOffset(1000);
+  const marker = vesselMarkers[userID];
+  if (!marker) return; // Ensure marker exists
+  marker.setZIndexOffset(1000);
   const vessel = vesselData[userID];
-
+  
   updateLatLongDisplay();
-
+  
+  // Build new tooltip content.
   const line1 = buildTooltipLine(
     vessel.Destination,
     (navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus) !== 'Unknown'
       ? (navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus)
       : null
   );
-  // And line 2: Vessel Type, Maximum Draught, Speed, and Heading.
   const line2 = buildTooltipLine(
     staticTypeMapping[vessel.Type] || vessel.Type,
     (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
     (vessel.Sog != null ? `${vessel.Sog} kn` : null),
     (vessel.TrueHeading != null ? `${vessel.TrueHeading}°` : null)
   );
-
-  // The tooltip now has the top line (vessel.Name) and two additional lines.
   const tooltipLines = [`${vessel.Name} (${vessel.CallSign})`];
   if (line1.trim()) tooltipLines.push(line1);
   if (line2.trim()) tooltipLines.push(line2);
   tooltipLines.push(timeAgo(vessel.lastUpdate));
   const newTooltipContent = tooltipLines.join('<br>');
-  vesselMarkers[userID].getTooltip().setContent(newTooltipContent);
-
-       const tooltipEl = vesselMarkers[userID].getTooltip().getElement();
-       if (tooltipEl) {
-	  tooltipEl.style.zIndex = '1200';
-       }
-
-       document.getElementById('toggle-detail-overlay').style.display = 'block';
-       document.getElementById('live-logs').style.display = 'block';
-       document.getElementById('stats-button').style.display = 'block';
-
-       const detailOverlay = document.getElementById('vessel-detail');
-       if (!detailsOverlayHidden) {
-          detailOverlay.style.display = 'block';
-          document.getElementById('toggle-detail-overlay').textContent = 'Hide Details';
-       } else {
-          detailOverlay.style.display = 'none';
-          document.getElementById('toggle-detail-overlay').textContent = 'Show Details';
-       }
-
-	    const headerEl = document.getElementById('vessel-detail-header');
-	    if (vesselData[userID].UserID) {
-	      // Build the Lookup link and add a (Link) button after the vessel name.
-	      headerEl.innerHTML = `${vesselData[userID].Name}
-	        <br><a href="https://www.vesselfinder.com/vessels/details/${vesselData[userID].UserID}" target="_blank">Lookup</a> |
-	        <span id="copy-link" style="cursor:pointer; color:blue;">Link</span>`;
-		if (vesselData[userID].ImageURL) {
-   		   headerEl.innerHTML += `<br><img id="vessel-image" src="${vesselData[userID].ImageURL}" style="max-width: 100%; margin: 5px 0; height: auto; cursor:pointer;" alt="Vessel Image">`;
-		   attachImageClick();
-		   detailOverlay.style.maxHeight = '400px';
-		} else {
-		  detailOverlay.style.maxHeight = '300px';
-		}
-	    } else {
-	      headerEl.textContent = "Vessel Details";
-	    }
-
-const copyLinkEl = document.getElementById('copy-link');
-if (copyLinkEl) {
-  copyLinkEl.addEventListener('click', (e) => {
-    if (e && typeof e.stopPropagation === 'function') {
-      e.stopPropagation();
-    }
-    const currentUrl = window.location.href.split('?')[0];
-    const copyUrl = `${currentUrl}?UserID=${vesselData[userID].UserID}`;
-
-    // Function to update the text temporarily
-    function updateLinkText(newText) {
-      copyLinkEl.textContent = newText;
-      setTimeout(() => {
-        copyLinkEl.textContent = "Link";
-      }, 2000); // 2 seconds delay before reverting back
-    }
-
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(copyUrl).then(() => {
-        updateLinkText("Link Copied");
-      }).catch(err => {
-        console.error("Failed to copy: ", err);
-      });
+  
+  // Make sure the marker has a tooltip before updating.
+  let tooltip = marker.getTooltip();
+  if (!tooltip) {
+    marker.bindTooltip(newTooltipContent, {
+      permanent: true,
+      direction: 'top',
+      className: 'vessel-tooltip',
+      interactive: true
+    }).openTooltip();
+    tooltip = marker.getTooltip();
+  } else {
+    tooltip.setContent(newTooltipContent);
+  }
+  
+  // Set tooltip element's z-index.
+  const tooltipEl = tooltip.getElement();
+  if (tooltipEl) {
+    tooltipEl.style.zIndex = '1200';
+  }
+  
+  // Show detail overlay and related buttons.
+  document.getElementById('toggle-detail-overlay').style.display = 'block';
+  document.getElementById('live-logs').style.display = 'block';
+  document.getElementById('stats-button').style.display = 'block';
+  
+  const detailOverlay = document.getElementById('vessel-detail');
+  if (!detailsOverlayHidden) {
+    detailOverlay.style.display = 'block';
+    document.getElementById('toggle-detail-overlay').textContent = 'Hide Details';
+  } else {
+    detailOverlay.style.display = 'none';
+    document.getElementById('toggle-detail-overlay').textContent = 'Show Details';
+  }
+  
+  // Update vessel detail header.
+  const headerEl = document.getElementById('vessel-detail-header');
+  if (vesselData[userID].UserID) {
+    headerEl.innerHTML = `${vesselData[userID].Name}
+      <br><a href="https://www.vesselfinder.com/vessels/details/${vesselData[userID].UserID}" target="_blank">Lookup</a> |
+      <span id="copy-link" style="cursor:pointer; color:blue;">Link</span>`;
+    if (vesselData[userID].ImageURL) {
+      headerEl.innerHTML += `<br><img id="vessel-image" src="${vesselData[userID].ImageURL}" style="max-width: 100%; margin: 5px 0; height: auto; cursor:pointer;" alt="Vessel Image">`;
+      attachImageClick();
+      detailOverlay.style.maxHeight = '400px';
     } else {
-      // Fallback using a temporary textarea
-      const textArea = document.createElement("textarea");
-      textArea.value = copyUrl;
-      document.body.appendChild(textArea);
-      textArea.select();
-      try {
-        document.execCommand('copy');
-        updateLinkText("Link Copied");
-      } catch (err) {
-        console.error("Fallback: Unable to copy", err);
-      }
-      document.body.removeChild(textArea);
+      detailOverlay.style.maxHeight = '300px';
     }
-  });
-}
+  } else {
+    headerEl.textContent = "Vessel Details";
+  }
+  
+  // Attach copy link event.
+  const copyLinkEl = document.getElementById('copy-link');
+  if (copyLinkEl) {
+    copyLinkEl.addEventListener('click', (e) => {
+      if (e && typeof e.stopPropagation === 'function') {
+        e.stopPropagation();
+      }
+      const currentUrl = window.location.href.split('?')[0];
+      const copyUrl = `${currentUrl}?UserID=${vesselData[userID].UserID}`;
+      function updateLinkText(newText) {
+        copyLinkEl.textContent = newText;
+        setTimeout(() => {
+          copyLinkEl.textContent = "Link";
+        }, 2000);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(copyUrl).then(() => {
+          updateLinkText("Link Copied");
+        }).catch(err => {
+          console.error("Failed to copy: ", err);
+        });
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = copyUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          updateLinkText("Link Copied");
+        } catch (err) {
+          console.error("Fallback: Unable to copy", err);
+        }
+        document.body.removeChild(textArea);
+      }
+    });
+  }
+  
+
+
 
 
 // Helper function to show flash message
@@ -3113,6 +3160,32 @@ document.getElementById('show-ports').addEventListener('change', function() {
     fetchPorts(); // Load and display the ports
   } else {
     removePortMarkers(); // Hide all port markers
+  }
+});
+
+map.on('zoomend', function() {
+  const currentZoom = map.getZoom();
+  for (const mmsi in vesselMarkers) {
+    // Always show the tooltip for the focused vessel
+    if (mmsi === focusedVessel?.toString()) {
+      vesselMarkers[mmsi].bindTooltip(vesselData[mmsi].Name, {
+        permanent: true,
+        direction: 'top',
+        className: 'vessel-tooltip'
+      }).openTooltip();
+    } else {
+      if (currentZoom < 10) {
+        // Remove the tooltip for non-focused vessels when zoomed out
+        vesselMarkers[mmsi].unbindTooltip();
+      } else {
+        // Rebind the tooltip for non-focused vessels when zoomed in
+        vesselMarkers[mmsi].bindTooltip(vesselData[mmsi].Name, {
+          permanent: true,
+          direction: 'top',
+          className: 'vessel-tooltip'
+        }).openTooltip();
+      }
+    }
   }
 });
 
