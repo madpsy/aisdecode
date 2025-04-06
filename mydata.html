@@ -30,7 +30,7 @@
       border-radius: 8px;
       margin-bottom: 20px;
     }
-    #stats, #vessel-list {
+    #stats, #vessel-list, #vessel-ab-list {
       width: 90%;
       max-width: 1000px;
       background: #fff;
@@ -52,7 +52,7 @@
       background-color: #f0f0f0;
     }
     /* Top align vessel list cells */
-    #vessel-list table td {
+    #vessel-list table td, #vessel-ab-list table td {
       vertical-align: top;
     }
     .circle-label {
@@ -104,6 +104,11 @@
       </tbody>
     </table>
   </div>
+  <!-- New table for Class A & B vessels split by type -->
+  <div id="vessel-ab-list">
+    <!-- Vessel list for Class A & B vessels by type and distance ring will be inserted dynamically -->
+  </div>
+  <!-- Existing table for AtoN, SAR and Other vessels -->
   <div id="vessel-list">
     <!-- Vessel lists by AISClass will be inserted dynamically -->
   </div>
@@ -158,6 +163,17 @@
         const ourName = localReceiver.name;
         const ourDesc = localReceiver.description;
 
+        // Fetch types.json using the new format.
+        const typesResponse = await fetch('/types.json');
+        const typesData = await typesResponse.json();
+        // Helper function to get the vessel type description based on the numeric type.
+        function getVesselTypeDescription(typeNumber) {
+          const categoryId = typesData.valueLookup[String(typeNumber)];
+          if (categoryId === undefined) return "Unknown Type";
+          const category = typesData.categories.find(cat => cat.id === categoryId);
+          return category ? category.name : "Unknown Type";
+        }
+
         // Fetch vessel summary data and prepare vessel objects
         const summaryResponse = await fetch('/summary');
         const summaryData = await summaryResponse.json();
@@ -168,6 +184,15 @@
           const lat = vessel.Latitude;
           const lon = vessel.Longitude;
           const distance = haversineNM(ourLat, ourLon, lat, lon);
+          // For Class A & B vessels, compute the vessel type using the numeric type (if available)
+          let vesselType = undefined;
+          if (vessel.AISClass === 'A' || vessel.AISClass === 'B') {
+            if (vessel.hasOwnProperty('Type')) {
+              vesselType = getVesselTypeDescription(vessel.Type);
+            } else {
+              vesselType = "Unknown Type";
+            }
+          }
           vessels.push({
             mmsi: mmsi,
             name: vessel.Name,
@@ -176,7 +201,8 @@
             distance: distance,
             lastUpdated: vessel.LastUpdated,
             AISClass: vessel.AISClass,
-            imageURL: vessel.ImageURL
+            imageURL: vessel.ImageURL,
+            vesselType: vesselType  // only for Class A & B vessels
           });
         }
 
@@ -234,6 +260,9 @@
           tooltipContent += `<div>Distance: ${vessel.distance.toFixed(2)} NM</div>`;
           tooltipContent += `<div>Last Updated: ${relativeTime}</div>`;
           tooltipContent += `<div>Class: ${vessel.AISClass}</div>`;
+          if (vessel.vesselType) {
+            tooltipContent += `<div>Type: ${vessel.vesselType}</div>`;
+          }
           tooltipContent += `</div>`;
           if (vessel.imageURL && vessel.imageURL.trim() !== "") {
             tooltipContent += `<div style="margin-left: 10px;"><img src="${vessel.imageURL}" style="width:100px; height:auto;"/></div>`;
@@ -330,7 +359,7 @@
         legend.onAdd = function() {
           const div = L.DomUtil.create('div', 'legend');
           div.innerHTML = `
-            <span class="dot" style="background-color: blue;"></span> A & B <br>
+            <span class="dot" style="background-color: blue;"></span> A &amp; B <br>
             <span class="dot" style="background-color: orange;"></span> AtoN <br>
             <span class="dot" style="background-color: red;"></span> SAR <br>
             <span class="dot" style="background-color: green;"></span> Other <br>
@@ -340,6 +369,8 @@
         legend.addTo(map);
 
         // --- Create separate tables based on AISClass & Ring ---
+
+        // Build cell for vessel list items
         function buildVesselCell(vesselArray) {
           if (vesselArray.length === 0) return "None";
           return vesselArray.map(v => `<span class="vessel-list-item" data-mmsi="${v.mmsi}">${v.name}</span>`).join("<br>");
@@ -363,17 +394,17 @@
           };
         }
 
-        const classAandBByRing = filterVesselsByRing(classAandB);
+        // For AtoN, SAR, Other vessels remain in the existing table
         const classAtoNByRing = filterVesselsByRing(classAtoN);
         const classSARByRing = filterVesselsByRing(classSAR);
         const classOtherByRing = filterVesselsByRing(classOther);
 
+        // Build the original vessel list table for non-A&B vessels
         const vesselListHtml = `
-          <h2>Vessels by AIS Class &amp; Distance Ring</h2>
+          <h2>Vessels by AIS Class &amp; Distance Ring (Excluding Class A &amp; B)</h2>
           <table>
             <thead>
               <tr>
-                <th>A & B <span style="color:blue;">●</span></th>
                 <th>AtoN <span style="color:orange;">●</span></th>
                 <th>SAR <span style="color:red;">●</span></th>
                 <th>Other <span style="color:green;">●</span></th>
@@ -381,14 +412,6 @@
             </thead>
             <tbody>
               <tr>
-                <td>
-                  <h3>0 - ${ring1.toFixed(1)} NM</h3>
-                  ${buildVesselCell(classAandBByRing.ring1)}
-                  <h3>${ring1.toFixed(1)} - ${ring2.toFixed(1)} NM</h3>
-                  ${buildVesselCell(classAandBByRing.ring2)}
-                  <h3>${ring2.toFixed(1)} - ${ring3.toFixed(1)} NM</h3>
-                  ${buildVesselCell(classAandBByRing.ring3)}
-                </td>
                 <td>
                   <h3>0 - ${ring1.toFixed(1)} NM</h3>
                   ${buildVesselCell(classAtoNByRing.ring1)}
@@ -418,6 +441,50 @@
           </table>
         `;
         document.getElementById("vessel-list").innerHTML = vesselListHtml;
+
+        // --- New table for Class A & B vessels grouped by type and distance ring ---
+        // First group the Class A & B vessels by ring
+        const classAandBByRing = filterVesselsByRing(classAandB);
+
+        // Helper function to group vessels by their type and build HTML for each group.
+        function buildGroupedVesselsByType(vesselArray) {
+          if (vesselArray.length === 0) return "None";
+          const groups = {};
+          vesselArray.forEach(v => {
+            const typeKey = v.vesselType || "Unknown Type";
+            if (!groups[typeKey]) {
+              groups[typeKey] = [];
+            }
+            groups[typeKey].push(v);
+          });
+          let html = "";
+          for (const type in groups) {
+            html += `<strong>${type}</strong>:<br>`;
+            html += groups[type].map(v => `<span class="vessel-list-item" data-mmsi="${v.mmsi}">${v.name}</span>`).join("<br>") + "<br><br>";
+          }
+          return html;
+        }
+
+        const vesselABHtml = `
+          <h2>Vessels by Type &amp; Distance Ring (Class A &amp; B)</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>0 - ${ring1.toFixed(1)} NM</th>
+                <th>${ring1.toFixed(1)} - ${ring2.toFixed(1)} NM</th>
+                <th>${ring2.toFixed(1)} - ${ring3.toFixed(1)} NM</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>${buildGroupedVesselsByType(classAandBByRing.ring1)}</td>
+                <td>${buildGroupedVesselsByType(classAandBByRing.ring2)}</td>
+                <td>${buildGroupedVesselsByType(classAandBByRing.ring3)}</td>
+              </tr>
+            </tbody>
+          </table>
+        `;
+        document.getElementById("vessel-ab-list").innerHTML = vesselABHtml;
 
         // Add click event listeners to vessel list items.
         document.querySelectorAll(".vessel-list-item").forEach(item => {
