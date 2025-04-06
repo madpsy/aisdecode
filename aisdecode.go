@@ -1126,14 +1126,6 @@ func main() {
 		clients = append(clients, client)
 		clientsMutex.Unlock()
 
-		// Force clients to join the latest vessel summary room.
-		client.Join(socket.Room("latest_vessel_summary"))
-		roomsMutex.Lock()
-		activeRooms["latest_vessel_summary"]++
-		clientRooms[client.Id()] = append(clientRooms[client.Id()], "latest_vessel_summary")
-		roomsMutex.Unlock()		
-		log.Printf("Client %s joined room latest_vessel_summary", client.Id())
-
 		// Listen for subscription events to join other rooms.
 		client.On("subscribe", func(args ...any) {
 			if len(args) < 1 {

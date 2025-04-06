@@ -2238,6 +2238,7 @@ function applyLogFilters() {
         socket.on('connect', () => {
           document.getElementById('status-dot').style.background = 'green';
           document.getElementById('status-text').textContent = 'Connected';
+	  socket.emit("subscribe", "latest_vessel_summary");
 	  // If a vessel is focused, resubscribe to its channel.
 	  if (focusedVessel) {
 	    subscribeInstantUpdates(focusedVessel);
