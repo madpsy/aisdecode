@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Vessel Map &amp; Statistics</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <!-- Google Fonts for modern look -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Roboto', sans-serif;
+      background: #f4f7f9;
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    h1, h2 {
+      margin-bottom: 10px;
+    }
+    #map {
+      width: 90%;
+      max-width: 1000px;
+      height: 500px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+    #stats, #vessel-list {
+      width: 90%;
+      max-width: 1000px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      text-align: left;
+      padding: 12px 15px;
+      border-bottom: 1px solid #ddd;
+    }
+    th {
+      background-color: #f0f0f0;
+    }
+    /* Top align vessel list cells */
+    #vessel-list table td {
+      vertical-align: top;
+    }
+    .circle-label {
+      background: rgba(255,255,255,0.9);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      border: 1px solid #ccc;
+    }
+    .vessel-list-item {
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    /* Style for legend */
+    .legend {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: white;
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      font-size: 12px;
+    }
+    .legend span {
+      display: inline-block;
+      margin-bottom: 5px;
+      font-size: 12px;
+      vertical-align: middle;
+    }
+    .legend span.dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      margin-right: 5px;
+      border-radius: 50%;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <h1>Vessel Map &amp; Statistics</h1>
+  <div id="map"></div>
+  <div id="stats">
+    <h2>Distance Statistics</h2>
+    <table>
+      <tbody id="stats-table-body">
+        <!-- Statistics rows will be inserted dynamically -->
+      </tbody>
+    </table>
+  </div>
+  <div id="vessel-list">
+    <!-- Vessel lists by AISClass will be inserted dynamically -->
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // Utility: convert degrees to radians
+    function toRad(deg) {
+      return deg * Math.PI / 180;
+    }
+    // Haversine formula: returns distance in nautical miles
+    function haversineNM(lat1, lon1, lat2, lon2) {
+      const R = 3440.065; // Earth radius in nautical miles
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
+    // Helper: convert timestamp to relative time (e.g. "40 seconds ago")
+    function timeAgo(dateString) {
+      const now = Date.now();
+      const past = new Date(dateString).getTime();
+      const diffInSeconds = Math.floor((now - past) / 1000);
+      if (diffInSeconds < 60) {
+        return diffInSeconds + " seconds ago";
+      } else if (diffInSeconds < 3600) {
+        const minutes = Math.floor(diffInSeconds / 60);
+        return minutes + " minutes ago";
+      } else if (diffInSeconds < 86400) {
+        const hours = Math.floor(diffInSeconds / 3600);
+        return hours + " hours ago";
+      } else {
+        const days = Math.floor(diffInSeconds / 86400);
+        return days + " days ago";
+      }
+    }
+
+    async function initMap() {
+      try {
+        // Fetch receiver data and choose the local receiver
+        const receiversResponse = await fetch('/receivers');
+        const receiversData = await receiversResponse.json();
+        const localReceiver = receiversData.find(r => r.local === "true");
+        if (!localReceiver) throw new Error("No local receiver found.");
+
+        const ourLat = parseFloat(localReceiver.latitude);
+        const ourLon = parseFloat(localReceiver.longitude);
+        const ourName = localReceiver.name;
+        const ourDesc = localReceiver.description;
+
+        // Fetch vessel summary data and prepare vessel objects
+        const summaryResponse = await fetch('/summary');
+        const summaryData = await summaryResponse.json();
+
+        const vessels = [];
+        for (const mmsi in summaryData) {
+          const vessel = summaryData[mmsi];
+          const lat = vessel.Latitude;
+          const lon = vessel.Longitude;
+          const distance = haversineNM(ourLat, ourLon, lat, lon);
+          vessels.push({
+            mmsi: mmsi,
+            name: vessel.Name,
+            lat: lat,
+            lon: lon,
+            distance: distance,
+            lastUpdated: vessel.LastUpdated,
+            AISClass: vessel.AISClass,
+            imageURL: vessel.ImageURL
+          });
+        }
+
+        // Compute overall statistics
+        const distances = vessels.map(v => v.distance);
+        const totalVessels = vessels.length;
+        const maxDistance = Math.max(...distances);
+        const minDistance = Math.min(...distances);
+        const avgDistance = distances.reduce((sum, d) => sum + d, 0) / totalVessels;
+
+        // Define three rings equally spaced from 0 to maxDistance
+        const ring1 = maxDistance / 3;
+        const ring2 = 2 * maxDistance / 3;
+        const ring3 = maxDistance;
+        const countRing1 = vessels.filter(v => v.distance <= ring1).length;
+        const countRing2 = vessels.filter(v => v.distance <= ring2).length;
+        const countRing3 = totalVessels;
+
+        // Initialize the Leaflet map
+        const map = L.map('map').setView([ourLat, ourLon], 7);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 18,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Create a lookup for vessel markers by MMSI
+        const vesselMarkers = {};
+
+        // Helper to close all vessel tooltips except one (if provided)
+        function closeAllVesselTooltips(exceptMarker) {
+          Object.keys(vesselMarkers).forEach(key => {
+            if (vesselMarkers[key] !== exceptMarker) {
+              vesselMarkers[key].closeTooltip();
+            }
+          });
+        }
+
+        // --- User marker as a red dot ---
+        const userMarker = L.circleMarker([ourLat, ourLon], {
+          radius: 10,
+          color: 'red',
+          fillColor: 'red',
+          fillOpacity: 1,
+          weight: 2
+        }).addTo(map);
+        userMarker.bindTooltip(ourName, {permanent: true, direction: 'top'});
+
+        // --- Vessel markers with colors based on AISClass ---
+        vessels.forEach(vessel => {
+          const relativeTime = timeAgo(vessel.lastUpdated);
+          let tooltipContent = `<div style="display: flex; align-items: center;">`;
+          tooltipContent += `<div style="flex: 1; text-align: left;">`;
+          tooltipContent += `<div><strong>${vessel.name}</strong></div>`;
+          tooltipContent += `<div>MMSI: ${vessel.mmsi}</div>`;
+          tooltipContent += `<div>Distance: ${vessel.distance.toFixed(2)} NM</div>`;
+          tooltipContent += `<div>Last Updated: ${relativeTime}</div>`;
+          tooltipContent += `<div>Class: ${vessel.AISClass}</div>`;
+          tooltipContent += `</div>`;
+          if (vessel.imageURL && vessel.imageURL.trim() !== "") {
+            tooltipContent += `<div style="margin-left: 10px;"><img src="${vessel.imageURL}" style="width:100px; height:auto;"/></div>`;
+          }
+          tooltipContent += `</div>`;
+
+          const colorMap = {
+            'A': 'blue',
+            'B': 'blue',
+            'AtoN': 'orange',
+            'SAR': 'red',
+            'Other': 'green'
+          };
+          const color = colorMap[vessel.AISClass] || 'green';  // Default to green for unknown classes
+
+          const marker = L.circleMarker([vessel.lat, vessel.lon], {
+            radius: 6,
+            color: color,
+            fillColor: color,
+            fillOpacity: 1,
+            weight: 1
+          })
+          .bindTooltip(tooltipContent, {direction: 'top', sticky: true})
+          .addTo(map);
+          marker.on('click', function() {
+            closeAllVesselTooltips(this);
+            this.openTooltip();
+          });
+          marker.on('mouseover', function() {
+            closeAllVesselTooltips(this);
+            this.openTooltip();
+          });
+          // Store marker keyed by MMSI.
+          vesselMarkers[vessel.mmsi] = marker;
+        });
+
+        // --- Draw concentric rings with vibrant colours ---
+        function addCircleWithLabel(radiusNM, color) {
+          const radiusMeters = radiusNM * 1852;
+          L.circle([ourLat, ourLon], {
+            color: color,
+            fill: false,
+            radius: radiusMeters,
+            dashArray: '6, 4'
+          }).addTo(map);
+          const offsetLng = (radiusMeters / 111320) / Math.cos(toRad(ourLat));
+          L.marker([ourLat, ourLon + offsetLng], {
+            icon: L.divIcon({
+              className: 'circle-label',
+              html: `<span>${radiusNM.toFixed(1)} NM</span>`
+            }),
+            interactive: false
+          }).addTo(map);
+        }
+        addCircleWithLabel(ring1, '#e74c3c');
+        addCircleWithLabel(ring2, '#f1c40f');
+        addCircleWithLabel(ring3, '#3498db');
+
+        // --- Build the statistics table ---
+        const statsTableBody = document.getElementById('stats-table-body');
+        statsTableBody.innerHTML = `
+          <tr>
+            <th>Total Vessels</th>
+            <td>${totalVessels}</td>
+          </tr>
+          <tr>
+            <th>Minimum Distance (NM)</th>
+            <td>${minDistance.toFixed(2)}</td>
+          </tr>
+          <tr>
+            <th>Average Distance (NM)</th>
+            <td>${avgDistance.toFixed(2)}</td>
+          </tr>
+          <tr>
+            <th>Maximum Distance (NM)</th>
+            <td>${maxDistance.toFixed(2)}</td>
+          </tr>
+          <tr>
+            <th>Vessels within ${ring1.toFixed(2)} NM</th>
+            <td>${countRing1}</td>
+          </tr>
+          <tr>
+            <th>Vessels within ${ring2.toFixed(2)} NM</th>
+            <td>${countRing2}</td>
+          </tr>
+          <tr>
+            <th>Vessels within ${ring3.toFixed(2)} NM</th>
+            <td>${countRing3}</td>
+          </tr>
+        `;
+
+        // --- Create the vessel legend for AISClass ---
+        const legend = L.control({position: 'bottomright'});
+        legend.onAdd = function() {
+          const div = L.DomUtil.create('div', 'legend');
+          div.innerHTML = `
+            <span class="dot" style="background-color: blue;"></span> A & B <br>
+            <span class="dot" style="background-color: orange;"></span> AtoN <br>
+            <span class="dot" style="background-color: red;"></span> SAR <br>
+            <span class="dot" style="background-color: green;"></span> Other <br>
+          `;
+          return div;
+        };
+        legend.addTo(map);
+
+        // --- Create separate tables based on AISClass & Ring ---
+        function buildVesselCell(vesselArray) {
+          if (vesselArray.length === 0) return "None";
+          return vesselArray.map(v => `<span class="vessel-list-item" data-mmsi="${v.mmsi}">${v.name}</span>`).join("<br>");
+        }
+
+        // Filter vessels by AISClass
+        const classAandB = vessels.filter(v => v.AISClass === 'A' || v.AISClass === 'B');
+        const classAtoN = vessels.filter(v => v.AISClass === 'AtoN');
+        const classSAR = vessels.filter(v => v.AISClass === 'SAR');
+        const classOther = vessels.filter(v => v.AISClass !== 'A' && v.AISClass !== 'B' && v.AISClass !== 'AtoN' && v.AISClass !== 'SAR');
+
+        // Function to build vessels within each ring based on AISClass
+        function filterVesselsByRing(vesselArray) {
+          const ring1Vessels = vesselArray.filter(v => v.distance <= ring1);
+          const ring2Vessels = vesselArray.filter(v => v.distance > ring1 && v.distance <= ring2);
+          const ring3Vessels = vesselArray.filter(v => v.distance > ring2 && v.distance <= ring3);
+          return {
+            ring1: ring1Vessels,
+            ring2: ring2Vessels,
+            ring3: ring3Vessels
+          };
+        }
+
+        const classAandBByRing = filterVesselsByRing(classAandB);
+        const classAtoNByRing = filterVesselsByRing(classAtoN);
+        const classSARByRing = filterVesselsByRing(classSAR);
+        const classOtherByRing = filterVesselsByRing(classOther);
+
+        const vesselListHtml = `
+          <h2>Vessels by AIS Class &amp; Distance Ring</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>A & B <span style="color:blue;">●</span></th>
+                <th>AtoN <span style="color:orange;">●</span></th>
+                <th>SAR <span style="color:red;">●</span></th>
+                <th>Other <span style="color:green;">●</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <h3>0 - ${ring1.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classAandBByRing.ring1)}
+                  <h3>${ring1.toFixed(1)} - ${ring2.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classAandBByRing.ring2)}
+                  <h3>${ring2.toFixed(1)} - ${ring3.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classAandBByRing.ring3)}
+                </td>
+                <td>
+                  <h3>0 - ${ring1.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classAtoNByRing.ring1)}
+                  <h3>${ring1.toFixed(1)} - ${ring2.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classAtoNByRing.ring2)}
+                  <h3>${ring2.toFixed(1)} - ${ring3.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classAtoNByRing.ring3)}
+                </td>
+                <td>
+                  <h3>0 - ${ring1.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classSARByRing.ring1)}
+                  <h3>${ring1.toFixed(1)} - ${ring2.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classSARByRing.ring2)}
+                  <h3>${ring2.toFixed(1)} - ${ring3.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classSARByRing.ring3)}
+                </td>
+                <td>
+                  <h3>0 - ${ring1.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classOtherByRing.ring1)}
+                  <h3>${ring1.toFixed(1)} - ${ring2.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classOtherByRing.ring2)}
+                  <h3>${ring2.toFixed(1)} - ${ring3.toFixed(1)} NM</h3>
+                  ${buildVesselCell(classOtherByRing.ring3)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        `;
+        document.getElementById("vessel-list").innerHTML = vesselListHtml;
+
+        // Add click event listeners to vessel list items.
+        document.querySelectorAll(".vessel-list-item").forEach(item => {
+          item.addEventListener("click", function() {
+            const mmsi = this.getAttribute("data-mmsi");
+            const marker = vesselMarkers[mmsi];
+            if (marker) {
+              closeAllVesselTooltips(marker);
+              marker.openTooltip();
+              // Scroll the map element into view at the top.
+              document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          });
+        });
+      } catch (error) {
+        console.error("Error loading data:", error);
+      }
+    }
+    window.onload = initMap;
+  </script>
+</body>
+</html>

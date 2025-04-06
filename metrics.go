@@ -1,4 +1,3 @@
-// metrics.go
 package main
 
 import (
@@ -19,9 +18,6 @@ var (
 	weekAgg   MetricsAggregator
 )
 
-// Assume startTime is defined in your main package (e.g., in aisdecode.go):
-// var startTime = time.Now()
-
 // -----------------------------------------------------------------------------
 // Aggregation types and helper functions.
 
@@ -31,34 +27,32 @@ type AggregatedMetric struct {
 }
 
 // NumericAggregator maintains running statistics for a numeric metric.
+// Fields are exported to allow persistence.
 type NumericAggregator struct {
-	sum   float64
-	count int
+	Sum   float64 `json:"sum"`
+	Count int     `json:"count"`
 }
 
 // newNumericAggregator creates a new NumericAggregator.
 func newNumericAggregator() NumericAggregator {
-	return NumericAggregator{
-		sum:   0,
-		count: 0,
-	}
+	return NumericAggregator{Sum: 0, Count: 0}
 }
 
 func (na *NumericAggregator) update(value float64) {
-	na.sum += value
-	na.count++
+	na.Sum += value
+	na.Count++
 }
 
 func (na *NumericAggregator) average() float64 {
-	if na.count == 0 {
+	if na.Count == 0 {
 		return 0
 	}
-	return na.sum / float64(na.count)
+	return na.Sum / float64(na.Count)
 }
 
 func (na *NumericAggregator) reset() {
-	na.sum = 0
-	na.count = 0
+	na.Sum = 0
+	na.Count = 0
 }
 
 // defaultMetricsAggregate creates a default snapshot with zero averages.
@@ -78,26 +72,27 @@ func defaultMetricsAggregate() MetricsAggregate {
 		NumVesselsSAR:         AggregatedMetric{Ave: 0},
 		TotalKnownVessels:     AggregatedMetric{Ave: 0},
 		TotalMessages:         0,
-		// For default, you can set uptime to 0.
-		UptimeSeconds: 0,
+		UptimeSeconds:         0,
 	}
 }
 
-// MetricsAggregator collects running stats for each metric.
+// MetricsAggregator collects running stats for each metric and now includes
+// a StartTime to track the beginning of the current aggregation period.
 type MetricsAggregator struct {
-	SerialMessagesPerSec  NumericAggregator
-	UDPMessagesPerSec     NumericAggregator
-	SerialMessagesPerMin  NumericAggregator
-	UDPMessagesPerMin     NumericAggregator
-	TotalDeduplications   NumericAggregator
-	ActiveWebSockets      NumericAggregator
-	NumVesselsClassA      NumericAggregator
-	NumVesselsClassB      NumericAggregator
-	NumVesselsAtoN        NumericAggregator
-	NumVesselsBaseStation NumericAggregator
-	NumVesselsSAR         NumericAggregator
-	TotalKnownVessels     NumericAggregator
-	TotalMessages         int
+	StartTime              time.Time         `json:"start_time"`
+	SerialMessagesPerSec   NumericAggregator `json:"serial_messages_per_sec"`
+	UDPMessagesPerSec      NumericAggregator `json:"udp_messages_per_sec"`
+	SerialMessagesPerMin   NumericAggregator `json:"serial_messages_per_min"`
+	UDPMessagesPerMin      NumericAggregator `json:"udp_messages_per_min"`
+	TotalDeduplications    NumericAggregator `json:"total_deduplications"`
+	ActiveWebSockets       NumericAggregator `json:"active_websockets"`
+	NumVesselsClassA       NumericAggregator `json:"num_vessels_class_a"`
+	NumVesselsClassB       NumericAggregator `json:"num_vessels_class_b"`
+	NumVesselsAtoN         NumericAggregator `json:"num_vessels_aton"`
+	NumVesselsBaseStation  NumericAggregator `json:"num_vessels_base_station"`
+	NumVesselsSAR          NumericAggregator `json:"num_vessels_sar"`
+	TotalKnownVessels      NumericAggregator `json:"total_known_vessels"`
+	TotalMessages          int               `json:"total_messages"`
 }
 
 // update the aggregator with a new live Metrics sample.
@@ -133,11 +128,10 @@ type MetricsAggregate struct {
 	NumVesselsSAR         AggregatedMetric `json:"num_vessels_sar"`
 	TotalKnownVessels     AggregatedMetric `json:"total_known_vessels"`
 	TotalMessages         int              `json:"total_messages"`
-	// NEW: Uptime field added here.
 	UptimeSeconds         int              `json:"uptime_seconds"`
 }
 
-// finalize produces a snapshot from the aggregator (only averages).
+// finalize produces a snapshot from the aggregator using its own StartTime.
 func (ma *MetricsAggregator) finalize() MetricsAggregate {
 	return MetricsAggregate{
 		Timestamp: time.Now().UTC(),
@@ -178,12 +172,11 @@ func (ma *MetricsAggregator) finalize() MetricsAggregate {
 			Ave: ma.TotalKnownVessels.average(),
 		},
 		TotalMessages:  ma.TotalMessages,
-		// NEW: Compute uptime using startTime.
-		UptimeSeconds: int(time.Since(startTime).Seconds()),
+		UptimeSeconds: int(time.Since(ma.StartTime).Seconds()),
 	}
 }
 
-// reset clears the aggregator (except for TotalMessages).
+// reset clears the aggregator (except for TotalMessages) and resets its StartTime.
 func (ma *MetricsAggregator) reset() {
 	ma.SerialMessagesPerSec.reset()
 	ma.UDPMessagesPerSec.reset()
@@ -197,6 +190,7 @@ func (ma *MetricsAggregator) reset() {
 	ma.NumVesselsBaseStation.reset()
 	ma.NumVesselsSAR.reset()
 	ma.TotalKnownVessels.reset()
+	ma.StartTime = time.Now().UTC()
 }
 
 // -----------------------------------------------------------------------------
@@ -213,11 +207,10 @@ var (
 	mhMutex        sync.Mutex
 )
 
-// helper function to append a snapshot while enforcing a maximum length.
+// appendSnapshot appends a snapshot while enforcing a maximum length.
 func appendSnapshot(slice []MetricsAggregate, snap MetricsAggregate, maxLen int) []MetricsAggregate {
 	slice = append(slice, snap)
 	if len(slice) > maxLen {
-		// Remove the oldest snapshot.
 		slice = slice[1:]
 	}
 	return slice
@@ -236,15 +229,62 @@ func writeMetricsHistory(stateDir string) error {
 }
 
 // -----------------------------------------------------------------------------
+// AggregatorsState holds the state of all aggregators for persistence.
+type AggregatorsState struct {
+	MinuteAgg   MetricsAggregator `json:"minute_agg"`
+	HourAgg     MetricsAggregator `json:"hour_agg"`
+	DayAgg      MetricsAggregator `json:"day_agg"`
+	WeekAgg     MetricsAggregator `json:"week_agg"`
+	LastUpdated time.Time         `json:"last_updated"`
+}
+
+func writeAggregatorsState(stateDir string) error {
+	state := AggregatorsState{
+		MinuteAgg:   minuteAgg,
+		HourAgg:     hourAgg,
+		DayAgg:      dayAgg,
+		WeekAgg:     weekAgg,
+		LastUpdated: time.Now(),
+	}
+	filePath := filepath.Join(stateDir, "metrics-aggregators.json")
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, data, 0644)
+}
+
+func loadAggregatorsState(stateDir string) error {
+	filePath := filepath.Join(stateDir, "metrics-aggregators.json")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	var state AggregatorsState
+	if err = json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	// If the state is too old, discard it.
+	if time.Since(state.LastUpdated) > 5*time.Minute {
+		log.Printf("Aggregator state is older than threshold; starting fresh")
+		return nil
+	}
+	minuteAgg = state.MinuteAgg
+	hourAgg = state.HourAgg
+	dayAgg = state.DayAgg
+	weekAgg = state.WeekAgg
+	return nil
+}
+
+// -----------------------------------------------------------------------------
 // getCurrentMetrics collects the current live metrics.
-// It uses the existing global variables and functions from aisdecode.go.
+// It uses calculateVesselCounts() from aisdecode.go and other global variables
+// (vesselData, serialCounter, udpCounter, totalMessages, dedupeMessages, clients, etc.)
+// which are assumed to be defined elsewhere.
 func getCurrentMetrics() Metrics {
-	// Use calculateVesselCounts() from aisdecode.go to count vessels.
 	counts := calculateVesselCounts()
-	// Total known vessels is simply the number of entries in vesselData.
 	totalKnown := len(vesselData)
 	uptimeSeconds := int(time.Since(startTime).Seconds())
-
 	return Metrics{
 		SerialMessagesPerSec:  float64(serialCounter.Count(1 * time.Second)),
 		SerialMessagesPerMin:  float64(serialCounter.Count(1 * time.Minute)),
@@ -264,26 +304,79 @@ func getCurrentMetrics() Metrics {
 }
 
 // -----------------------------------------------------------------------------
-// StartMetrics launches goroutines that update the aggregators and write snapshots.
+// checkAndFinalizeAggregators checks if hour, day, and week aggregators have
+// exceeded their respective periods. If so, it finalizes, appends the snapshot,
+// persists state if needed, and resets the aggregator.
+func checkAndFinalizeAggregators(stateDir string, noState bool) {
+	now := time.Now().UTC()
+
+	// Check hourly aggregator (1 hour)
+	if now.Sub(hourAgg.StartTime) >= time.Hour {
+		snapshot := hourAgg.finalize()
+		mhMutex.Lock()
+		metricsHistory.HourAverages = appendSnapshot(metricsHistory.HourAverages, snapshot, 24)
+		mhMutex.Unlock()
+		if !noState {
+			if err := writeMetricsHistory(stateDir); err != nil {
+				log.Printf("Error writing metrics history: %v", err)
+			}
+			if err := writeAggregatorsState(stateDir); err != nil {
+				log.Printf("Error writing aggregator state: %v", err)
+			}
+		}
+		hourAgg.reset()
+	}
+
+	// Check daily aggregator (24 hours)
+	if now.Sub(dayAgg.StartTime) >= 24*time.Hour {
+		snapshot := dayAgg.finalize()
+		mhMutex.Lock()
+		metricsHistory.DayAverages = appendSnapshot(metricsHistory.DayAverages, snapshot, 7)
+		mhMutex.Unlock()
+		if !noState {
+			if err := writeMetricsHistory(stateDir); err != nil {
+				log.Printf("Error writing metrics history: %v", err)
+			}
+		}
+		dayAgg.reset()
+	}
+
+	// Check weekly aggregator (7 days)
+	if now.Sub(weekAgg.StartTime) >= 7*24*time.Hour {
+		snapshot := weekAgg.finalize()
+		mhMutex.Lock()
+		metricsHistory.WeekAverages = appendSnapshot(metricsHistory.WeekAverages, snapshot, 52)
+		mhMutex.Unlock()
+		if !noState {
+			if err := writeMetricsHistory(stateDir); err != nil {
+				log.Printf("Error writing metrics history: %v", err)
+			}
+		}
+		weekAgg.reset()
+	}
+}
+
+// -----------------------------------------------------------------------------
+// StartMetrics launches goroutines that update the aggregators, finalize snapshots,
+// and write state. It also initializes aggregator start times and loads persisted state.
 func StartMetrics(stateDir string, noState bool) {
 	// Ensure state directory exists.
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		log.Printf("Error creating state directory: %v", err)
 	}
 
-	filePath := filepath.Join(stateDir, "metrics.json")
+	historyPath := filepath.Join(stateDir, "metrics.json")
 	if !noState {
-		if data, err := os.ReadFile(filePath); err == nil {
+		if data, err := os.ReadFile(historyPath); err == nil {
 			mhMutex.Lock()
 			err = json.Unmarshal(data, &metricsHistory)
 			mhMutex.Unlock()
 			if err != nil {
 				log.Printf("Error unmarshaling metrics history: %v", err)
 			} else {
-				log.Printf("Loaded metrics history from %s", filePath)
+				log.Printf("Loaded metrics history from %s", historyPath)
 			}
 		} else if os.IsNotExist(err) {
-			// Initialize default history.
 			defaultAgg := defaultMetricsAggregate()
 			mhMutex.Lock()
 			metricsHistory = MetricsHistory{
@@ -296,13 +389,18 @@ func StartMetrics(stateDir string, noState bool) {
 			if err := writeMetricsHistory(stateDir); err != nil {
 				log.Printf("Error writing default metrics history: %v", err)
 			} else {
-				log.Printf("Wrote default metrics history to %s", filePath)
+				log.Printf("Wrote default metrics history to %s", historyPath)
 			}
 		} else {
 			log.Printf("Error reading metrics history: %v", err)
 		}
+		// Load persisted aggregator state.
+		if err := loadAggregatorsState(stateDir); err != nil {
+			log.Printf("No valid existing aggregator state found, starting fresh: %v", err)
+		} else {
+			log.Printf("Loaded aggregator state from %s", filepath.Join(stateDir, "metrics-aggregators.json"))
+		}
 	} else {
-		// noState: initialize default state.
 		defaultAgg := defaultMetricsAggregate()
 		mhMutex.Lock()
 		metricsHistory = MetricsHistory{
@@ -315,8 +413,23 @@ func StartMetrics(stateDir string, noState bool) {
 		if err := writeMetricsHistory(stateDir); err != nil {
 			log.Printf("Error writing default metrics history: %v", err)
 		} else {
-			log.Printf("Wrote default metrics history to %s", filePath)
+			log.Printf("Wrote default metrics history to %s", historyPath)
 		}
+	}
+
+	// Initialize aggregator start times if not already set.
+	now := time.Now().UTC()
+	if minuteAgg.StartTime.IsZero() {
+		minuteAgg.StartTime = now
+	}
+	if hourAgg.StartTime.IsZero() {
+		hourAgg.StartTime = now
+	}
+	if dayAgg.StartTime.IsZero() {
+		dayAgg.StartTime = now
+	}
+	if weekAgg.StartTime.IsZero() {
+		weekAgg.StartTime = now
 	}
 
 	// Update aggregators every second.
@@ -332,7 +445,7 @@ func StartMetrics(stateDir string, noState bool) {
 		}
 	}()
 
-	// 1-minute snapshot: every minute, finalize minuteAgg.
+	// Finalize minute aggregator every minute.
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
@@ -345,62 +458,20 @@ func StartMetrics(stateDir string, noState bool) {
 				if err := writeMetricsHistory(stateDir); err != nil {
 					log.Printf("Error writing metrics history: %v", err)
 				}
+				if err := writeAggregatorsState(stateDir); err != nil {
+					log.Printf("Error writing aggregator state: %v", err)
+				}
 			}
 			minuteAgg.reset()
 		}
 	}()
 
-	// 1-hour snapshot: every hour, finalize hourAgg.
+	// Check and finalize longer aggregators (hourly, daily, weekly) every minute.
 	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
+		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			snapshot := hourAgg.finalize()
-			mhMutex.Lock()
-			metricsHistory.HourAverages = appendSnapshot(metricsHistory.HourAverages, snapshot, 24)
-			mhMutex.Unlock()
-			if !noState {
-				if err := writeMetricsHistory(stateDir); err != nil {
-					log.Printf("Error writing metrics history: %v", err)
-				}
-			}
-			hourAgg.reset()
-		}
-	}()
-
-	// 1-day snapshot: every 24 hours, finalize dayAgg.
-	go func() {
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			snapshot := dayAgg.finalize()
-			mhMutex.Lock()
-			metricsHistory.DayAverages = appendSnapshot(metricsHistory.DayAverages, snapshot, 7)
-			mhMutex.Unlock()
-			if !noState {
-				if err := writeMetricsHistory(stateDir); err != nil {
-					log.Printf("Error writing metrics history: %v", err)
-				}
-			}
-			dayAgg.reset()
-		}
-	}()
-
-	// 1-week snapshot: every week, finalize weekAgg.
-	go func() {
-		ticker := time.NewTicker(7 * 24 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			snapshot := weekAgg.finalize()
-			mhMutex.Lock()
-			metricsHistory.WeekAverages = appendSnapshot(metricsHistory.WeekAverages, snapshot, 52)
-			mhMutex.Unlock()
-			if !noState {
-				if err := writeMetricsHistory(stateDir); err != nil {
-					log.Printf("Error writing metrics history: %v", err)
-				}
-			}
-			weekAgg.reset()
+			checkAndFinalizeAggregators(stateDir, noState)
 		}
 	}()
 }
