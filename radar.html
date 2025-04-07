@@ -27,6 +27,8 @@
     // Global Variables for Tile Management
     // ------------------------------
     const tileCache = {};
+    const osmTileCache = {}; // New cache for OpenStreetMap tiles
+
     function getTileImage(tileX, tileY, zoom) {
       const key = `${zoom}/${tileX}/${tileY}`;
       if (tileCache[key]) return tileCache[key];
@@ -34,6 +36,17 @@
       img.crossOrigin = "Anonymous";
       img.src = `https://tiles.openseamap.org/seamark/${zoom}/${tileX}/${tileY}.png`;
       tileCache[key] = img;
+      return img;
+    }
+
+    // New function to get OpenStreetMap tiles
+    function getOSMTileImage(tileX, tileY, zoom) {
+      const key = `${zoom}/${tileX}/${tileY}`;
+      if (osmTileCache[key]) return osmTileCache[key];
+      const img = new Image();
+      img.crossOrigin = "Anonymous";
+      img.src = `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`;
+      osmTileCache[key] = img;
       return img;
     }
 
@@ -76,9 +89,16 @@
     // ------------------------------
     // Global Variables & Radar Setup
     // ------------------------------
-    let mainVesselLat = null;
-    let mainVesselLon = null;
-    let mainHeading = null; // Main vessel heading (TrueHeading or Cog)
+    // For smooth movement we use these position variables:
+    let currentVesselLat = null;
+    let currentVesselLon = null;
+    let targetVesselLat = null;
+    let targetVesselLon = null;
+
+    // For smooth rotation, we use these:
+    let currentRotation = 0;
+    let targetRotation = 0;
+
     let vesselSummaries = {};
     const subscribedVessels = {};
 
@@ -110,19 +130,61 @@
     }
 
     // ------------------------------
-    // Draw the Background Map with Dynamic OpenSeaMap Tiles
+    // Rotation Animation Functions
+    // ------------------------------
+    function updateRotation(newHeading) {
+      targetRotation = newHeading;
+      animateRotation();
+    }
+
+    function animateRotation() {
+      const diff = targetRotation - currentRotation;
+      if (Math.abs(diff) < 0.1) {
+        currentRotation = targetRotation;
+      } else {
+        currentRotation += diff * 0.1;
+        requestAnimationFrame(animateRotation);
+      }
+      drawRadarGauge();
+    }
+
+    // ------------------------------
+    // Position Animation Functions
+    // ------------------------------
+    function animatePosition() {
+      if (currentVesselLat === null || currentVesselLon === null) {
+        currentVesselLat = targetVesselLat;
+        currentVesselLon = targetVesselLon;
+      }
+      const latDiff = targetVesselLat - currentVesselLat;
+      const lonDiff = targetVesselLon - currentVesselLon;
+      // Adjust the threshold as needed for smoother or faster transitions
+      if (Math.abs(latDiff) < 0.00001 && Math.abs(lonDiff) < 0.00001) {
+        currentVesselLat = targetVesselLat;
+        currentVesselLon = targetVesselLon;
+      } else {
+        currentVesselLat += latDiff * 0.1;
+        currentVesselLon += lonDiff * 0.1;
+        requestAnimationFrame(animatePosition);
+      }
+      drawRadarGauge();
+      updateSubscriptions();
+    }
+
+    // ------------------------------
+    // Draw the Background Map with Dynamic OpenStreetMap & OpenSeaMap Tiles
     // ------------------------------
     function drawBackground() {
-      if (mainVesselLat === null || mainVesselLon === null) return;
+      if (currentVesselLat === null || currentVesselLon === null) return;
       const zoom = currentZoom;
 
       // Compute vessel's global pixel coordinates
-      const vesselPixelX = lonToPixel(mainVesselLon, zoom);
-      const vesselPixelY = latToPixel(mainVesselLat, zoom);
+      const vesselPixelX = lonToPixel(currentVesselLon, zoom);
+      const vesselPixelY = latToPixel(currentVesselLat, zoom);
 
       // Determine the center tile based on the vessel's location
-      const centerTileX = lonToTile(mainVesselLon, zoom);
-      const centerTileY = latToTile(mainVesselLat, zoom);
+      const centerTileX = lonToTile(currentVesselLon, zoom);
+      const centerTileY = latToTile(currentVesselLat, zoom);
 
       // Compute the pixel origin for the center tile
       const tileOriginX = centerTileX * 256;
@@ -133,7 +195,7 @@
       const offsetTileY = vesselPixelY - tileOriginY;
 
       // Determine map resolution and scale
-      const resolution = (Math.cos(mainVesselLat * Math.PI / 180) * 2 * Math.PI * 6378137) / (256 * Math.pow(2, zoom));
+      const resolution = (Math.cos(currentVesselLat * Math.PI / 180) * 2 * Math.PI * 6378137) / (256 * Math.pow(2, zoom));
       const canvasScale = radarRadiusPx / 1852; // 1 NM = 1852 meters
       const tileCanvasWidth = 256 * resolution * canvasScale;
       const tileDrawScale = tileCanvasWidth / 256;
@@ -142,13 +204,41 @@
       const drawOriginX = canvasSize / 2 - offsetTileX * tileDrawScale;
       const drawOriginY = canvasSize / 2 - offsetTileY * tileDrawScale;
 
+      // --------------------
+      // 1. Draw the OpenStreetMap Base Layer
+      // --------------------
       ctx.save();
-      // Rotate background relative to vessel heading
+      // Rotate background relative to vessel heading using smooth rotation (currentRotation)
       ctx.translate(canvasSize / 2, canvasSize / 2);
-      ctx.rotate(-mainHeading * Math.PI / 180);
+      ctx.rotate(-currentRotation * Math.PI / 180);
       ctx.translate(-canvasSize / 2, -canvasSize / 2);
+      ctx.globalAlpha = 0.5;
+      // Draw a grid of OSM tiles (3x3) around the center tile
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const tileX = centerTileX + dx;
+          const tileY = centerTileY + dy;
+          const tileImg = getOSMTileImage(tileX, tileY, zoom);
+          const drawX = drawOriginX + dx * tileCanvasWidth;
+          const drawY = drawOriginY + dy * tileCanvasWidth;
+          if (tileImg.complete) {
+            ctx.drawImage(tileImg, drawX, drawY, tileCanvasWidth, tileCanvasWidth);
+          } else {
+            tileImg.onload = function() {
+              drawRadarGauge();
+            };
+          }
+        }
+      }
+      ctx.restore();
 
-      // Draw a grid of tiles (3x3) around the center tile
+      // --------------------
+      // 2. Draw the OpenSeaMap Seamark Overlay
+      // --------------------
+      ctx.save();
+      ctx.translate(canvasSize / 2, canvasSize / 2);
+      ctx.rotate(-currentRotation * Math.PI / 180);
+      ctx.translate(-canvasSize / 2, -canvasSize / 2);
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
           const tileX = centerTileX + dx;
@@ -174,7 +264,7 @@
     function drawRadarGauge() {
       ctx.clearRect(0, 0, canvasSize, canvasSize);
 
-      // Draw the background tiles first
+      // Draw the background tiles first (OSM base + OpenSeaMap overlay)
       drawBackground();
 
       // Outer radar circle
@@ -212,7 +302,8 @@
       const textRadius = radarRadiusPx + (margin - textBuffer);
       for (let i = 0; i < numMarks; i++) {
         const markAngle = i * 360 / numMarks;
-        let displayedHeading = mainHeading !== null ? (mainHeading + markAngle) % 360 : markAngle;
+        // Use smooth rotation (currentRotation) for calculating displayed headings
+        let displayedHeading = currentRotation !== null ? (currentRotation + markAngle) % 360 : markAngle;
         const rad = (markAngle - 90) * Math.PI / 180;
         const x = textRadius * Math.cos(rad);
         const y = textRadius * Math.sin(rad);
@@ -240,15 +331,14 @@
       // Draw Vessel Markers (rotated context)
       ctx.save();
       ctx.translate(canvasSize / 2, canvasSize / 2);
-      if (mainHeading !== null) {
-        ctx.rotate(-mainHeading * Math.PI / 180);
-      }
+      // Rotate relative to smooth rotation instead of immediate heading
+      ctx.rotate(-currentRotation * Math.PI / 180);
       Object.keys(vesselSummaries).forEach(mmsi => {
         const vessel = vesselSummaries[mmsi];
         if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
-        const deltaLat = vessel.Latitude - mainVesselLat;
-        const deltaLon = vessel.Longitude - mainVesselLon;
-        const offset = latLonToNM(deltaLat, deltaLon, mainVesselLat);
+        const deltaLat = vessel.Latitude - currentVesselLat;
+        const deltaLon = vessel.Longitude - currentVesselLon;
+        const offset = latLonToNM(deltaLat, deltaLon, currentVesselLat);
         const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
         if (distanceNM > radarNM) return;
         const offsetX = offset.x * scaleFactor;
@@ -285,14 +375,14 @@
       Object.keys(vesselSummaries).forEach(mmsi => {
         const vessel = vesselSummaries[mmsi];
         if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
-        const deltaLat = vessel.Latitude - mainVesselLat;
-        const deltaLon = vessel.Longitude - mainVesselLon;
-        const offset = latLonToNM(deltaLat, deltaLon, mainVesselLat);
+        const deltaLat = vessel.Latitude - currentVesselLat;
+        const deltaLon = vessel.Longitude - currentVesselLon;
+        const offset = latLonToNM(deltaLat, deltaLon, currentVesselLat);
         const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
         if (distanceNM > radarNM) return;
         const offsetX = offset.x * scaleFactor;
         const offsetY = -offset.y * scaleFactor;
-        const angleRad = - (mainHeading || 0) * Math.PI / 180;
+        const angleRad = - currentRotation * Math.PI / 180;
         const rotatedX = offsetX * Math.cos(angleRad) - offsetY * Math.sin(angleRad);
         const rotatedY = offsetX * Math.sin(angleRad) + offsetY * Math.cos(angleRad);
         const absX = (canvasSize / 2) + rotatedX;
@@ -323,10 +413,19 @@
     // Update Main Vessel Position (always redraws background)
     // ------------------------------
     function updateMainVesselPosition(lat, lon, heading) {
-      mainVesselLat = lat;
-      mainVesselLon = lon;
+      // If this is the first update, set both current and target positions immediately.
+      if (currentVesselLat === null || currentVesselLon === null) {
+        currentVesselLat = lat;
+        currentVesselLon = lon;
+        targetVesselLat = lat;
+        targetVesselLon = lon;
+      } else {
+        targetVesselLat = lat;
+        targetVesselLon = lon;
+        animatePosition();
+      }
       if (heading !== null && heading !== undefined) {
-        mainHeading = heading;
+        updateRotation(heading);
       }
       drawRadarGauge();
       updateSubscriptions();
@@ -429,9 +528,9 @@
       Object.keys(vesselSummaries).forEach(mmsi => {
         const vessel = vesselSummaries[mmsi];
         if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
-        const deltaLat = vessel.Latitude - mainVesselLat;
-        const deltaLon = vessel.Longitude - mainVesselLon;
-        const offset = latLonToNM(deltaLat, deltaLon, mainVesselLat);
+        const deltaLat = vessel.Latitude - currentVesselLat;
+        const deltaLon = vessel.Longitude - currentVesselLon;
+        const offset = latLonToNM(deltaLat, deltaLon, currentVesselLat);
         const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
         if (distanceNM <= radarNM) {
           if (!subscribedVessels[mmsi]) {
