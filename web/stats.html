@@ -66,7 +66,7 @@
         #lat-long-display {
           text-align: center;
           font-size: 14px;
-          margin-bottom: 40px;
+          margin-bottom: 10px;
           font-weight: bold;
         }
 	#radarFrame {
@@ -109,9 +109,12 @@
     <!-- Current Speed Display -->
     <div id="current-speed-display">Speed: 0.00 kn</div>
 
-    <div id="radar-container" style="margin-bottom:20px;">
+    <div id="radar-container" style="margin-bottom:0px;">
       <iframe id="radarFrame" src="" frameborder="0" style="width:100%; height:300px;" scrolling="no"></iframe>
     </div>
+
+    <!-- Latitude and Longitude Display -->
+    <div id="lat-long-display">--, --</div>
 
     <!-- Compass Charts for True Heading and Course Over Ground -->
     <div id="compass-container">
@@ -124,9 +127,6 @@
             <div style="text-align: center; font-weight: bold;" id="cogLabel">Course</div>
         </div>
     </div>
-
-    <!-- Latitude and Longitude Display -->
-    <div id="lat-long-display">--, --</div>
 
     <!-- Speed on Ground Chart (moved below the compasses) -->
     <div id="chart-container">
