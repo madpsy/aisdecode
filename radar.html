@@ -343,6 +343,9 @@
         if (distanceNM > radarNM) return;
         const offsetX = offset.x * scaleFactor;
         const offsetY = -offset.y * scaleFactor;
+
+        //console.log(`Vessel ${mmsi} - TrueHeading: ${vessel.TrueHeading}, Cog: ${vessel.Cog}, Using Heading: ${vessel.Heading}`);
+
         if (vessel.Heading !== undefined && vessel.Heading !== null) {
           const length = 14;
           const width = 10;
@@ -460,8 +463,8 @@
                                 : message.data.Cog;
               updateMainVesselPosition(message.data.Latitude, message.data.Longitude, heading);
             }
-          } else if (message.data.MMSI) {
-            const mmsi = message.data.MMSI.toString();
+          } else if (message.data.UserID) {
+            const mmsi = message.data.UserID.toString();
             vesselSummaries[mmsi] = vesselSummaries[mmsi] || {};
             if (message.data.Latitude !== undefined) {
               vesselSummaries[mmsi].Latitude = message.data.Latitude;
@@ -504,9 +507,10 @@
       vesselSummaries = data;
       Object.keys(vesselSummaries).forEach(key => {
         let vessel = vesselSummaries[key];
-        if ((vessel.Heading === undefined || vessel.Heading === null) &&
-            (vessel.Cog !== undefined && vessel.Cog !== null)) {
-          vessel.Heading = vessel.Cog;
+        if (vessel.TrueHeading !== undefined && vessel.TrueHeading !== null) {
+      	   vessel.Heading = vessel.TrueHeading;
+	} else if (vessel.Cog !== undefined && vessel.Cog !== null) {
+      	   vessel.Heading = vessel.Cog;
         }
       });
       drawRadarGauge();
@@ -536,7 +540,6 @@
           if (!subscribedVessels[mmsi]) {
             socket.emit("subscribe", "ais_data/" + mmsi);
             subscribedVessels[mmsi] = true;
-            debugLog(`Subscribed to vessel ${mmsi}`);
           }
         } else {
           if (subscribedVessels[mmsi]) {
