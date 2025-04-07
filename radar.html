@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vessel Radar</title>
+  <!-- Socket.IO client -->
+  <script src="/socket.io.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 20px;
+    }
+    /* Canvas styling */
+    #radarCanvas {
+      background-color: #f7f7f7;
+      border: 1px solid #ccc;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="radarCanvas"></canvas>
+  <script>
+    // ------------------------------
+    // Global Variables for Tile Management
+    // ------------------------------
+    const tileCache = {};
+    function getTileImage(tileX, tileY, zoom) {
+      const key = `${zoom}/${tileX}/${tileY}`;
+      if (tileCache[key]) return tileCache[key];
+      const img = new Image();
+      img.crossOrigin = "Anonymous";
+      img.src = `https://tiles.openseamap.org/seamark/${zoom}/${tileX}/${tileY}.png`;
+      tileCache[key] = img;
+      return img;
+    }
+
+    // ------------------------------
+    // Helper Functions for Tile Calculations
+    // ------------------------------
+    function lonToTile(lon, zoom) {
+      return Math.floor((lon + 180) / 360 * Math.pow(2, zoom));
+    }
+    function latToTile(lat, zoom) {
+      const latRad = lat * Math.PI / 180;
+      return Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * Math.pow(2, zoom));
+    }
+    function lonToPixel(lon, zoom) {
+      return (lon + 180) / 360 * Math.pow(2, zoom) * 256;
+    }
+    function latToPixel(lat, zoom) {
+      const latRad = lat * Math.PI / 180;
+      return (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * Math.pow(2, zoom) * 256;
+    }
+
+    // ------------------------------
+    // Extract Query Parameter for UserID
+    // ------------------------------
+    function getQueryParams() {
+      const params = {};
+      window.location.search.substring(1).split("&").forEach(pair => {
+        const [key, value] = pair.split("=");
+        if (key) params[decodeURIComponent(key)] = decodeURIComponent(value || '');
+      });
+      return params;
+    }
+    const params = getQueryParams();
+    const userID = params.UserID;
+    if (!userID) {
+      document.body.innerHTML = "<p>Error: No UserID provided in the URL.</p>";
+      throw new Error("No UserID provided in the URL.");
+    }
+
+    // ------------------------------
+    // Global Variables & Radar Setup
+    // ------------------------------
+    let mainVesselLat = null;
+    let mainVesselLon = null;
+    let mainHeading = null; // Main vessel heading (TrueHeading or Cog)
+    let vesselSummaries = {};
+    const subscribedVessels = {};
+
+    const radarCanvas = document.getElementById('radarCanvas');
+    const ctx = radarCanvas.getContext('2d');
+    let canvasSize = Math.min(window.innerWidth, window.innerHeight) - 40;
+    radarCanvas.width = canvasSize;
+    radarCanvas.height = canvasSize;
+
+    const margin = 20;
+    let radarRadiusPx = (canvasSize / 2) - margin;
+    const radarNM = 1; // Radar radius in Nautical Miles
+    let scaleFactor = radarRadiusPx / radarNM;
+    const textBuffer = 10;
+    const labelOverlapThreshold = 20;
+    const currentZoom = 13; // chosen zoom level
+
+    function debugLog(message) {
+      console.log(message);
+    }
+
+    function latLonToNM(deltaLat, deltaLon, refLat) {
+      const nmPerDegLat = 60;
+      const nmPerDegLon = 60 * Math.cos(refLat * Math.PI / 180);
+      return {
+        x: deltaLon * nmPerDegLon,
+        y: deltaLat * nmPerDegLat
+      };
+    }
+
+    // ------------------------------
+    // Draw the Background Map with Dynamic OpenSeaMap Tiles
+    // ------------------------------
+    function drawBackground() {
+      if (mainVesselLat === null || mainVesselLon === null) return;
+      const zoom = currentZoom;
+
+      // Compute vessel's global pixel coordinates
+      const vesselPixelX = lonToPixel(mainVesselLon, zoom);
+      const vesselPixelY = latToPixel(mainVesselLat, zoom);
+
+      // Determine the center tile based on the vessel's location
+      const centerTileX = lonToTile(mainVesselLon, zoom);
+      const centerTileY = latToTile(mainVesselLat, zoom);
+
+      // Compute the pixel origin for the center tile
+      const tileOriginX = centerTileX * 256;
+      const tileOriginY = centerTileY * 256;
+
+      // Calculate the vessel's offset within its center tile
+      const offsetTileX = vesselPixelX - tileOriginX;
+      const offsetTileY = vesselPixelY - tileOriginY;
+
+      // Determine map resolution and scale
+      const resolution = (Math.cos(mainVesselLat * Math.PI / 180) * 2 * Math.PI * 6378137) / (256 * Math.pow(2, zoom));
+      const canvasScale = radarRadiusPx / 1852; // 1 NM = 1852 meters
+      const tileCanvasWidth = 256 * resolution * canvasScale;
+      const tileDrawScale = tileCanvasWidth / 256;
+
+      // Compute the drawing origin so that the vessel is centered
+      const drawOriginX = canvasSize / 2 - offsetTileX * tileDrawScale;
+      const drawOriginY = canvasSize / 2 - offsetTileY * tileDrawScale;
+
+      ctx.save();
+      // Rotate background relative to vessel heading
+      ctx.translate(canvasSize / 2, canvasSize / 2);
+      ctx.rotate(-mainHeading * Math.PI / 180);
+      ctx.translate(-canvasSize / 2, -canvasSize / 2);
+
+      // Draw a grid of tiles (3x3) around the center tile
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const tileX = centerTileX + dx;
+          const tileY = centerTileY + dy;
+          const tileImg = getTileImage(tileX, tileY, zoom);
+          const drawX = drawOriginX + dx * tileCanvasWidth;
+          const drawY = drawOriginY + dy * tileCanvasWidth;
+          if (tileImg.complete) {
+            ctx.drawImage(tileImg, drawX, drawY, tileCanvasWidth, tileCanvasWidth);
+          } else {
+            tileImg.onload = function() {
+              drawRadarGauge();
+            };
+          }
+        }
+      }
+      ctx.restore();
+    }
+
+    // ------------------------------
+    // Draw the Radar Gauge (Overlaying the background)
+    // ------------------------------
+    function drawRadarGauge() {
+      ctx.clearRect(0, 0, canvasSize, canvasSize);
+
+      // Draw the background tiles first
+      drawBackground();
+
+      // Outer radar circle
+      ctx.beginPath();
+      ctx.arc(canvasSize / 2, canvasSize / 2, radarRadiusPx, 0, 2 * Math.PI);
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Concentric rings
+      const ringDistances = [0.33, 0.66];
+      ringDistances.forEach(distanceNM => {
+        const ringRadius = distanceNM * scaleFactor;
+        ctx.beginPath();
+        ctx.arc(canvasSize / 2, canvasSize / 2, ringRadius, 0, 2 * Math.PI);
+        ctx.strokeStyle = "#aaa";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        const labelAngle = -45 * Math.PI / 180;
+        const labelX = (canvasSize / 2) + ringRadius * Math.cos(labelAngle);
+        const labelY = (canvasSize / 2) + ringRadius * Math.sin(labelAngle);
+        ctx.fillStyle = "#000";
+        ctx.font = "10px Arial";
+        ctx.fillText(distanceNM.toFixed(2) + " NM", labelX - 15, labelY - 5);
+      });
+
+      // Degree markings
+      ctx.save();
+      ctx.translate(canvasSize / 2, canvasSize / 2);
+      ctx.font = "12px Arial";
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const numMarks = 12;
+      const textRadius = radarRadiusPx + (margin - textBuffer);
+      for (let i = 0; i < numMarks; i++) {
+        const markAngle = i * 360 / numMarks;
+        let displayedHeading = mainHeading !== null ? (mainHeading + markAngle) % 360 : markAngle;
+        const rad = (markAngle - 90) * Math.PI / 180;
+        const x = textRadius * Math.cos(rad);
+        const y = textRadius * Math.sin(rad);
+        ctx.fillText(displayedHeading.toFixed(0) + "°", x, y);
+      }
+      ctx.restore();
+
+      // Main vessel marker (blue triangle)
+      ctx.save();
+      ctx.translate(canvasSize / 2, canvasSize / 2);
+      const mainLength = 14;
+      const mainWidth = 10;
+      ctx.beginPath();
+      ctx.moveTo(0, -mainLength / 2);
+      ctx.lineTo(mainWidth / 2, mainLength / 2);
+      ctx.lineTo(-mainWidth / 2, mainLength / 2);
+      ctx.closePath();
+      ctx.fillStyle = "blue";
+      ctx.fill();
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+
+      // Draw Vessel Markers (rotated context)
+      ctx.save();
+      ctx.translate(canvasSize / 2, canvasSize / 2);
+      if (mainHeading !== null) {
+        ctx.rotate(-mainHeading * Math.PI / 180);
+      }
+      Object.keys(vesselSummaries).forEach(mmsi => {
+        const vessel = vesselSummaries[mmsi];
+        if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
+        const deltaLat = vessel.Latitude - mainVesselLat;
+        const deltaLon = vessel.Longitude - mainVesselLon;
+        const offset = latLonToNM(deltaLat, deltaLon, mainVesselLat);
+        const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
+        if (distanceNM > radarNM) return;
+        const offsetX = offset.x * scaleFactor;
+        const offsetY = -offset.y * scaleFactor;
+        if (vessel.Heading !== undefined && vessel.Heading !== null) {
+          const length = 14;
+          const width = 10;
+          const vesselRotation = (vessel.Heading * Math.PI / 180);
+          ctx.save();
+          ctx.translate(offsetX, offsetY);
+          ctx.rotate(vesselRotation);
+          ctx.beginPath();
+          ctx.moveTo(0, -length / 2);
+          ctx.lineTo(width / 2, length / 2);
+          ctx.lineTo(-width / 2, length / 2);
+          ctx.closePath();
+          ctx.fillStyle = "red";
+          ctx.fill();
+          ctx.strokeStyle = "black";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.restore();
+        } else {
+          ctx.beginPath();
+          ctx.arc(offsetX, offsetY, 4, 0, 2 * Math.PI);
+          ctx.fillStyle = "red";
+          ctx.fill();
+        }
+      });
+      ctx.restore();
+
+      // Draw Vessel Labels (non-rotated)
+      const drawnLabels = [];
+      Object.keys(vesselSummaries).forEach(mmsi => {
+        const vessel = vesselSummaries[mmsi];
+        if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
+        const deltaLat = vessel.Latitude - mainVesselLat;
+        const deltaLon = vessel.Longitude - mainVesselLon;
+        const offset = latLonToNM(deltaLat, deltaLon, mainVesselLat);
+        const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
+        if (distanceNM > radarNM) return;
+        const offsetX = offset.x * scaleFactor;
+        const offsetY = -offset.y * scaleFactor;
+        const angleRad = - (mainHeading || 0) * Math.PI / 180;
+        const rotatedX = offsetX * Math.cos(angleRad) - offsetY * Math.sin(angleRad);
+        const rotatedY = offsetX * Math.sin(angleRad) + offsetY * Math.cos(angleRad);
+        const absX = (canvasSize / 2) + rotatedX;
+        const absY = (canvasSize / 2) + rotatedY;
+        const label = (vessel.Name && vessel.Name.toUpperCase() !== "NO NAME") ? vessel.Name : mmsi;
+        let skipLabel = false;
+        drawnLabels.forEach(pos => {
+          const dx = pos.x - absX;
+          const dy = pos.y - absY;
+          if (Math.sqrt(dx * dx + dy * dy) < labelOverlapThreshold) {
+            skipLabel = true;
+          }
+        });
+        if (skipLabel) return;
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.font = "10px Arial";
+        ctx.fillStyle = "#000";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(label, absX, absY - 6);
+        ctx.restore();
+        drawnLabels.push({ x: absX, y: absY });
+      });
+    }
+
+    // ------------------------------
+    // Update Main Vessel Position (always redraws background)
+    // ------------------------------
+    function updateMainVesselPosition(lat, lon, heading) {
+      mainVesselLat = lat;
+      mainVesselLon = lon;
+      if (heading !== null && heading !== undefined) {
+        mainHeading = heading;
+      }
+      drawRadarGauge();
+      updateSubscriptions();
+    }
+
+    const socket = io();
+    const mainChannel = "ais_data/" + userID;
+    socket.on("connect", function() {
+      Object.keys(subscribedVessels).forEach(mmsi => {
+        subscribedVessels[mmsi] = false;
+      });
+      socket.emit("subscribe", mainChannel);
+      socket.emit("subscribe", "latest_vessel_summary");
+      updateSubscriptions();
+    });
+
+    socket.on("ais_data", function(message) {
+      if (typeof message === "string") {
+        try {
+          message = JSON.parse(message);
+        } catch (e) {
+          debugLog("Error parsing ais_data: " + e);
+          return;
+        }
+      }
+      if (message.type === "PositionReport" || message.type === "StandardClassBPositionReport" || message.type === "StandardSearchAndRescueAircraftReport") {
+        if (message.data) {
+          if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
+            if (message.data.Latitude !== undefined && message.data.Longitude !== undefined) {
+              const heading = (message.data.TrueHeading !== undefined && message.data.TrueHeading !== null)
+                                ? message.data.TrueHeading
+                                : message.data.Cog;
+              updateMainVesselPosition(message.data.Latitude, message.data.Longitude, heading);
+            }
+          } else if (message.data.MMSI) {
+            const mmsi = message.data.MMSI.toString();
+            vesselSummaries[mmsi] = vesselSummaries[mmsi] || {};
+            if (message.data.Latitude !== undefined) {
+              vesselSummaries[mmsi].Latitude = message.data.Latitude;
+            }
+            if (message.data.Longitude !== undefined) {
+              vesselSummaries[mmsi].Longitude = message.data.Longitude;
+            }
+            if (message.data.Name !== undefined) {
+              vesselSummaries[mmsi].Name = message.data.Name;
+            }
+            if (message.data.TrueHeading !== undefined && message.data.TrueHeading !== null) {
+              vesselSummaries[mmsi].Heading = message.data.TrueHeading;
+            } else if (message.data.Cog !== undefined && message.data.Cog !== null) {
+              vesselSummaries[mmsi].Heading = message.data.Cog;
+            }
+            drawRadarGauge();
+          }
+        }
+      }
+    });
+
+    socket.on("latest_vessel_summary", function(data) {
+      if (typeof data === "string") {
+        try {
+          data = JSON.parse(data);
+        } catch (e) {
+          return;
+        }
+      }
+      if (data.hasOwnProperty(userID)) {
+        const mainData = data[userID];
+        if (mainData.Latitude !== undefined && mainData.Longitude !== undefined) {
+          const heading = (mainData.TrueHeading !== undefined && mainData.TrueHeading !== null)
+                          ? mainData.TrueHeading
+                          : mainData.Cog;
+          updateMainVesselPosition(mainData.Latitude, mainData.Longitude, heading);
+        }
+        delete data[userID];
+      }
+      vesselSummaries = data;
+      Object.keys(vesselSummaries).forEach(key => {
+        let vessel = vesselSummaries[key];
+        if ((vessel.Heading === undefined || vessel.Heading === null) &&
+            (vessel.Cog !== undefined && vessel.Cog !== null)) {
+          vessel.Heading = vessel.Cog;
+        }
+      });
+      drawRadarGauge();
+      updateSubscriptions();
+    });
+
+    window.addEventListener("beforeunload", function() {
+      socket.emit("unsubscribe", mainChannel);
+      socket.emit("unsubscribe", "latest_vessel_summary");
+      Object.keys(subscribedVessels).forEach(mmsi => {
+        if (subscribedVessels[mmsi]) {
+          socket.emit("unsubscribe", "ais_data/" + mmsi);
+        }
+      });
+      debugLog("Unsubscribed from channels");
+    });
+
+    function updateSubscriptions() {
+      Object.keys(vesselSummaries).forEach(mmsi => {
+        const vessel = vesselSummaries[mmsi];
+        if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
+        const deltaLat = vessel.Latitude - mainVesselLat;
+        const deltaLon = vessel.Longitude - mainVesselLon;
+        const offset = latLonToNM(deltaLat, deltaLon, mainVesselLat);
+        const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
+        if (distanceNM <= radarNM) {
+          if (!subscribedVessels[mmsi]) {
+            socket.emit("subscribe", "ais_data/" + mmsi);
+            subscribedVessels[mmsi] = true;
+            debugLog(`Subscribed to vessel ${mmsi}`);
+          }
+        } else {
+          if (subscribedVessels[mmsi]) {
+            socket.emit("unsubscribe", "ais_data/" + mmsi);
+            subscribedVessels[mmsi] = false;
+            debugLog(`Unsubscribed from vessel ${mmsi} (out of range)`);
+          }
+        }
+      });
+      Object.keys(subscribedVessels).forEach(mmsi => {
+        if (!vesselSummaries.hasOwnProperty(mmsi) && subscribedVessels[mmsi]) {
+          socket.emit("unsubscribe", "ais_data/" + mmsi);
+          subscribedVessels[mmsi] = false;
+          debugLog(`Unsubscribed from vessel ${mmsi} (no longer in summary)`);
+        }
+      });
+    }
+
+    function resizeCanvas() {
+      canvasSize = Math.min(window.innerWidth, window.innerHeight) - 40;
+      radarCanvas.width = canvasSize;
+      radarCanvas.height = canvasSize;
+      radarRadiusPx = (canvasSize / 2) - margin;
+      scaleFactor = radarRadiusPx / radarNM;
+      drawRadarGauge();
+      updateSubscriptions();
+    }
+    window.addEventListener("resize", resizeCanvas);
+  </script>
+</body>
+</html>
