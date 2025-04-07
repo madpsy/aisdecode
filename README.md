@@ -33,13 +33,13 @@ Usage of aisdecode:
   -show-decodes
     	Output the decoded messages
   -state-dir string
-    	Directory to store state (optional). Overrides the default location of web-root
+    	Directory to store state (default: state)
   -udp-listen-port int
     	UDP listen port for incoming NMEA data (default: 8101)
   -update-interval int
     	Update interval in seconds for emitting latest vessel data (default: 10)
   -web-root string
-    	Web root directory (default: current directory)
+    	Web root directory (default: web)
   -ws-port int
     	WebSocket port (default: 8100)
 ```
