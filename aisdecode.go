@@ -943,7 +943,7 @@ func main() {
 	serialPort := flag.String("serial-port", "", "Serial port device (optional)")
 	baud := flag.Int("baud", 38400, "Baud rate (default: 38400), ignored if -serial-port is not specified")
 	wsPort := flag.Int("ws-port", 8100, "WebSocket port (default: 8100)")
-	webRoot := flag.String("web-root", ".", "Web root directory (default: current directory)")
+	webRoot := flag.String("web-root", "web", "Web root directory (default: web)")
 	debug := flag.Bool("debug", false, "Enable debug output")
 	showDecodes := flag.Bool("show-decodes", false, "Output the decoded messages")
 	aggregator := flag.String("aggregator", "", "Comma delimited list of aggregator host/ip:port (optional)")
@@ -953,21 +953,22 @@ func main() {
 	updateInterval := flag.Int("update-interval", 10, "Update interval in seconds for emitting latest vessel data (default: 10)")
 	expireAfter := flag.Duration("expire-after", 24*time.Hour, "Expire vessel data if no update is received within this duration (default: 24h)")
 	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
-	stateDir := flag.String("state-dir", "", "Directory to store state (optional). Overrides the default location of web-root")
+	stateDir := flag.String("state-dir", "state", "Directory to store state (default: state)")
 	externalLookupURL := flag.String("external-lookup", "", "URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)")
 	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push myinfo.json to on startup (optional)")
 	restrictUUIDsFlag := flag.Bool("restrict-uuids", false, "If specified, restricts which receiver UUIDs can be sent to us. Expects a JSON file at <state dir>/allowed-uuids.json with a list of allowed UUIDs")
 	logAllDecodesDir := flag.String("log-all-decodes", "", "Directory path to log every decoded message (optional)")
 
 	flag.Parse()
-
-	// Determine the state file path within the web root.
-	var statePath string
+	
 	if *stateDir != "" {
-	    statePath = filepath.Join(*stateDir, "state.json")
-	} else {
-	    statePath = filepath.Join(*webRoot, "state.json")
-	}
+  	   if err := os.MkdirAll(*stateDir, 0755); err != nil {
+	       log.Fatalf("Failed to create state directory %s: %v", *stateDir, err)
+	   }
+        }
+
+	var statePath string
+        statePath = filepath.Join(*stateDir, "state.json")
 
 
          if err := loadPorts(*webRoot); err != nil {
