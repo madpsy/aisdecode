@@ -1718,108 +1718,159 @@ func main() {
 		})
 
 		http.HandleFunc("/receivers/", func(w http.ResponseWriter, r *http.Request) {
-			// Expected URL formats:
-			//   PUT /receivers/<uuid>/state
-			//   PUT /receivers/<uuid>/metrics
-			// First, trim the leading "/receivers/"
-			path := strings.TrimPrefix(r.URL.Path, "/receivers/")
-			// Split the path into parts; expect 2 parts: <uuid> and (state|metrics)
-			parts := strings.Split(path, "/")
-			if len(parts) != 2 {
-				http.Error(w, "Invalid URL format. Expected /receivers/<uuid>/(state|metrics)", http.StatusBadRequest)
-				return
-			}
+		// Trim the prefix "/receivers/".
+		    path := strings.TrimPrefix(r.URL.Path, "/receivers/")
+		
+		    // --- Handle GET requests for endpoints ending with ".json" ---
+		    if r.Method == http.MethodGet &&
+		        (strings.HasSuffix(path, "state.json") || strings.HasSuffix(path, "metrics.json")) {
+		        // Expected URL format: /receivers/<internalID>/state.json or /receivers/<internalID>/metrics.json
+		        parts := strings.Split(path, "/")
+		        if len(parts) != 2 {
+		            http.Error(w, "Invalid URL format. Expected /receivers/<id>/(state.json|metrics.json)", http.StatusBadRequest)
+		            return
+		        }
+		        internalID := parts[0]
+		        action := parts[1] // "state.json" or "metrics.json"
 
-			receiverUUID := parts[0]
-			action := parts[1]
+		        // Load receivers from the state directory.
+		        receiversPath := filepath.Join(*stateDir, "receivers.json")
+		        receivers, err := loadReceivers(receiversPath)
+		        if err != nil {
+		            http.Error(w, "Error reading receivers: "+err.Error(), http.StatusInternalServerError)
+		            return
+		        }
+		        receiver, exists := receivers[internalID]
+		        if !exists {
+		            http.Error(w, "Receiver not found", http.StatusNotFound)
+		            return
+		        }
+		        recUUID, ok := receiver["uuid"]
+		        if !ok || strings.TrimSpace(recUUID) == "" {
+		            http.Error(w, "Receiver missing UUID", http.StatusInternalServerError)
+		            return
+		        }
 
-			// Validate the UUID in any case.
-			if strings.TrimSpace(receiverUUID) == "" {
-				http.Error(w, "Missing UUID in URL", http.StatusBadRequest)
-				return
-			}
-			if _, err := uuid.Parse(receiverUUID); err != nil {
-				http.Error(w, "Invalid UUID format", http.StatusBadRequest)
-				return
-			}
+		        // Choose the proper filename based on the action.
+		        var filename string
+		        if action == "state.json" {
+		            filename = "state.json"
+		        } else if action == "metrics.json" {
+		            filename = "metrics.json"
+		        } else {
+		            http.Error(w, "Invalid endpoint: use state.json or metrics.json", http.StatusBadRequest)
+		            return
+		        }
+		        // Build the full file path.
+		        filePath := filepath.Join(*stateDir, "receivers", recUUID, filename)
+		        data, err := os.ReadFile(filePath)
+		        if err != nil {
+		            http.Error(w, "File not found", http.StatusNotFound)
+		            return
+		        }
+		        w.Header().Set("Content-Type", "application/json")
+		        w.Write(data)
+		        return
+		    }
 
-			// If allowed-uuids is enabled, check that receiverUUID is in the allowed list.
-			if *restrictUUIDsFlag {
-				allowedFilePath := filepath.Join(*stateDir, "allowed-uuids.json")
-				allowedData, err := os.ReadFile(allowedFilePath)
-				if err != nil {
-					http.Error(w, "Not allowed: allowed UUIDs file not found", http.StatusForbidden)
-					return
-				}
-				var allowedList []string
-				if err := json.Unmarshal(allowedData, &allowedList); err != nil {
-					http.Error(w, "Not allowed: invalid allowed UUIDs file", http.StatusForbidden)
-					return
-				}
-				uuidFound := false
-				for _, allowed := range allowedList {
-					if receiverUUID == allowed {
-						uuidFound = true
-						break
-					}
-				}
-				if !uuidFound {
-					http.Error(w, "Not allowed: receiver UUID not in allowed list", http.StatusForbidden)
-					return
-				}
-			}
+		    // --- Handle PUT requests for updating receiver state/metrics using UUID ---
+		    if r.Method == http.MethodPut {
+		        // Expect URL format: /receivers/<uuid>/state  OR  /receivers/<uuid>/metrics
+		        parts := strings.Split(path, "/")
+		        if len(parts) != 2 {
+		            http.Error(w, "Invalid URL format. Expected /receivers/<uuid>/(state|metrics)", http.StatusBadRequest)
+		            return
+		        }
+		        receiverUUID := parts[0]
+		        action := parts[1] // "state" or "metrics"
 
-			// Only accept PUT requests.
-			if r.Method != "PUT" {
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
+		        // Validate the provided UUID.
+		        if strings.TrimSpace(receiverUUID) == "" {
+		            http.Error(w, "Missing UUID in URL", http.StatusBadRequest)
+		            return
+		        }
+		        if _, err := uuid.Parse(receiverUUID); err != nil {
+		            http.Error(w, "Invalid UUID format", http.StatusBadRequest)
+		            return
+		        }
 
-			// Determine the file path based on the action.
-			saveDir := filepath.Join(*stateDir, "receivers", receiverUUID)
-			if err := os.MkdirAll(saveDir, 0755); err != nil {
-				http.Error(w, fmt.Sprintf("Error creating directory: %v", err), http.StatusInternalServerError)
-				return
-			}
+		        // If your application enforces allowed UUIDs, perform that check here.
+		        // (For example, read allowed UUIDs from allowed-uuids.json and ensure receiverUUID is one of them.)
+		        if *restrictUUIDsFlag {
+		            allowedFilePath := filepath.Join(*stateDir, "allowed-uuids.json")
+		            allowedData, err := os.ReadFile(allowedFilePath)
+		            if err != nil {
+		                http.Error(w, "Not allowed: allowed UUIDs file not found", http.StatusForbidden)
+		                return
+		            }
+		            var allowedList []string
+		            if err := json.Unmarshal(allowedData, &allowedList); err != nil {
+		                http.Error(w, "Not allowed: invalid allowed UUIDs file", http.StatusForbidden)
+		                return
+		            }
+		            uuidFound := false
+		            for _, allowed := range allowedList {
+		                if receiverUUID == allowed {
+		                    uuidFound = true
+		                    break
+		                }
+		            }
+		            if !uuidFound {
+		                http.Error(w, "Not allowed: receiver UUID not in allowed list", http.StatusForbidden)
+		                return
+		            }
+		        }
+		
+		        // Ensure that the directory to store the receiver’s files exists.
+		        saveDir := filepath.Join(*stateDir, "receivers", receiverUUID)
+		        if err := os.MkdirAll(saveDir, 0755); err != nil {
+		            http.Error(w, fmt.Sprintf("Error creating directory: %v", err), http.StatusInternalServerError)
+		            return
+		        }
+		
+		        // Based on the action, determine the output filename.
+		        var filename string
+		        switch action {
+		        case "state":
+		            filename = "state.json"
+		        case "metrics":
+		            filename = "metrics.json"
+		        default:
+		            http.Error(w, "Invalid action. Use state or metrics.", http.StatusBadRequest)
+		            return
+		        }
+		        filePath := filepath.Join(saveDir, filename)
+		
+		        // Read and validate the JSON payload.
+		        body, err := io.ReadAll(r.Body)
+		        if err != nil {
+		            http.Error(w, "Error reading request body", http.StatusInternalServerError)
+		            return
+		        }
+		        defer r.Body.Close()
 
-			var filename string
-			switch action {
-			case "state":
-				filename = "state.json"
-			case "metrics":
-			filename = "metrics.json"
-			default:
-				http.Error(w, "Invalid action. Use state or metrics.", http.StatusBadRequest)
-				return
-			}
+		        var js json.RawMessage
+		        if err := json.Unmarshal(body, &js); err != nil {
+		            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		            return
+		        }
 
-			filePath := filepath.Join(saveDir, filename)
+		        // Write the JSON payload to the target file.
+		        if err := os.WriteFile(filePath, body, 0644); err != nil {
+		            http.Error(w, fmt.Sprintf("Error writing to file: %v", err), http.StatusInternalServerError)
+		            return
+		        }
 
-			// Read the entire request body.
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				http.Error(w, "Error reading request body", http.StatusInternalServerError)
-				return
-			}
-			defer r.Body.Close()
+		        // Respond with a success message.
+		        w.WriteHeader(http.StatusOK)
+		        w.Write([]byte(fmt.Sprintf("Receiver %s %s saved successfully", receiverUUID, action)))
+		        return
+		    }
 
-			// Optionally, you could perform a quick check to ensure that the JSON is valid.
-			var js json.RawMessage
-			if err := json.Unmarshal(body, &js); err != nil {
-				http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
-				return
-			}
-
-			// Save the JSON to the appropriate file.
-			if err := os.WriteFile(filePath, body, 0644); err != nil {
-				http.Error(w, fmt.Sprintf("Error writing to file: %v", err), http.StatusInternalServerError)
-				return
-			}
-
-			// Respond with a success message.
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(fmt.Sprintf("Receiver %s %s saved successfully", receiverUUID, action)))
+		    // Method not allowed for any other HTTP methods.
+		    http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		})
+
 
 		// Handle /ports endpoint
 		http.HandleFunc("/ports", func(w http.ResponseWriter, r *http.Request) {
