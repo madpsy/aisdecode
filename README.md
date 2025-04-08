@@ -59,4 +59,4 @@ curl -X PUT \
   https://127.0.0.1:8100/receivers
 ```
 
-![aisdecode](images/aisdecode.png)
+![aisdecode](web/images/aisdecode.png)
