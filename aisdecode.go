@@ -291,6 +291,14 @@ func isValidReceiver(rec map[string]string) bool {
 	if err != nil || lon < -180 || lon > 180 {
 		return false
 	}
+	urlStr, ok := rec["url"]
+	if !ok {
+		return false
+	}
+	urlStr = strings.TrimSpace(urlStr)
+	if urlStr != "" && !isValidURL(urlStr) {
+		return false
+	}
 	return true
 }
 
@@ -1042,6 +1050,9 @@ func main() {
 	    }
 	    if _, ok := myInfo["longitude"]; !ok {
 	        myInfo["longitude"] = ""
+	    }
+	    if _, ok := myInfo["url"]; !ok {
+	        myInfo["url"] = ""
 	    }
 	    // Write the updated myinfo.json back.
 	    b, err := json.MarshalIndent(myInfo, "", "  ")
