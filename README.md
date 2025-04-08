@@ -7,7 +7,7 @@ AIS Decoder and Web based Tracker for serial (and USB) NMEA hardware. Tested wit
 4) Start sending NMEA 0183 data to UDP port 8101 or configure a `serial` device (or both!)
 5) In a browser go to http://127.0.0.1:8100 (or whatever IP address of the host)
 6) Make sure it works as expected
-7) Fill the missing fields in state/myinfo.json
+7) Fill the missing fields in the file `state/myinfo.json` (your receiver details)
 8) Optionally set the command line arguments `-aggregator IP:port` and `--aggregator-public-url https://example.com` to a public aggregator
 9) Restart the binary and have fun!
 
