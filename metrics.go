@@ -265,7 +265,7 @@ func loadAggregatorsState(stateDir string) error {
 		return err
 	}
 	// If the state is too old, discard it.
-	if time.Since(state.LastUpdated) > 5*time.Minute {
+	if time.Since(state.LastUpdated) > 30*time.Minute {
 		log.Printf("Aggregator state is older than threshold; starting fresh")
 		return nil
 	}
