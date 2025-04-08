@@ -22,6 +22,12 @@
     h1, h2 {
       margin-bottom: 10px;
     }
+    /* Style the new dropdown (no label) */
+    #receiver-select {
+      margin-bottom: 20px;
+      font-size: 1rem;
+      padding: 5px;
+    }
     #map {
       width: 90%;
       max-width: 1000px;
@@ -45,15 +51,12 @@
     }
     th, td {
       text-align: left;
+      vertical-align: top;
       padding: 12px 15px;
       border-bottom: 1px solid #ddd;
     }
     th {
       background-color: #f0f0f0;
-    }
-    /* Top align vessel list cells */
-    #vessel-list table td, #vessel-ab-list table td {
-      vertical-align: top;
     }
     .circle-label {
       background: rgba(255,255,255,0.9);
@@ -66,7 +69,6 @@
       cursor: pointer;
       text-decoration: underline;
     }
-    /* Style for legend */
     .legend {
       position: absolute;
       bottom: 10px;
@@ -95,6 +97,9 @@
 </head>
 <body>
   <h1>Vessel Map &amp; Statistics</h1>
+  <!-- New dropdown for selecting the receiver -->
+  <select id="receiver-select"></select>
+  
   <div id="map"></div>
   <div id="stats">
     <h2>Distance Statistics</h2>
@@ -105,13 +110,9 @@
     </table>
   </div>
   <!-- New table for Class A & B vessels split by type -->
-  <div id="vessel-ab-list">
-    <!-- Vessel list for Class A & B vessels by type and distance ring will be inserted dynamically -->
-  </div>
+  <div id="vessel-ab-list"></div>
   <!-- Existing table for AtoN, SAR and Other vessels -->
-  <div id="vessel-list">
-    <!-- Vessel lists by AISClass will be inserted dynamically -->
-  </div>
+  <div id="vessel-list"></div>
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -150,42 +151,115 @@
       }
     }
 
-    async function initMap() {
+    // Global variable to store the current map instance so we can remove it on receiver change.
+    let mapInstance = null;
+    
+    // Function to populate the receivers dropdown from /receivers.
+    async function populateReceivers() {
       try {
-        // Fetch receiver data and choose the local receiver
-        const receiversResponse = await fetch('/receivers');
-        const receiversData = await receiversResponse.json();
-        const localReceiver = receiversData.find(r => r.local === true);
-        if (!localReceiver) throw new Error("No local receiver found.");
+        const response = await fetch('/receivers');
+        if (!response.ok) {
+          throw new Error("Failed to fetch receivers");
+        }
+        const receiversData = await response.json();
+        const select = document.getElementById("receiver-select");
+        // Clear any existing options.
+        select.innerHTML = "";
+        // Create and append an option for each receiver.
+        receiversData.forEach(receiver => {
+          const option = document.createElement("option");
+          option.value = receiver.id;
+          // Store receiver details as dataset attributes for easy access.
+          option.dataset.local = receiver.local;
+          option.dataset.latitude = receiver.latitude;
+          option.dataset.longitude = receiver.longitude;
+          option.dataset.description = receiver.description;
+          option.textContent = receiver.name; // use the 'name' field
+          select.appendChild(option);
+        });
+        
+        // Check if an "id" query parameter is specified.
+        const params = new URLSearchParams(window.location.search);
+        const queryId = params.get("id");
 
-        const ourLat = parseFloat(localReceiver.latitude);
-        const ourLon = parseFloat(localReceiver.longitude);
-        const ourName = localReceiver.name;
-        const ourDesc = localReceiver.description;
-
-        // Fetch types.json using the new format.
+        let receiverToLoad = null;
+        if (queryId) {
+          // Try to find the receiver with the given id.
+          receiverToLoad = receiversData.find(r => String(r.id) === queryId);
+          if (receiverToLoad) {
+            // Set the dropdown's selected index to that option.
+            for (let i = 0; i < select.options.length; i++) {
+              if (select.options[i].value === queryId) {
+                select.selectedIndex = i;
+                break;
+              }
+            }
+          }
+        }
+        // If no valid query param was provided, use the first receiver.
+        if (!receiverToLoad && receiversData.length > 0) {
+          receiverToLoad = receiversData[0];
+          select.selectedIndex = 0;
+        }
+        if (receiverToLoad) {
+          // Load data for the selected receiver.
+          loadReceiverData(receiverToLoad);
+        }
+      } catch (error) {
+        console.error("Error populating receivers:", error);
+        alert("Error fetching receivers data");
+      }
+    }
+    
+    // Load receiver data based on the selected receiver.
+    async function loadReceiverData(receiver) {
+      try {
+        let dataUrl = "";
+        if (receiver.local) {
+          dataUrl = "/state";
+        } else {
+          dataUrl = `/receivers/${receiver.id}/state.json`;
+        }
+        const response = await fetch(dataUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to load state data: ${response.status} ${response.statusText}`);
+        }
+        const receiverData = await response.json();
+        // Initialize the map and tables with the received data.
+        initMap(receiverData, receiver);
+      } catch (error) {
+        console.error("Error loading receiver data:", error);
+        alert("Error: " + error.message);
+      }
+    }
+    
+    // Modified initMap that accepts receiverData (vessels) and full receiver object.
+    async function initMap(receiverData, receiver) {
+      try {
+        // Use the receiver's latitude, longitude, name, and description.
+        const ourLat = parseFloat(receiver.latitude);
+        const ourLon = parseFloat(receiver.longitude);
+        const ourName = receiver.name;
+        const ourDesc = receiver.description;
+    
+        // Fetch types.json for vessel type descriptions.
         const typesResponse = await fetch('/types.json');
         const typesData = await typesResponse.json();
-        // Helper function to get the vessel type description based on the numeric type.
         function getVesselTypeDescription(typeNumber) {
           const categoryId = typesData.valueLookup[String(typeNumber)];
           if (categoryId === undefined) return "Unknown Type";
           const category = typesData.categories.find(cat => cat.id === categoryId);
           return category ? category.name : "Unknown Type";
         }
-
-        // Fetch vessel summary data and prepare vessel objects
-        const summaryResponse = await fetch('/summary');
-        const summaryData = await summaryResponse.json();
-
+    
+        // Process receiverData into an array of vessel objects.
         const vessels = [];
-        for (const mmsi in summaryData) {
-          const vessel = summaryData[mmsi];
+        for (const mmsi in receiverData) {
+          const vessel = receiverData[mmsi];
           const lat = vessel.Latitude;
           const lon = vessel.Longitude;
           const distance = haversineNM(ourLat, ourLon, lat, lon);
-          // For Class A & B vessels, compute the vessel type using the numeric type (if available)
-          let vesselType = undefined;
+          let vesselType;
           if (vessel.AISClass === 'A' || vessel.AISClass === 'B') {
             if (vessel.hasOwnProperty('Type')) {
               vesselType = getVesselTypeDescription(vessel.Type);
@@ -202,36 +276,38 @@
             lastUpdated: vessel.LastUpdated,
             AISClass: vessel.AISClass,
             imageURL: vessel.ImageURL,
-            vesselType: vesselType  // only for Class A & B vessels
+            vesselType: vesselType // only for Class A & B vessels
           });
         }
-
-        // Compute overall statistics
+    
+        // Compute overall statistics.
         const distances = vessels.map(v => v.distance);
         const totalVessels = vessels.length;
         const maxDistance = Math.max(...distances);
         const minDistance = Math.min(...distances);
         const avgDistance = distances.reduce((sum, d) => sum + d, 0) / totalVessels;
-
-        // Define three rings equally spaced from 0 to maxDistance
+    
+        // Define three rings equally spaced from 0 to maxDistance.
         const ring1 = maxDistance / 3;
         const ring2 = 2 * maxDistance / 3;
         const ring3 = maxDistance;
         const countRing1 = vessels.filter(v => v.distance <= ring1).length;
         const countRing2 = vessels.filter(v => v.distance <= ring2).length;
         const countRing3 = totalVessels;
-
-        // Initialize the Leaflet map
-        const map = L.map('map').setView([ourLat, ourLon], 7);
+    
+        // Remove any existing map instance (if the user changes the receiver).
+        if (mapInstance) {
+          mapInstance.remove();
+        }
+        // Initialize Leaflet map centered on the receiver.
+        mapInstance = L.map('map').setView([ourLat, ourLon], 7);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 18,
           attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
-
-        // Create a lookup for vessel markers by MMSI
+        }).addTo(mapInstance);
+    
+        // Create a lookup for vessel markers by MMSI.
         const vesselMarkers = {};
-
-        // Helper to close all vessel tooltips except one (if provided)
         function closeAllVesselTooltips(exceptMarker) {
           Object.keys(vesselMarkers).forEach(key => {
             if (vesselMarkers[key] !== exceptMarker) {
@@ -239,18 +315,18 @@
             }
           });
         }
-
-        // --- User marker as a red dot ---
+    
+        // --- User marker as a red dot.
         const userMarker = L.circleMarker([ourLat, ourLon], {
           radius: 10,
           color: 'red',
           fillColor: 'red',
           fillOpacity: 1,
           weight: 2
-        }).addTo(map);
+        }).addTo(mapInstance);
         userMarker.bindTooltip(ourName, {permanent: true, direction: 'top'});
-
-        // --- Vessel markers with colors based on AISClass ---
+    
+        // --- Add vessel markers.
         vessels.forEach(vessel => {
           const relativeTime = timeAgo(vessel.lastUpdated);
           let tooltipContent = `<div style="display: flex; align-items: center;">`;
@@ -268,7 +344,7 @@
             tooltipContent += `<div style="margin-left: 10px;"><img src="${vessel.imageURL}" style="width:100px; height:auto;"/></div>`;
           }
           tooltipContent += `</div>`;
-
+    
           const colorMap = {
             'A': 'blue',
             'B': 'blue',
@@ -276,8 +352,7 @@
             'SAR': 'red',
             'Other': 'green'
           };
-          const color = colorMap[vessel.AISClass] || 'green';  // Default to green for unknown classes
-
+          const color = colorMap[vessel.AISClass] || 'green';
           const marker = L.circleMarker([vessel.lat, vessel.lon], {
             radius: 6,
             color: color,
@@ -286,7 +361,7 @@
             weight: 1
           })
           .bindTooltip(tooltipContent, {direction: 'top', sticky: true})
-          .addTo(map);
+          .addTo(mapInstance);
           marker.on('click', function() {
             closeAllVesselTooltips(this);
             this.openTooltip();
@@ -295,11 +370,10 @@
             closeAllVesselTooltips(this);
             this.openTooltip();
           });
-          // Store marker keyed by MMSI.
           vesselMarkers[vessel.mmsi] = marker;
         });
-
-        // --- Draw concentric rings with vibrant colours ---
+    
+        // --- Draw concentric rings with labels.
         function addCircleWithLabel(radiusNM, color) {
           const radiusMeters = radiusNM * 1852;
           L.circle([ourLat, ourLon], {
@@ -307,7 +381,7 @@
             fill: false,
             radius: radiusMeters,
             dashArray: '6, 4'
-          }).addTo(map);
+          }).addTo(mapInstance);
           const offsetLng = (radiusMeters / 111320) / Math.cos(toRad(ourLat));
           L.marker([ourLat, ourLon + offsetLng], {
             icon: L.divIcon({
@@ -315,13 +389,13 @@
               html: `<span>${radiusNM.toFixed(1)} NM</span>`
             }),
             interactive: false
-          }).addTo(map);
+          }).addTo(mapInstance);
         }
         addCircleWithLabel(ring1, '#e74c3c');
         addCircleWithLabel(ring2, '#f1c40f');
         addCircleWithLabel(ring3, '#3498db');
-
-        // --- Build the statistics table ---
+    
+        // --- Build the statistics table.
         const statsTableBody = document.getElementById('stats-table-body');
         statsTableBody.innerHTML = `
           <tr>
@@ -353,8 +427,8 @@
             <td>${countRing3}</td>
           </tr>
         `;
-
-        // --- Create the vessel legend for AISClass ---
+    
+        // --- Create the vessel legend.
         const legend = L.control({position: 'bottomright'});
         legend.onAdd = function() {
           const div = L.DomUtil.create('div', 'legend');
@@ -366,23 +440,21 @@
           `;
           return div;
         };
-        legend.addTo(map);
-
-        // --- Create separate tables based on AISClass & Ring ---
-
-        // Build cell for vessel list items
+        legend.addTo(mapInstance);
+    
+        // --- Build the vessel lists.
         function buildVesselCell(vesselArray) {
           if (vesselArray.length === 0) return "None";
           return vesselArray.map(v => `<span class="vessel-list-item" data-mmsi="${v.mmsi}">${v.name}</span>`).join("<br>");
         }
-
-        // Filter vessels by AISClass
+    
+        // Group vessels by AISClass.
         const classAandB = vessels.filter(v => v.AISClass === 'A' || v.AISClass === 'B');
         const classAtoN = vessels.filter(v => v.AISClass === 'AtoN');
         const classSAR = vessels.filter(v => v.AISClass === 'SAR');
         const classOther = vessels.filter(v => v.AISClass !== 'A' && v.AISClass !== 'B' && v.AISClass !== 'AtoN' && v.AISClass !== 'SAR');
-
-        // Function to build vessels within each ring based on AISClass
+    
+        // Helper to build vessel lists within rings.
         function filterVesselsByRing(vesselArray) {
           const ring1Vessels = vesselArray.filter(v => v.distance <= ring1);
           const ring2Vessels = vesselArray.filter(v => v.distance > ring1 && v.distance <= ring2);
@@ -393,13 +465,13 @@
             ring3: ring3Vessels
           };
         }
-
-        // For AtoN, SAR, Other vessels remain in the existing table
+    
+        // For AtoN, SAR, Other vessels remain in the existing table.
         const classAtoNByRing = filterVesselsByRing(classAtoN);
         const classSARByRing = filterVesselsByRing(classSAR);
         const classOtherByRing = filterVesselsByRing(classOther);
-
-        // Build the original vessel list table for non-A&B vessels
+    
+        // Build the non-A&B vessels table.
         const vesselListHtml = `
           <h2>Vessels by AIS Class &amp; Distance Ring (Excluding Class A &amp; B)</h2>
           <table>
@@ -441,12 +513,9 @@
           </table>
         `;
         document.getElementById("vessel-list").innerHTML = vesselListHtml;
-
-        // --- New table for Class A & B vessels grouped by type and distance ring ---
-        // First group the Class A & B vessels by ring
+    
+        // --- Build a new table for Class A & B vessels grouped by type and distance ring.
         const classAandBByRing = filterVesselsByRing(classAandB);
-
-        // Helper function to group vessels by their type and build HTML for each group.
         function buildGroupedVesselsByType(vesselArray) {
           if (vesselArray.length === 0) return "None";
           const groups = {};
@@ -464,7 +533,7 @@
           }
           return html;
         }
-
+    
         const vesselABHtml = `
           <h2>Vessels by Type &amp; Distance Ring (Class A &amp; B)</h2>
           <table>
@@ -485,8 +554,8 @@
           </table>
         `;
         document.getElementById("vessel-ab-list").innerHTML = vesselABHtml;
-
-        // Add click event listeners to vessel list items.
+    
+        // --- Add click event listeners to vessel list items.
         document.querySelectorAll(".vessel-list-item").forEach(item => {
           item.addEventListener("click", function() {
             const mmsi = this.getAttribute("data-mmsi");
@@ -494,16 +563,39 @@
             if (marker) {
               closeAllVesselTooltips(marker);
               marker.openTooltip();
-              // Scroll the map element into view at the top.
+              // Scroll the map into view.
               document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "start" });
             }
           });
         });
       } catch (error) {
-        console.error("Error loading data:", error);
+        console.error("Error initializing map:", error);
       }
     }
-    window.onload = initMap;
+    
+    // When the receiver selection changes, look up the full receiver details
+    // and load its data.
+    document.getElementById("receiver-select").addEventListener("change", (event) => {
+      const selectedId = event.target.value;
+      // Re-fetch all receivers to find the matching full receiver details.
+      fetch('/receivers')
+        .then(res => res.json())
+        .then(receiversData => {
+          const fullReceiver = receiversData.find(r => String(r.id) === selectedId);
+          if (fullReceiver) {
+            loadReceiverData(fullReceiver);
+          } else {
+            alert("Selected receiver not found.");
+          }
+        })
+        .catch(err => {
+          console.error("Error retrieving receiver info:", err);
+          alert("Error retrieving receiver details.");
+        });
+    });
+    
+    // Initialize the receivers dropdown when the page loads.
+    window.onload = populateReceivers;
   </script>
 </body>
 </html>
