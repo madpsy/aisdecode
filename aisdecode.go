@@ -1039,9 +1039,8 @@ func pushReceiverFiles(stateDir, aggregatorPublicURL string) {
 		return
 	}
 
-	// Construct local file paths for state and metrics.
-	stateFilePath := filepath.Join(stateDir, "receivers", receiverUUID, "state.json")
-	metricsFilePath := filepath.Join(stateDir, "receivers", receiverUUID, "metrics.json")
+	stateFilePath := filepath.Join(stateDir, "state.json")
+	metricsFilePath := filepath.Join(stateDir, "metrics.json")
 
 	// Helper function to perform the PUT request for each file.
 	pushFile := func(action, filePath string) {
