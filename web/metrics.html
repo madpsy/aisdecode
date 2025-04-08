@@ -439,6 +439,12 @@
       try {
         const scrollPos = window.pageYOffset;
         const response = await fetch(endpoint);
+
+        if (!response.ok) {
+          alert("Error: Unable to fetch receiver metrics. Received HTTP " + response.status);
+          return;
+        }
+
         const historical = await response.json();
         if (!historical) return;
         const averagesData = {

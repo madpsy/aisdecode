@@ -1674,11 +1674,7 @@ func main() {
 					localReceiver["id"] = 0
 
 					// Add LastUpdated field based on the file's modification time.
-					if fi, err := os.Stat(myinfoPath); err == nil {
-						localReceiver["LastUpdated"] = fi.ModTime().UTC().Format(time.RFC3339Nano)
-					} else {
-						log.Printf("Error stating myinfo.json: %v", err)
-					}
+					localReceiver["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 	
 					out = append(out, localReceiver)
 				} else {
@@ -1860,6 +1856,30 @@ func main() {
 		            http.Error(w, fmt.Sprintf("Error writing to file: %v", err), http.StatusInternalServerError)
 		            return
 		        }
+
+			receiversPath := filepath.Join(*stateDir, "receivers.json")
+			receivers, err := loadReceivers(receiversPath)
+			if err != nil && !os.IsNotExist(err) {
+				http.Error(w, "Error reading receivers data", http.StatusInternalServerError)
+				return
+			}
+			// If there are no receivers yet, initialize the map.
+			if receivers == nil {
+				receivers = make(map[string]map[string]string)
+			}
+			// Find the receiver record by UUID.
+			for key, rec := range receivers {
+				if rec["uuid"] == receiverUUID {
+					rec["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+					receivers[key] = rec
+					break
+				}
+			}
+
+			if err := saveReceivers(receiversPath, receivers); err != nil {
+				http.Error(w, "Error updating receivers data: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
 
 		        // Respond with a success message.
 		        w.WriteHeader(http.StatusOK)
