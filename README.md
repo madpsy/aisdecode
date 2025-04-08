@@ -3,8 +3,11 @@ AIS Decoder and Web based Tracker for serial (and USB) NMEA hardware. Tested wit
 
 1) Clone this repo
 2) Download prebuilt binary from [Releases](https://github.com/madpsy/aisdecode/releases) for your OS/Arch (or build your own)
-3) Run the program from within the cloned repo directory (chmod +x first on Linux/Mac)
+3) Run the binary from within the cloned repo directory (chmod +x first on Linux/Mac)
 4) In a browser go to http://127.0.0.1:8100 (or whatever IP address of the host)
+5) Make sure it works as expected
+6) Fill the missing fields in state/myinfo.json
+7) Restart and have fun!
 
 ```
 Usage of aisdecode:
