@@ -1133,6 +1133,7 @@ func main() {
 	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push myinfo.json to on startup (optional)")
 	allowAllUUIDs := flag.Bool("allow-all-uuids", false, "If specified, allows all receiver UUIDs (by default, UUIDs are restricted via allowed list)")
 	logAllDecodesDir := flag.String("log-all-decodes", "", "Directory path to log every decoded message (optional)")
+	aggregatorUploadPeriod := flag.Int("aggregator-upload-period", 15, "Aggregator upload period in minutes (default: 15, 0 disables periodic uploads)")
 
 	flag.Parse()
 	
@@ -1294,7 +1295,7 @@ func main() {
 
 	go pushReceiverFiles(*stateDir, *aggregatorPublicURL)
 	go func() {
-		ticker := time.NewTicker(15 * time.Minute)
+		ticker := time.NewTicker(time.Duration(*aggregatorUploadPeriod) * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
 			pushReceiverFiles(*stateDir, *aggregatorPublicURL)
