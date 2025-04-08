@@ -18,6 +18,7 @@ import (
 	"math"
 	"reflect"
 	"net/url"
+        "io"
 
 	"go.bug.st/serial"
 	"github.com/google/uuid"
@@ -175,6 +176,100 @@ func calculateVesselCounts() map[string]int {
         }
     }
     return counts
+}
+
+func updateReceiver(payload map[string]string, stateDir string) error {
+	receiversPath := filepath.Join(stateDir, "receivers.json")
+	// Ensure the payload has a non-empty "uuid"
+	uuidStr, ok := payload["uuid"]
+	if !ok || strings.TrimSpace(uuidStr) == "" {
+		return fmt.Errorf("missing uuid in payload")
+	}
+
+	// Load existing receivers from the file.
+        receivers, err := loadReceivers(receiversPath)
+        if err != nil {
+            if os.IsNotExist(err) {
+                receivers = make(map[string]map[string]string)
+            } else {
+                return fmt.Errorf("failed to load receivers: %w", err)
+            }
+        }
+
+	// Look for an existing receiver with the same UUID.
+	var foundKey string
+	for key, rec := range receivers {
+		if rec["uuid"] == uuidStr {
+			foundKey = key
+			break
+		}
+	}
+
+	nowStr := time.Now().UTC().Format(time.RFC3339Nano)
+	if foundKey != "" {
+		// Update the existing receiver.
+		rec := receivers[foundKey]
+		rec["name"] = payload["name"]
+		rec["description"] = payload["description"]
+		rec["latitude"] = payload["latitude"]
+		rec["longitude"] = payload["longitude"]
+		rec["url"] = payload["url"]
+		rec["LastUpdated"] = nowStr
+		receivers[foundKey] = rec
+	} else {
+		// Create a new receiver entry.
+		newKey := getNextKey(receivers)
+		receivers[newKey] = map[string]string{
+			"uuid":        uuidStr,
+			"name":        payload["name"],
+			"description": payload["description"],
+			"latitude":    payload["latitude"],
+			"longitude":   payload["longitude"],
+			"url":         payload["url"],
+			"LastUpdated": nowStr,
+		}
+	}
+
+        if err := saveReceivers(receiversPath, receivers); err != nil {
+            return fmt.Errorf("failed to save receivers: %w", err)
+        }
+        return nil
+}
+
+// getNextKey returns the next incrementing key based on the current keys in receivers.
+// It iterates through the keys (which are expected to be numeric strings),
+// finds the maximum, and returns max+1 as a string.
+func getNextKey(receivers map[string]map[string]string) string {
+	max := 0
+	for key := range receivers {
+		if id, err := strconv.Atoi(key); err == nil && id > max {
+			max = id
+		}
+	}
+	return strconv.Itoa(max + 1)
+}
+
+// loadReceivers reads the receivers from the specified JSON file and unmarshals it into a map.
+// The keys of the map are string representations of numeric IDs.
+func loadReceivers(path string) (map[string]map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var receivers map[string]map[string]string
+	if err := json.Unmarshal(data, &receivers); err != nil {
+		return nil, err
+	}
+	return receivers, nil
+}
+
+// saveReceivers writes the receivers map to the specified JSON file in an indented format.
+func saveReceivers(path string, receivers map[string]map[string]string) error {
+	data, err := json.MarshalIndent(receivers, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
 }
 
 func (sw *SlidingWindowCounter) Count(duration time.Duration) int {
@@ -916,6 +1011,79 @@ func appendHistory(baseDir, userID string, lat, lon float64, sog, cog, trueHeadi
 	return nil
 }
 
+func pushReceiverFiles(stateDir, aggregatorPublicURL string) {
+	// Only execute if aggregatorPublicURL is provided.
+	if aggregatorPublicURL == "" {
+		return
+	}
+
+	// Determine the path to your myinfo file.
+	myinfoPath := filepath.Join(stateDir, "myinfo.json")
+	
+	// Load myinfo.json to extract the receiver's UUID.
+	var myinfo map[string]string
+	data, err := os.ReadFile(myinfoPath)
+	if err != nil {
+		log.Printf("Error reading myinfo file for push: %v", err)
+		return
+	}
+
+	if err := json.Unmarshal(data, &myinfo); err != nil {
+		log.Printf("Error unmarshaling myinfo for push: %v", err)
+		return
+	}
+
+	receiverUUID, ok := myinfo["uuid"]
+	if !ok || strings.TrimSpace(receiverUUID) == "" {
+		log.Printf("No valid UUID found in myinfo.json")
+		return
+	}
+
+	// Construct local file paths for state and metrics.
+	stateFilePath := filepath.Join(stateDir, "receivers", receiverUUID, "state.json")
+	metricsFilePath := filepath.Join(stateDir, "receivers", receiverUUID, "metrics.json")
+
+	// Helper function to perform the PUT request for each file.
+	pushFile := func(action, filePath string) {
+		// Read the file content.
+		fileData, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Printf("File %s not found, skipping push for %s", filePath, action)
+			return
+		}
+
+		// Construct the target URL.
+		targetURL := strings.TrimRight(aggregatorPublicURL, "/") + "/receivers/" + receiverUUID + "/" + action
+
+		req, err := http.NewRequest("PUT", targetURL, bytes.NewReader(fileData))
+		if err != nil {
+			log.Printf("Error creating PUT request for %s: %v", action, err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("Error sending PUT request for %s: %v", action, err)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Optionally, you can read the response body if needed.
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("Unexpected status code %d when pushing %s: %s", resp.StatusCode, action, string(body))
+		} else {
+			log.Printf("Successfully pushed %s for receiver %s", action, receiverUUID)
+		}
+	}
+
+	// Push both state and metrics files.
+	pushFile("state", stateFilePath)
+	pushFile("metrics", metricsFilePath)
+}
+
 func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]map[string]interface{} {
 	summary := make(map[string]map[string]interface{})
 	// List of keys to include in the summary.
@@ -977,7 +1145,6 @@ func main() {
 
 	var statePath string
         statePath = filepath.Join(*stateDir, "state.json")
-
 
          if err := loadPorts(*webRoot); err != nil {
 	    log.Fatalf("Failed to load ports: %v", err)
@@ -1122,12 +1289,19 @@ func main() {
 	var metricsStateDir string
 	   if *stateDir != "" {
 	       metricsStateDir = *stateDir
-	   } else {
-	       metricsStateDir = *webRoot
-	}
+	   }
 
 	StartMetrics(metricsStateDir, *noState)
 
+	go pushReceiverFiles(*stateDir, *aggregatorPublicURL)
+	go func() {
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			pushReceiverFiles(*stateDir, *aggregatorPublicURL)
+		}
+	}()
+	
 	// --- Setup Socket.IO server ---
 	engineServer := types.CreateServer(nil)
 	sioServer := socket.NewServer(engineServer, nil)
@@ -1411,30 +1585,27 @@ func main() {
 	})
 
 	http.HandleFunc("/receivers", func(w http.ResponseWriter, r *http.Request) {
+	    // Ensure state persistence is enabled.
 	    if *noState {
 	        http.Error(w, "State persistence disabled", http.StatusForbidden)
 	        return
 	    }
 
-	    // Determine the directory in which state is stored.
-	    var stateDirectory string
-	    if *stateDir != "" {
-	        stateDirectory = *stateDir
-	    } else {
-	        stateDirectory = *webRoot
-	    }
+	    stateDirectory := *stateDir
 	    receiversPath := filepath.Join(stateDirectory, "receivers.json")
 
 	    switch r.Method {
 	    case "PUT":
-	        // Decode the incoming JSON payload.
+	        // Decode incoming JSON payload.
 	        var rec map[string]string
 	        if err := json.NewDecoder(r.Body).Decode(&rec); err != nil {
 	            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 	            return
 	        }
-
-        	if *restrictUUIDsFlag {
+	        defer r.Body.Close()
+	
+	        // If allowed UUIDs are enforced, check against the allowed list.
+	        if *restrictUUIDsFlag {
 	            allowedFilePath := filepath.Join(stateDirectory, "allowed-uuids.json")
 	            allowedData, err := os.ReadFile(allowedFilePath)
 	            if err != nil {
@@ -1459,133 +1630,197 @@ func main() {
 	            }
 	        }
 
-	        // Use the helper function to validate the payload.
+	        // Validate receiver fields.
 	        if !isValidReceiver(rec) {
 	            http.Error(w, "Invalid receiver fields", http.StatusBadRequest)
 	            return
 	        }
 
-	        // Set the LastUpdated field.
+	        // Set LastUpdated to current time.
 	        rec["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
-
-	        // Read, update (or append), and write back the receivers file.
-	        receiversMutex.Lock()
-	        defer receiversMutex.Unlock()
-
-	        var receivers []map[string]string
-	        data, err := os.ReadFile(receiversPath)
-	        if err == nil {
-	            if err := json.Unmarshal(data, &receivers); err != nil {
-	                receivers = []map[string]string{}
-	            }
-	        } else if !os.IsNotExist(err) {
-	            http.Error(w, "Error reading receivers state", http.StatusInternalServerError)
-	            return
-	        }
-
-	        // If an entry with the same UUID exists, update it.
-	        updated := false
-	        for i, rcv := range receivers {
-	            if rcv["uuid"] == rec["uuid"] {
-	                receivers[i] = rec
-	                updated = true
-	                break
-	            }
-	        }
-	        if !updated {
-	            receivers = append(receivers, rec)
-	        }
-
-	        newData, err := json.MarshalIndent(receivers, "", "  ")
-	        if err != nil {
-	            http.Error(w, "Error marshaling receivers state", http.StatusInternalServerError)
-	            return
-	        }
-	        if err := os.WriteFile(receiversPath, newData, 0644); err != nil {
-	            http.Error(w, "Error writing receivers state", http.StatusInternalServerError)
-	            return
-	        }
+	
+	        // Update receiver state using the helper function.
+		if err := updateReceiver(rec, *stateDir); err != nil {
+		    http.Error(w, "Error updating receiver: " + err.Error(), http.StatusInternalServerError)
+		    return
+		}
+        
 	        w.WriteHeader(http.StatusOK)
 	        w.Write([]byte("Receiver info saved successfully"))
-        
-	    case "GET":
-	        // Load our own info from myinfo.json.
-	        var myinfoPath string
-	        if *stateDir != "" {
-	            myinfoPath = filepath.Join(*stateDir, "myinfo.json")
-	        } else {
-	            myinfoPath = filepath.Join(*webRoot, "myinfo.json")
-	        }
-	        var myinfo map[string]string
-	        data, err := os.ReadFile(myinfoPath)
-	        if err == nil {
-	            if err := json.Unmarshal(data, &myinfo); err != nil {
-	                myinfo = make(map[string]string)
-	            }
-	        } else if os.IsNotExist(err) {
-	            myinfo = make(map[string]string)
-	        } else {
-	            http.Error(w, "Error reading myinfo", http.StatusInternalServerError)
-	            return
-	        }
+	    
+		case "GET":
+			// Load receivers from the receivers.json file.
+			receivers, err := loadReceivers(receiversPath)
+			if err != nil && !os.IsNotExist(err) {
+				http.Error(w, "Error reading receivers", http.StatusInternalServerError)
+				return
+			}
+			if receivers == nil {
+				receivers = make(map[string]map[string]string)
+			}
 
-	        // Add LastUpdated based on file modification time.
-	        if fileInfo, err := os.Stat(myinfoPath); err == nil {
-	            myinfo["LastUpdated"] = fileInfo.ModTime().UTC().Format(time.RFC3339Nano)
-	        } else {
-	            myinfo["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
-	        }
-	        // Force local to true for myinfo.json.
-	        myinfo["local"] = "true"
+			// Build the output array.
+			var out []map[string]interface{}
 
-	        // Validate myinfo and only include it if it passes the checks.
-	        validResponse := []map[string]string{}
-	        if isValidReceiver(myinfo) {
-	            validResponse = append(validResponse, myinfo)
-	        } else {
-	            log.Printf("myinfo.json did not pass validation and will be omitted from /receivers response")
-	        }
+			// Process the local myinfo.json first.
+			myinfoPath := filepath.Join(stateDirectory, "myinfo.json")
+			if data, err := os.ReadFile(myinfoPath); err == nil {
+				var localReceiver map[string]interface{}
+				if err := json.Unmarshal(data, &localReceiver); err == nil {
+					// Remove internal fields.
+					delete(localReceiver, "uuid")
+					// Force local attributes.
+					localReceiver["local"] = true
+					localReceiver["id"] = 0
 
-	        // Load receivers info.
-	        receiversMutex.Lock()
-	        data, err = os.ReadFile(receiversPath)
-	        receiversMutex.Unlock()
-	        var receivers []map[string]string
-	        if err == nil {
-	            if err := json.Unmarshal(data, &receivers); err != nil {
-	                receivers = []map[string]string{}
-	            }
-	        } else if os.IsNotExist(err) {
-	            receivers = []map[string]string{}
-	        } else {
-	            http.Error(w, "Error reading receivers", http.StatusInternalServerError)
-	            return
-	        }
+					// Add LastUpdated field based on the file's modification time.
+					if fi, err := os.Stat(myinfoPath); err == nil {
+						localReceiver["LastUpdated"] = fi.ModTime().UTC().Format(time.RFC3339Nano)
+					} else {
+						log.Printf("Error stating myinfo.json: %v", err)
+					}
+	
+					out = append(out, localReceiver)
+				} else {
+					log.Printf("Error unmarshaling myinfo.json: %v", err)
+				}
+			} else {
+				log.Printf("No myinfo.json found at %s, skipping local receiver", myinfoPath)
+			}
+	
+			// Process each receiver from receivers.json.
+			for id, rec := range receivers {
+				recCopy := make(map[string]interface{})
+				for k, v := range rec {
+					recCopy[k] = v
+				}
+				// Remove internal field "uuid".
+				delete(recCopy, "uuid")
+				// Attempt to convert the key to a number.
+				if numID, err := strconv.Atoi(id); err == nil {
+					recCopy["id"] = numID
+				} else {
+					recCopy["id"] = id
+				}
+				recCopy["local"] = false
+				out = append(out, recCopy)
+			}
+	
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(out); err != nil {
+				http.Error(w, "Error encoding response", http.StatusInternalServerError)
+				return
+			}
+	
+			default:
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
 
-	        // Filter out any receivers that do not pass validation.
-	        for _, rec := range receivers {
-	            // Override "local" to false for all receivers other than myinfo.json.
-	            rec["local"] = "false"
-	            if isValidReceiver(rec) {
-	                validResponse = append(validResponse, rec)
-	            } else {
-	                log.Printf("Skipping invalid receiver with uuid: %s", rec["uuid"])
-	            }
-	        }
+		http.HandleFunc("/receivers/", func(w http.ResponseWriter, r *http.Request) {
+			// Expected URL formats:
+			//   PUT /receivers/<uuid>/state
+			//   PUT /receivers/<uuid>/metrics
+			// First, trim the leading "/receivers/"
+			path := strings.TrimPrefix(r.URL.Path, "/receivers/")
+			// Split the path into parts; expect 2 parts: <uuid> and (state|metrics)
+			parts := strings.Split(path, "/")
+			if len(parts) != 2 {
+				http.Error(w, "Invalid URL format. Expected /receivers/<uuid>/(state|metrics)", http.StatusBadRequest)
+				return
+			}
 
-	        for _, rec := range validResponse {
-	            delete(rec, "uuid")
-	        }
+			receiverUUID := parts[0]
+			action := parts[1]
 
-	        w.Header().Set("Content-Type", "application/json")
-	        if err := json.NewEncoder(w).Encode(validResponse); err != nil {
-	            http.Error(w, "Error encoding response", http.StatusInternalServerError)
-	        }
+			// Validate the UUID in any case.
+			if strings.TrimSpace(receiverUUID) == "" {
+				http.Error(w, "Missing UUID in URL", http.StatusBadRequest)
+				return
+			}
+			if _, err := uuid.Parse(receiverUUID); err != nil {
+				http.Error(w, "Invalid UUID format", http.StatusBadRequest)
+				return
+			}
 
-		default:
-		    http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
+			// If allowed-uuids is enabled, check that receiverUUID is in the allowed list.
+			if *restrictUUIDsFlag {
+				allowedFilePath := filepath.Join(*stateDir, "allowed-uuids.json")
+				allowedData, err := os.ReadFile(allowedFilePath)
+				if err != nil {
+					http.Error(w, "Not allowed: allowed UUIDs file not found", http.StatusForbidden)
+					return
+				}
+				var allowedList []string
+				if err := json.Unmarshal(allowedData, &allowedList); err != nil {
+					http.Error(w, "Not allowed: invalid allowed UUIDs file", http.StatusForbidden)
+					return
+				}
+				uuidFound := false
+				for _, allowed := range allowedList {
+					if receiverUUID == allowed {
+						uuidFound = true
+						break
+					}
+				}
+				if !uuidFound {
+					http.Error(w, "Not allowed: receiver UUID not in allowed list", http.StatusForbidden)
+					return
+				}
+			}
+
+			// Only accept PUT requests.
+			if r.Method != "PUT" {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			// Determine the file path based on the action.
+			saveDir := filepath.Join(*stateDir, "receivers", receiverUUID)
+			if err := os.MkdirAll(saveDir, 0755); err != nil {
+				http.Error(w, fmt.Sprintf("Error creating directory: %v", err), http.StatusInternalServerError)
+				return
+			}
+
+			var filename string
+			switch action {
+			case "state":
+				filename = "state.json"
+			case "metrics":
+			filename = "metrics.json"
+			default:
+				http.Error(w, "Invalid action. Use state or metrics.", http.StatusBadRequest)
+				return
+			}
+
+			filePath := filepath.Join(saveDir, filename)
+
+			// Read the entire request body.
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Error reading request body", http.StatusInternalServerError)
+				return
+			}
+			defer r.Body.Close()
+
+			// Optionally, you could perform a quick check to ensure that the JSON is valid.
+			var js json.RawMessage
+			if err := json.Unmarshal(body, &js); err != nil {
+				http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+				return
+			}
+
+			// Save the JSON to the appropriate file.
+			if err := os.WriteFile(filePath, body, 0644); err != nil {
+				http.Error(w, fmt.Sprintf("Error writing to file: %v", err), http.StatusInternalServerError)
+				return
+			}
+
+			// Respond with a success message.
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf("Receiver %s %s saved successfully", receiverUUID, action)))
+		})
+
 		// Handle /ports endpoint
 		http.HandleFunc("/ports", func(w http.ResponseWriter, r *http.Request) {
 		    if r.Method != http.MethodPost {
@@ -1645,9 +1880,7 @@ func main() {
  	        	var metricsFilePath string
 			if *stateDir != "" {
 			        metricsFilePath = filepath.Join(*stateDir, "metrics.json")
-		        } else {
-			        metricsFilePath = filepath.Join(*webRoot, "metrics.json")
-			}
+		        }
 
 		        // Read the file.
 		        data, err := os.ReadFile(metricsFilePath)
@@ -2419,7 +2652,6 @@ func main() {
 			log.Printf("Error reading from serial port: %v", err)
 		}
 	}
-
 
 	// Wait forever.
 	select {}

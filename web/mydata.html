@@ -155,7 +155,7 @@
         // Fetch receiver data and choose the local receiver
         const receiversResponse = await fetch('/receivers');
         const receiversData = await receiversResponse.json();
-        const localReceiver = receiversData.find(r => r.local === "true");
+        const localReceiver = receiversData.find(r => r.local === true);
         if (!localReceiver) throw new Error("No local receiver found.");
 
         const ourLat = parseFloat(localReceiver.latitude);
