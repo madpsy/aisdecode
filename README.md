@@ -6,8 +6,8 @@ AIS Decoder and Web based Tracker for serial (and USB) NMEA hardware. Tested wit
 3) Run the binary from within the cloned repo directory (chmod +x first on Linux/Mac)
 4) In a browser go to http://127.0.0.1:8100 (or whatever IP address of the host)
 5) Make sure it works as expected
-6) Fill the missing fields in state/myinfo.json
-7) Restart and have fun!
+6) Fill the missing fields in state/myinfo.json (optionally set `-aggregator IP:port` and `--aggregator-public-url https://example.com` to a public aggregator)
+7) Restart the binary and have fun!
 
 ```
 Usage of aisdecode:
