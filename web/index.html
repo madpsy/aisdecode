@@ -1432,6 +1432,23 @@ function filterTrackPoints(track) {
   });
 }
 
+function createCircleIcon(vesselState) {
+  // Get a color that is consistent for the vessel type
+  const color = getColorForVesselTypeConsistent(vesselState.Type);
+  // Return a divIcon with circular styling
+  return L.divIcon({
+    html: `<div style="
+              width: 12px;
+              height: 12px;
+              background: ${color};
+              border: 0px;
+              border-radius: 50%;
+           "></div>`,
+    className: '', // Optionally leave className empty to prevent extra styling
+    iconSize: [12, 12],
+    iconAnchor: [6, 6]
+  });
+}
 
 function createDetailContent(data) {
   const lines = [];
@@ -3168,24 +3185,30 @@ document.getElementById('show-ports').addEventListener('change', function() {
 map.on('zoomend', function() {
   const currentZoom = map.getZoom();
   for (const mmsi in vesselMarkers) {
-    // Always show the tooltip for the focused vessel
+    let marker = vesselMarkers[mmsi];
+    // Check if this is the focused vessel – its icon and tooltip remain unchanged.
     if (mmsi === focusedVessel?.toString()) {
-      vesselMarkers[mmsi].bindTooltip(vesselData[mmsi].Name, {
+      marker.bindTooltip(vesselData[mmsi].Name, {
         permanent: true,
         direction: 'top',
         className: 'vessel-tooltip'
       }).openTooltip();
+      // Revert to the standard vessel icon (as defined by getVesselIcon)
+      marker.setIcon(getVesselIcon(vesselData[mmsi]));
     } else {
+      // For non-focused vessels:
       if (currentZoom < 10) {
-        // Remove the tooltip for non-focused vessels when zoomed out
-        vesselMarkers[mmsi].unbindTooltip();
+        // Remove tooltip and set the icon to a simple circle
+        marker.unbindTooltip();
+        marker.setIcon(createCircleIcon(vesselData[mmsi]));
       } else {
-        // Rebind the tooltip for non-focused vessels when zoomed in
-        vesselMarkers[mmsi].bindTooltip(vesselData[mmsi].Name, {
+        // Rebind tooltip and revert to the standard icon
+        marker.bindTooltip(vesselData[mmsi].Name, {
           permanent: true,
           direction: 'top',
           className: 'vessel-tooltip'
         }).openTooltip();
+        marker.setIcon(getVesselIcon(vesselData[mmsi]));
       }
     }
   }
