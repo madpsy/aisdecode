@@ -12,6 +12,8 @@ Usage of aisdecode:
     	Comma delimited list of aggregator host/ip:port (optional)
   -aggregator-public-url string
     	Public aggregator URL to push myinfo.json to on startup (optional)
+  -allow-all-uuids
+    	If specified, allows all receiver UUIDs (by default, UUIDs are restricted via allowed list)
   -baud int
     	Baud rate (default: 38400), ignored if -serial-port is not specified (default 38400)
   -debug
@@ -26,8 +28,6 @@ Usage of aisdecode:
     	Directory path to log every decoded message (optional)
   -no-state
     	When specified, do not save or load the state (default: false)
-  -restrict-uuids
-    	If specified, restricts which receiver UUIDs can be sent to us. Expects a JSON file at <state dir>/allowed-uuids.json with a list of allowed UUIDs
   -serial-port string
     	Serial port device (optional)
   -show-decodes

@@ -1131,7 +1131,7 @@ func main() {
 	stateDir := flag.String("state-dir", "state", "Directory to store state (default: state)")
 	externalLookupURL := flag.String("external-lookup", "", "URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)")
 	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push myinfo.json to on startup (optional)")
-	restrictUUIDsFlag := flag.Bool("restrict-uuids", false, "If specified, restricts which receiver UUIDs can be sent to us. Expects a JSON file at <state dir>/allowed-uuids.json with a list of allowed UUIDs")
+	allowAllUUIDs := flag.Bool("allow-all-uuids", false, "If specified, allows all receiver UUIDs (by default, UUIDs are restricted via allowed list)")
 	logAllDecodesDir := flag.String("log-all-decodes", "", "Directory path to log every decoded message (optional)")
 
 	flag.Parse()
@@ -1604,7 +1604,7 @@ func main() {
 	        defer r.Body.Close()
 	
 	        // If allowed UUIDs are enforced, check against the allowed list.
-	        if *restrictUUIDsFlag {
+	        if !*allowAllUUIDs {
 	            allowedFilePath := filepath.Join(stateDirectory, "allowed-uuids.json")
 	            allowedData, err := os.ReadFile(allowedFilePath)
 	            if err != nil {
@@ -1791,7 +1791,7 @@ func main() {
 
 		        // If your application enforces allowed UUIDs, perform that check here.
 		        // (For example, read allowed UUIDs from allowed-uuids.json and ensure receiverUUID is one of them.)
-		        if *restrictUUIDsFlag {
+		        if !*allowAllUUIDs {
 		            allowedFilePath := filepath.Join(*stateDir, "allowed-uuids.json")
 		            allowedData, err := os.ReadFile(allowedFilePath)
 		            if err != nil {
