@@ -17,6 +17,8 @@ Usage of aisdecode:
     	Comma delimited list of aggregator host/ip:port (optional)
   -aggregator-public-url string
     	Public aggregator URL to push myinfo.json to on startup (optional)
+  -aggregator-upload-period int
+    	Aggregator upload period in minutes (default: 15, 0 disables periodic uploads)
   -allow-all-uuids
     	If specified, allows all receiver UUIDs (by default, UUIDs are restricted via allowed list)
   -baud int
