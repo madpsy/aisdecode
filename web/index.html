@@ -2931,7 +2931,7 @@ window.addEventListener('load', () => {
 	}
 	// Always add Metrics and Snapshot links using the receiver's id.
 	linksHTML += `<a href="/metrics.html?id=${receiver.id}" target="_blank">Metrics</a> | `;
-	linksHTML += `<a href="/snapshot.html?id=${receiver.id}" target="_blank">Snapshot</a>`;
+	linksHTML += `<a href="/coverage.html?id=${receiver.id}" target="_blank">Coverage</a>`;
 
 	const popupContent = `
 	    <strong>${receiver.name}</strong><br>
