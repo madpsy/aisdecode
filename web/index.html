@@ -2927,11 +2927,11 @@ window.addEventListener('load', () => {
 	let linksHTML = "";
 	// If the receiver has a non-empty 'url', add a Website link.
 	if (receiver.url && receiver.url.trim() !== "") {
-	    linksHTML += `<a href="${receiver.url}" target="_blank">Website</a> |`;
+	    linksHTML += `<a href="${receiver.url}" target="_blank">Website</a> | `;
 	}
 	// Always add Metrics and Snapshot links using the receiver's id.
-	linksHTML += `<a href="/metrics.html?id=${receiver.id}" target="_blank"> Metrics</a> |`;
-	linksHTML += `<a href="/snapshot.html?id=${receiver.id}" target="_blank"> Snapshot</a>`;
+	linksHTML += `<a href="/metrics.html?id=${receiver.id}" target="_blank">Metrics</a> | `;
+	linksHTML += `<a href="/snapshot.html?id=${receiver.id}" target="_blank">Snapshot</a>`;
 
 	const popupContent = `
 	    <strong>${receiver.name}</strong><br>

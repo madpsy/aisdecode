@@ -138,7 +138,7 @@
     }
 
     function animateRotation() {
-      const diff = targetRotation - currentRotation;
+      let diff = getMinAngleDifference(targetRotation, currentRotation);
       if (Math.abs(diff) < 0.1) {
         currentRotation = targetRotation;
       } else {
@@ -146,6 +146,11 @@
         requestAnimationFrame(animateRotation);
       }
       drawRadarGauge();
+    }
+
+    function getMinAngleDifference(target, current) {
+      let diff = (target - current + 540) % 360 - 180;
+      return diff;
     }
 
     // ------------------------------
@@ -261,156 +266,185 @@
     // ------------------------------
     // Draw the Radar Gauge (Overlaying the background)
     // ------------------------------
-    function drawRadarGauge() {
-      ctx.clearRect(0, 0, canvasSize, canvasSize);
+function drawRadarGauge() {
+  ctx.clearRect(0, 0, canvasSize, canvasSize);
 
-      // Draw the background tiles first (OSM base + OpenSeaMap overlay)
-      drawBackground();
+  // Draw the background tiles first (OSM base + OpenSeaMap overlay)
+  drawBackground();
 
-      // Outer radar circle
-      ctx.beginPath();
-      ctx.arc(canvasSize / 2, canvasSize / 2, radarRadiusPx, 0, 2 * Math.PI);
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = 2;
-      ctx.stroke();
+  // Outer radar circle (1 NM circle)
+  ctx.beginPath();
+  ctx.arc(canvasSize / 2, canvasSize / 2, radarRadiusPx, 0, 2 * Math.PI);
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 2;
+  ctx.stroke();
 
-      // Concentric rings
-      const ringDistances = [0.33, 0.66];
-      ringDistances.forEach(distanceNM => {
-        const ringRadius = distanceNM * scaleFactor;
-        ctx.beginPath();
-        ctx.arc(canvasSize / 2, canvasSize / 2, ringRadius, 0, 2 * Math.PI);
-        ctx.strokeStyle = "#aaa";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        const labelAngle = -45 * Math.PI / 180;
-        const labelX = (canvasSize / 2) + ringRadius * Math.cos(labelAngle);
-        const labelY = (canvasSize / 2) + ringRadius * Math.sin(labelAngle);
-        ctx.fillStyle = "#000";
-        ctx.font = "10px Arial";
-        ctx.fillText(distanceNM.toFixed(2) + " NM", labelX - 15, labelY - 5);
-      });
+  // Concentric rings
+  const ringDistances = [0.33, 0.66];
+  ringDistances.forEach(distanceNM => {
+    const ringRadius = distanceNM * scaleFactor;
+    ctx.beginPath();
+    ctx.arc(canvasSize / 2, canvasSize / 2, ringRadius, 0, 2 * Math.PI);
+    ctx.strokeStyle = "#aaa";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    const labelAngle = -45 * Math.PI / 180;
+    const labelX = (canvasSize / 2) + ringRadius * Math.cos(labelAngle);
+    const labelY = (canvasSize / 2) + ringRadius * Math.sin(labelAngle);
+    ctx.fillStyle = "#000";
+    ctx.font = "10px Arial";
+    ctx.fillText(distanceNM.toFixed(2) + " NM", labelX - 15, labelY - 5);
+  });
 
-      // Degree markings
+  // Degree markings
+  ctx.save();
+  ctx.translate(canvasSize / 2, canvasSize / 2);
+  ctx.font = "12px Arial";
+  ctx.fillStyle = "#000";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const numMarks = 12;
+  const textRadius = radarRadiusPx + (margin - textBuffer);
+  for (let i = 0; i < numMarks; i++) {
+    const markAngle = i * 360 / numMarks;
+    // Use smooth rotation (currentRotation) for calculating displayed headings
+    let displayedHeading = currentRotation !== null ? (currentRotation + markAngle) % 360 : markAngle;
+    const rad = (markAngle - 90) * Math.PI / 180;
+    const x = textRadius * Math.cos(rad);
+    const y = textRadius * Math.sin(rad);
+    ctx.fillText(displayedHeading.toFixed(0) + "°", x, y);
+  }
+  ctx.restore();
+
+  // Main vessel marker (blue triangle)
+  ctx.save();
+  ctx.translate(canvasSize / 2, canvasSize / 2);
+  const mainLength = 14;
+  const mainWidth = 10;
+  ctx.beginPath();
+  ctx.moveTo(0, -mainLength / 2);
+  ctx.lineTo(mainWidth / 2, mainLength / 2);
+  ctx.lineTo(-mainWidth / 2, mainLength / 2);
+  ctx.closePath();
+  ctx.fillStyle = "blue";
+  ctx.fill();
+  ctx.strokeStyle = "black";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  // Draw Vessel Markers (rotated context)
+  ctx.save();
+  ctx.translate(canvasSize / 2, canvasSize / 2);
+  // Rotate relative to smooth rotation instead of immediate heading
+  ctx.rotate(-currentRotation * Math.PI / 180);
+  Object.keys(vesselSummaries).forEach(mmsi => {
+    const vessel = vesselSummaries[mmsi];
+    if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
+    const deltaLat = vessel.Latitude - currentVesselLat;
+    const deltaLon = vessel.Longitude - currentVesselLon;
+    const offset = latLonToNM(deltaLat, deltaLon, currentVesselLat);
+    const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
+    if (distanceNM > radarNM) return;
+    const offsetX = offset.x * scaleFactor;
+    const offsetY = -offset.y * scaleFactor;
+
+    if (vessel.Heading !== undefined && vessel.Heading !== null) {
+      const length = 14;
+      const width = 10;
+      const vesselRotation = (vessel.Heading * Math.PI / 180);
       ctx.save();
-      ctx.translate(canvasSize / 2, canvasSize / 2);
-      ctx.font = "12px Arial";
-      ctx.fillStyle = "#000";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      const numMarks = 12;
-      const textRadius = radarRadiusPx + (margin - textBuffer);
-      for (let i = 0; i < numMarks; i++) {
-        const markAngle = i * 360 / numMarks;
-        // Use smooth rotation (currentRotation) for calculating displayed headings
-        let displayedHeading = currentRotation !== null ? (currentRotation + markAngle) % 360 : markAngle;
-        const rad = (markAngle - 90) * Math.PI / 180;
-        const x = textRadius * Math.cos(rad);
-        const y = textRadius * Math.sin(rad);
-        ctx.fillText(displayedHeading.toFixed(0) + "°", x, y);
-      }
-      ctx.restore();
-
-      // Main vessel marker (blue triangle)
-      ctx.save();
-      ctx.translate(canvasSize / 2, canvasSize / 2);
-      const mainLength = 14;
-      const mainWidth = 10;
+      ctx.translate(offsetX, offsetY);
+      ctx.rotate(vesselRotation);
       ctx.beginPath();
-      ctx.moveTo(0, -mainLength / 2);
-      ctx.lineTo(mainWidth / 2, mainLength / 2);
-      ctx.lineTo(-mainWidth / 2, mainLength / 2);
+      ctx.moveTo(0, -length / 2);
+      ctx.lineTo(width / 2, length / 2);
+      ctx.lineTo(-width / 2, length / 2);
       ctx.closePath();
-      ctx.fillStyle = "blue";
+      ctx.fillStyle = "red";
       ctx.fill();
       ctx.strokeStyle = "black";
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.restore();
-
-      // Draw Vessel Markers (rotated context)
-      ctx.save();
-      ctx.translate(canvasSize / 2, canvasSize / 2);
-      // Rotate relative to smooth rotation instead of immediate heading
-      ctx.rotate(-currentRotation * Math.PI / 180);
-      Object.keys(vesselSummaries).forEach(mmsi => {
-        const vessel = vesselSummaries[mmsi];
-        if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
-        const deltaLat = vessel.Latitude - currentVesselLat;
-        const deltaLon = vessel.Longitude - currentVesselLon;
-        const offset = latLonToNM(deltaLat, deltaLon, currentVesselLat);
-        const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
-        if (distanceNM > radarNM) return;
-        const offsetX = offset.x * scaleFactor;
-        const offsetY = -offset.y * scaleFactor;
-
-        //console.log(`Vessel ${mmsi} - TrueHeading: ${vessel.TrueHeading}, Cog: ${vessel.Cog}, Using Heading: ${vessel.Heading}`);
-
-        if (vessel.Heading !== undefined && vessel.Heading !== null) {
-          const length = 14;
-          const width = 10;
-          const vesselRotation = (vessel.Heading * Math.PI / 180);
-          ctx.save();
-          ctx.translate(offsetX, offsetY);
-          ctx.rotate(vesselRotation);
-          ctx.beginPath();
-          ctx.moveTo(0, -length / 2);
-          ctx.lineTo(width / 2, length / 2);
-          ctx.lineTo(-width / 2, length / 2);
-          ctx.closePath();
-          ctx.fillStyle = "red";
-          ctx.fill();
-          ctx.strokeStyle = "black";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          ctx.restore();
-        } else {
-          ctx.beginPath();
-          ctx.arc(offsetX, offsetY, 4, 0, 2 * Math.PI);
-          ctx.fillStyle = "red";
-          ctx.fill();
-        }
-      });
-      ctx.restore();
-
-      // Draw Vessel Labels (non-rotated)
-      const drawnLabels = [];
-      Object.keys(vesselSummaries).forEach(mmsi => {
-        const vessel = vesselSummaries[mmsi];
-        if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
-        const deltaLat = vessel.Latitude - currentVesselLat;
-        const deltaLon = vessel.Longitude - currentVesselLon;
-        const offset = latLonToNM(deltaLat, deltaLon, currentVesselLat);
-        const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
-        if (distanceNM > radarNM) return;
-        const offsetX = offset.x * scaleFactor;
-        const offsetY = -offset.y * scaleFactor;
-        const angleRad = - currentRotation * Math.PI / 180;
-        const rotatedX = offsetX * Math.cos(angleRad) - offsetY * Math.sin(angleRad);
-        const rotatedY = offsetX * Math.sin(angleRad) + offsetY * Math.cos(angleRad);
-        const absX = (canvasSize / 2) + rotatedX;
-        const absY = (canvasSize / 2) + rotatedY;
-        const label = (vessel.Name && vessel.Name.toUpperCase() !== "NO NAME") ? vessel.Name : mmsi;
-        let skipLabel = false;
-        drawnLabels.forEach(pos => {
-          const dx = pos.x - absX;
-          const dy = pos.y - absY;
-          if (Math.sqrt(dx * dx + dy * dy) < labelOverlapThreshold) {
-            skipLabel = true;
-          }
-        });
-        if (skipLabel) return;
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.font = "10px Arial";
-        ctx.fillStyle = "#000";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "bottom";
-        ctx.fillText(label, absX, absY - 6);
-        ctx.restore();
-        drawnLabels.push({ x: absX, y: absY });
-      });
+    } else {
+      ctx.beginPath();
+      ctx.arc(offsetX, offsetY, 4, 0, 2 * Math.PI);
+      ctx.fillStyle = "red";
+      ctx.fill();
     }
+  });
+  ctx.restore();
+
+  // Draw Vessel Labels (non-rotated)
+  const drawnLabels = [];
+  Object.keys(vesselSummaries).forEach(mmsi => {
+    const vessel = vesselSummaries[mmsi];
+    if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
+    const deltaLat = vessel.Latitude - currentVesselLat;
+    const deltaLon = vessel.Longitude - currentVesselLon;
+    const offset = latLonToNM(deltaLat, deltaLon, currentVesselLat);
+    const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
+    if (distanceNM > radarNM) return;
+    const offsetX = offset.x * scaleFactor;
+    const offsetY = -offset.y * scaleFactor;
+    const angleRad = - currentRotation * Math.PI / 180;
+    const rotatedX = offsetX * Math.cos(angleRad) - offsetY * Math.sin(angleRad);
+    const rotatedY = offsetX * Math.sin(angleRad) + offsetY * Math.cos(angleRad);
+    const absX = (canvasSize / 2) + rotatedX;
+    const absY = (canvasSize / 2) + rotatedY;
+    const label = (vessel.Name && vessel.Name.toUpperCase() !== "NO NAME") ? vessel.Name : mmsi;
+    let skipLabel = false;
+    drawnLabels.forEach(pos => {
+      const dx = pos.x - absX;
+      const dy = pos.y - absY;
+      if (Math.sqrt(dx * dx + dy * dy) < labelOverlapThreshold) {
+        skipLabel = true;
+      }
+    });
+    if (skipLabel) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.font = "10px Arial";
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(label, absX, absY - 6);
+    ctx.restore();
+    drawnLabels.push({ x: absX, y: absY });
+  });
+
+  // ------------------------------
+  // Draw the red notch indicating the 0° direction (rotated to match degree markings)
+  // in the annular space between the outer edge and the 1 NM circle.
+  // ------------------------------
+  ctx.save();
+  const centerX = canvasSize / 2;
+  const centerY = canvasSize / 2;
+  // Define gap values so the notch sits between the 1NM circle (radarRadiusPx)
+  // and the outer edge of the canvas (which is canvasSize/2).
+  const gap = 2;
+  const outerRadius = (canvasSize / 2) - gap; // Outer edge of the canvas
+  const innerRadius = radarRadiusPx + gap;     // 1 NM circle boundary
+  // Compute the angle where 0° appears in the rotated display.
+  const notchAngleDeg = (360 - currentRotation) % 360;
+  // Adjust by -90° since 0° in canvas coordinates points to the right by default.
+  const notchAngleRad = (notchAngleDeg - 90) * Math.PI / 180;
+  
+  // Compute the positions for the notch endpoints.
+  const outerX = centerX + outerRadius * Math.cos(notchAngleRad);
+  const outerY = centerY + outerRadius * Math.sin(notchAngleRad);
+  const innerX = centerX + innerRadius * Math.cos(notchAngleRad);
+  const innerY = centerY + innerRadius * Math.sin(notchAngleRad);
+  
+  ctx.beginPath();
+  ctx.moveTo(outerX, outerY);
+  ctx.lineTo(innerX, innerY);
+  ctx.strokeStyle = "red";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.restore();
+}
 
     // ------------------------------
     // Update Main Vessel Position (always redraws background)
