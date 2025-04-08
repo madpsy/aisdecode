@@ -56,7 +56,6 @@
           border: 1px solid #aaa;
           border-radius: 3px;
           cursor: pointer;
-	  pointer-events: none;
         }
         /* Style for the Clear History button */
         #clear-history {
@@ -1097,9 +1096,9 @@ function updateLegend() {
 
 function createReceiverIcon() {
   const svgHtml = `
-<svg width="20" height="20" viewBox="0 0 20 20">
-  <circle cx="10" cy="10" r="10" fill="red" />
-</svg>
+    <svg style="pointer-events: none;" width="20" height="20" viewBox="0 0 20 20">
+      <circle cx="10" cy="10" r="10" fill="red" />
+    </svg>
   `;
   return L.divIcon({
     html: svgHtml,
@@ -2907,34 +2906,36 @@ window.addEventListener('load', () => {
           const marker = L.marker([lat, lng], { icon: createReceiverIcon() }).addTo(map);
 
           // Convert LastUpdated to local time
-          const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
+	const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
+	let linksHTML = "";
+	// If the receiver has a non-empty 'url', add a Website link.
+	if (receiver.url && receiver.url.trim() !== "") {
+	    linksHTML += `<a href="${receiver.url}" target="_blank">Website</a> |`;
+	}
+	// Always add Metrics and Snapshot links using the receiver's id.
+	linksHTML += `<a href="/metrics.html?id=${receiver.id}" target="_blank"> Metrics</a> |`;
+	linksHTML += `<a href="/snapshot.html?id=${receiver.id}" target="_blank"> Snapshot</a>`;
 
-          // Build the popup content
-          const popupContent = `
-            <strong>${receiver.name}</strong><br>
-            ${receiver.description}<br>
-            Updated: ${updatedLocalTime}
-          `;
-	  let popupCloseTimeout;
-          // Bind the popup and a permanent tooltip to the marker
-          marker.bindPopup(popupContent, { autoPan: true });
-	  marker.on('mouseover', function() {
-	  // Clear any scheduled popup close so it stays open
-	  if (popupCloseTimeout) {
-	    clearTimeout(popupCloseTimeout);
-	    popupCloseTimeout = null;
-	  }
-	  this.openPopup();
-	});
-
-	marker.on('mouseout', function() {
-	  // Delay closing the popup by 300ms (adjust as needed)
-	  popupCloseTimeout = setTimeout(() => {
+	const popupContent = `
+	    <strong>${receiver.name}</strong><br>
+	    ${receiver.description}<br>
+	    Updated: ${updatedLocalTime}<br>
+	    ${linksHTML}
+	`;
+	
+	marker.bindPopup(popupContent, { autoPan: true });
+	
+	marker.on('click', function() {
+	  console.log("Receiver marker clicked", e);
+	  if (this.isPopupOpen()) {
 	    this.closePopup();
-	  }, 1000);
+	  } else {
+	    this.openPopup();
+	  }
 	});
           marker.bindTooltip(`RX: ${receiver.name}`, { 
             permanent: true, 
+	    interactive: true,
             direction: 'top', 
             className: 'receiver-tooltip' 
           }).openTooltip();
