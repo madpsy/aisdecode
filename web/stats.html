@@ -107,7 +107,7 @@
     </div>
 
     <!-- Current Speed Display -->
-    <div id="current-speed-display">Speed: 0.00 kn</div>
+    <div id="current-speed-display">0.00 kn</div>
 
     <div id="radar-container" style="margin-bottom:0px;">
       <iframe id="radarFrame" src="" frameborder="0" style="width:100%; height:300px;" scrolling="no"></iframe>
@@ -421,7 +421,7 @@ const sogChart = new Chart(ctxSog, {
             arrowHtml = ' <span style="background-color: blue; display:inline-block; width:10px; height:10px; border-radius:50%;"></span>';
           }
           allSogData.push({ timestamp: timestamp, sog: currentSogNum });
-          document.getElementById('current-speed-display').innerHTML = "Speed: " + currentSogNum.toFixed(1) + " kn" + arrowHtml;
+          document.getElementById('current-speed-display').innerHTML = "" + currentSogNum.toFixed(1) + " kn" + arrowHtml;
           filterChartData();
         }
         
@@ -800,7 +800,7 @@ document.getElementById('directionChart').addEventListener('dblclick', () => {
           document.getElementById('cogLabel').textContent = "Course";
           cogCompass.update();
           
-          document.getElementById('current-speed-display').textContent = "Speed: 0.00 kn";
+          document.getElementById('current-speed-display').textContent = "0.00 kn";
           document.getElementById('lat-long-display').textContent = "--, --";
           
           loadInitialState();
