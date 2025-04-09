@@ -7,8 +7,8 @@ AIS Decoder and Web based Tracker for both serial AIS hardware and generic UDP n
 4) Start sending NMEA 0183 data to UDP port 8101 or configure a `serial` device (or both!)
 5) In a browser go to http://127.0.0.1:8100 (or whatever IP address of the host)
 6) Make sure it works as expected
-7) Fill the missing fields in the file `state/myinfo.json` (your receiver details)
-8) Optionally set the command line arguments `-aggregator IP:port` and `--aggregator-public-url https://example.com` to a public aggregator
+7) Go to http://127.0.0.1:8100/admin.html (no default password) and fill in your station details
+8) Optionally set the command line arguments `-aggregator host:port` and `--aggregator-public-url https://example.com` to a public aggregator
 9) Restart the binary and have fun!
 
 ```
@@ -18,7 +18,7 @@ Usage of aisdecode:
   -aggregator-public-url string
     	Public aggregator URL to push myinfo.json to on startup (optional)
   -aggregator-upload-period int
-    	Aggregator upload period in minutes (default: 15, 0 disables periodic uploads)
+    	Aggregator upload period in minutes (default: 1, 0 disables periodic uploads)
   -allow-all-uuids
     	If specified, allows all receiver UUIDs (by default, UUIDs are restricted via allowed list)
   -baud int
@@ -31,6 +31,10 @@ Usage of aisdecode:
     	Log the latest vessel data to the screen whenever it is updated
   -expire-after duration
     	Expire vessel data if no update is received within this duration (default: 24h)
+  -external-lookup string
+    	URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)
+  -external-lookup-auth string
+    	Optional credentials for external lookup in the format user:pass
   -log-all-decodes string
     	Directory path to log every decoded message (optional)
   -no-state
