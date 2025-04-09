@@ -1033,6 +1033,9 @@ func pushReceiverFiles(stateDir, aggregatorPublicURL string) {
 		return
 	}
 
+	// Delete the "password" field, if it exists.
+	delete(myinfo, "password")
+
 	receiverUUID, ok := myinfo["uuid"]
 	if !ok || strings.TrimSpace(receiverUUID) == "" {
 		log.Printf("No valid UUID found in myinfo.json")
@@ -1141,6 +1144,20 @@ func main() {
   	   if err := os.MkdirAll(*stateDir, 0755); err != nil {
 	       log.Fatalf("Failed to create state directory %s: %v", *stateDir, err)
 	   }
+
+	   allowedUUIDsFilePath := filepath.Join(*stateDir, "allowed-uuids.json")
+	   if _, err := os.Stat(allowedUUIDsFilePath); os.IsNotExist(err) {
+           // File does not exist, so create it with an empty list.
+               emptyList := []string{}
+               data, err := json.MarshalIndent(emptyList, "", "  ")
+               if err != nil {
+                   log.Fatalf("Error marshaling empty allowed UUID list: %v", err)
+               }
+               if err := os.WriteFile(allowedUUIDsFilePath, data, 0644); err != nil {
+                   log.Fatalf("Error creating allowed UUIDs file: %v", err)
+               }
+               log.Printf("Created %s with an empty list", allowedUUIDsFilePath)
+           }
         }
 
 	var statePath string
@@ -1220,6 +1237,9 @@ func main() {
 	    }
 	    if _, ok := myInfo["url"]; !ok {
 	        myInfo["url"] = ""
+	    }
+	    if _, ok := myInfo["password"]; !ok {
+	        myInfo["password"] = ""
 	    }
 	    // Write the updated myinfo.json back.
 	    b, err := json.MarshalIndent(myInfo, "", "  ")
@@ -1603,6 +1623,8 @@ func main() {
 	            return
 	        }
 	        defer r.Body.Close()
+
+		delete(rec, "password")
 	
 	        // If allowed UUIDs are enforced, check against the allowed list.
 	        if !*allowAllUUIDs {
@@ -1669,6 +1691,7 @@ func main() {
 				if err := json.Unmarshal(data, &localReceiver); err == nil {
 					// Remove internal fields.
 					delete(localReceiver, "uuid")
+					delete(localReceiver, "password")
 					// Force local attributes.
 					localReceiver["local"] = true
 					localReceiver["id"] = 0
@@ -1692,6 +1715,8 @@ func main() {
 				}
 				// Remove internal field "uuid".
 				delete(recCopy, "uuid")
+				// Remove the password field.
+				delete(recCopy, "password")
 				// Attempt to convert the key to a number.
 				if numID, err := strconv.Atoi(id); err == nil {
 					recCopy["id"] = numID
@@ -1963,6 +1988,447 @@ func main() {
 		        w.Header().Set("Content-Type", "application/json")
 		        w.Write(data)
 	       })
+		http.HandleFunc("/myinfo", func(w http.ResponseWriter, r *http.Request) {
+		    switch r.Method {
+		    case http.MethodGet:
+		        // Require basic auth for GET.
+		        username, password, ok := r.BasicAuth()
+		        if !ok || username != "admin" {
+		            w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+		            http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		            return
+		        }
+		        
+		        // Read the current myinfo file.
+		        myinfoPath := filepath.Join(*stateDir, "myinfo.json")
+		        data, err := os.ReadFile(myinfoPath)
+		        if err != nil {
+		            http.Error(w, "Error reading myinfo file", http.StatusInternalServerError)
+		            return
+		        }
+		        var myinfo map[string]interface{}
+		        if err := json.Unmarshal(data, &myinfo); err != nil {
+		            http.Error(w, "Error parsing myinfo file", http.StatusInternalServerError)
+		            return
+		        }
+        
+		        // If a password is stored, verify that it matches the provided password.
+		        if pwVal, exists := myinfo["password"]; exists {
+		            if pwStr, ok := pwVal.(string); ok && strings.TrimSpace(pwStr) != "" {
+		                if password != pwStr {
+		                    w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+		                    http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		                    return
+		                }
+		            }
+		        }
+		        
+		        // Remove the password field before returning the response.
+		        delete(myinfo, "password")
+		        w.Header().Set("Content-Type", "application/json")
+		        if err := json.NewEncoder(w).Encode(myinfo); err != nil {
+		            http.Error(w, "Error encoding myinfo", http.StatusInternalServerError)
+		            return
+		        }
+		    case http.MethodPut:
+		        myinfoPath := filepath.Join(*stateDir, "myinfo.json")
+		        
+		        // Read the existing myinfo file (if it exists) to see if a password is already set.
+		        var existing map[string]interface{}
+		        if data, err := os.ReadFile(myinfoPath); err == nil {
+		            json.Unmarshal(data, &existing)
+		        }
+		        // If there is a non-empty stored password, require basic auth for this PUT.
+		        if pwVal, exists := existing["password"]; exists {
+		            if pwStr, ok := pwVal.(string); ok && strings.TrimSpace(pwStr) != "" {
+		                username, password, ok := r.BasicAuth()
+		                if !ok || username != "admin" || password != pwStr {
+		                    w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+		                    http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		                    return
+		                }
+		            }
+		        }
+		        
+		        // Decode the incoming JSON update.
+		        var updates map[string]string
+		        if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		            return
+		        }
+		        defer r.Body.Close()
+		        
+		        // Validate non-empty values for all fields except "url".
+		        for key, value := range updates {
+		            if key != "url" && strings.TrimSpace(value) == "" {
+		                http.Error(w, fmt.Sprintf("Field %q cannot be empty", key), http.StatusBadRequest)
+		                return
+		            }
+		        }
+		        // Validate latitude and longitude if provided.
+		        if latStr, ok := updates["latitude"]; ok {
+		            if lat, err := strconv.ParseFloat(latStr, 64); err != nil || lat < -90 || lat > 90 {
+		                http.Error(w, "Invalid latitude value", http.StatusBadRequest)
+		                return
+		            }
+		        }
+		        if lonStr, ok := updates["longitude"]; ok {
+		            if lon, err := strconv.ParseFloat(lonStr, 64); err != nil || lon < -180 || lon > 180 {
+		                http.Error(w, "Invalid longitude value", http.StatusBadRequest)
+		                return
+		            }
+		        }
+		        // Validate the uuid field if provided.
+		        if uuidStr, ok := updates["uuid"]; ok {
+		            if _, err := uuid.Parse(uuidStr); err != nil {
+		                http.Error(w, "Invalid UUID format", http.StatusBadRequest)
+		                return
+		            }
+		        }
+		        // Validate that password field is at least 8 characters long (if provided).
+		        if newPassword, ok := updates["password"]; ok {
+		            if len(newPassword) < 8 {
+		                http.Error(w, "Password must be at least 8 characters long", http.StatusBadRequest)
+		                return
+		            }
+		        }
+		        
+		        // Read the current myinfo data (if any). Use an empty map if the file does not exist.
+		        var myinfo map[string]string
+		        if data, err := os.ReadFile(myinfoPath); err == nil {
+		            if err := json.Unmarshal(data, &myinfo); err != nil {
+		                myinfo = make(map[string]string)
+		            }
+		        } else {
+		            myinfo = make(map[string]string)
+		        }
+        
+		        // Merge the updates into the current myinfo.
+		        for key, value := range updates {
+		            myinfo[key] = value
+		        }
+		        myinfo["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+		        
+		        output, err := json.MarshalIndent(myinfo, "", "  ")
+		        if err != nil {
+		            http.Error(w, "Error encoding updated data", http.StatusInternalServerError)
+		            return
+		        }
+		        if err := os.WriteFile(myinfoPath, output, 0644); err != nil {
+		            http.Error(w, "Error saving updated data", http.StatusInternalServerError)
+		            return
+		        }
+        
+		        w.WriteHeader(http.StatusOK)
+		        w.Write([]byte("myinfo updated successfully"))
+		    default:
+		        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		    }
+		})
+		http.HandleFunc("/alloweduuids", func(w http.ResponseWriter, r *http.Request) {
+		    // --- Basic Auth Logic ---
+		    username, password, ok := r.BasicAuth()
+		    if !ok || username != "admin" {
+		        w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+		        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		        return
+		    }
+		    // Read the local myinfo file to check if a password is set.
+		    myinfoPath := filepath.Join(*stateDir, "myinfo.json")
+		    if data, err := os.ReadFile(myinfoPath); err == nil {
+		        var myinfo map[string]interface{}
+		        if err := json.Unmarshal(data, &myinfo); err == nil {
+		            if pw, exists := myinfo["password"].(string); exists && strings.TrimSpace(pw) != "" {
+		                if password != pw {
+		                    w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+		                    http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		                    return
+		                }
+		            }
+		        }
+		    }
+		    
+		    allowedFilePath := filepath.Join(*stateDir, "allowed-uuids.json")
+		
+		    switch r.Method {
+		    case http.MethodGet:
+		        // Read the allowed-uuids.json file. Return an empty list if the file doesn't exist.
+		        var allowedList []string
+		        if data, err := os.ReadFile(allowedFilePath); err == nil {
+		            if err := json.Unmarshal(data, &allowedList); err != nil {
+		                http.Error(w, "Error parsing allowed UUIDs file", http.StatusInternalServerError)
+		                return
+		            }
+		        }
+		        w.Header().Set("Content-Type", "application/json")
+		        if err := json.NewEncoder(w).Encode(allowedList); err != nil {
+		            http.Error(w, "Error encoding response", http.StatusInternalServerError)
+		            return
+		        }
+        
+		    case http.MethodPut:
+		        // Decode the JSON payload to get a new UUID.
+		        var payload struct {
+		            UUID string `json:"uuid"`
+		        }
+		        if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		            return
+		        }
+		        defer r.Body.Close()
+
+		        // Validate the UUID.
+		        if _, err := uuid.Parse(payload.UUID); err != nil {
+		            http.Error(w, "Invalid UUID format", http.StatusBadRequest)
+		            return
+		        }
+
+		        // Load the current allowed UUID list, if any.
+		        var allowedList []string
+		        if data, err := os.ReadFile(allowedFilePath); err == nil {
+		            if err := json.Unmarshal(data, &allowedList); err != nil {
+		                http.Error(w, "Error parsing allowed UUIDs file", http.StatusInternalServerError)
+		                return
+		            }
+		        }
+		        // Add the new UUID only if it is not already in the list.
+		        exists := false
+		        for _, u := range allowedList {
+		            if u == payload.UUID {
+		                exists = true
+		                break
+		            }
+		        }
+		        if !exists {
+		            allowedList = append(allowedList, payload.UUID)
+		            newData, err := json.MarshalIndent(allowedList, "", "  ")
+		            if err != nil {
+		                http.Error(w, "Error marshaling allowed UUIDs", http.StatusInternalServerError)
+		                return
+		            }
+		            if err := os.WriteFile(allowedFilePath, newData, 0644); err != nil {
+		                http.Error(w, "Error saving allowed UUIDs", http.StatusInternalServerError)
+		                return
+		            }
+		        }
+		        w.WriteHeader(http.StatusOK)
+		        w.Write([]byte("UUID added successfully"))
+		        
+		    case http.MethodDelete:
+		        // Decode the JSON payload to get the UUID to be removed.
+		        var payload struct {
+		            UUID string `json:"uuid"`
+		        }
+		        if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		            return
+		        }
+		        defer r.Body.Close()
+
+		        // Validate the UUID.
+		        if _, err := uuid.Parse(payload.UUID); err != nil {
+		            http.Error(w, "Invalid UUID format", http.StatusBadRequest)
+		            return
+		        }
+
+		        // Load the current allowed UUID list.
+		        var allowedList []string
+		        if data, err := os.ReadFile(allowedFilePath); err == nil {
+		            if err := json.Unmarshal(data, &allowedList); err != nil {
+		                http.Error(w, "Error parsing allowed UUIDs file", http.StatusInternalServerError)
+		                return
+		            }
+		        }
+		        // Remove the given UUID if it exists.
+		        newList := []string{}
+		        removed := false
+		        for _, u := range allowedList {
+		            if u == payload.UUID {
+		                removed = true
+		                continue
+		            }
+		            newList = append(newList, u)
+		        }
+		        if !removed {
+		            http.Error(w, "UUID not found", http.StatusNotFound)
+		            return
+		        }
+		        newData, err := json.MarshalIndent(newList, "", "  ")
+		        if err != nil {
+		            http.Error(w, "Error marshaling allowed UUIDs", http.StatusInternalServerError)
+		            return
+		        }
+		        if err := os.WriteFile(allowedFilePath, newData, 0644); err != nil {
+		            http.Error(w, "Error saving allowed UUIDs", http.StatusInternalServerError)
+		            return
+		        }
+		        w.WriteHeader(http.StatusOK)
+		        w.Write([]byte("UUID removed successfully"))
+		        
+		    default:
+		        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		    }
+		})
+
+		http.HandleFunc("/managereceivers", func(w http.ResponseWriter, r *http.Request) {
+		    // --- Authentication (same as used in /alloweduuids) ---
+		    username, password, ok := r.BasicAuth()
+		    if !ok || username != "admin" {
+		        w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+		        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		        return
+		    }
+		    myinfoPath := filepath.Join(*stateDir, "myinfo.json")
+		    if data, err := os.ReadFile(myinfoPath); err == nil {
+		        var myinfo map[string]interface{}
+		        if err := json.Unmarshal(data, &myinfo); err == nil {
+		            if pw, exists := myinfo["password"].(string); exists && strings.TrimSpace(pw) != "" {
+		                if password != pw {
+		                    w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+		                    http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		                    return
+		                }
+		            }
+		        }
+		    }
+
+		    receiversPath := filepath.Join(*stateDir, "receivers.json")
+		    switch r.Method {
+		    case http.MethodGet:
+		        // Load and return all receivers.
+		        receivers, err := loadReceivers(receiversPath)
+		        if err != nil && !os.IsNotExist(err) {
+		            http.Error(w, "Error reading receivers: "+err.Error(), http.StatusInternalServerError)
+		            return
+		        }
+		        var out []map[string]interface{}
+		        if receivers != nil {
+		            for key, rec := range receivers {
+		                recCopy := make(map[string]interface{})
+		                for k, v := range rec {
+		                    recCopy[k] = v
+		                }
+		                // Optionally, convert the map key (numeric string) to an ID value.
+		                if id, err := strconv.Atoi(key); err == nil {
+		                    recCopy["id"] = id
+		                } else {
+		                    recCopy["id"] = key
+		                }
+		                out = append(out, recCopy)
+		            }
+		        }
+		        w.Header().Set("Content-Type", "application/json")
+		        if err := json.NewEncoder(w).Encode(out); err != nil {
+		            http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+		            return
+		        }
+		    case http.MethodPut:
+		        // Expect a full receiver record.
+		        var rec map[string]string
+		        if err := json.NewDecoder(r.Body).Decode(&rec); err != nil {
+		            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		            return
+		        }
+		        defer r.Body.Close()
+		        // Remove any password field if present.
+		        delete(rec, "password")
+		        if !isValidReceiver(rec) {
+		            http.Error(w, "Invalid receiver fields", http.StatusBadRequest)
+		            return
+		        }
+		        rec["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+		        if err := updateReceiver(rec, *stateDir); err != nil {
+		            http.Error(w, "Error updating receiver: "+err.Error(), http.StatusInternalServerError)
+		            return
+		        }
+		        w.WriteHeader(http.StatusOK)
+		        w.Write([]byte("Receiver info saved successfully"))
+		    case http.MethodPatch:
+		        // Partial update: update only the provided fields of an existing receiver.
+		        var updates map[string]string
+		        if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		            return
+		        }
+		        defer r.Body.Close()
+		        uuidStr, ok := updates["uuid"]
+		        if !ok || strings.TrimSpace(uuidStr) == "" {
+		            http.Error(w, "Missing uuid in payload", http.StatusBadRequest)
+		            return
+		        }
+		        receivers, err := loadReceivers(receiversPath)
+		        if err != nil && !os.IsNotExist(err) {
+		            http.Error(w, "Error loading receivers: "+err.Error(), http.StatusInternalServerError)
+		            return
+		        }
+		        // Find the receiver with the matching uuid.
+		        var foundKey string
+		        for key, rec := range receivers {
+		            if rec["uuid"] == uuidStr {
+		                foundKey = key
+		                break
+		            }
+		        }
+		        if foundKey == "" {
+		            http.Error(w, "Receiver not found", http.StatusNotFound)
+		            return
+		        }
+		        // Only update the fields provided (except "uuid").
+		        for field, value := range updates {
+		            if field == "uuid" {
+		                continue
+		            }
+		            receivers[foundKey][field] = value
+		        }
+		        // Update the LastUpdated field.
+		        receivers[foundKey]["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+		        if err := saveReceivers(receiversPath, receivers); err != nil {
+		            http.Error(w, "Error saving receivers: "+err.Error(), http.StatusInternalServerError)
+		            return
+		        }
+		        w.WriteHeader(http.StatusOK)
+		        w.Write([]byte("Receiver info patched successfully"))
+		    case http.MethodDelete:
+		        // Delete a receiver: the payload must include the receiver's UUID.
+		        var payload struct {
+		            UUID string `json:"uuid"`
+		        }
+		        if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		            return
+		        }
+		        defer r.Body.Close()
+		        if strings.TrimSpace(payload.UUID) == "" {
+		            http.Error(w, "Missing uuid in payload", http.StatusBadRequest)
+		            return
+		        }
+		        receivers, err := loadReceivers(receiversPath)
+		        if err != nil && !os.IsNotExist(err) {
+		            http.Error(w, "Error loading receivers: "+err.Error(), http.StatusInternalServerError)
+		            return
+		        }
+		        var foundKey string
+		        for key, rec := range receivers {
+		            if rec["uuid"] == payload.UUID {
+		                foundKey = key
+		                break
+		            }
+		        }
+		        if foundKey == "" {
+		            http.Error(w, "Receiver not found", http.StatusNotFound)
+		            return
+		        }
+		        delete(receivers, foundKey)
+		        if err := saveReceivers(receiversPath, receivers); err != nil {
+		            http.Error(w, "Error saving receivers: "+err.Error(), http.StatusInternalServerError)
+		            return
+		        }
+		        w.WriteHeader(http.StatusOK)
+		        w.Write([]byte("Receiver deleted successfully"))
+		    default:
+		        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		    }
+		})
 
 	go func() {
 		addr := fmt.Sprintf(":%d", *wsPort)

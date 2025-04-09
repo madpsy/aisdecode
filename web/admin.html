@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Manage MyInfo and Receivers</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    form { max-width: 500px; margin: 1em auto; }
+    label { display: block; margin-top: 1em; }
+    input, button { width: 100%; padding: 8px; margin-top: 4px; }
+    #message, #uuidMessage, #receiverMessage, #addUuidMessage { margin-top: 1em; color: green; }
+    #error, #uuidError, #receiverError, #addUuidError { margin-top: 1em; color: red; }
+    table { border-collapse: collapse; margin: 1em auto; width: 90%; }
+    table, th, td { border: 1px solid #ccc; }
+    th, td { padding: 0.5em; text-align: left; }
+    .container { max-width: 800px; margin: 1em auto; }
+    .actions button { margin-right: 5px; }
+    .unusedUUIDs { margin: 1em auto; max-width: 500px; }
+    .unusedUUIDs li { padding: 0.5em; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+    .unusedUUIDs li span { flex-grow: 1; }
+  </style>
+</head>
+<body>
+  <h1>MyInfo Manager</h1>
+
+  <!-- Login Section -->
+  <div id="loginSection">
+    <h2>Login</h2>
+    <label for="username">Username:</label>
+    <!-- Since only "admin" is allowed, the username is preset and disabled. -->
+    <input type="text" id="username" value="admin" disabled>
+    <label for="password">Password (can be empty if not set):</label>
+    <input type="password" id="password" placeholder="Enter your password (may be empty)">
+    <button id="loginButton">Login</button>
+    <div id="loginError"></div>
+  </div>
+
+  <!-- MyInfo Management Section -->
+  <div id="myinfoSection" style="display:none;">
+    <h2>MyInfo Details</h2>
+    <form id="myinfoForm">
+      <label for="uuid">UUID (read-only):</label>
+      <input type="text" id="uuid" name="uuid" readonly>
+
+      <label for="name">Name:</label>
+      <input type="text" id="name" name="name">
+
+      <label for="description">Description:</label>
+      <input type="text" id="description" name="description">
+
+      <label for="latitude">Latitude:</label>
+      <input type="text" id="latitude" name="latitude">
+
+      <label for="longitude">Longitude:</label>
+      <input type="text" id="longitude" name="longitude">
+
+      <label for="url">URL (optional):</label>
+      <input type="text" id="url" name="url">
+
+      <label for="newPassword">New Password (min 8 chars):</label>
+      <input type="password" id="newPassword" name="password" placeholder="Leave blank if no change">
+
+      <button type="submit">Update MyInfo</button>
+    </form>
+    <div id="message"></div>
+    <div id="error"></div>
+  </div>
+
+  <!-- Receiver Management Section -->
+  <div id="receiverManager" style="display:none;">
+    <h2>Receiver Manager</h2>
+
+    <!-- Receivers Table with Allowed Checkbox, Last Updated, Edit and Delete Actions -->
+    <div class="container">
+      <table id="receiversTable">
+        <thead>
+          <tr>
+            <th>UUID</th>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Lat</th>
+            <th>Lon</th>
+            <th>URL</th>
+            <th>Last Updated</th>
+            <th>Allowed</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="receiversList">
+          <!-- Receivers will be populated here -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Unused UUIDs Section with Add Form -->
+    <div class="container">
+      <h3>Unused UUIDs</h3>
+      <ul id="unusedUUIDsList" class="unusedUUIDs">
+        <!-- Unused allowed UUIDs will be listed here -->
+      </ul>
+      <h4>Add UUID</h4>
+      <form id="addUuidForm">
+        <label for="addAllowedUuid">Allowed UUID:</label>
+        <input type="text" id="addAllowedUuid" placeholder="Enter a valid UUID">
+        <button type="submit">Add Allowed UUID</button>
+      </form>
+      <div id="addUuidMessage"></div>
+      <div id="addUuidError"></div>
+    </div>
+
+    <!-- Form for adding or editing a receiver -->
+    <div class="container">
+      <h3 id="receiverFormTitle">Add New Receiver</h3>
+      <form id="receiverForm">
+        <label for="receiverUuid">UUID:</label>
+        <input type="text" id="receiverUuid" name="uuid" placeholder="Enter UUID or generate" readonly>
+        <button type="button" id="generateUuidBtn">Generate UUID</button>
+        
+        <label for="receiverName">Name:</label>
+        <input type="text" id="receiverName" name="name">
+        
+        <label for="receiverDescription">Description:</label>
+        <input type="text" id="receiverDescription" name="description">
+        
+        <label for="receiverLatitude">Latitude:</label>
+        <input type="text" id="receiverLatitude" name="latitude">
+        
+        <label for="receiverLongitude">Longitude:</label>
+        <input type="text" id="receiverLongitude" name="longitude">
+        
+        <label for="receiverUrl">URL (optional):</label>
+        <input type="text" id="receiverUrl" name="url">
+        
+        <button type="submit" id="saveReceiverBtn">Save Receiver</button>
+        <button type="button" id="cancelEditBtn" style="display:none;">Cancel</button>
+      </form>
+      <div id="receiverMessage"></div>
+      <div id="receiverError"></div>
+    </div>
+  </div>
+
+  <script>
+    // Global variables to store credentials and state
+    let authPassword = '';
+    let editingReceiver = null; // When editing, holds the current receiver UUID
+    let allowedUUIDs = [];      // Allowed UUIDs fetched from /alloweduuids
+
+    // Simple regex based UUID validator (accepts typical UUIDs)
+    function isValidUUID(uuid) {
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid);
+    }
+
+    // --- Login Section ---
+    document.getElementById("loginButton").addEventListener("click", function() {
+      document.getElementById("loginError").innerText = "";
+      const password = document.getElementById("password").value; 
+      
+      fetch("/myinfo", {
+        headers: { "Authorization": "Basic " + btoa("admin:" + password) }
+      })
+      .then(response => {
+        if (!response.ok) throw new Error("Login failed (" + response.status + ")");
+        return response.json();
+      })
+      .then(data => {
+        document.getElementById("loginSection").style.display = "none";
+        document.getElementById("myinfoSection").style.display = "block";
+        document.getElementById("receiverManager").style.display = "block";
+        document.getElementById("uuid").value = data.uuid || "";
+        document.getElementById("name").value = data.name || "";
+        document.getElementById("description").value = data.description || "";
+        document.getElementById("latitude").value = data.latitude || "";
+        document.getElementById("longitude").value = data.longitude || "";
+        document.getElementById("url").value = data.url || "";
+        authPassword = password;
+        loadAllowedUUIDs();
+        loadReceivers();
+      })
+      .catch(error => {
+        document.getElementById("loginError").innerText = error.message;
+      });
+    });
+
+    // --- MyInfo Form Submission ---
+    document.getElementById("myinfoForm").addEventListener("submit", function(event) {
+      event.preventDefault();
+      document.getElementById("message").innerText = "";
+      document.getElementById("error").innerText = "";
+      
+      const updates = {
+        uuid: document.getElementById("uuid").value.trim(),
+        name: document.getElementById("name").value.trim(),
+        description: document.getElementById("description").value.trim(),
+        latitude: document.getElementById("latitude").value.trim(),
+        longitude: document.getElementById("longitude").value.trim(),
+        url: document.getElementById("url").value.trim()
+      };
+      const newPassword = document.getElementById("newPassword").value.trim();
+      if(newPassword) updates.password = newPassword;
+      
+      fetch("/myinfo", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Basic " + btoa("admin:" + authPassword)
+        },
+        body: JSON.stringify(updates)
+      })
+      .then(response => {
+        if (!response.ok) return response.text().then(text => { throw new Error(text); });
+        return response.text();
+      })
+      .then(msg => {
+        document.getElementById("message").innerText = msg;
+        if (updates.password) {
+          authPassword = updates.password;
+          document.getElementById("newPassword").value = "";
+        }
+      })
+      .catch(error => {
+        document.getElementById("error").innerText = "Error: " + error.message;
+      });
+    });
+
+    // --- Allowed UUIDs Functions ---
+    function loadAllowedUUIDs() {
+      fetch("/alloweduuids", {
+        headers: { "Authorization": "Basic " + btoa("admin:" + authPassword) }
+      })
+      .then(response => {
+        if (!response.ok) throw new Error("Failed to load allowed UUIDs (" + response.status + ")");
+        return response.json();
+      })
+      .then(data => {
+        allowedUUIDs = data;
+        renderUnusedUUIDs();
+      })
+      .catch(error => {
+        console.error("Allowed UUIDs error:", error.message);
+      });
+    }
+
+    // --- Receiver Management ---
+    function loadReceivers() {
+      fetch("/managereceivers", {
+        headers: { "Authorization": "Basic " + btoa("admin:" + authPassword) }
+      })
+      .then(response => {
+        if (!response.ok) throw new Error("Failed to load receivers (" + response.status + ")");
+        return response.json();
+      })
+      .then(data => {
+        const tbody = document.getElementById("receiversList");
+        tbody.innerHTML = "";
+        const receiverUUIDSet = new Set();
+        data.forEach(rec => {
+          receiverUUIDSet.add(rec.uuid);
+          const tr = document.createElement("tr");
+          const localTime = rec.LastUpdated ? new Date(rec.LastUpdated).toLocaleString() : "";
+          tr.innerHTML = `
+            <td>${rec.uuid}</td>
+            <td>${rec.name || ""}</td>
+            <td>${rec.description || ""}</td>
+            <td>${rec.latitude || ""}</td>
+            <td>${rec.longitude || ""}</td>
+            <td>${rec.url || ""}</td>
+            <td>${localTime}</td>
+            <td><input type="checkbox" class="allowedCheckbox" data-uuid="${rec.uuid}"></td>
+            <td class="actions">
+              <button class="editBtn" data-uuid="${rec.uuid}">Edit</button>
+              <button class="deleteBtn" data-uuid="${rec.uuid}">Delete</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+        document.querySelectorAll(".allowedCheckbox").forEach(cb => {
+          const uuid = cb.getAttribute("data-uuid");
+          cb.checked = allowedUUIDs.includes(uuid);
+          cb.addEventListener("change", function() {
+            if (this.checked) {
+              updateAllowedUUID(uuid, "PUT");
+            } else {
+              updateAllowedUUID(uuid, "DELETE");
+            }
+          });
+        });
+        document.querySelectorAll(".editBtn").forEach(btn => {
+          btn.addEventListener("click", function() {
+            const uuid = this.getAttribute("data-uuid");
+            editReceiver(uuid);
+          });
+        });
+        document.querySelectorAll(".deleteBtn").forEach(btn => {
+          btn.addEventListener("click", function() {
+            const uuid = this.getAttribute("data-uuid");
+            deleteReceiver(uuid);
+          });
+        });
+        // Render unused UUIDs based on the set of receiver UUIDs
+        renderUnusedUUIDs(receiverUUIDSet);
+      })
+      .catch(error => {
+        document.getElementById("receiverError").innerText = "Error: " + error.message;
+      });
+    }
+
+    // Render the list of allowed UUIDs that do not match any receiver.
+    function renderUnusedUUIDs(receiverUUIDSet = new Set()) {
+      const unused = allowedUUIDs.filter(uuid => !receiverUUIDSet.has(uuid));
+      const ul = document.getElementById("unusedUUIDsList");
+      ul.innerHTML = "";
+      if (unused.length === 0) {
+        ul.innerHTML = "<li>No unused UUIDs.</li>";
+      } else {
+        unused.forEach(uuid => {
+          const li = document.createElement("li");
+          li.innerHTML = `<span>${uuid}</span>
+            <button data-uuid="${uuid}" class="unusedDeleteBtn">Delete</button>`;
+          ul.appendChild(li);
+        });
+        document.querySelectorAll(".unusedDeleteBtn").forEach(btn => {
+          btn.addEventListener("click", function() {
+            const uuid = this.getAttribute("data-uuid");
+            updateAllowedUUID(uuid, "DELETE");
+          });
+        });
+      }
+    }
+
+    // Update allowed UUID (PUT to add, DELETE to remove)
+    function updateAllowedUUID(uuid, method) {
+      fetch("/alloweduuids", {
+        method: method,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Basic " + btoa("admin:" + authPassword)
+        },
+        body: JSON.stringify({ uuid: uuid })
+      })
+      .then(response => {
+        if (!response.ok) return response.text().then(text => { throw new Error(text); });
+        return response.text();
+      })
+      .then(msg => {
+        console.log("Allowed UUID update:", msg);
+        loadAllowedUUIDs();
+        loadReceivers();
+      })
+      .catch(error => {
+        document.getElementById("receiverError").innerText = "Error updating allowed UUID: " + error.message;
+      });
+    }
+
+    // --- Add Allowed UUID Form ---
+    document.getElementById("addUuidForm").addEventListener("submit", function(event) {
+      event.preventDefault();
+      document.getElementById("addUuidMessage").innerText = "";
+      document.getElementById("addUuidError").innerText = "";
+      const newUUID = document.getElementById("addAllowedUuid").value.trim();
+      if (!newUUID) {
+        document.getElementById("addUuidError").innerText = "Please enter a UUID.";
+        return;
+      }
+      if (!isValidUUID(newUUID)) {
+        document.getElementById("addUuidError").innerText = "Invalid UUID format.";
+        return;
+      }
+      // Only add if not already allowed.
+      if (allowedUUIDs.includes(newUUID)) {
+        document.getElementById("addUuidError").innerText = "This UUID is already allowed.";
+        return;
+      }
+      fetch("/alloweduuids", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Basic " + btoa("admin:" + authPassword)
+        },
+        body: JSON.stringify({ uuid: newUUID })
+      })
+      .then(response => {
+        if (!response.ok) return response.text().then(text => { throw new Error(text); });
+        return response.text();
+      })
+      .then(msg => {
+        document.getElementById("addUuidMessage").innerText = msg;
+        document.getElementById("addAllowedUuid").value = "";
+        loadAllowedUUIDs();
+        loadReceivers();
+      })
+      .catch(error => {
+        document.getElementById("addUuidError").innerText = "Error: " + error.message;
+      });
+    });
+
+    // --- Receiver Form: Add/Edit ---
+    document.getElementById("generateUuidBtn").addEventListener("click", function() {
+      const newUuid = crypto.randomUUID();
+      document.getElementById("receiverUuid").value = newUuid;
+    });
+
+    document.getElementById("receiverForm").addEventListener("submit", function(event) {
+      event.preventDefault();
+      document.getElementById("receiverMessage").innerText = "";
+      document.getElementById("receiverError").innerText = "";
+      const receiver = {
+        uuid: document.getElementById("receiverUuid").value.trim(),
+        name: document.getElementById("receiverName").value.trim(),
+        description: document.getElementById("receiverDescription").value.trim(),
+        latitude: document.getElementById("receiverLatitude").value.trim(),
+        longitude: document.getElementById("receiverLongitude").value.trim(),
+        url: document.getElementById("receiverUrl").value.trim()
+      };
+      const method = editingReceiver ? "PATCH" : "PUT";
+      fetch("/managereceivers", {
+        method: method,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Basic " + btoa("admin:" + authPassword)
+        },
+        body: JSON.stringify(receiver)
+      })
+      .then(response => {
+        if (!response.ok) return response.text().then(text => { throw new Error(text); });
+        return response.text();
+      })
+      .then(msg => {
+        document.getElementById("receiverMessage").innerText = msg;
+        resetReceiverForm();
+        loadReceivers();
+        loadAllowedUUIDs();
+      })
+      .catch(error => {
+        document.getElementById("receiverError").innerText = "Error: " + error.message;
+      });
+    });
+
+    function editReceiver(uuid) {
+      fetch("/managereceivers", {
+        headers: { "Authorization": "Basic " + btoa("admin:" + authPassword) }
+      })
+      .then(response => { 
+        if (!response.ok) throw new Error("Error loading receiver");
+        return response.json(); 
+      })
+      .then(data => {
+        const rec = data.find(r => r.uuid === uuid);
+        if (!rec) throw new Error("Receiver not found");
+        editingReceiver = uuid;
+        document.getElementById("receiverFormTitle").innerText = "Edit Receiver";
+        document.getElementById("receiverUuid").value = rec.uuid;
+        document.getElementById("receiverName").value = rec.name || "";
+        document.getElementById("receiverDescription").value = rec.description || "";
+        document.getElementById("receiverLatitude").value = rec.latitude || "";
+        document.getElementById("receiverLongitude").value = rec.longitude || "";
+        document.getElementById("receiverUrl").value = rec.url || "";
+        document.getElementById("cancelEditBtn").style.display = "inline";
+      })
+      .catch(error => {
+        document.getElementById("receiverError").innerText = error.message;
+      });
+    }
+
+    document.getElementById("cancelEditBtn").addEventListener("click", function() {
+      resetReceiverForm();
+    });
+
+    function resetReceiverForm() {
+      editingReceiver = null;
+      document.getElementById("receiverFormTitle").innerText = "Add New Receiver";
+      document.getElementById("receiverUuid").value = "";
+      document.getElementById("receiverName").value = "";
+      document.getElementById("receiverDescription").value = "";
+      document.getElementById("receiverLatitude").value = "";
+      document.getElementById("receiverLongitude").value = "";
+      document.getElementById("receiverUrl").value = "";
+      document.getElementById("cancelEditBtn").style.display = "none";
+    }
+
+    function deleteReceiver(uuid) {
+      if (!confirm("Are you sure you want to delete this receiver?")) return;
+      fetch("/managereceivers", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Basic " + btoa("admin:" + authPassword)
+        },
+        body: JSON.stringify({ uuid: uuid })
+      })
+      .then(response => {
+        if (!response.ok) return response.text().then(text => { throw new Error(text); });
+        return response.text();
+      })
+      .then(msg => {
+        document.getElementById("receiverMessage").innerText = msg;
+        loadReceivers();
+        loadAllowedUUIDs();
+      })
+      .catch(error => {
+        document.getElementById("receiverError").innerText = "Error: " + error.message;
+      });
+    }
+  </script>
+</body>
+</html>
