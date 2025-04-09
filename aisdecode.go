@@ -1205,12 +1205,17 @@ func main() {
 	 }
 
 	if !*noState {
-	    // Try opening (or creating) the state file to ensure it is writable.
-	    f, err := os.OpenFile(statePath, os.O_WRONLY|os.O_CREATE, 0644)
-	    if err != nil {
-	        log.Fatalf("Cannot write to state file %s: %v", statePath, err)
-	    }
-	    f.Close()
+	    if _, err := os.Stat(statePath); os.IsNotExist(err) {
+ 	      emptyState := map[string]map[string]interface{}{}
+ 	      data, err := json.MarshalIndent(emptyState, "", "  ")
+	       if err != nil {
+	           log.Fatalf("Error marshaling empty state: %v", err)
+	       }
+	        if err := os.WriteFile(statePath, data, 0644); err != nil {
+	           log.Fatalf("Error creating state file: %v", err)
+	       }
+	       log.Printf("Created %s with an empty state", statePath)
+	   }
 	}
 
 	if *logAllDecodesDir != "" {
