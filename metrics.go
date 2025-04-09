@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -131,45 +132,46 @@ type MetricsAggregate struct {
 	UptimeSeconds         int              `json:"uptime_seconds"`
 }
 
-// finalize produces a snapshot from the aggregator using its own StartTime.
+// finalize produces a snapshot from the aggregator using its own StartTime,
+// rounding each average to ensure whole-number output.
 func (ma *MetricsAggregator) finalize() MetricsAggregate {
 	return MetricsAggregate{
 		Timestamp: time.Now().UTC(),
 		SerialMessagesPerSec: AggregatedMetric{
-			Ave: ma.SerialMessagesPerSec.average(),
+			Ave: math.Round(ma.SerialMessagesPerSec.average()),
 		},
 		UDPMessagesPerSec: AggregatedMetric{
-			Ave: ma.UDPMessagesPerSec.average(),
+			Ave: math.Round(ma.UDPMessagesPerSec.average()),
 		},
 		SerialMessagesPerMin: AggregatedMetric{
-			Ave: ma.SerialMessagesPerMin.average(),
+			Ave: math.Round(ma.SerialMessagesPerMin.average()),
 		},
 		UDPMessagesPerMin: AggregatedMetric{
-			Ave: ma.UDPMessagesPerMin.average(),
+			Ave: math.Round(ma.UDPMessagesPerMin.average()),
 		},
 		TotalDeduplications: AggregatedMetric{
-			Ave: ma.TotalDeduplications.average(),
+			Ave: math.Round(ma.TotalDeduplications.average()),
 		},
 		ActiveWebSockets: AggregatedMetric{
-			Ave: ma.ActiveWebSockets.average(),
+			Ave: math.Round(ma.ActiveWebSockets.average()),
 		},
 		NumVesselsClassA: AggregatedMetric{
-			Ave: ma.NumVesselsClassA.average(),
+			Ave: math.Round(ma.NumVesselsClassA.average()),
 		},
 		NumVesselsClassB: AggregatedMetric{
-			Ave: ma.NumVesselsClassB.average(),
+			Ave: math.Round(ma.NumVesselsClassB.average()),
 		},
 		NumVesselsAtoN: AggregatedMetric{
-			Ave: ma.NumVesselsAtoN.average(),
+			Ave: math.Round(ma.NumVesselsAtoN.average()),
 		},
 		NumVesselsBaseStation: AggregatedMetric{
-			Ave: ma.NumVesselsBaseStation.average(),
+			Ave: math.Round(ma.NumVesselsBaseStation.average()),
 		},
 		NumVesselsSAR: AggregatedMetric{
-			Ave: ma.NumVesselsSAR.average(),
+			Ave: math.Round(ma.NumVesselsSAR.average()),
 		},
 		TotalKnownVessels: AggregatedMetric{
-			Ave: ma.TotalKnownVessels.average(),
+			Ave: math.Round(ma.TotalKnownVessels.average()),
 		},
 		TotalMessages:  ma.TotalMessages,
 		UptimeSeconds: int(time.Since(ma.StartTime).Seconds()),
