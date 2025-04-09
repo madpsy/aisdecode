@@ -1158,6 +1158,19 @@ func main() {
                }
                log.Printf("Created %s with an empty list", allowedUUIDsFilePath)
            }
+	   receiversFilePath := filepath.Join(*stateDir, "receivers.json")
+	   if _, err := os.Stat(receiversFilePath); os.IsNotExist(err) {
+           // File does not exist, so create it with an empty object.
+               emptyMap := map[string]map[string]string{}
+               data, err := json.MarshalIndent(emptyMap, "", "  ")
+               if err != nil {
+                   log.Fatalf("Error marshaling empty receivers object: %v", err)
+               }
+               if err := os.WriteFile(receiversFilePath, data, 0644); err != nil {
+                   log.Fatalf("Error creating receivers file: %v", err)
+               }
+               log.Printf("Created %s with an empty object", receiversFilePath)
+           }
         }
 
 	var statePath string
@@ -2301,7 +2314,7 @@ func main() {
 		            http.Error(w, "Error reading receivers: "+err.Error(), http.StatusInternalServerError)
 		            return
 		        }
-		        var out []map[string]interface{}
+		        out := make([]map[string]interface{}, 0)
 		        if receivers != nil {
 		            for key, rec := range receivers {
 		                recCopy := make(map[string]interface{})
@@ -2422,6 +2435,10 @@ func main() {
 		        if err := saveReceivers(receiversPath, receivers); err != nil {
 		            http.Error(w, "Error saving receivers: "+err.Error(), http.StatusInternalServerError)
 		            return
+		        }
+		        dataDir := filepath.Join(*stateDir, "receivers", payload.UUID)
+		        if err := os.RemoveAll(dataDir); err != nil {
+		            log.Printf("Failed to delete receiver data directory %s: %v", dataDir, err)
 		        }
 		        w.WriteHeader(http.StatusOK)
 		        w.Write([]byte("Receiver deleted successfully"))
