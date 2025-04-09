@@ -1524,7 +1524,7 @@ if (data.MID) {
     addLine(lines, "Fix Type", fixDescription);
   }
 
-  addLine(lines, "Maximum Draught (m)", data.MaximumStaticDraught);
+  addLine(lines, "Maximum Draught", `${data.MaximumStaticDraught}m`);
   addLine(lines, "Position Msg ID", data.MessageID);
 
   if (data.Latitude != null && data.Longitude != null) {

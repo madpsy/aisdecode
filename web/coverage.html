@@ -386,7 +386,7 @@
           L.marker([ourLat, ourLon + offsetLng], {
             icon: L.divIcon({
               className: 'circle-label',
-              html: `<span>${radiusNM.toFixed(1)} NM</span>`
+              html: `<span>${Math.round(radiusNM)} NM</span>`
             }),
             interactive: false
           }).addTo(mapInstance);
@@ -404,26 +404,26 @@
           </tr>
           <tr>
             <th>Minimum Distance (NM)</th>
-            <td>${minDistance.toFixed(2)}</td>
+            <td>${Math.round(minDistance)}</td>
           </tr>
           <tr>
             <th>Average Distance (NM)</th>
-            <td>${avgDistance.toFixed(2)}</td>
+            <td>${Math.round(avgDistance)}</td>
           </tr>
           <tr>
             <th>Maximum Distance (NM)</th>
-            <td>${maxDistance.toFixed(2)}</td>
+            <td>${Math.round(maxDistance)}</td>
           </tr>
           <tr>
-            <th>Vessels within ${ring1.toFixed(2)} NM</th>
+            <th>Vessels within ${Math.round(ring1)} NM</th>
             <td>${countRing1}</td>
           </tr>
           <tr>
-            <th>Vessels within ${ring2.toFixed(2)} NM</th>
+            <th>Vessels within ${Math.round(ring2)} NM</th>
             <td>${countRing2}</td>
           </tr>
           <tr>
-            <th>Vessels within ${ring3.toFixed(2)} NM</th>
+            <th>Vessels within ${Math.round(ring3)} NM</th>
             <td>${countRing3}</td>
           </tr>
         `;
@@ -473,7 +473,7 @@
     
         // Build the non-A&B vessels table.
         const vesselListHtml = `
-          <h2>Vessels by AIS Class &amp; Distance Ring (Excluding Class A &amp; B)</h2>
+          <h2>Vessels by AIS Class &amp; Distance Range (Excluding Class A &amp; B)</h2>
           <table>
             <thead>
               <tr>
@@ -485,27 +485,27 @@
             <tbody>
               <tr>
                 <td>
-                  <h3>0 - ${ring1.toFixed(1)} NM</h3>
+                  <h3>0 - ${Math.round(ring1)} NM</h3>
                   ${buildVesselCell(classAtoNByRing.ring1)}
-                  <h3>${ring1.toFixed(1)} - ${ring2.toFixed(1)} NM</h3>
+                  <h3>${Math.round(ring1)} - ${Math.round(ring2)} NM</h3>
                   ${buildVesselCell(classAtoNByRing.ring2)}
-                  <h3>${ring2.toFixed(1)} - ${ring3.toFixed(1)} NM</h3>
+                  <h3>${Math.round(ring2)} - ${Math.round(ring3)} NM</h3>
                   ${buildVesselCell(classAtoNByRing.ring3)}
                 </td>
                 <td>
-                  <h3>0 - ${ring1.toFixed(1)} NM</h3>
+                  <h3>0 - ${Math.round(ring1)} NM</h3>
                   ${buildVesselCell(classSARByRing.ring1)}
-                  <h3>${ring1.toFixed(1)} - ${ring2.toFixed(1)} NM</h3>
+                  <h3>${Math.round(ring1)} - ${Math.round(ring2)} NM</h3>
                   ${buildVesselCell(classSARByRing.ring2)}
-                  <h3>${ring2.toFixed(1)} - ${ring3.toFixed(1)} NM</h3>
+                  <h3>${Math.round(ring2)} - ${Math.round(ring3)} NM</h3>
                   ${buildVesselCell(classSARByRing.ring3)}
                 </td>
                 <td>
-                  <h3>0 - ${ring1.toFixed(1)} NM</h3>
+                  <h3>0 - ${Math.round(ring1)} NM</h3>
                   ${buildVesselCell(classOtherByRing.ring1)}
-                  <h3>${ring1.toFixed(1)} - ${ring2.toFixed(1)} NM</h3>
+                  <h3>${Math.round(ring1)} - ${Math.round(ring2)} NM</h3>
                   ${buildVesselCell(classOtherByRing.ring2)}
-                  <h3>${ring2.toFixed(1)} - ${ring3.toFixed(1)} NM</h3>
+                  <h3>${Math.round(ring2)} - ${Math.round(ring3)} NM</h3>
                   ${buildVesselCell(classOtherByRing.ring3)}
                 </td>
               </tr>
@@ -535,13 +535,13 @@
         }
     
         const vesselABHtml = `
-          <h2>Vessels by Type &amp; Distance Ring (Class A &amp; B)</h2>
+          <h2>Vessels by Type &amp; Distance Range (Class A &amp; B)</h2>
           <table>
             <thead>
               <tr>
-                <th>0 - ${ring1.toFixed(1)} NM</th>
-                <th>${ring1.toFixed(1)} - ${ring2.toFixed(1)} NM</th>
-                <th>${ring2.toFixed(1)} - ${ring3.toFixed(1)} NM</th>
+                <th>0 - ${Math.round(ring1)} NM</th>
+                <th>${Math.round(ring1)} - ${Math.round(ring2)} NM</th>
+                <th>${Math.round(ring2)} - ${Math.round(ring3)} NM</th>
               </tr>
             </thead>
             <tbody>
