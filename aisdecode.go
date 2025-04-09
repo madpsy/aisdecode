@@ -402,10 +402,18 @@ func isValidReceiver(rec map[string]string) bool {
 // and then replaces the original file. If no valid records remain, the file is deleted.
 func cleanupHistoryFiles(baseDir string, expireAfter time.Duration) {
 	historyDir := filepath.Join(baseDir, "history")
+
+	if _, err := os.Stat(historyDir); os.IsNotExist(err) {
+	    // Create the directory including parents if needed
+	    if err := os.MkdirAll(historyDir, 0755); err != nil {
+	        log.Printf("Error creating history directory %s: %v", historyDir, err)
+	        return
+	    }
+	}
 	files, err := os.ReadDir(historyDir)
 	if err != nil {
-		log.Printf("Error reading history directory %s: %v", historyDir, err)
-		return
+	    log.Printf("Error reading history directory %s: %v", historyDir, err)
+	    return
 	}
 
 	cutoffTime := time.Now().UTC().Add(-expireAfter)
