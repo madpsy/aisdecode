@@ -8,8 +8,8 @@ AIS Decoder and Web based Tracker for both serial AIS hardware and generic UDP n
 5) In a browser go to http://127.0.0.1:8100 (or whatever IP address of the host)
 6) Make sure you see vessels appearing as expected
 7) Go to http://127.0.0.1:8100/admin.html (no default password) and fill in your station details
-8) Optionally set the command line arguments `-aggregator host:port` and `--aggregator-public-url https://example.com` to a public aggregator
-9) Restart the binary and have fun!
+8) Optionally restart the program with command line arguments `-aggregator host:port` and `--aggregator-public-url https://example.com` to a public aggregator
+
 
 ```
 Usage of aisdecode:
