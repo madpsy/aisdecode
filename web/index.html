@@ -502,6 +502,8 @@
     <!-- Leaflet JS (from CDN, without integrity) -->
     <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js" crossorigin=""></script>
     <script>
+	 // Clear vessel data from localStorage immediately
+	 localStorage.removeItem('vesselData');
         // Detect if the device is touch capable.
         const isMobile = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
         // Flag to track if the user manually hid the details overlay.
@@ -750,6 +752,95 @@ function djb2Hash(str) {
 
 function hashStringToIndex(description, modulo) {
   return djb2Hash(description) % modulo;
+}
+
+// Change receiverMarkers from an array to an object.
+let receiverMarkers = {};
+
+function refreshReceivers() {
+  fetch('/receivers')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`Network error: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then(receivers => {
+      // Create a Set to hold the current receiver IDs (as strings).
+      const currentReceiverIDs = new Set();
+
+      if (Array.isArray(receivers) && receivers.length > 0) {
+        receivers.forEach(receiver => {
+          // Convert id to a string for consistency.
+          const id = String(receiver.id);
+          currentReceiverIDs.add(id);
+
+          // Convert latitude and longitude from strings to floats.
+          const lat = parseFloat(receiver.latitude);
+          const lng = parseFloat(receiver.longitude);
+
+          // Skip receiver if coordinates are invalid.
+          if (isNaN(lat) || isNaN(lng)) {
+            console.warn("Invalid coordinates for receiver id", id);
+            return;
+          }
+
+          // If a marker already exists, update its position.
+          if (receiverMarkers[id]) {
+            // Update marker position.
+            receiverMarkers[id].setLatLng([lat, lng]);
+            // Optionally, update popup content if needed.
+          } else {
+            // Create a new marker using your custom receiver icon.
+            const marker = L.marker([lat, lng], { icon: createReceiverIcon() }).addTo(map);
+
+            // Format the LastUpdated property.
+            const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
+
+            // Build the HTML for the popup.
+            let linksHTML = "";
+            if (receiver.url && receiver.url.trim() !== "") {
+              linksHTML += `<a href="${receiver.url}" target="_blank">Website</a> | `;
+            }
+            // Link to metrics and coverage pages; using id in URL.
+            linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a> | `;
+            linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
+
+            const popupContent = `
+              <strong>${receiver.name}</strong><br>
+              ${receiver.description}<br>
+              Updated: ${updatedLocalTime}<br>
+              ${linksHTML}
+            `;
+            marker.bindPopup(popupContent, { autoPan: true });
+
+            // Bind tooltip with receiver name.
+            marker.bindTooltip(`RX: ${receiver.name}`, {
+              permanent: true,
+              interactive: true,
+              direction: 'top',
+              className: 'receiver-tooltip'
+            }).openTooltip();
+
+            // Store the marker by its id.
+            receiverMarkers[id] = marker;
+          }
+        });
+      } else {
+        console.warn("No receivers found.");
+      }
+
+      // Remove any markers that no longer exist in the fetched data.
+      for (const id in receiverMarkers) {
+        if (!currentReceiverIDs.has(id)) {
+          map.removeLayer(receiverMarkers[id]);
+          delete receiverMarkers[id];
+        }
+      }
+    })
+    .catch(error => {
+      console.error('Error fetching receivers:', error);
+    });
 }
 
 
@@ -2904,60 +2995,8 @@ window.addEventListener('load', () => {
     adjustMapBounds();
   }
 
-  fetch('/receivers')
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`Network error: ${response.status}`);
-      }
-      return response.json();
-    })
-    .then(receivers => {
-      if (Array.isArray(receivers) && receivers.length > 0) {
-        receivers.forEach(receiver => {
-          const lat = parseFloat(receiver.latitude);
-          const lng = parseFloat(receiver.longitude);
-          if (isNaN(lat) || isNaN(lng)) return; // Skip if invalid coordinates
-
-          // Create a marker for the receiver
-          const marker = L.marker([lat, lng], { icon: createReceiverIcon() }).addTo(map);
-
-          // Convert LastUpdated to local time
-	const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
-	let linksHTML = "";
-	// If the receiver has a non-empty 'url', add a Website link.
-	if (receiver.url && receiver.url.trim() !== "") {
-	    linksHTML += `<a href="${receiver.url}" target="_blank">Website</a> | `;
-	}
-	// Always add Metrics and Snapshot links using the receiver's id.
-	linksHTML += `<a href="/metrics.html?id=${receiver.id}" target="_blank">Metrics</a> | `;
-	linksHTML += `<a href="/coverage.html?id=${receiver.id}" target="_blank">Coverage</a>`;
-
-	const popupContent = `
-	    <strong>${receiver.name}</strong><br>
-	    ${receiver.description}<br>
-	    Updated: ${updatedLocalTime}<br>
-	    ${linksHTML}
-	`;
-	
-	marker.bindPopup(popupContent, { autoPan: true });
-	
-	marker.on('click', function() {
-	  console.log("Receiver marker clicked", e);
-	  if (this.isPopupOpen()) {
-	    this.closePopup();
-	  } else {
-	    this.openPopup();
-	  }
-	});
-          marker.bindTooltip(`RX: ${receiver.name}`, { 
-            permanent: true, 
-	    interactive: true,
-            direction: 'top', 
-            className: 'receiver-tooltip' 
-          }).openTooltip();
-        });
-      }
-    })
+ refreshReceivers();
+ setInterval(refreshReceivers, 60000);
 
   if (userIDParam) {
     // Delay the focus call to allow vessel markers to load

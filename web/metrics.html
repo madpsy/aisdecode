@@ -214,7 +214,7 @@
     let vesselSummary = {};
     async function fetchVesselSummary() {
       try {
-        const response = await fetch("/summary");
+        const response = await fetch("/summary/");
         vesselSummary = await response.json();
       } catch (e) {
         console.error("Error fetching vessel summary:", e);

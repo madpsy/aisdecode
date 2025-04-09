@@ -587,83 +587,106 @@ func logDecodedMessage(packet interface{}, logDir string) {
     }
 }
 
-func externalLookupCall(vesselID string, lookupURL string) {
-	// Prepare JSON body: {"MMSI": vesselID}
-	reqBody, err := json.Marshal(map[string]string{"MMSI": vesselID})
-	if err != nil {
-		log.Printf("Error marshaling JSON for external lookup for vessel %s: %v", vesselID, err)
-		return
-	}
+func externalLookupCall(vesselID string, lookupURL string, authCreds string) {
+    // Prepare JSON body: {"MMSI": vesselID}
+    reqBody, err := json.Marshal(map[string]string{"MMSI": vesselID})
+    if err != nil {
+        log.Printf("Error marshaling JSON for external lookup for vessel %s: %v", vesselID, err)
+        return
+    }
 
-	// Create an HTTP client with a 1-second timeout.
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(lookupURL, "application/json", bytes.NewReader(reqBody))
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
+    // Create an HTTP client with a timeout.
+    client := &http.Client{Timeout: 10 * time.Second}
 
-	if resp.StatusCode != http.StatusOK {
-		return
-	}
+    // Create a new HTTP POST request.
+    req, err := http.NewRequest("POST", lookupURL, bytes.NewReader(reqBody))
+    if err != nil {
+        log.Printf("Error creating HTTP request for external lookup for vessel %s: %v", vesselID, err)
+        return
+    }
+    req.Header.Set("Content-Type", "application/json")
 
-	// Decode the response.
-	var respData map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
-		log.Printf("Error decoding external lookup response for vessel %s: %v", vesselID, err)
-		return
-	}
-
-	// Check that the response contains an MMSI field matching the vesselID.
-	mmsiVal, ok := respData["MMSI"]
-	if !ok || fmt.Sprintf("%v", mmsiVal) != vesselID {
-		log.Printf("External lookup response MMSI mismatch for vessel %s", vesselID)
-		return
-	}
-
-	// Check for a valid Name field.
-	nameVal, ok := respData["Name"]
-	if !ok {
-		log.Printf("External lookup response missing Name for vessel %s", vesselID)
-		return
-	}
-	nameStr, ok := nameVal.(string)
-	if !ok || strings.TrimSpace(nameStr) == "" {
-		log.Printf("External lookup response has invalid Name for vessel %s", vesselID)
-		return
-	}
-
-	// Optionally, get CallSign if it exists.
-	var callSignStr string
-	if cs, ok := respData["CallSign"]; ok {
-		if csStr, ok := cs.(string); ok && strings.TrimSpace(csStr) != "" {
-			callSignStr = csStr
-		}
-	}
-
-        // Optionally extract and validate ImageURL if available.
-        var imageURLStr string
-        if img, ok := respData["ImageURL"]; ok {
-            if imgStr, ok := img.(string); ok && strings.TrimSpace(imgStr) != "" && isValidURL(imgStr) {
-                imageURLStr = imgStr
-            }
+    // If auth credentials were provided, set Basic Auth header.
+    if authCreds != "" {
+        // Expecting the format "user:pass"
+        parts := strings.SplitN(authCreds, ":", 2)
+        if len(parts) == 2 {
+            req.SetBasicAuth(parts[0], parts[1])
+        } else {
+            log.Printf("Invalid external lookup auth format for vessel %s", vesselID)
         }
+    }
 
-	// Update vessel state with the lookup results.
-	vesselDataMutex.Lock()
-	defer vesselDataMutex.Unlock()
-	if vessel, exists := vesselData[vesselID]; exists {
-		vessel["Name"] = nameStr
-		if callSignStr != "" {
-			vessel["CallSign"] = callSignStr
-		}
-		if imageURLStr != "" {
-	        	vessel["ImageURL"] = imageURLStr
-        	}
-		// Optionally update LastUpdated.
-		vessel["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
-		log.Printf("External lookup updated vessel %s: Name=%s, CallSign=%s, ImageURL=%s", vesselID, nameStr, callSignStr, imageURLStr)
-	}
+    // Execute the request.
+    resp, err := client.Do(req)
+    if err != nil {
+        log.Printf("Error performing external lookup for vessel %s: %v", vesselID, err)
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        log.Printf("External lookup returned non-OK status for vessel %s: %d", vesselID, resp.StatusCode)
+        return
+    }
+
+    // Decode the response.
+    var respData map[string]interface{}
+    if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+        log.Printf("Error decoding external lookup response for vessel %s: %v", vesselID, err)
+        return
+    }
+
+    // Check that the response contains an MMSI field matching the vesselID.
+    mmsiVal, ok := respData["MMSI"]
+    if !ok || fmt.Sprintf("%v", mmsiVal) != vesselID {
+        log.Printf("External lookup response MMSI mismatch for vessel %s", vesselID)
+        return
+    }
+
+    // Check for a valid Name field.
+    nameVal, ok := respData["Name"]
+    if !ok {
+        log.Printf("External lookup response missing Name for vessel %s", vesselID)
+        return
+    }
+    nameStr, ok := nameVal.(string)
+    if !ok || strings.TrimSpace(nameStr) == "" {
+        log.Printf("External lookup response has invalid Name for vessel %s", vesselID)
+        return
+    }
+
+    // Optionally, get CallSign if it exists.
+    var callSignStr string
+    if cs, ok := respData["CallSign"]; ok {
+        if csStr, ok := cs.(string); ok && strings.TrimSpace(csStr) != "" {
+            callSignStr = csStr
+        }
+    }
+
+    // Optionally extract and validate ImageURL if available.
+    var imageURLStr string
+    if img, ok := respData["ImageURL"]; ok {
+        if imgStr, ok := img.(string); ok && strings.TrimSpace(imgStr) != "" && isValidURL(imgStr) {
+            imageURLStr = imgStr
+        }
+    }
+
+    // Update vessel state with the lookup results.
+    vesselDataMutex.Lock()
+    defer vesselDataMutex.Unlock()
+    if vessel, exists := vesselData[vesselID]; exists {
+        vessel["Name"] = nameStr
+        if callSignStr != "" {
+            vessel["CallSign"] = callSignStr
+        }
+        if imageURLStr != "" {
+            vessel["ImageURL"] = imageURLStr
+        }
+        // Optionally update LastUpdated.
+        vessel["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
+        log.Printf("External lookup updated vessel %s: Name=%s, CallSign=%s, ImageURL=%s", vesselID, nameStr, callSignStr, imageURLStr)
+    }
 }
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
@@ -1133,6 +1156,7 @@ func main() {
 	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
 	stateDir := flag.String("state-dir", "state", "Directory to store state (default: state)")
 	externalLookupURL := flag.String("external-lookup", "", "URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)")
+	externalLookupAuth := flag.String("external-lookup-auth", "", "Optional credentials for external lookup in the format user:pass")
 	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push myinfo.json to on startup (optional)")
 	allowAllUUIDs := flag.Bool("allow-all-uuids", false, "If specified, allows all receiver UUIDs (by default, UUIDs are restricted via allowed list)")
 	logAllDecodesDir := flag.String("log-all-decodes", "", "Directory path to log every decoded message (optional)")
@@ -2664,11 +2688,11 @@ func main() {
 			    vesselDataMutex.Unlock()
 			
 			    if !exists {
-			        go externalLookupCall(vesselID, *externalLookupURL)
+			        go externalLookupCall(vesselID, *externalLookupURL, *externalLookupAuth)
 			    } else {
 			        name, ok := merged["Name"].(string)
 			        if !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
-			            go externalLookupCall(vesselID, *externalLookupURL)
+			            go externalLookupCall(vesselID, *externalLookupURL, *externalLookupAuth)
 			        }
 			    }
 			}
@@ -3088,11 +3112,11 @@ func main() {
 			    vesselDataMutex.Unlock()
 			
 			    if !exists {
-			        go externalLookupCall(vesselID, *externalLookupURL)
+			        go externalLookupCall(vesselID, *externalLookupURL, *externalLookupAuth)
 			    } else {
 			        name, ok := merged["Name"].(string)
 			        if !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
-			            go externalLookupCall(vesselID, *externalLookupURL)
+			            go externalLookupCall(vesselID, *externalLookupURL, *externalLookupAuth)
 			        }
 			    }
 			}
