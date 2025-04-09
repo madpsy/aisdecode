@@ -398,7 +398,7 @@ func StartMetrics(stateDir string, noState bool) {
 		}
 		// Load persisted aggregator state.
 		if err := loadAggregatorsState(stateDir); err != nil {
-			log.Printf("No valid existing aggregator state found, starting fresh: %v", err)
+			log.Printf("No valid existing aggregator state found, starting fresh")
 		} else {
 			log.Printf("Loaded aggregator state from %s", filepath.Join(stateDir, "metrics-aggregators.json"))
 		}
