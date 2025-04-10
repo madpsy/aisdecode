@@ -19,6 +19,7 @@ import (
 	"reflect"
 	"net/url"
         "io"
+	"sort"
 
 	"go.bug.st/serial"
 	"github.com/google/uuid"
@@ -1817,23 +1818,30 @@ func main() {
 			}
 	
 			// Process each receiver from receivers.json.
-			for id, rec := range receivers {
-				recCopy := make(map[string]interface{})
-				for k, v := range rec {
-					recCopy[k] = v
-				}
-				// Remove internal field "uuid".
-				delete(recCopy, "uuid")
-				// Remove the password field.
-				delete(recCopy, "password")
-				// Attempt to convert the key to a number.
-				if numID, err := strconv.Atoi(id); err == nil {
-					recCopy["id"] = numID
-				} else {
-					recCopy["id"] = id
-				}
-				recCopy["local"] = false
-				out = append(out, recCopy)
+			var keys []int
+			for id := range receivers {
+			    if numID, err := strconv.Atoi(id); err == nil {
+			        keys = append(keys, numID)
+			    }
+			}
+
+			// Sort the keys slice.
+			sort.Ints(keys)
+			
+			// Iterate over the sorted keys and build output.
+			for _, numID := range keys {
+			    idStr := strconv.Itoa(numID)
+			    rec := receivers[idStr]
+			    recCopy := make(map[string]interface{})
+			    for k, v := range rec {
+			        recCopy[k] = v
+			    }
+			    // Remove internal field "uuid" and "password".
+			    delete(recCopy, "uuid")
+			    delete(recCopy, "password")
+			    recCopy["id"] = numID
+			    recCopy["local"] = false
+			    out = append(out, recCopy)
 			}
 	
 			w.Header().Set("Content-Type", "application/json")
