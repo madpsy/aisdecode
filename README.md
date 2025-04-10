@@ -33,8 +33,6 @@ Usage of aisdecode:
     	Expire vessel data if no update is received within this duration (default: 24h)
   -external-lookup string
     	URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)
-  -external-lookup-auth string
-    	Optional credentials for external lookup in the format user:pass
   -log-all-decodes string
     	Directory path to log every decoded message (optional)
   -no-state
