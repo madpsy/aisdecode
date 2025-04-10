@@ -35,6 +35,11 @@ type SlidingWindowCounter struct {
     events []time.Time
 }
 
+type DataPoint struct {
+    Timestamp time.Time
+    Distance  float64
+}
+
 type Metrics struct {
 	SerialMessagesPerSec    float64 `json:"serial_messages_per_sec"`
 	UDPMessagesPerSec       float64 `json:"udp_messages_per_sec"`
@@ -110,9 +115,8 @@ var (
 var previousVesselData map[string]map[string]interface{}
 
 var (
-    maxDistance    float64   // maximum distance observed (in meters)
-    sumDistances   float64   // cumulative distance sum
-    countDistances int       // number of distance measurements
+    rollingDistances []DataPoint
+    distancesMutex   sync.Mutex
 )
 
 // Global map to track message timestamps per vessel.
@@ -331,15 +335,16 @@ func loadReceiverCoordinates(stateDir string) (float64, float64, error) {
     return lat, lon, nil
 }
 
-func updateDistanceMetrics(vesselLat, vesselLon float64, receiverLat, receiverLon float64) {
+func updateDistanceMetrics(vesselLat, vesselLon, receiverLat, receiverLon float64) {
     distance := haversine(receiverLat, receiverLon, vesselLat, vesselLon)
-    // Update maximum distance
-    if distance > maxDistance {
-        maxDistance = distance
-    }
-    // Update sum and count
-    sumDistances += distance
-    countDistances++
+    
+    distancesMutex.Lock()
+    // Append a new measurement with the current time.
+    rollingDistances = append(rollingDistances, DataPoint{
+        Timestamp: time.Now(),
+        Distance:  distance,
+    })
+    distancesMutex.Unlock()
 }
 
 func loadPorts(webRoot string) error {
@@ -2832,9 +2837,6 @@ func main() {
 				    if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
      					  updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
 				    }
-				    if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
-     					updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
-				    } 
 			            vesselHistoryMutex.Unlock()
 			            continue
 			        }
@@ -2958,63 +2960,86 @@ func main() {
 	    }
 	}()
 
-	go func() {
-	    ticker := time.NewTicker(1 * time.Second)
-	    defer ticker.Stop()
-	  
-	    for range ticker.C {
-		vesselDataMutex.Lock()
-	        totalKnown := len(vesselData)
-        	vesselDataMutex.Unlock()
-		counts := calculateVesselCounts()
-		
-		roomsMutex.Lock()
-	        roomsCopy := make(map[string]int)
-	    	for room, count := range activeRooms {
-	           roomsCopy[room] = count
-		}
-	        roomsMutex.Unlock()
-		uptimeSeconds := int(time.Since(startTime).Seconds())
+go func() {
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
+    for range ticker.C {
+        now := time.Now()
+        cutoff := now.Add(-1 * time.Minute)
 
-        	avgDistance := 0.0
-	        if countDistances > 0 {
-        	    avgDistance = math.Round(sumDistances / float64(countDistances))
-        	}
+        var sum float64
+        var count int
+        var maxVal float64
 
-	        metrics := Metrics{
-            	    SerialMessagesPerSec:  float64(serialCounter.Count(1 * time.Second)),
-	            SerialMessagesPerMin:  float64(serialCounter.Count(1 * time.Minute)),
-        	    UDPMessagesPerSec:     float64(udpCounter.Count(1 * time.Second)),
-        	    UDPMessagesPerMin:     float64(udpCounter.Count(1 * time.Minute)),
-		    TotalMessages:         totalMessages,
-	            TotalDeduplications:   dedupeMessages,
-	            ActiveWebSockets:      len(clients),
-	            ActiveWebSocketRooms:  roomsCopy,
-           	    NumVesselsClassA:      counts["Class A"],
-	            NumVesselsClassB:      counts["Class B"],
-	            NumVesselsAtoN:        counts["AtoN"],
-        	    NumVesselsBaseStation: counts["Base Station"],
-        	    NumVesselsSAR:         counts["SAR"],
-		    TotalKnownVessels:     totalKnown,
-		    UptimeSeconds:         uptimeSeconds,
-		    MaxDistanceMeters:     math.Round(maxDistance),
-            	    AverageDistanceMeters: avgDistance,
-	        }
+        // Lock the distances and filter out only data points from the last minute.
+        distancesMutex.Lock()
+        var newWindow []DataPoint
+        for _, dp := range rollingDistances {
+            if dp.Timestamp.After(cutoff) { // include points within the last minute
+                newWindow = append(newWindow, dp)
+                sum += dp.Distance
+                count++
+                if dp.Distance > maxVal {
+                    maxVal = dp.Distance
+                }
+            }
+        }
+        // Update our window to discard old data.
+        rollingDistances = newWindow
+        distancesMutex.Unlock()
 
-	        metricsJSON, err := json.Marshal(metrics)
-	        if err != nil {
-	            log.Printf("Error marshaling metrics: %v", err)
-	            continue
-	        }
+        var avg float64
+        if count > 0 {
+            avg = math.Round(sum / float64(count))
+        } else {
+            avg = 0
+        }
 
-	        // Emit asynchronously so a slow client won't block the ticker loop.
-	        go func(msg string) {
-	            if err := sioServer.To("metrics").Emit("metrics_update", msg); err != nil {
-	                log.Printf("Error emitting metrics: %v", err)
-	            }
-	        }(string(metricsJSON))
-	    }
-	}()
+        // Build the metrics payload
+        metrics := Metrics{
+            SerialMessagesPerSec:    float64(serialCounter.Count(1 * time.Second)),
+            SerialMessagesPerMin:    float64(serialCounter.Count(1 * time.Minute)),
+            UDPMessagesPerSec:       float64(udpCounter.Count(1 * time.Second)),
+            UDPMessagesPerMin:       float64(udpCounter.Count(1 * time.Minute)),
+            TotalMessages:           totalMessages,
+            TotalDeduplications:     dedupeMessages,
+            ActiveWebSockets:        len(clients),
+            ActiveWebSocketRooms:    func() map[string]int {
+                                         roomsMutex.Lock()
+                                         defer roomsMutex.Unlock()
+                                         // make a copy of activeRooms
+                                         roomsCopy := make(map[string]int)
+                                         for room, count := range activeRooms {
+                                             roomsCopy[room] = count
+                                         }
+                                         return roomsCopy
+                                     }(),
+            NumVesselsClassA:        calculateVesselCounts()["Class A"],
+            NumVesselsClassB:        calculateVesselCounts()["Class B"],
+            NumVesselsAtoN:          calculateVesselCounts()["AtoN"],
+            NumVesselsBaseStation:   calculateVesselCounts()["Base Station"],
+            NumVesselsSAR:           calculateVesselCounts()["SAR"],
+            TotalKnownVessels:       len(vesselData),
+            UptimeSeconds:           int(time.Since(startTime).Seconds()),
+            MaxDistanceMeters:       math.Round(maxVal),
+            AverageDistanceMeters:   avg,
+        }
+
+        metricsJSON, err := json.Marshal(metrics)
+        if err != nil {
+            log.Printf("Error marshaling metrics: %v", err)
+            continue
+        }
+
+        // Emit asynchronously so a slow client won't block
+        go func(msg string) {
+            if err := sioServer.To("metrics").Emit("metrics_update", msg); err != nil {
+                log.Printf("Error emitting metrics: %v", err)
+            }
+        }(string(metricsJSON))
+    }
+}()
+
 
 	go func() {
 	    ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)

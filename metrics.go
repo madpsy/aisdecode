@@ -321,32 +321,59 @@ func loadAggregatorsState(stateDir string) error {
 // It uses calculateVesselCounts() from aisdecode.go and other global variables
 // (vesselData, serialCounter, udpCounter, totalMessages, dedupeMessages, clients, etc.)
 func getCurrentMetrics() Metrics {
-	counts := calculateVesselCounts()
-	totalKnown := len(vesselData)
-	uptimeSeconds := int(time.Since(startTime).Seconds())
-	avgDistance := 0.0
-	if countDistances > 0 {
-		avgDistance = math.Round(sumDistances / float64(countDistances))
-	}
-	maxDistRounded := math.Round(maxDistance)
-	return Metrics{
-		SerialMessagesPerSec:    float64(serialCounter.Count(1 * time.Second)),
-		SerialMessagesPerMin:    float64(serialCounter.Count(1 * time.Minute)),
-		UDPMessagesPerSec:       float64(udpCounter.Count(1 * time.Second)),
-		UDPMessagesPerMin:       float64(udpCounter.Count(1 * time.Minute)),
-		TotalMessages:           totalMessages,
-		TotalDeduplications:     dedupeMessages,
-		ActiveWebSockets:        len(clients),
-		NumVesselsClassA:        counts["Class A"],
-		NumVesselsClassB:        counts["Class B"],
-		NumVesselsAtoN:          counts["AtoN"],
-		NumVesselsBaseStation:   counts["Base Station"],
-		NumVesselsSAR:           counts["SAR"],
-		TotalKnownVessels:       totalKnown,
-		UptimeSeconds:           uptimeSeconds,
-		MaxDistanceMeters:       maxDistRounded,
-		AverageDistanceMeters:   avgDistance,
-	}
+    counts := calculateVesselCounts()
+    totalKnown := len(vesselData)
+    uptimeSeconds := int(time.Since(startTime).Seconds())
+
+    // Compute the rolling 1-minute metrics for distance.
+    var rollingSum float64
+    var rollingCount int
+    var rollingMax float64
+
+    // Lock and process the rollingDistances slice.
+    distancesMutex.Lock()
+    cutoff := time.Now().Add(-1 * time.Minute)
+    // Build a new window containing only recent measurements.
+    var newWindow []DataPoint
+    for _, dp := range rollingDistances {
+        if dp.Timestamp.After(cutoff) {
+            newWindow = append(newWindow, dp)
+            rollingSum += dp.Distance
+            rollingCount++
+            if dp.Distance > rollingMax {
+                rollingMax = dp.Distance
+            }
+        }
+    }
+    // Replace the old slice with the filtered (new) window.
+    rollingDistances = newWindow
+    distancesMutex.Unlock()
+
+    // Compute average. (Round the result if desired.)
+    avgDistance := 0.0
+    if rollingCount > 0 {
+        avgDistance = math.Round(rollingSum / float64(rollingCount))
+    }
+    maxDistRounded := math.Round(rollingMax)
+
+    return Metrics{
+        SerialMessagesPerSec:    float64(serialCounter.Count(1 * time.Second)),
+        SerialMessagesPerMin:    float64(serialCounter.Count(1 * time.Minute)),
+        UDPMessagesPerSec:       float64(udpCounter.Count(1 * time.Second)),
+        UDPMessagesPerMin:       float64(udpCounter.Count(1 * time.Minute)),
+        TotalMessages:           totalMessages,
+        TotalDeduplications:     dedupeMessages,
+        ActiveWebSockets:        len(clients),
+        NumVesselsClassA:        counts["Class A"],
+        NumVesselsClassB:        counts["Class B"],
+        NumVesselsAtoN:          counts["AtoN"],
+        NumVesselsBaseStation:   counts["Base Station"],
+        NumVesselsSAR:           counts["SAR"],
+        TotalKnownVessels:       totalKnown,
+        UptimeSeconds:           uptimeSeconds,
+        MaxDistanceMeters:       maxDistRounded,
+        AverageDistanceMeters:   avgDistance,
+    }
 }
 
 // -----------------------------------------------------------------------------

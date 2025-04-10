@@ -726,7 +726,9 @@ async function renderHistoricalChartsNonLocal(endpoint) {
     group3.appendChild(row3b);
     chartsDiv.appendChild(group3);
 
-    window.scrollTo(0, scrollPos);
+    setTimeout(() => {
+       window.scrollTo(0, scrollPos);
+    }, 50);
   } catch (e) {
     console.error("Error rendering historical charts:", e);
   }
