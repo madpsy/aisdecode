@@ -528,6 +528,8 @@
         // Global variable to store the currently focused vessel (if any).
         let focusedVessel = null;
 
+	const receiverData = {};    // Stores receiver info keyed by receiver ID.
+
         // Initialize the Leaflet map.
         const map = L.map('map').setView([55.0, -3.0], 5);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -766,43 +768,50 @@ function refreshReceivers() {
       return response.json();
     })
     .then(receivers => {
-      // Create a Set to hold the current receiver IDs (as strings).
       const currentReceiverIDs = new Set();
 
       if (Array.isArray(receivers) && receivers.length > 0) {
         receivers.forEach(receiver => {
-          // Convert id to a string for consistency.
           const id = String(receiver.id);
           currentReceiverIDs.add(id);
 
-          // Convert latitude and longitude from strings to floats.
           const lat = parseFloat(receiver.latitude);
           const lng = parseFloat(receiver.longitude);
 
-          // Skip receiver if coordinates are invalid.
           if (isNaN(lat) || isNaN(lng)) {
             console.warn("Invalid coordinates for receiver id", id);
             return;
           }
 
-          // If a marker already exists, update its position.
+          // Create or update the receiver marker.
           if (receiverMarkers[id]) {
-            // Update marker position.
-            receiverMarkers[id].setLatLng([lat, lng]);
-            // Optionally, update popup content if needed.
+		  // Update marker position.
+		  receiverMarkers[id].setLatLng([lat, lng]);
+		  // Rebuild the popup content with the updated time.
+		  const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
+		  let linksHTML = "";
+		  if (receiver.url && receiver.url.trim() !== "") {
+		    linksHTML += `<a href="${receiver.url}" target="_blank">Website</a> | `;
+		  }
+		  linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a> | `;
+		  linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
+		  const popupContent = `
+		    <strong>${receiver.name}</strong><br>
+		    ${receiver.description}<br>
+		    Updated: ${updatedLocalTime}<br>
+		    ${linksHTML}
+		  `;
+		  // Update the popup content.
+		  receiverMarkers[id].setPopupContent(popupContent);
           } else {
-            // Create a new marker using your custom receiver icon.
             const marker = L.marker([lat, lng], { icon: createReceiverIcon() }).addTo(map);
 
-            // Format the LastUpdated property.
+            // Build popup content including website/metrics/coverage links.
             const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
-
-            // Build the HTML for the popup.
             let linksHTML = "";
             if (receiver.url && receiver.url.trim() !== "") {
               linksHTML += `<a href="${receiver.url}" target="_blank">Website</a> | `;
             }
-            // Link to metrics and coverage pages; using id in URL.
             linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a> | `;
             linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
 
@@ -814,27 +823,38 @@ function refreshReceivers() {
             `;
             marker.bindPopup(popupContent, { autoPan: true });
 
-            // Bind tooltip with receiver name.
-            marker.bindTooltip(`RX: ${receiver.name}`, {
+            // Bind tooltip showing a label for a receiver.
+            marker.bindTooltip(`Receiver: ${receiver.name}`, {
               permanent: true,
               interactive: true,
               direction: 'top',
               className: 'receiver-tooltip'
             }).openTooltip();
 
-            // Store the marker by its id.
             receiverMarkers[id] = marker;
           }
+
+          // Store receiver info with an extra flag.
+          receiverData[id] = {
+            Name: receiver.name,
+            LastUpdated: receiver.LastUpdated,
+            UserID: id,
+            isReceiver: true,
+            // You can store other properties (url, description, etc.) if needed.
+            url: receiver.url,
+            description: receiver.description
+          };
         });
       } else {
         console.warn("No receivers found.");
       }
 
-      // Remove any markers that no longer exist in the fetched data.
+      // Remove stale markers/data.
       for (const id in receiverMarkers) {
         if (!currentReceiverIDs.has(id)) {
           map.removeLayer(receiverMarkers[id]);
           delete receiverMarkers[id];
+          delete receiverData[id];
         }
       }
     })
@@ -842,7 +862,6 @@ function refreshReceivers() {
       console.error('Error fetching receivers:', error);
     });
 }
-
 
 function getColorForVesselTypeConsistent(type) {
   if (!type) return "blue";
@@ -1795,64 +1814,92 @@ if (!showStationary) {
 
         // Update the known vessels overlay.
 function updateOverlay() {
-    const filterText = document.getElementById('vessel-filter').value.toLowerCase();
-    const maxAgeHours = parseInt(document.getElementById('age-slider').value, 10); // Get the max-age value from the slider
-    const now = Date.now();
+  const filterText = document.getElementById('vessel-filter').value.toLowerCase();
+  const maxAgeHours = parseInt(document.getElementById('age-slider').value, 10);
+  const now = Date.now();
 
-    // Get all known vessels (with valid Name and lastUpdate)
-    const allVessels = Object.values(vesselData).filter(v => v.Name && v.lastUpdate);
+  // Get arrays of vessels and receivers.
+  const vesselArray = Object.values(vesselData);       // Your vessels.
+  const receiverArray = Object.values(receiverData);     // Your receivers.
 
-    // Filter based on the input text and selected age range
-    const vessels = allVessels.filter(v =>
-        (!filterText || v.Name.toLowerCase().includes(filterText) || (v.CallSign && v.CallSign.toLowerCase().includes(filterText)) || v.UserID.toString().includes(filterText)) &&
-        isVesselVisibleByAge(v, maxAgeHours, now) // Filter vessels by age based on the max-age slider value
-    );
+  // Merge the two arrays.
+  const combinedEntries = vesselArray.concat(receiverArray);
 
-    const known = vessels.length; // Update the known count to the length of filtered vessels
+  // Filter entries that have a name and valid update time.
+  const validEntries = combinedEntries.filter(entry => entry.Name && entry.LastUpdated);
 
-    vessels.sort((a, b) => b.lastUpdate - a.lastUpdate);
-    const topVessels = vessels.slice(0, 100);
+  // Filter the entries by the filter text and age.
+  const filteredEntries = validEntries.filter(entry => {
+    // Check text filter. (For vessels, optionally check CallSign.)
+    const textMatch =
+      entry.Name.toLowerCase().includes(filterText) ||
+      (entry.CallSign && entry.CallSign.toLowerCase().includes(filterText)) ||
+      entry.UserID.toString().includes(filterText);
+    
+    // Age check.
+    const entryTime = new Date(entry.LastUpdated).getTime();
+    const withinAge = (now - entryTime) <= maxAgeHours * 3600000;
 
-    // Count how many vessels are currently visible on the map.
-    const bounds = map.getBounds();
-    let visibleCount = 0;
-    for (const mmsi in vesselMarkers) {
-        if (map.hasLayer(vesselMarkers[mmsi])) {
-            const markerLatLng = vesselMarkers[mmsi].getLatLng();
-            if (bounds.contains(markerLatLng)) {
-                visibleCount++;
-            }
-        }
+    return textMatch && withinAge;
+  });
+
+  // Sort the entries by update time (newest first).
+  filteredEntries.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
+  const topEntries = filteredEntries.slice(0, 100);
+
+  // (Optional) Count visible markers from both vessels and receivers.
+  let visibleCount = 0;
+  // Count vessel markers.
+  for (const id in vesselMarkers) {
+    if (map.hasLayer(vesselMarkers[id])) visibleCount++;
+  }
+  // Count receiver markers.
+  for (const id in receiverMarkers) {
+    if (map.hasLayer(receiverMarkers[id])) visibleCount++;
+  }
+
+  // Update the overlay count text.
+  document.getElementById('vessel-count').innerHTML =
+    `${topEntries.length} of ${filteredEntries.length} entries<br>${visibleCount} visible on map`;
+
+  // Build the HTML content.
+  let content = "";
+  topEntries.forEach(entry => {
+    const name = entry.Name;
+    const lastSeen = timeAgo(new Date(entry.LastUpdated).getTime());
+    const numMessages = entry.NumMessages || 0;
+
+    // If the entry is a receiver, show "Receiver" without a callsign.
+    const extraInfo = entry.isReceiver
+      ? `<div class="vessel-callsign">Receiver</div>`
+      : `<div class="vessel-callsign">Call Sign: ${entry.CallSign ? entry.CallSign : "N/A"}</div>`;
+
+    content += `<div class="vessel-entry" data-userid="${entry.UserID}">
+                  <div class="vessel-name">${name}</div>
+                  ${extraInfo}
+                  <div class="vessel-timestamp">${lastSeen} | ${numMessages} msgs</div>
+                </div>`;
+  });
+
+  document.getElementById('overlay-content').innerHTML = content;
+
+  // Attach click events for the overlay entries.
+document.querySelectorAll('.vessel-entry').forEach(entry => {
+  entry.addEventListener('click', event => {
+    event.stopPropagation();
+    const userID = entry.getAttribute('data-userid');
+    if (receiverData.hasOwnProperty(userID)) {
+	  const marker = receiverMarkers[userID];
+	  map.setView(marker.getLatLng(), 10);
+	  marker.openPopup();
+    } else {
+      // Otherwise, continue with the vessel (load history, subscribe, etc.)
+      document.getElementById('stationary').checked = true;
+      updateStationaryMarkers();
+      focusOnVessel(userID);
     }
-
-    // Update the overlay count text with the visible count and the known vessels count
-    document.getElementById('vessel-count').innerHTML =
-        `${topVessels.length} of ${known} vessels<br>${visibleCount} visible on map`;
-
-    let content = "";
-    topVessels.forEach(v => {
-        const name = v.Name;
-        const callsign = v.CallSign ? v.CallSign : "N/A";
-        const lastSeen = timeAgo(v.lastUpdate);
-        const numMessages = v.NumMessages || 0;
-        content += `<div class="vessel-entry" data-userid="${v.UserID}">
-                      <div class="vessel-name">${name}</div>
-                      <div class="vessel-callsign">Call Sign: ${callsign}</div>
-                      <div class="vessel-timestamp">${lastSeen} | ${numMessages} msgs</div>
-                    </div>`;
-    });
-
-    document.getElementById('overlay-content').innerHTML = content;
-
-    document.querySelectorAll('.vessel-entry').forEach(entry => {
-        entry.addEventListener('click', (event) => {
-            event.stopPropagation();
-            const userID = entry.getAttribute('data-userid');
-            document.getElementById('stationary').checked = true;
-            updateStationaryMarkers();
-            focusOnVessel(userID);
-        });
-    });
+  });
+});
 }
 
 // Helper function to check if the vessel is visible by the current age filter
