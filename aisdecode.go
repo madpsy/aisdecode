@@ -51,6 +51,8 @@ type Metrics struct {
 	NumVesselsSAR           int     `json:"num_vessels_sar"`
 	TotalKnownVessels       int     `json:"total_known_vessels"`
 	UptimeSeconds           int     `json:"uptime_seconds"`
+        MaxDistanceMeters       float64 `json:"max_distance_meters"`
+        AverageDistanceMeters   float64 `json:"average_distance_meters"`
 }
 
 type TopVessel struct {
@@ -106,6 +108,12 @@ var (
 )
 
 var previousVesselData map[string]map[string]interface{}
+
+var (
+    maxDistance    float64   // maximum distance observed (in meters)
+    sumDistances   float64   // cumulative distance sum
+    countDistances int       // number of distance measurements
+)
 
 // Global map to track message timestamps per vessel.
 var vesselMsgTimestamps = make(map[string][]time.Time)
@@ -295,6 +303,43 @@ func cleanDedupeWindow(window *[]dedupeState, mutex *sync.Mutex, duration time.D
 func isValidURL(urlStr string) bool {
     u, err := url.ParseRequestURI(urlStr)
     return err == nil && u.Scheme != "" && u.Host != ""
+}
+
+func loadReceiverCoordinates(stateDir string) (float64, float64, error) {
+    myinfoPath := filepath.Join(stateDir, "myinfo.json")
+    data, err := os.ReadFile(myinfoPath)
+    if err != nil {
+        return 0, 0, fmt.Errorf("error reading myinfo.json: %w", err)
+    }
+    var myinfo map[string]string
+    if err := json.Unmarshal(data, &myinfo); err != nil {
+        return 0, 0, fmt.Errorf("error parsing myinfo.json: %w", err)
+    }
+    latStr := strings.TrimSpace(myinfo["latitude"])
+    lonStr := strings.TrimSpace(myinfo["longitude"])
+    if latStr == "" || lonStr == "" {
+        return 0, 0, fmt.Errorf("receiver coordinates empty")
+    }
+    lat, err := strconv.ParseFloat(latStr, 64)
+    if err != nil {
+        return 0, 0, fmt.Errorf("invalid latitude: %w", err)
+    }
+    lon, err := strconv.ParseFloat(lonStr, 64)
+    if err != nil {
+        return 0, 0, fmt.Errorf("invalid longitude: %w", err)
+    }
+    return lat, lon, nil
+}
+
+func updateDistanceMetrics(vesselLat, vesselLon float64, receiverLat, receiverLon float64) {
+    distance := haversine(receiverLat, receiverLon, vesselLat, vesselLon)
+    // Update maximum distance
+    if distance > maxDistance {
+        maxDistance = distance
+    }
+    // Update sum and count
+    sumDistances += distance
+    countDistances++
 }
 
 func loadPorts(webRoot string) error {
@@ -2719,6 +2764,15 @@ func main() {
 			    }
 			}
 
+			if lat, ok := merged["Latitude"].(float64); ok {
+ 			   if lon, ok := merged["Longitude"].(float64); ok {
+ 			       receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir)
+			        if err == nil {
+			            updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+			        }
+			    }
+			}
+
 			// Append to vessel history only if lat/lon have changed by an acceptable amount.
 			if lat, ok := merged["Latitude"].(float64); ok {
    			 if lon, ok := merged["Longitude"].(float64); ok {
@@ -2922,6 +2976,11 @@ func main() {
 	        roomsMutex.Unlock()
 		uptimeSeconds := int(time.Since(startTime).Seconds())
 
+        	avgDistance := 0.0
+	        if countDistances > 0 {
+        	    avgDistance = math.Round(sumDistances / float64(countDistances))
+        	}
+
 	        metrics := Metrics{
             	    SerialMessagesPerSec:  float64(serialCounter.Count(1 * time.Second)),
 	            SerialMessagesPerMin:  float64(serialCounter.Count(1 * time.Minute)),
@@ -2938,6 +2997,8 @@ func main() {
         	    NumVesselsSAR:         counts["SAR"],
 		    TotalKnownVessels:     totalKnown,
 		    UptimeSeconds:         uptimeSeconds,
+		    MaxDistanceMeters:     math.Round(maxDistance),
+            	    AverageDistanceMeters: avgDistance,
 	        }
 
 	        metricsJSON, err := json.Marshal(metrics)
@@ -3139,6 +3200,15 @@ func main() {
 			        name, ok := merged["Name"].(string)
 			        if !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
 			            go externalLookupCall(vesselID, *externalLookupURL, *stateDir)
+			        }
+			    }
+			}
+
+			if lat, ok := merged["Latitude"].(float64); ok {
+ 			   if lon, ok := merged["Longitude"].(float64); ok {
+ 			       receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir)
+			        if err == nil {
+			            updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
 			        }
 			    }
 			}

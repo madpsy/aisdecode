@@ -22,6 +22,11 @@ var (
 // -----------------------------------------------------------------------------
 // Aggregation types and helper functions.
 
+// MaxAggregator tracks the highest value seen.
+type MaxAggregator struct {
+    Max float64 `json:"max"`
+}
+
 // AggregatedMetric now only needs the average value.
 type AggregatedMetric struct {
 	Ave float64 `json:"average"`
@@ -39,6 +44,11 @@ func newNumericAggregator() NumericAggregator {
 	return NumericAggregator{Sum: 0, Count: 0}
 }
 
+// newMaxAggregator creates a new MaxAggregator.
+func newMaxAggregator() MaxAggregator {
+    return MaxAggregator{Max: 0} // start at 0 (or a very low value if negative values are possible)
+}
+
 func (na *NumericAggregator) update(value float64) {
 	na.Sum += value
 	na.Count++
@@ -54,6 +64,18 @@ func (na *NumericAggregator) average() float64 {
 func (na *NumericAggregator) reset() {
 	na.Sum = 0
 	na.Count = 0
+}
+
+func (ma *MaxAggregator) update(value float64) {
+    if value > ma.Max {
+        ma.Max = value
+    }
+}
+
+
+// reset clears the max value.
+func (ma *MaxAggregator) reset() {
+    ma.Max = 0
 }
 
 // defaultMetricsAggregate creates a default snapshot with zero averages.
@@ -74,6 +96,8 @@ func defaultMetricsAggregate() MetricsAggregate {
 		TotalKnownVessels:     AggregatedMetric{Ave: 0},
 		TotalMessages:         0,
 		UptimeSeconds:         0,
+	        MaxDistanceMeters:     AggregatedMetric{Ave: 0},
+	        AverageDistanceMeters: AggregatedMetric{Ave: 0},
 	}
 }
 
@@ -94,6 +118,8 @@ type MetricsAggregator struct {
 	NumVesselsSAR          NumericAggregator `json:"num_vessels_sar"`
 	TotalKnownVessels      NumericAggregator `json:"total_known_vessels"`
 	TotalMessages          int               `json:"total_messages"`
+        MaxDistanceMeters      MaxAggregator     `json:"max_distance_meters"`
+        AvgDistanceMeters      NumericAggregator `json:"avg_distance_meters"`
 }
 
 // update the aggregator with a new live Metrics sample.
@@ -111,6 +137,8 @@ func (ma *MetricsAggregator) update(m Metrics) {
 	ma.NumVesselsSAR.update(float64(m.NumVesselsSAR))
 	ma.TotalKnownVessels.update(float64(m.TotalKnownVessels))
 	ma.TotalMessages = m.TotalMessages // cumulative
+        ma.MaxDistanceMeters.update(m.MaxDistanceMeters)
+        ma.AvgDistanceMeters.update(m.AverageDistanceMeters)
 }
 
 // MetricsAggregate represents a finalized snapshot of average metrics.
@@ -130,6 +158,8 @@ type MetricsAggregate struct {
 	TotalKnownVessels     AggregatedMetric `json:"total_known_vessels"`
 	TotalMessages         int              `json:"total_messages"`
 	UptimeSeconds         int              `json:"uptime_seconds"`
+	MaxDistanceMeters     AggregatedMetric `json:"max_distance_meters"`
+        AverageDistanceMeters AggregatedMetric `json:"average_distance_meters"`
 }
 
 // finalize produces a snapshot from the aggregator using its own StartTime,
@@ -175,6 +205,12 @@ func (ma *MetricsAggregator) finalize() MetricsAggregate {
 		},
 		TotalMessages:  ma.TotalMessages,
 		UptimeSeconds: int(time.Since(ma.StartTime).Seconds()),
+		MaxDistanceMeters: AggregatedMetric{
+	            Ave: math.Round(ma.MaxDistanceMeters.Max),
+	        },
+	        AverageDistanceMeters: AggregatedMetric{
+	            Ave: math.Round(ma.AvgDistanceMeters.average()),
+	        },
 	}
 }
 
@@ -193,6 +229,8 @@ func (ma *MetricsAggregator) reset() {
 	ma.NumVesselsSAR.reset()
 	ma.TotalKnownVessels.reset()
 	ma.StartTime = time.Now().UTC()
+        ma.MaxDistanceMeters.reset()
+        ma.AvgDistanceMeters.reset()
 }
 
 // -----------------------------------------------------------------------------
@@ -282,26 +320,32 @@ func loadAggregatorsState(stateDir string) error {
 // getCurrentMetrics collects the current live metrics.
 // It uses calculateVesselCounts() from aisdecode.go and other global variables
 // (vesselData, serialCounter, udpCounter, totalMessages, dedupeMessages, clients, etc.)
-// which are assumed to be defined elsewhere.
 func getCurrentMetrics() Metrics {
 	counts := calculateVesselCounts()
 	totalKnown := len(vesselData)
 	uptimeSeconds := int(time.Since(startTime).Seconds())
+	avgDistance := 0.0
+	if countDistances > 0 {
+		avgDistance = math.Round(sumDistances / float64(countDistances))
+	}
+	maxDistRounded := math.Round(maxDistance)
 	return Metrics{
-		SerialMessagesPerSec:  float64(serialCounter.Count(1 * time.Second)),
-		SerialMessagesPerMin:  float64(serialCounter.Count(1 * time.Minute)),
-		UDPMessagesPerSec:     float64(udpCounter.Count(1 * time.Second)),
-		UDPMessagesPerMin:     float64(udpCounter.Count(1 * time.Minute)),
-		TotalMessages:         totalMessages,
-		TotalDeduplications:   dedupeMessages,
-		ActiveWebSockets:      len(clients),
-		NumVesselsClassA:      counts["Class A"],
-		NumVesselsClassB:      counts["Class B"],
-		NumVesselsAtoN:        counts["AtoN"],
-		NumVesselsBaseStation: counts["Base Station"],
-		NumVesselsSAR:         counts["SAR"],
-		TotalKnownVessels:     totalKnown,
-		UptimeSeconds:         uptimeSeconds,
+		SerialMessagesPerSec:    float64(serialCounter.Count(1 * time.Second)),
+		SerialMessagesPerMin:    float64(serialCounter.Count(1 * time.Minute)),
+		UDPMessagesPerSec:       float64(udpCounter.Count(1 * time.Second)),
+		UDPMessagesPerMin:       float64(udpCounter.Count(1 * time.Minute)),
+		TotalMessages:           totalMessages,
+		TotalDeduplications:     dedupeMessages,
+		ActiveWebSockets:        len(clients),
+		NumVesselsClassA:        counts["Class A"],
+		NumVesselsClassB:        counts["Class B"],
+		NumVesselsAtoN:          counts["AtoN"],
+		NumVesselsBaseStation:   counts["Base Station"],
+		NumVesselsSAR:           counts["SAR"],
+		TotalKnownVessels:       totalKnown,
+		UptimeSeconds:           uptimeSeconds,
+		MaxDistanceMeters:       maxDistRounded,
+		AverageDistanceMeters:   avgDistance,
 	}
 }
 

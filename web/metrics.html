@@ -177,10 +177,18 @@
             <h3>Total Known Vessels</h3>
             <p id="val-total_known_vessels">--</p>
           </div>
-          <div class="digital-card" id="card-active_websockets">
-            <h3>Active Websockets</h3>
-            <p id="val-active_websockets">--</p>
-          </div>
+	 <div class="digital-card" id="card-max_distance_nm">
+	   <h3>Max Distance (NM)</h3>
+	   <p id="val-max_distance_nm">--</p>
+	</div>
+	 <div class="digital-card" id="card-average_distance_nm">
+	   <h3>Avg Distance (NM)</h3>
+	   <p id="val-average_distance_nm">--</p>
+	 </div>
+           <div class="digital-card" id="card-active_websockets">
+             <h3>Active Websockets</h3>
+             <p id="val-active_websockets">--</p>
+           </div>
         </div>
         <!-- Second row: Websocket Rooms (separated into two cards) -->
         <div class="digital-dashboard">
@@ -273,7 +281,10 @@
         metrics.total_known_vessels !== undefined ? metrics.total_known_vessels : "--";
       document.getElementById("val-active_websockets").textContent =
         metrics.active_websockets !== undefined ? metrics.active_websockets : "--";
-      
+      document.getElementById("val-max_distance_nm").textContent =
+        metrics.max_distance_meters !== undefined ? (metrics.max_distance_meters / 1852).toFixed(0) : "--";
+      document.getElementById("val-average_distance_nm").textContent =
+        metrics.average_distance_meters !== undefined ? (metrics.average_distance_meters / 1852).toFixed(0) : "--";
       // Update websocket rooms in two separate cards.
       const trackedContainer = document.getElementById("val-tracked_vessels");
       const activeContainer = document.getElementById("val-active_websocket_rooms");
