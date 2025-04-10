@@ -2764,15 +2764,6 @@ func main() {
 			    }
 			}
 
-			if lat, ok := merged["Latitude"].(float64); ok {
- 			   if lon, ok := merged["Longitude"].(float64); ok {
- 			       receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir)
-			        if err == nil {
-			            updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
-			        }
-			    }
-			}
-
 			// Append to vessel history only if lat/lon have changed by an acceptable amount.
 			if lat, ok := merged["Latitude"].(float64); ok {
    			 if lon, ok := merged["Longitude"].(float64); ok {
@@ -2838,6 +2829,12 @@ func main() {
 			        // For very small movements (<10 m), keep the current behavior.
 			        if exists && distance < 10.0 {
 			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
+				    if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
+     					  updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+				    }
+				    if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
+     					updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+				    } 
 			            vesselHistoryMutex.Unlock()
 			            continue
 			        }
@@ -2864,6 +2861,9 @@ func main() {
 			        }
 			        // Update the baseline coordinate for future comparisons.
 			        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
+				if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
+     				    updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+  			        } 
 			        vesselHistoryMutex.Unlock()
 			    }
 			}
@@ -3204,15 +3204,6 @@ func main() {
 			    }
 			}
 
-			if lat, ok := merged["Latitude"].(float64); ok {
- 			   if lon, ok := merged["Longitude"].(float64); ok {
- 			       receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir)
-			        if err == nil {
-			            updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
-			        }
-			    }
-			}
-
 			// Append to vessel history only if lat/lon have changed by an acceptable amount.
 			if lat, ok := merged["Latitude"].(float64); ok {
     			if lon, ok := merged["Longitude"].(float64); ok {
@@ -3278,6 +3269,9 @@ func main() {
 			        // For very small movements (<10 m), keep the current behavior.
 			        if exists && distance < 10.0 {
 			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
+				    if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
+     					updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+				    } 
 			            vesselHistoryMutex.Unlock()
 			            continue
 			        }
@@ -3304,6 +3298,9 @@ func main() {
 			        }
 			        // Update the baseline coordinate for future comparisons.
 			        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
+				if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
+    				   updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+				} 
 			        vesselHistoryMutex.Unlock()
 			    }
 			}
