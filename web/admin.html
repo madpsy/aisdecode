@@ -312,17 +312,26 @@
       if (unused.length === 0) {
         ul.innerHTML = "<li>No unused UUIDs.</li>";
       } else {
+        // Retrieve the logged-in user's UUID from the MyInfo section.
+        const myUuid = document.getElementById("uuid").value.trim();
         unused.forEach(uuid => {
           const li = document.createElement("li");
-          li.innerHTML = `<span>${uuid}</span>
-            <button data-uuid="${uuid}" class="unusedDeleteBtn">Delete</button>`;
+          // Check if the current uuid is the same as myUuid.
+          const selfIndicator = (uuid === myUuid) ? " (this is myself)" : "";
+          // Disable the delete button if this is the logged in user's uuid.
+          const disabledAttr = (uuid === myUuid) ? "disabled" : "";
+          li.innerHTML = `<span>${uuid}${selfIndicator}</span>
+            <button data-uuid="${uuid}" class="unusedDeleteBtn" ${disabledAttr}>Delete</button>`;
           ul.appendChild(li);
         });
         document.querySelectorAll(".unusedDeleteBtn").forEach(btn => {
-          btn.addEventListener("click", function() {
-            const uuid = this.getAttribute("data-uuid");
-            updateAllowedUUID(uuid, "DELETE");
-          });
+          // Only add the click event listener if the button is not disabled.
+          if (!btn.disabled) {
+            btn.addEventListener("click", function() {
+              const uuid = this.getAttribute("data-uuid");
+              updateAllowedUUID(uuid, "DELETE");
+            });
+          }
         });
       }
     }
