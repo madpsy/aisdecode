@@ -595,7 +595,10 @@ func logDecodedMessage(packet interface{}, logDir string) {
     }
 }
 
-func externalLookupCall(vesselID string, lookupURL string, authCreds string) {
+func externalLookupCall(vesselID string, lookupURL string, stateDir string) {
+     if len(vesselID) != 9 {
+       return
+     }
     // Prepare JSON body: {"MMSI": vesselID}
     reqBody, err := json.Marshal(map[string]string{"MMSI": vesselID})
     if err != nil {
@@ -614,16 +617,24 @@ func externalLookupCall(vesselID string, lookupURL string, authCreds string) {
     }
     req.Header.Set("Content-Type", "application/json")
 
-    // If auth credentials were provided, set Basic Auth header.
-    if authCreds != "" {
-        // Expecting the format "user:pass"
-        parts := strings.SplitN(authCreds, ":", 2)
-        if len(parts) == 2 {
-            req.SetBasicAuth(parts[0], parts[1])
-        } else {
-            log.Printf("Invalid external lookup auth format for vessel %s", vesselID)
-        }
+    // Set Basic Auth using fixed username "lookup" and the myinfo uuid as the password.
+    myinfoPath := filepath.Join(stateDir, "myinfo.json")
+    myinfoData, err := os.ReadFile(myinfoPath)
+    if err != nil {
+        log.Printf("Error reading myinfo file for external lookup: %v", err)
+        return
     }
+    var myinfo map[string]string
+    if err := json.Unmarshal(myinfoData, &myinfo); err != nil {
+        log.Printf("Error unmarshaling myinfo data for external lookup: %v", err)
+        return
+    }
+    uuidValue, ok := myinfo["uuid"]
+    if !ok || strings.TrimSpace(uuidValue) == "" {
+        log.Printf("myinfo file does not contain a valid uuid for external lookup")
+        return
+    }
+    req.SetBasicAuth("lookup", uuidValue)
 
     // Execute the request.
     resp, err := client.Do(req)
@@ -634,7 +645,7 @@ func externalLookupCall(vesselID string, lookupURL string, authCreds string) {
     defer resp.Body.Close()
 
     if resp.StatusCode != http.StatusOK {
-        log.Printf("External lookup returned non-OK status for vessel %s: %d", vesselID, resp.StatusCode)
+	log.Printf("External lookup returned non-OK status for vessel %s: %d", vesselID, resp.StatusCode)
         return
     }
 
@@ -645,7 +656,7 @@ func externalLookupCall(vesselID string, lookupURL string, authCreds string) {
         return
     }
 
-    // Check that the response contains an MMSI field matching the vesselID.
+    // Validate that the response contains an MMSI field matching the vesselID.
     mmsiVal, ok := respData["MMSI"]
     if !ok || fmt.Sprintf("%v", mmsiVal) != vesselID {
         log.Printf("External lookup response MMSI mismatch for vessel %s", vesselID)
@@ -691,7 +702,6 @@ func externalLookupCall(vesselID string, lookupURL string, authCreds string) {
         if imageURLStr != "" {
             vessel["ImageURL"] = imageURLStr
         }
-        // Optionally update LastUpdated.
         vessel["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
         log.Printf("External lookup updated vessel %s: Name=%s, CallSign=%s, ImageURL=%s", vesselID, nameStr, callSignStr, imageURLStr)
     }
@@ -1164,7 +1174,6 @@ func main() {
 	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
 	stateDir := flag.String("state-dir", "state", "Directory to store state (default: state)")
 	externalLookupURL := flag.String("external-lookup", "", "URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)")
-	externalLookupAuth := flag.String("external-lookup-auth", "", "Optional credentials for external lookup in the format user:pass")
 	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push myinfo.json to on startup (optional)")
 	allowAllUUIDs := flag.Bool("allow-all-uuids", false, "If specified, allows all receiver UUIDs (by default, UUIDs are restricted via allowed list)")
 	logAllDecodesDir := flag.String("log-all-decodes", "", "Directory path to log every decoded message (optional)")
@@ -2701,11 +2710,11 @@ func main() {
 			    vesselDataMutex.Unlock()
 			
 			    if !exists {
-			        go externalLookupCall(vesselID, *externalLookupURL, *externalLookupAuth)
+			        go externalLookupCall(vesselID, *externalLookupURL, *stateDir)
 			    } else {
 			        name, ok := merged["Name"].(string)
 			        if !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
-			            go externalLookupCall(vesselID, *externalLookupURL, *externalLookupAuth)
+			            go externalLookupCall(vesselID, *externalLookupURL, *stateDir)
 			        }
 			    }
 			}
@@ -3125,11 +3134,11 @@ func main() {
 			    vesselDataMutex.Unlock()
 			
 			    if !exists {
-			        go externalLookupCall(vesselID, *externalLookupURL, *externalLookupAuth)
+			        go externalLookupCall(vesselID, *externalLookupURL, *stateDir)
 			    } else {
 			        name, ok := merged["Name"].(string)
 			        if !ok || strings.TrimSpace(name) == "" || name == "NO NAME" {
-			            go externalLookupCall(vesselID, *externalLookupURL, *externalLookupAuth)
+			            go externalLookupCall(vesselID, *externalLookupURL, *stateDir)
 			        }
 			    }
 			}
