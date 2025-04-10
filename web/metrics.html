@@ -604,6 +604,78 @@ async function renderHistoricalChartsNonLocal(endpoint) {
     group2.appendChild(row2b);
     chartsDiv.appendChild(group2);
 
+    // Group 4: Distance Metrics (NM)
+    let group4 = document.createElement("div");
+    group4.className = "chart-container";
+    let group4Heading = document.createElement("h3");
+    group4Heading.textContent = "Distance Metrics (NM)";
+    group4.appendChild(group4Heading);
+
+    // Row for minute and hour averages
+    let row4a = document.createElement("div");
+    row4a.className = "chart-row";
+    ["minute", "hour"].forEach(function(avgType) {
+      let col = document.createElement("div");
+      col.className = "chart-column";
+      let subHeading = document.createElement("h4");
+      subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
+      col.appendChild(subHeading);
+      let canvas = document.createElement("canvas");
+      col.appendChild(canvas);
+      let snapshots = averagesData[avgType] || [];
+      const timeConfig = getFixedTimeRangeForAverage(avgType);
+      let timestamps = snapshots.map(snap => new Date(snap.timestamp));
+      
+      // Convert meters to NM (1 NM = 1852 m) and round to 0 decimals.
+      let maxDistanceData = snapshots.map(snap => (snap.max_distance_meters.average / 1852).toFixed(0));
+      let avgDistanceData = snapshots.map(snap => (snap.average_distance_meters.average / 1852).toFixed(0));
+      
+      const datasets = [];
+      // Only add the dataset if not all values are 0.
+      if (!maxDistanceData.every(value => value === "0")) {
+        datasets.push({ label: "Max Distance (NM)", data: maxDistanceData, fill: false, borderColor: "purple" });
+      }
+      if (!avgDistanceData.every(value => value === "0")) {
+        datasets.push({ label: "Avg Distance (NM)", data: avgDistanceData, fill: false, borderColor: "orange" });
+      }
+      createMultiLineChartCustom(canvas.getContext("2d"), timestamps, datasets, "Distance (NM)", timeConfig);
+      row4a.appendChild(col);
+    });
+    group4.appendChild(row4a);
+
+    // Row for day and week averages
+    let row4b = document.createElement("div");
+    row4b.className = "chart-row";
+    ["day", "week"].forEach(function(avgType) {
+      let col = document.createElement("div");
+      col.className = "chart-column";
+      let subHeading = document.createElement("h4");
+      subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
+      col.appendChild(subHeading);
+      let canvas = document.createElement("canvas");
+      col.appendChild(canvas);
+      let snapshots = averagesData[avgType] || [];
+      const timeConfig = getFixedTimeRangeForAverage(avgType);
+      let timestamps = snapshots.map(snap => new Date(snap.timestamp));
+      
+      let maxDistanceData = snapshots.map(snap => (snap.max_distance_meters.average / 1852).toFixed(0));
+      let avgDistanceData = snapshots.map(snap => (snap.average_distance_meters.average / 1852).toFixed(0));
+      
+      const datasets = [];
+      if (!maxDistanceData.every(value => value === "0")) {
+        datasets.push({ label: "Max Distance (NM)", data: maxDistanceData, fill: false, borderColor: "purple" });
+      }
+      if (!avgDistanceData.every(value => value === "0")) {
+        datasets.push({ label: "Avg Distance (NM)", data: avgDistanceData, fill: false, borderColor: "orange" });
+      }
+      createMultiLineChartCustom(canvas.getContext("2d"), timestamps, datasets, "Distance (NM)", timeConfig);
+      row4b.appendChild(col);
+    });
+    group4.appendChild(row4b);
+
+    // Append the distance charts group to the main charts container.
+    chartsDiv.appendChild(group4);
+
     // Group 3: Active Websockets
     let group3 = document.createElement("div");
     group3.className = "chart-container";
