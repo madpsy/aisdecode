@@ -2843,7 +2843,9 @@ func main() {
 			        if exists && distance < 10.0 {
 			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
 				    if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
-     					  updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+     				      if numMsg, ok := merged["NumMessages"].(float64); ok && numMsg > 1 {
+        				updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+    				      }
 				    }
 			            vesselHistoryMutex.Unlock()
 			            continue
@@ -2871,9 +2873,11 @@ func main() {
 			        }
 			        // Update the baseline coordinate for future comparisons.
 			        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
-				if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
-     				    updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
-  			        } 
+				    if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
+     				      if numMsg, ok := merged["NumMessages"].(float64); ok && numMsg > 1 {
+        				updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+    				      }
+				    }
 			        vesselHistoryMutex.Unlock()
 			    }
 			}
@@ -3303,8 +3307,10 @@ go func() {
 			        if exists && distance < 10.0 {
 			            vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
 				    if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
-     					updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
-				    } 
+     				      if numMsg, ok := merged["NumMessages"].(float64); ok && numMsg > 1 {
+        				updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+    				      }
+				    }
 			            vesselHistoryMutex.Unlock()
 			            continue
 			        }
@@ -3331,9 +3337,11 @@ go func() {
 			        }
 			        // Update the baseline coordinate for future comparisons.
 			        vesselLastCoordinates[vesselID] = struct{ lat, lon float64 }{lat, lon}
-				if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
-    				   updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
-				} 
+				    if receiverLat, receiverLon, err := loadReceiverCoordinates(*stateDir); err == nil {
+     				      if numMsg, ok := merged["NumMessages"].(float64); ok && numMsg > 1 {
+        				updateDistanceMetrics(lat, lon, receiverLat, receiverLon)
+    				      }
+				    }
 			        vesselHistoryMutex.Unlock()
 			    }
 			}

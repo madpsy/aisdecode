@@ -24,9 +24,14 @@
     }
     /* Style the new dropdown (no label) */
     #receiver-select {
-      margin-bottom: 20px;
+      margin-bottom: 5px;
       font-size: 1rem;
       padding: 5px;
+    }
+    /* Style for the new checkbox */
+    #message-checkbox-label {
+      margin-bottom: 20px;
+      font-size: 1rem;
     }
     #map {
       width: 90%;
@@ -97,8 +102,13 @@
 </head>
 <body>
   <h1>AIS Coverage</h1>
-  <!-- New dropdown for selecting the receiver -->
+  <!-- Receiver dropdown -->
   <select id="receiver-select"></select>
+  
+  <!-- New checkbox for filtering vessels by the number of messages -->
+  <label id="message-checkbox-label">
+    <input type="checkbox" id="message-check" checked> &gt;1 Message
+  </label>
   
   <div id="map"></div>
   <div id="stats">
@@ -109,9 +119,9 @@
       </tbody>
     </table>
   </div>
-  <!-- New table for Class A & B vessels split by type -->
+  <!-- Table for Class A &amp; B vessels grouped by type and distance range -->
   <div id="vessel-ab-list"></div>
-  <!-- Existing table for AtoN, SAR and Other vessels -->
+  <!-- Table for AtoN, SAR and Other vessels -->
   <div id="vessel-list"></div>
 
   <!-- Leaflet JS -->
@@ -174,7 +184,7 @@
           option.dataset.latitude = receiver.latitude;
           option.dataset.longitude = receiver.longitude;
           option.dataset.description = receiver.description;
-          option.textContent = receiver.name; // use the 'name' field
+          option.textContent = receiver.name;
           select.appendChild(option);
         });
         
@@ -184,10 +194,9 @@
 
         let receiverToLoad = null;
         if (queryId) {
-          // Try to find the receiver with the given id.
+          // Find the receiver with the given id.
           receiverToLoad = receiversData.find(r => String(r.id) === queryId);
           if (receiverToLoad) {
-            // Set the dropdown's selected index to that option.
             for (let i = 0; i < select.options.length; i++) {
               if (select.options[i].value === queryId) {
                 select.selectedIndex = i;
@@ -196,13 +205,12 @@
             }
           }
         }
-        // If no valid query param was provided, use the first receiver.
+        // If no valid query parameter, use the first receiver.
         if (!receiverToLoad && receiversData.length > 0) {
           receiverToLoad = receiversData[0];
           select.selectedIndex = 0;
         }
         if (receiverToLoad) {
-          // Load data for the selected receiver.
           loadReceiverData(receiverToLoad);
         }
       } catch (error) {
@@ -233,7 +241,7 @@
       }
     }
     
-    // Modified initMap that accepts receiverData (vessels) and full receiver object.
+    // Modified initMap that accepts receiverData (vessels) and the full receiver object.
     async function initMap(receiverData, receiver) {
       try {
         // Use the receiver's latitude, longitude, name, and description.
@@ -276,26 +284,32 @@
             lastUpdated: vessel.LastUpdated,
             AISClass: vessel.AISClass,
             imageURL: vessel.ImageURL,
-            vesselType: vesselType // only for Class A & B vessels
+            vesselType: vesselType, // only for Class A & B vessels
+            numMessages: vessel.NumMessages || 0  // store the number of messages
           });
         }
     
-        // Compute overall statistics.
-        const distances = vessels.map(v => v.distance);
-        const totalVessels = vessels.length;
-        const maxDistance = Math.max(...distances);
-        const minDistance = Math.min(...distances);
-        const avgDistance = distances.reduce((sum, d) => sum + d, 0) / totalVessels;
+        // Apply the ">1 Message" filter.
+        // When the checkbox (#message-check) is checked, only keep vessels with numMessages >= 2.
+        const filterMessages = document.getElementById("message-check").checked;
+        const filteredVessels = filterMessages ? vessels.filter(v => v.numMessages >= 2) : vessels;
+    
+        // Compute overall statistics based on filtered vessels.
+        const distances = filteredVessels.map(v => v.distance);
+        const totalVessels = filteredVessels.length;
+        const maxDistance = distances.length ? Math.max(...distances) : 0;
+        const minDistance = distances.length ? Math.min(...distances) : 0;
+        const avgDistance = distances.length ? distances.reduce((sum, d) => sum + d, 0) / totalVessels : 0;
     
         // Define three rings equally spaced from 0 to maxDistance.
         const ring1 = maxDistance / 3;
         const ring2 = 2 * maxDistance / 3;
         const ring3 = maxDistance;
-        const countRing1 = vessels.filter(v => v.distance <= ring1).length;
-        const countRing2 = vessels.filter(v => v.distance <= ring2).length;
+        const countRing1 = filteredVessels.filter(v => v.distance <= ring1).length;
+        const countRing2 = filteredVessels.filter(v => v.distance <= ring2).length;
         const countRing3 = totalVessels;
     
-        // Remove any existing map instance (if the user changes the receiver).
+        // Remove any existing map instance if the user changes the receiver or filter.
         if (mapInstance) {
           mapInstance.remove();
         }
@@ -327,7 +341,7 @@
         userMarker.bindTooltip(ourName, {permanent: true, direction: 'top'});
     
         // --- Add vessel markers.
-        vessels.forEach(vessel => {
+        filteredVessels.forEach(vessel => {
           const relativeTime = timeAgo(vessel.lastUpdated);
           let tooltipContent = `<div style="display: flex; align-items: center;">`;
           tooltipContent += `<div style="flex: 1; text-align: left;">`;
@@ -339,6 +353,7 @@
           if (vessel.vesselType) {
             tooltipContent += `<div>Type: ${vessel.vesselType}</div>`;
           }
+          tooltipContent += `<div>Messages: ${vessel.numMessages}</div>`;
           tooltipContent += `</div>`;
           if (vessel.imageURL && vessel.imageURL.trim() !== "") {
             tooltipContent += `<div style="margin-left: 10px;"><img src="${vessel.imageURL}" style="width:100px; height:auto;"/></div>`;
@@ -449,10 +464,10 @@
         }
     
         // Group vessels by AISClass.
-        const classAandB = vessels.filter(v => v.AISClass === 'A' || v.AISClass === 'B');
-        const classAtoN = vessels.filter(v => v.AISClass === 'AtoN');
-        const classSAR = vessels.filter(v => v.AISClass === 'SAR');
-        const classOther = vessels.filter(v => v.AISClass !== 'A' && v.AISClass !== 'B' && v.AISClass !== 'AtoN' && v.AISClass !== 'SAR');
+        const classAandB = filteredVessels.filter(v => v.AISClass === 'A' || v.AISClass === 'B');
+        const classAtoN = filteredVessels.filter(v => v.AISClass === 'AtoN');
+        const classSAR = filteredVessels.filter(v => v.AISClass === 'SAR');
+        const classOther = filteredVessels.filter(v => v.AISClass !== 'A' && v.AISClass !== 'B' && v.AISClass !== 'AtoN' && v.AISClass !== 'SAR');
     
         // Helper to build vessel lists within rings.
         function filterVesselsByRing(vesselArray) {
@@ -514,7 +529,7 @@
         `;
         document.getElementById("vessel-list").innerHTML = vesselListHtml;
     
-        // --- Build a new table for Class A & B vessels grouped by type and distance ring.
+        // --- Build a new table for Class A &amp; B vessels grouped by type and distance ring.
         const classAandBByRing = filterVesselsByRing(classAandB);
         function buildGroupedVesselsByType(vesselArray) {
           if (vesselArray.length === 0) return "None";
@@ -573,11 +588,9 @@
       }
     }
     
-    // When the receiver selection changes, look up the full receiver details
-    // and load its data.
+    // When the receiver selection changes, load its data.
     document.getElementById("receiver-select").addEventListener("change", (event) => {
       const selectedId = event.target.value;
-      // Re-fetch all receivers to find the matching full receiver details.
       fetch('/receivers')
         .then(res => res.json())
         .then(receiversData => {
@@ -591,6 +604,24 @@
         .catch(err => {
           console.error("Error retrieving receiver info:", err);
           alert("Error retrieving receiver details.");
+        });
+    });
+    
+    // Add event listener for the ">1 Message" checkbox.
+    document.getElementById("message-check").addEventListener("change", function() {
+      // Reload data for the current receiver when the checkbox status changes.
+      const select = document.getElementById("receiver-select");
+      const selectedId = select.value;
+      fetch('/receivers')
+        .then(res => res.json())
+        .then(receiversData => {
+          const fullReceiver = receiversData.find(r => String(r.id) === selectedId);
+          if (fullReceiver) {
+            loadReceiverData(fullReceiver);
+          }
+        })
+        .catch(err => {
+          console.error("Error retrieving receiver info:", err);
         });
     });
     
