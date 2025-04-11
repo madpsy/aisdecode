@@ -1290,7 +1290,7 @@ func main() {
 	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
 	stateDir := flag.String("state-dir", "state", "Directory to store state (default: state)")
 	externalLookupURL := flag.String("external-lookup", "", "URL for external lookup endpoint (if specified, enables lookups for vessels missing Name)")
-	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push myinfo.json to on startup (optional)")
+	aggregatorPublicURL := flag.String("aggregator-public-url", "", "Public aggregator URL to push metrics and state to (optional)")
 	allowAllUUIDs := flag.Bool("allow-all-uuids", false, "If specified, allows all receiver UUIDs (by default, UUIDs are restricted via allowed list)")
 	logAllDecodesDir := flag.String("log-all-decodes", "", "Directory path to log every decoded message (optional)")
 	aggregatorUploadPeriod := flag.Int("aggregator-upload-period", 1, "Aggregator upload period in minutes (default: 1, 0 disables periodic uploads)")
