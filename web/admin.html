@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>AIS Decoder Admin</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; }
     form { max-width: 500px; margin: 1em auto; }
@@ -19,6 +21,8 @@
     .unusedUUIDs li { padding: 0.5em; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
     .unusedUUIDs li span { flex-grow: 1; }
   </style>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 </head>
 <body>
   <h1>AIS Decoder Admin</h1>
@@ -53,6 +57,9 @@
 
       <label for="longitude">Longitude:</label>
       <input type="text" id="longitude" name="longitude">
+
+      <!-- OpenStreetMap will be displayed here -->
+      <div id="map" style="height: 300px; margin-top: 10px;"></div>
 
       <label for="url">URL (optional):</label>
       <input type="text" id="url" name="url">
@@ -144,6 +151,7 @@
     let authPassword = '';
     let editingReceiver = null; // When editing, holds the current receiver UUID
     let allowedUUIDs = [];      // Allowed UUIDs fetched from /alloweduuids
+    let myMap;                  // Leaflet map instance
 
     // Simple regex based UUID validator (accepts typical UUIDs)
     function isValidUUID(uuid) {
@@ -175,6 +183,8 @@
         authPassword = password;
         loadAllowedUUIDs();
         loadReceivers();
+        // Initialize the map (for My Info) after login.
+        initMap();
       })
       .catch(error => {
         document.getElementById("loginError").innerText = error.message;
@@ -507,6 +517,77 @@
       })
       .catch(error => {
         document.getElementById("receiverError").innerText = "Error: " + error.message;
+      });
+    }
+
+    // --- Map Initialization for My Info Section ---
+    function initMap() {
+      const latInputValue = document.getElementById("latitude").value.trim();
+      const lonInputValue = document.getElementById("longitude").value.trim();
+      let lat = parseFloat(latInputValue);
+      let lng = parseFloat(lonInputValue);
+
+      // If valid coordinates are present, use them.
+      if (!isNaN(lat) && !isNaN(lng)) {
+        createMap(lat, lng);
+      } else {
+        // Attempt to use browser geolocation if available.
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            function(position) {
+              lat = position.coords.latitude;
+              lng = position.coords.longitude;
+              updateLatLngFields(lat, lng);
+              createMap(lat, lng);
+            },
+            function(error) {
+              // If geolocation fails, fall back to London.
+              lat = 51.5074;
+              lng = -0.1278;
+              updateLatLngFields(lat, lng);
+              createMap(lat, lng);
+            }
+          );
+        } else {
+          // Geolocation not supported; fall back to London.
+          lat = 51.5074;
+          lng = -0.1278;
+          updateLatLngFields(lat, lng);
+          createMap(lat, lng);
+        }
+      }
+    }
+
+    // Update the Latitude and Longitude fields (rounded to 5 decimal places)
+    function updateLatLngFields(lat, lng) {
+      document.getElementById("latitude").value = lat.toFixed(5);
+      document.getElementById("longitude").value = lng.toFixed(5);
+    }
+
+    // Create and display the map with a draggable marker.
+    function createMap(lat, lng) {
+      // Remove any existing map instance.
+      if (myMap) {
+        myMap.remove();
+      }
+      myMap = L.map('map').setView([lat, lng], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(myMap);
+
+      // Add a draggable marker.
+      const marker = L.marker([lat, lng], { draggable: true }).addTo(myMap);
+
+      // Update fields when the marker is dragged.
+      marker.on('dragend', function() {
+         const pos = marker.getLatLng();
+         updateLatLngFields(pos.lat, pos.lng);
+      });
+
+      // Move the marker and update fields when the map is clicked.
+      myMap.on('click', function(e) {
+         marker.setLatLng(e.latlng);
+         updateLatLngFields(e.latlng.lat, e.latlng.lng);
       });
     }
   </script>
