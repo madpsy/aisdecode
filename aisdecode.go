@@ -154,6 +154,14 @@ var (
     pendingVesselData      = make(map[string]map[string]interface{})
 )
 
+var (
+    receiverMyInfo map[string]string
+    myinfoMutex    sync.RWMutex
+
+    lastMetrics  Metrics
+    metricsMutex sync.RWMutex
+)
+
 func (sw *SlidingWindowCounter) AddEvent() {
     sw.mu.Lock()
     defer sw.mu.Unlock()
@@ -1103,53 +1111,59 @@ func appendHistory(baseDir, userID string, lat, lon float64, sog, cog, trueHeadi
 	return nil
 }
 
-func pushReceiverFiles(stateDir, aggregatorPublicURL string) {
-	// Only execute if aggregatorPublicURL is provided.
+// pushReceiverFilesFromMemory pushes the in-memory state and metrics to the aggregator.
+func pushReceiverFilesFromMemory(aggregatorPublicURL string) {
+	// Only execute if an aggregator URL is provided.
 	if aggregatorPublicURL == "" {
 		return
 	}
 
-	// Determine the path to your myinfo file.
-	myinfoPath := filepath.Join(stateDir, "myinfo.json")
-	
-	// Load myinfo.json to extract the receiver's UUID.
-	var myinfo map[string]string
-	data, err := os.ReadFile(myinfoPath)
-	if err != nil {
-		log.Printf("Error reading myinfo file for push: %v", err)
+	// Retrieve the in-memory myinfo to get the receiver UUID (password removed).
+	myinfoMutex.RLock()
+	if receiverMyInfo == nil {
+		myinfoMutex.RUnlock()
+		log.Printf("In-memory myinfo not set")
 		return
 	}
-
-	if err := json.Unmarshal(data, &myinfo); err != nil {
-		log.Printf("Error unmarshaling myinfo for push: %v", err)
-		return
+	myinfoCopy := make(map[string]string)
+	for k, v := range receiverMyInfo {
+		myinfoCopy[k] = v
 	}
+	myinfoMutex.RUnlock()
+	delete(myinfoCopy, "password")
 
-	// Delete the "password" field, if it exists.
-	delete(myinfo, "password")
-
-	receiverUUID, ok := myinfo["uuid"]
+	receiverUUID, ok := myinfoCopy["uuid"]
 	if !ok || strings.TrimSpace(receiverUUID) == "" {
-		log.Printf("No valid UUID found in myinfo.json")
+		log.Printf("No valid UUID in in-memory myinfo")
 		return
 	}
 
-	stateFilePath := filepath.Join(stateDir, "state.json")
-	metricsFilePath := filepath.Join(stateDir, "metrics.json")
+	// Take a snapshot of vessel state.
+	vesselDataMutex.Lock()
+	completeState := filterCompleteVesselData(vesselData)
+	vesselDataMutex.Unlock()
 
-	// Helper function to perform the PUT request for each file.
-	pushFile := func(action, filePath string) {
-		// Read the file content.
-		fileData, err := os.ReadFile(filePath)
-		if err != nil {
-			log.Printf("File %s not found, skipping push for %s", filePath, action)
-			return
-		}
+	stateJSON, err := json.MarshalIndent(completeState, "", "  ")
+	if err != nil {
+		log.Printf("Error marshaling in-memory state: %v", err)
+		return
+	}
 
-		// Construct the target URL.
+	// Get aggregated metrics snapshot.
+	metricsMutex.RLock()
+	localAggregatedMetrics := metricsHistory
+	metricsMutex.RUnlock()
+
+	metricsJSON, err := json.MarshalIndent(localAggregatedMetrics, "", "  ")
+	if err != nil {
+		log.Printf("Error marshaling in-memory metrics: %v", err)
+		return
+	}
+
+	// Helper function to push a JSON payload for a given action.
+	pushData := func(action string, data []byte) {
 		targetURL := strings.TrimRight(aggregatorPublicURL, "/") + "/receivers/" + receiverUUID + "/" + action
-
-		req, err := http.NewRequest("PUT", targetURL, bytes.NewReader(fileData))
+		req, err := http.NewRequest("PUT", targetURL, bytes.NewReader(data))
 		if err != nil {
 			log.Printf("Error creating PUT request for %s: %v", action, err)
 			return
@@ -1164,7 +1178,6 @@ func pushReceiverFiles(stateDir, aggregatorPublicURL string) {
 		}
 		defer resp.Body.Close()
 
-		// Optionally, you can read the response body if needed.
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode != http.StatusOK {
 			log.Printf("Unexpected status code %d when pushing %s: %s", resp.StatusCode, action, string(body))
@@ -1173,10 +1186,62 @@ func pushReceiverFiles(stateDir, aggregatorPublicURL string) {
 		}
 	}
 
-	// Push both state and metrics files.
-	pushFile("state", stateFilePath)
-	pushFile("metrics", metricsFilePath)
+	// Push the in-memory state and metrics.
+	pushData("state", stateJSON)
+	pushData("metrics", metricsJSON)
 }
+
+// pushMyInfoToAggregator pushes only the in-memory myinfo data to the aggregator.
+func pushMyInfoToAggregator(aggregatorPublicURL string) {
+	// Only execute if an aggregator URL is provided.
+	if aggregatorPublicURL == "" {
+		return
+	}
+
+	// Get myinfo from in-memory storage.
+	myinfoMutex.RLock()
+	if receiverMyInfo == nil {
+		myinfoMutex.RUnlock()
+		log.Printf("In-memory myinfo not set")
+		return
+	}
+	myinfoCopy := make(map[string]string)
+	for k, v := range receiverMyInfo {
+		myinfoCopy[k] = v
+	}
+	myinfoMutex.RUnlock()
+
+	// Remove internal sensitive field.
+	delete(myinfoCopy, "password")
+
+	aggregatorEndpoint := strings.TrimRight(aggregatorPublicURL, "/") + "/receivers"
+	myinfoData, err := json.MarshalIndent(myinfoCopy, "", "  ")
+	if err != nil {
+		log.Printf("Error marshaling in-memory myinfo: %v", err)
+		return
+	}
+	req, err := http.NewRequest("PUT", aggregatorEndpoint, bytes.NewReader(myinfoData))
+	if err != nil {
+		log.Printf("Failed to create PUT request for myinfo: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Aggregator push: PUT request for myinfo failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		log.Printf("Successfully pushed myinfo to %s", aggregatorEndpoint)
+	} else {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("Received status code %d when pushing in-memory myinfo to %s: %s", resp.StatusCode, aggregatorEndpoint, string(body))
+	}
+}
+
 
 func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]map[string]interface{} {
 	summary := make(map[string]map[string]interface{})
@@ -1353,6 +1418,9 @@ func main() {
 	    }
 	    // Write the updated myinfo.json back.
 	    b, err := json.MarshalIndent(myInfo, "", "  ")
+	    myinfoMutex.Lock()
+	    receiverMyInfo = myInfo
+	    myinfoMutex.Unlock()
 	    if err != nil {
 	        log.Printf("Error marshaling myinfo data: %v", err)
 	    } else {
@@ -1361,34 +1429,9 @@ func main() {
 	            log.Printf("Error writing myinfo file %s: %v", myInfoPath, err)
 	        }
 	    }
-
-		if *aggregatorPublicURL != "" {
-		    // Build the endpoint URL by ensuring no trailing slash.
-		    aggregatorEndpoint := strings.TrimRight(*aggregatorPublicURL, "/") + "/receivers"
-		    myinfoData, err := os.ReadFile(myInfoPath)
-		    if err != nil {
-		        log.Printf("Aggregator push: could not read myinfo.json: %v", err)
-		    } else {
-		        req, err := http.NewRequest("PUT", aggregatorEndpoint, bytes.NewReader(myinfoData))
-		        if err != nil {
-		            log.Printf("Aggregator push: failed to create PUT request: %v", err)
-		        } else {
-		            req.Header.Set("Content-Type", "application/json")
-		            client := &http.Client{Timeout: 5 * time.Second}
-		            resp, err := client.Do(req)
-		            if err != nil {
-		                log.Printf("Aggregator push: PUT request failed: %v", err)
-		            } else {
-		                if resp.StatusCode == http.StatusOK {
-		                    log.Printf("Aggregator push: successfully pushed myinfo.json to %s", aggregatorEndpoint)
-		                } else {
-		                    log.Printf("Aggregator push: received status code %d when pushing myinfo.json to %s", resp.StatusCode, aggregatorEndpoint)
-		                }
-		                resp.Body.Close()
-		            }
-		        }
-		    }
-		}
+	    if *aggregatorPublicURL != "" {
+        	go pushMyInfoToAggregator(*aggregatorPublicURL)
+	    }
 	 }
 
 	// Initialize previous vessel data.
@@ -1423,12 +1466,11 @@ func main() {
 
 	StartMetrics(metricsStateDir, *noState)
 
-	go pushReceiverFiles(*stateDir, *aggregatorPublicURL)
 	go func() {
 		ticker := time.NewTicker(time.Duration(*aggregatorUploadPeriod) * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			pushReceiverFiles(*stateDir, *aggregatorPublicURL)
+			pushReceiverFilesFromMemory(*aggregatorPublicURL)
 		}
 	}()
 	
@@ -2235,6 +2277,14 @@ func main() {
 		            http.Error(w, "Error saving updated data", http.StatusInternalServerError)
 		            return
 		        }
+
+		        myinfoMutex.Lock()
+		        receiverMyInfo = myinfo
+		        myinfoMutex.Unlock()
+
+ 	                if *aggregatorPublicURL != "" {
+		                go pushMyInfoToAggregator(*aggregatorPublicURL)
+            		}
         
 		        w.WriteHeader(http.StatusOK)
 		        w.Write([]byte("myinfo updated successfully"))
@@ -3036,6 +3086,10 @@ go func() {
             MaxDistanceMeters:       math.Round(maxVal),
             AverageDistanceMeters:   avg,
         }
+
+        metricsMutex.Lock()
+        lastMetrics = metrics
+        metricsMutex.Unlock()
 
         metricsJSON, err := json.Marshal(metrics)
         if err != nil {

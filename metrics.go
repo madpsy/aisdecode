@@ -13,10 +13,11 @@ import (
 // -----------------------------------------------------------------------------
 // Global aggregator variables for different roll-up intervals.
 var (
-	minuteAgg MetricsAggregator
-	hourAgg   MetricsAggregator
-	dayAgg    MetricsAggregator
-	weekAgg   MetricsAggregator
+	minuteAgg 		MetricsAggregator
+	hourAgg   		MetricsAggregator
+	dayAgg    		MetricsAggregator
+	weekAgg   		MetricsAggregator
+	lastAggregatedMetrics   MetricsAggregate
 )
 
 // -----------------------------------------------------------------------------
@@ -524,6 +525,7 @@ func StartMetrics(stateDir string, noState bool) {
 		defer ticker.Stop()
 		for range ticker.C {
 			snapshot := minuteAgg.finalize()
+			lastAggregatedMetrics = snapshot
 			mhMutex.Lock()
 			metricsHistory.MinuteAverages = appendSnapshot(metricsHistory.MinuteAverages, snapshot, 60)
 			mhMutex.Unlock()
