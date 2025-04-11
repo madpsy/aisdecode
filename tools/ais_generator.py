@@ -43,27 +43,31 @@ def ais_sixbit_encode(bit_str):
             encoded += chr(val + 56)
     return encoded, fill_bits
 
+def ais_text_to_binary(text, length):
+    """
+    Convert an ASCII text string to a binary string using the AIS 6-bit encoding table.
+    The text will be padded or truncated to exactly `length` characters.
+    """
+    # AIS 6-bit alphabet as defined in the standard.
+    ais_table = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
+    text = text.upper()
+    if len(text) < length:
+        text = text + " " * (length - len(text))
+    else:
+        text = text[:length]
+    bin_str = ""
+    for ch in text:
+        try:
+            idx = ais_table.index(ch)
+        except ValueError:
+            # If character not found, treat as a space.
+            idx = ais_table.index(" ")
+        bin_str += format(idx, '06b')
+    return bin_str
+
 def build_type1_payload(mmsi, lat, lon, cog, heading):
     """
     Build AIS Message Type 1 (Class A Position Report) payload (168 bits).
-
-    Fields (in order):
-      - Message type: 6 bits (1)
-      - Repeat Indicator: 2 bits (0)
-      - MMSI: 30 bits
-      - Navigational Status: 4 bits (0)
-      - Rate of Turn: 8 bits (0)
-      - Speed Over Ground: 10 bits (0)
-      - Position Accuracy: 1 bit (0)
-      - Longitude: 28 bits (in 1/600000 degrees, two's complement)
-      - Latitude: 27 bits (in 1/600000 degrees, two's complement)
-      - Course Over Ground: 12 bits (value in tenths of a degree)
-      - True Heading: 9 bits (degrees)
-      - Timestamp: 6 bits (0)
-      - Maneuver Indicator: 2 bits (0)
-      - Spare: 3 bits (0)
-      - RAIM flag: 1 bit (0)
-      - Radio status: 19 bits (0)
     """
     type_field = format(1, '06b')
     repeat_field = "00"
@@ -78,7 +82,7 @@ def build_type1_payload(mmsi, lat, lon, cog, heading):
     lat_int = int(round(lat * 600000))
     lat_field = encode_signed_int(lat_int, 27)
     # Course over ground: stored as value in tenths of degrees.
-    cog_val = int(round(cog * 10))  # e.g. 123.4° -> 1234
+    cog_val = int(round(cog * 10))
     cog_field = format(cog_val, '012b')
     # True heading: 9 bits, degrees. We use modulo 360.
     heading_field = format(int(round(heading)) % 360, '09b')
@@ -98,19 +102,6 @@ def build_type1_payload(mmsi, lat, lon, cog, heading):
 def build_type18_payload(mmsi, lat, lon, cog, heading):
     """
     Build AIS Message Type 18 (Class B Position Report) payload (168 bits).
-
-    Fields (in order):
-      - Message type: 6 bits (18)
-      - Repeat Indicator: 2 bits (0)
-      - MMSI: 30 bits
-      - Speed Over Ground: 10 bits (0)
-      - Position Accuracy: 1 bit (0)
-      - Longitude: 28 bits (degrees * 600000, two's complement)
-      - Latitude: 27 bits (degrees * 600000, two's complement)
-      - Course Over Ground: 12 bits (tenths of a degree)
-      - True Heading: 9 bits (degrees)
-      - Time Stamp: 6 bits (0)
-      - Reserved: 38 bits (0)
     """
     type_field = format(18, '06b')
     repeat_field = "00"
@@ -132,6 +123,78 @@ def build_type18_payload(mmsi, lat, lon, cog, heading):
         lon_field + lat_field + cog_field + heading_field +
         timestamp + reserved
     )
+    return bit_string
+
+def build_type5_static_payload(mmsi, vessel_name):
+    """
+    Build AIS Message Type 5 (Class A Static and Voyage Related Data) payload (424 bits).
+    Most fields are set to zero or spaces except the MMSI and Vessel Name.
+    """
+    # Field breakdown:
+    #  1) Message ID: 6 bits (5)
+    #  2) Repeat Indicator: 2 bits (0)
+    #  3) MMSI: 30 bits
+    #  4) AIS Version: 2 bits (0)
+    #  5) IMO Number: 30 bits (0)
+    #  6) Call Sign: 42 bits (7 characters, spaces)
+    #  7) Vessel Name: 120 bits (20 characters)
+    #  8) Ship Type: 8 bits (0)
+    #  9) Dimension to Bow: 9 bits (0)
+    # 10) Dimension to Stern: 9 bits (0)
+    # 11) Dimension to Port: 6 bits (0)
+    # 12) Dimension to Starboard: 6 bits (0)
+    # 13) Position Fix Type: 4 bits (0)
+    # 14) ETA: 20 bits (0)
+    # 15) Draught: 8 bits (0)
+    # 16) Destination: 120 bits (20 characters, spaces)
+    # 17) DTE: 1 bit (0)
+    # 18) Spare: 1 bit (0)
+    
+    msg_id = format(5, '06b')
+    repeat = "00"
+    mmsi_field = format(mmsi, '030b')
+    ais_version = "00"
+    imo_number = "0" * 30
+    call_sign = ais_text_to_binary(" " * 7, 7)
+    vessel_name_field = ais_text_to_binary(vessel_name, 20)
+    ship_type = "00000000"
+    dim_bow = "0" * 9
+    dim_stern = "0" * 9
+    dim_port = "0" * 6
+    dim_starboard = "0" * 6
+    pos_fix_type = "0000"
+    eta = "0" * 20
+    draught = "00000000"
+    destination = ais_text_to_binary(" " * 20, 20)
+    dte = "0"
+    spare = "0"
+    
+    bit_string = (
+        msg_id + repeat + mmsi_field + ais_version + imo_number +
+        call_sign + vessel_name_field + ship_type +
+        dim_bow + dim_stern + dim_port + dim_starboard +
+        pos_fix_type + eta + draught + destination + dte + spare
+    )
+    return bit_string
+
+def build_type24_static_payload(mmsi, vessel_name):
+    """
+    Build AIS Message Type 24 Part A (Class B Static Data) payload (168 bits).
+    Fields:
+      - Message ID: 6 bits (24)
+      - Repeat Indicator: 2 bits (0)
+      - MMSI: 30 bits
+      - Part Number: 2 bits (0 for Part A)
+      - Vessel Name: 120 bits (20 characters)
+      - Spare: 8 bits (0)
+    """
+    msg_id = format(24, '06b')
+    repeat = "00"
+    mmsi_field = format(mmsi, '030b')
+    part_no = "00"  # Part A indicator
+    vessel_name_field = ais_text_to_binary(vessel_name, 20)
+    spare = "0" * 8
+    bit_string = msg_id + repeat + mmsi_field + part_no + vessel_name_field + spare
     return bit_string
 
 def construct_nmea_sentence(channel, encoded_payload, fill_bits):
@@ -162,14 +225,12 @@ def update_position(lat, lon, max_distance):
     # Approximate new latitude.
     new_lat = lat + math.degrees(distance / R * math.cos(bearing))
     # Approximate new longitude.
-    # (Avoid division by zero by ensuring cos(lat_rad) is not too small)
     if abs(math.cos(lat_rad)) < 1e-6:
         delta_lon = 0
     else:
         delta_lon = math.degrees(distance / R * math.sin(bearing) / math.cos(lat_rad))
     new_lon = lon + delta_lon
 
-    # Clamp latitude to -90..90 and wrap longitude to -180..180.
     new_lat = max(min(new_lat, 90), -90)
     new_lon = ((new_lon + 180) % 360) - 180
 
@@ -233,6 +294,23 @@ def main():
     for m, data in mmsi_data.items():
         print(f"  {m}: {data}")
 
+    # --- Send static data messages for every MMSI ---
+    for mmsi, data in mmsi_data.items():
+        vessel_class = data["class"]
+        if vessel_class == 'A':
+            # For class A vessels use type 5 static message.
+            payload_bin = build_type5_static_payload(mmsi, "SYNTH_DATA_GEN")
+            channel = "A"
+        else:
+            # For class B vessels use type 24 static message (Part A).
+            payload_bin = build_type24_static_payload(mmsi, "SYNTH_DATA_GEN")
+            channel = "B"
+        encoded_payload, fill = ais_sixbit_encode(payload_bin)
+        sentence = construct_nmea_sentence(channel, encoded_payload, fill)
+        sock.sendto(sentence.encode('ascii'), (args.host, args.port))
+        print("Static message:", sentence)
+    
+    # --- Now enter the loop sending dynamic position messages ---
     try:
         while True:
             # Pick a random MMSI.
@@ -240,9 +318,7 @@ def main():
             data = mmsi_data[mmsi]
             old_lat = data["lat"]
             old_lon = data["lon"]
-            # Update position based on max_distance.
             new_lat, new_lon, bearing = update_position(old_lat, old_lon, args.max_distance)
-            # For our purposes, use the movement bearing as both course and heading.
             cog = bearing
             heading = bearing
 
@@ -258,11 +334,8 @@ def main():
                 bit_str = build_type18_payload(mmsi, new_lat, new_lon, cog, heading)
                 channel = "B"
 
-            # Encode payload into AIS 6-bit ASCII.
             encoded_payload, fill = ais_sixbit_encode(bit_str)
-            # Build final NMEA sentence.
             sentence = construct_nmea_sentence(channel, encoded_payload, fill)
-            # Send the sentence via UDP.
             sock.sendto(sentence.encode('ascii'), (args.host, args.port))
             print(sentence)
             time.sleep(interval)
