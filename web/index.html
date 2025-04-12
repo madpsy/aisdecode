@@ -1324,11 +1324,11 @@ function hydrateTrackHistory(userID) {
       });
       
       // Update the polyline on the map with the filtered set of track points.
-      // Note: getLatLngs will extract only the latitude and longitude.
+      // getLatLngs extracts only the [lat, lng] pairs from filteredTrack.
       if (vesselTracks[userID]) {
         vesselTracks[userID].setLatLngs(getLatLngs(filteredTrack));
         vesselTracks[userID].options.interactive = true;
-        // (Re)attach event handlers if needed...
+        // (Re)attach event handlers if needed.
         vesselTracks[userID].on('mousemove', function(e) {
           const nearest = getNearestTrackPoint(e, vesselData[userID].track);
           if (nearest) {
@@ -1338,7 +1338,6 @@ function hydrateTrackHistory(userID) {
             const name = vessel.Name ? vessel.Name : "Unknown Vessel";
             const callsign = vessel.CallSign ? vessel.CallSign : "N/A";
 
-            // Build the popup content.
             let popupContent = `<strong>${name} (${callsign})</strong><br>
                                 ${localTime}<br>
                                 ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>`;
@@ -1358,7 +1357,6 @@ function hydrateTrackHistory(userID) {
               .openOn(map);
           }
         });
-
         vesselTracks[userID].on('mouseout', function() {
           map.closePopup();
         });
@@ -1372,15 +1370,26 @@ function hydrateTrackHistory(userID) {
         attachPolylineEvents(vesselTracks[userID], userID);
       }
       
+      // Force re-addition of the polyline in case update functions have removed it.
+      if (!map.hasLayer(vesselTracks[userID])) {
+        map.addLayer(vesselTracks[userID]);
+      }
+      
       // Save the updated vessel data back into localStorage.
       localStorage.setItem('vesselData', JSON.stringify(vesselData));
+      
+      // Now update the UI after CSV processing is complete.
+      updateMarkersInView();
+      updateTracksInView();
+      updateOverlay();
     })
     .catch(error => {
       console.error('Error hydrating track history:', error);
+      // Optionally, you can call your update functions on error
+      updateMarkersInView();
+      updateTracksInView();
+      updateOverlay();
     });
-    updateMarkersInView();
-    updateTracksInView();
-    updateOverlay();
 }
 
         // Global objects to store markers, vessel data, and track histories.
@@ -1499,6 +1508,64 @@ function removePortMarkers() {
   currentPorts = [];
 }
 
+function selectVesselById(userID) {
+  // Check if a marker already exists for the vessel.
+  if (!vesselMarkers[userID]) {
+    // If the marker does not exist, fetch the vessel state.
+    fetch(`/state/${userID}`)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(stateData => {
+        // Ensure that the state has valid position data.
+        if (typeof stateData.Latitude === "number" && typeof stateData.Longitude === "number") {
+          // Update or add the vessel to your global state.
+          vesselData[userID] = stateData;
+
+          // Create a marker using your existing function (e.g., getVesselIcon).
+          let marker = L.marker(
+            [stateData.Latitude, stateData.Longitude],
+            { icon: getVesselIcon(stateData) }
+          ).addTo(map);
+          vesselMarkers[userID] = marker;
+
+          // Optionally, bind popups or tooltips.
+          marker.bindPopup(createPopupContent(stateData), { autoPan: false });
+
+          // Focus on the vessel (recenter, highlight, etc.)
+          focusOnVessel(userID);
+
+        } else {
+          console.error("Invalid location data received for vessel:", userID);
+        }
+      })
+      .catch(error => {
+        console.error("Error fetching vessel state:", error);
+      });
+  } else {
+    // If the marker already exists, update its position.
+    fetch(`/state/${userID}`)
+      .then(response => response.json())
+      .then(stateData => {
+        // Update global state and marker position.
+        vesselData[userID] = stateData;
+        vesselMarkers[userID].setLatLng([stateData.Latitude, stateData.Longitude]);
+        vesselMarkers[userID].getPopup().setContent(createPopupContent(stateData));
+
+        // Focus on the vessel.
+        focusOnVessel(userID);
+
+        // Fetch the vessel's track/history.
+        hydrateTrackHistory(userID);
+      })
+      .catch(error => {
+        console.error("Error updating vessel state for marker:", error);
+      });
+  }
+}
 
 function renderSearchResults(data) {
   // Convert the response object to an array.
@@ -1526,23 +1593,21 @@ function renderSearchResults(data) {
   
   document.getElementById('overlay-content').innerHTML = content;
   
+  // Update the count to reflect search results.
+  document.getElementById('vessel-count').innerHTML =
+    `${data.length} of ${data.length} entries`; // or customize based on your needs
+  
   // Attach click event listeners for each overlay entry.
   document.querySelectorAll('.vessel-entry').forEach(entry => {
     entry.addEventListener('click', event => {
       event.stopPropagation();
       const userID = entry.getAttribute('data-userid');
-      if (receiverData.hasOwnProperty(userID)) {
-        const marker = receiverMarkers[userID];
-        map.setView(marker.getLatLng(), 10);
-        marker.openPopup();
-      } else {
-        document.getElementById('stationary').checked = true;
-        updateStationaryMarkers();
-        focusOnVessel(userID);
-      }
+      // Instead of directly focusing, call selectVesselById which handles the state retrieval.
+      selectVesselById(userID);
     });
   });
 }
+
 
 
         /**
@@ -2700,16 +2765,41 @@ function applyLogFilters() {
         });
 
 // Use a debounced function to limit the frequency of requests:
-document.getElementById('vessel-filter').addEventListener('input', debounce(function(event) {
-  const query = event.target.value.trim();
-  
-  // If the query is less than 3 characters, update the overlay normally.
-  if (query.length < 3) {
+// Global variables to store the current search query and the interval timer.
+let currentSearchQuery = '';
+let searchInterval = null;
+
+document.getElementById('vessel-filter').addEventListener('input', function(event) {
+  // Update current search query with trimmed value.
+  currentSearchQuery = event.target.value.trim();
+
+  // Check if the query meets the length threshold.
+  if (currentSearchQuery.length < 3) {
+    // If below threshold, clear any active search interval.
+    if (searchInterval) {
+      clearInterval(searchInterval);
+      searchInterval = null;
+    }
+    // Update the overlay normally.
     updateOverlay();
     return;
   }
-  
-  // Otherwise, perform a search.
+
+  // If the query length is 3 or more:
+  // Call the search function immediately.
+  performSearch(currentSearchQuery);
+
+  // If no interval is already running, set one up for every 5 seconds.
+  if (!searchInterval) {
+    searchInterval = setInterval(() => {
+      // Use the latest query value in case the user modifies it.
+      performSearch(currentSearchQuery);
+    }, 5000);
+  }
+});
+
+// Function that performs the search fetch.
+function performSearch(query) {
   fetch('/search', {
     method: 'POST',
     headers: {
@@ -2729,9 +2819,11 @@ document.getElementById('vessel-filter').addEventListener('input', debounce(func
   })
   .catch(err => {
     console.error('Search request failed:', err);
+    // Optionally, fall back to updating the overlay.
     updateOverlay();
   });
-}, 250));
+}
+
 
 
 
@@ -2804,9 +2896,6 @@ function getNearestTrackPoint(e, track) {
 function focusOnVessel(userID, initialFocus = true) {
   // Unfocus previously focused vessel
   if (focusedVessel && focusedVessel !== userID) {
-    if (vesselData[focusedVessel]) {
-      vesselData[focusedVessel].track = [];
-    }
     const prevMarker = vesselMarkers[focusedVessel];
     if (prevMarker) {
       // If a tooltip exists, update its content; otherwise, bind a default one.

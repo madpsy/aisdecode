@@ -1832,6 +1832,7 @@ func main() {
 					"CallSign":    v["CallSign"],
 					"ImoNumber":   v["ImoNumber"],
 					"NumMessages": v["NumMessages"],
+					"LastUpdated": v["LastUpdated"],
 				}
 			}
 		}
