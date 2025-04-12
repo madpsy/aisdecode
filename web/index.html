@@ -586,6 +586,36 @@ map.on('click', () => {
   }
 });
 
+function sendSummaryRequest() {
+  // Get the center of the current map view.
+  const center = map.getCenter();
+  
+  // Compute a radius based on the current bounds.
+  // Here, for example, we compute the distance from the center to the northeast corner.
+  const bounds = map.getBounds();
+  const radius = center.distanceTo(bounds.getNorthEast()) * 1.5;
+  
+  // Get the current maxAge (in hours) from the age-slider.
+  const ageSlider = document.getElementById("age-slider");
+  const maxAge = parseInt(ageSlider.value, 10);
+  
+  // Build the filter parameters object.
+  const filterParams = {
+    latitude: center.lat,
+    longitude: center.lng,
+    radius: radius,      // in meters
+    maxResults: 500,    // fixed limit
+    maxAge: maxAge       // in hours
+  };
+  
+  // Send the filter parameters to the server.
+  socket.emit("requestSummary", JSON.stringify(filterParams));
+  
+  // (Optional) Update other UI components immediately:
+  filterMarkersByAge(maxAge);
+  updateOverlay();
+}
+
 
         // Mapping objects for Fix Type, Nav Status, and Static Message Types.
         const fixTypeMapping = { 0: "No Fix", 1: "GPS Fix", 2: "DGPS Fix" };
@@ -902,6 +932,9 @@ function getCustomIcon(vesselState, iconUrl) {
 }
 
 function getVesselIcon(vesselState) {
+  if (map.getZoom() < 10) {
+    return createCircleIcon(vesselState);
+  }
   const types = vesselState.MessageTypes || [];
   
   if (types.includes('AidsToNavigationReport')) {
@@ -932,6 +965,17 @@ function updateLatLongDisplay() {
       latlongDisplay.innerHTML = `<strong>${lat.toFixed(5)}, ${lon.toFixed(5)}</strong>`;
     }
   }
+}
+
+function debounce(func, wait) {
+  let timeout;
+  return function(...args) {
+    const context = this;
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      func.apply(context, args);
+    }, wait);
+  };
 }
 
 function filterMarkersByAge(ageHours) {
@@ -1456,6 +1500,51 @@ function removePortMarkers() {
 }
 
 
+function renderSearchResults(data) {
+  // Convert the response object to an array.
+  if (!Array.isArray(data)) {
+    data = Object.values(data);
+  }
+  
+  let content = "";
+  data.forEach(entry => {
+    const name = entry.Name;
+    const lastSeen = timeAgo(new Date(entry.LastUpdated || Date.now()).getTime());
+    const numMessages = entry.NumMessages || 0;
+  
+    // Use extra info if the entry represents a receiver.
+    const extraInfo = entry.isReceiver
+      ? `<div class="vessel-callsign">Receiver</div>`
+      : `<div class="vessel-callsign">Call Sign: ${entry.CallSign ? entry.CallSign : "N/A"}</div>`;
+  
+    content += `<div class="vessel-entry" data-userid="${entry.UserID}">
+                  <div class="vessel-name">${name}</div>
+                  ${extraInfo}
+                  <div class="vessel-timestamp">${lastSeen} | ${numMessages} msgs</div>
+                </div>`;
+  });
+  
+  document.getElementById('overlay-content').innerHTML = content;
+  
+  // Attach click event listeners for each overlay entry.
+  document.querySelectorAll('.vessel-entry').forEach(entry => {
+    entry.addEventListener('click', event => {
+      event.stopPropagation();
+      const userID = entry.getAttribute('data-userid');
+      if (receiverData.hasOwnProperty(userID)) {
+        const marker = receiverMarkers[userID];
+        map.setView(marker.getLatLng(), 10);
+        marker.openPopup();
+      } else {
+        document.getElementById('stationary').checked = true;
+        updateStationaryMarkers();
+        focusOnVessel(userID);
+      }
+    });
+  });
+}
+
+
         /**
          * Build popup content from vessel data.
          */
@@ -1814,13 +1903,18 @@ if (!showStationary) {
 
         // Update the known vessels overlay.
 function updateOverlay() {
-  const filterText = document.getElementById('vessel-filter').value.toLowerCase();
+  const filterText = document.getElementById('vessel-filter').value.trim().toLowerCase();
+  // When a search is in progress (i.e. 3+ characters are entered), do not update the overlay.
+  if (filterText.length >= 3) {
+    return;
+  }
+
   const maxAgeHours = parseInt(document.getElementById('age-slider').value, 10);
   const now = Date.now();
 
   // Get arrays of vessels and receivers.
-  const vesselArray = Object.values(vesselData);       // Your vessels.
-  const receiverArray = Object.values(receiverData);     // Your receivers.
+  const vesselArray = Object.values(vesselData);
+  const receiverArray = Object.values(receiverData);
 
   // Merge the two arrays.
   const combinedEntries = vesselArray.concat(receiverArray);
@@ -1828,32 +1922,26 @@ function updateOverlay() {
   // Filter entries that have a name and valid update time.
   const validEntries = combinedEntries.filter(entry => entry.Name && entry.LastUpdated);
 
-  // Filter the entries by the filter text and age.
+  // Filter the entries by the filter text (if any) and age.
   const filteredEntries = validEntries.filter(entry => {
-    // Check text filter. (For vessels, optionally check CallSign.)
     const textMatch =
       entry.Name.toLowerCase().includes(filterText) ||
       (entry.CallSign && entry.CallSign.toLowerCase().includes(filterText)) ||
       entry.UserID.toString().includes(filterText);
-    
-    // Age check.
     const entryTime = new Date(entry.LastUpdated).getTime();
     const withinAge = (now - entryTime) <= maxAgeHours * 3600000;
-
     return textMatch && withinAge;
   });
 
-  // Sort the entries by update time (newest first).
+  // Sort by update time (newest first).
   filteredEntries.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
   const topEntries = filteredEntries.slice(0, 100);
 
-  // (Optional) Count visible markers from both vessels and receivers.
+  // Count visible markers (optional).
   let visibleCount = 0;
-  // Count vessel markers.
   for (const id in vesselMarkers) {
     if (map.hasLayer(vesselMarkers[id])) visibleCount++;
   }
-  // Count receiver markers.
   for (const id in receiverMarkers) {
     if (map.hasLayer(receiverMarkers[id])) visibleCount++;
   }
@@ -1862,18 +1950,15 @@ function updateOverlay() {
   document.getElementById('vessel-count').innerHTML =
     `${topEntries.length} of ${filteredEntries.length} entries<br>${visibleCount} visible on map`;
 
-  // Build the HTML content.
+  // Build the HTML content for the overlay.
   let content = "";
   topEntries.forEach(entry => {
     const name = entry.Name;
     const lastSeen = timeAgo(new Date(entry.LastUpdated).getTime());
     const numMessages = entry.NumMessages || 0;
-
-    // If the entry is a receiver, show "Receiver" without a callsign.
     const extraInfo = entry.isReceiver
       ? `<div class="vessel-callsign">Receiver</div>`
       : `<div class="vessel-callsign">Call Sign: ${entry.CallSign ? entry.CallSign : "N/A"}</div>`;
-
     content += `<div class="vessel-entry" data-userid="${entry.UserID}">
                   <div class="vessel-name">${name}</div>
                   ${extraInfo}
@@ -1884,22 +1969,21 @@ function updateOverlay() {
   document.getElementById('overlay-content').innerHTML = content;
 
   // Attach click events for the overlay entries.
-document.querySelectorAll('.vessel-entry').forEach(entry => {
-  entry.addEventListener('click', event => {
-    event.stopPropagation();
-    const userID = entry.getAttribute('data-userid');
-    if (receiverData.hasOwnProperty(userID)) {
-	  const marker = receiverMarkers[userID];
-	  map.setView(marker.getLatLng(), 10);
-	  marker.openPopup();
-    } else {
-      // Otherwise, continue with the vessel (load history, subscribe, etc.)
-      document.getElementById('stationary').checked = true;
-      updateStationaryMarkers();
-      focusOnVessel(userID);
-    }
+  document.querySelectorAll('.vessel-entry').forEach(entry => {
+    entry.addEventListener('click', event => {
+      event.stopPropagation();
+      const userID = entry.getAttribute('data-userid');
+      if (receiverData.hasOwnProperty(userID)) {
+        const marker = receiverMarkers[userID];
+        map.setView(marker.getLatLng(), 10);
+        marker.openPopup();
+      } else {
+        document.getElementById('stationary').checked = true;
+        updateStationaryMarkers();
+        focusOnVessel(userID);
+      }
+    });
   });
-});
 }
 
 // Helper function to check if the vessel is visible by the current age filter
@@ -2548,7 +2632,8 @@ function applyLogFilters() {
 		  { icon: getVesselIcon(vesselData[mmsi]) }
 		).addTo(map);
                 marker.bindPopup(popupContent, { autoPan: false });
-                if (vesselState.Name) {
+ 		const currentZoom = map.getZoom();
+                if (currentZoom >= 10 && vesselState.Name) {
                   marker.bindTooltip(vesselState.Name, {
                     permanent: true,
                     direction: 'top',
@@ -2614,7 +2699,41 @@ function applyLogFilters() {
           }
         });
 
-        document.getElementById('vessel-filter').addEventListener('input', updateOverlay);
+// Use a debounced function to limit the frequency of requests:
+document.getElementById('vessel-filter').addEventListener('input', debounce(function(event) {
+  const query = event.target.value.trim();
+  
+  // If the query is less than 3 characters, update the overlay normally.
+  if (query.length < 3) {
+    updateOverlay();
+    return;
+  }
+  
+  // Otherwise, perform a search.
+  fetch('/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ query: query })
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
+    return response.json();
+  })
+  .then(searchResults => {
+    // Render search results in the overlay.
+    renderSearchResults(searchResults);
+  })
+  .catch(err => {
+    console.error('Search request failed:', err);
+    updateOverlay();
+  });
+}, 250));
+
+
 
         document.getElementById('clear-history').addEventListener('click', clearHistory);
 
@@ -2953,10 +3072,35 @@ function showFlashMessage(message, parentEl) {
        });
 
 window.addEventListener('load', () => {
+  // Get URL parameters and check for the UserID parameter.
   const params = new URLSearchParams(window.location.search);
   const userIDParam = params.get('UserID');
   const skipUserZoom = Boolean(userIDParam);
 
+  // If UserID is provided, fetch the summary and center the map accordingly.
+  if (userIDParam) {
+    fetch(`/summary/${userIDParam}`)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Network error: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        // Validate that the summary contains valid Latitude and Longitude fields.
+        if (typeof data.Latitude === 'number' && typeof data.Longitude === 'number') {
+          // Center the map on these coordinates; adjust the zoom level as needed.
+          map.setView([data.Latitude, data.Longitude], 10);
+        } else {
+          console.warn('Summary data is missing valid latitude and longitude fields.');
+        }
+      })
+      .catch(error => {
+        console.error('Error fetching summary:', error);
+      });
+  }
+
+  // Existing code: Remove vessels whose last update exceeds the max-age
   const ageSlider = document.getElementById("age-slider");
   const maxAgeHours = parseInt(ageSlider.value, 10);  // In hours
   const maxAgeMilliseconds = maxAgeHours * 3600000; // Convert hours to milliseconds
@@ -2967,9 +3111,8 @@ window.addEventListener('load', () => {
     const vesselTimestamp = new Date(vesselState.LastUpdated).getTime();
     const vesselAgeMilliseconds = now - vesselTimestamp;
 
-    // If the vessel's last update is older than the selected max-age, skip this vessel
+    // If the vessel's last update is older than the selected max-age, remove it from map and data.
     if (vesselAgeMilliseconds > maxAgeMilliseconds) {
-      // Remove the vessel from the map if it's already added
       if (vesselMarkers[mmsi]) {
         map.removeLayer(vesselMarkers[mmsi]);
         delete vesselMarkers[mmsi];
@@ -2978,7 +3121,7 @@ window.addEventListener('load', () => {
         map.removeLayer(vesselTracks[mmsi]);
         delete vesselTracks[mmsi];
       }
-      delete vesselData[mmsi];  // Remove the vessel from vesselData as well
+      delete vesselData[mmsi];
     }
   }
 
@@ -3241,7 +3384,7 @@ document.getElementById("age-slider").addEventListener("input", () => {
   // Debounce the filtering process to avoid excessive function calls.
   clearTimeout(ageDebounceTimer);
   ageDebounceTimer = setTimeout(() => {
-    socket.emit('requestSummary');
+    sendSummaryRequest();
     filterMarkersByAge(ageHours);  // Apply the age filter.
     updateOverlay();  // Update the vessel overlay count
   }, 500);  // Adjust the debounce delay as needed.
@@ -3269,6 +3412,7 @@ document.getElementById('show-ports').addEventListener('change', function() {
 
 map.on('zoomend', function() {
   const currentZoom = map.getZoom();
+  //sendSummaryRequest();
   for (const mmsi in vesselMarkers) {
     let marker = vesselMarkers[mmsi];
     // Check if this is the focused vessel – its icon and tooltip remain unchanged.
@@ -3298,6 +3442,9 @@ map.on('zoomend', function() {
     }
   }
 });
+
+const debouncedSendSummaryRequest = debounce(sendSummaryRequest, 250);
+map.on("moveend", debouncedSendSummaryRequest);
 
         // Utility: Generate a random hex color.
         function randomColor() {

@@ -28,6 +28,8 @@
     // ------------------------------
     const tileCache = {};
     const osmTileCache = {}; // New cache for OpenStreetMap tiles
+    let lastSummaryLat = null;
+    let lastSummaryLon = null;
 
     function getTileImage(tileX, tileY, zoom) {
       const key = `${zoom}/${tileX}/${tileY}`;
@@ -48,6 +50,18 @@
       img.src = `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`;
       osmTileCache[key] = img;
       return img;
+    }
+
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+      const toRad = angle => angle * Math.PI / 180;
+      const R = 6371000; // Earth's radius in meters
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
     }
 
     // ------------------------------
@@ -118,6 +132,32 @@
 
     function debugLog(message) {
       console.log(message);
+    }
+
+    function sendSummaryRequest() {
+      // If the main vessel position is not yet known, do nothing.
+      if (currentVesselLat === null || currentVesselLon === null) return;
+      
+      // Use the current vessel position as the center for the query.
+      const center = { lat: currentVesselLat, lng: currentVesselLon };
+      
+      // RadarNM is set to 1 (i.e., 1 NM), so multiply by 1.2 to add a margin.
+      const nmRadiusWithMargin = radarNM * 1.2;
+      // Convert nautical miles to meters (1 NM = 1852 m)
+      const radiusMeters = nmRadiusWithMargin * 1852;
+      
+      // Build the filter parameters
+      const filterParams = {
+        latitude: center.lat,
+        longitude: center.lng,
+        radius: radiusMeters,  // in meters
+        maxResults: 20,        // result limit
+        maxAge: 1              // maxAge in hours (optional, adjust as needed)
+      };
+      
+      // Send the updated parameters via socket.
+      socket.emit("requestSummary", JSON.stringify(filterParams));
+      debugLog("Sent summary request: " + JSON.stringify(filterParams));
     }
 
     function latLonToNM(deltaLat, deltaLon, refLat) {
@@ -450,7 +490,7 @@ function drawRadarGauge() {
     // Update Main Vessel Position (always redraws background)
     // ------------------------------
     function updateMainVesselPosition(lat, lon, heading) {
-      // If this is the first update, set both current and target positions immediately.
+      // Set current and target positions initially if null
       if (currentVesselLat === null || currentVesselLon === null) {
         currentVesselLat = lat;
         currentVesselLon = lon;
@@ -461,11 +501,29 @@ function drawRadarGauge() {
         targetVesselLon = lon;
         animatePosition();
       }
+  
       if (heading !== null && heading !== undefined) {
         updateRotation(heading);
       }
+  
       drawRadarGauge();
       updateSubscriptions();
+
+      // If this is the first summary request, store the position and send the request.
+      if (lastSummaryLat === null || lastSummaryLon === null) {
+        lastSummaryLat = lat;
+        lastSummaryLon = lon;
+        sendSummaryRequest();
+      } else {
+        // Calculate distance moved since the last summary request.
+        const distance = haversineDistance(lastSummaryLat, lastSummaryLon, lat, lon);
+        // If the movement is more than 10 meters, update the last summary position and send a new request.
+        if (distance > 10) {  // 10 meters threshold
+          lastSummaryLat = lat;
+          lastSummaryLon = lon;
+          sendSummaryRequest();
+        }
+      }
     }
 
     const socket = io();
@@ -602,6 +660,31 @@ function drawRadarGauge() {
       updateSubscriptions();
     }
     window.addEventListener("resize", resizeCanvas);
+
+    window.addEventListener("load", () => {
+      fetch(`/summary/${userID}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error("Network response was not ok");
+          }
+          return response.json();
+        })
+        .then(summaryData => {
+          if (summaryData.Latitude && summaryData.Longitude) {
+            // If TrueHeading is not available, use Cog as a fallback
+            const heading = (summaryData.TrueHeading !== undefined && summaryData.TrueHeading !== null) 
+                              ? summaryData.TrueHeading 
+                              : summaryData.Cog;
+            updateMainVesselPosition(summaryData.Latitude, summaryData.Longitude, heading);
+          } else {
+            console.error("Summary data does not contain valid Latitude/Longitude");
+          }
+        })
+        .catch((error) => {
+          console.error("Failed to fetch summary data:", error);
+        });
+    });
+
   </script>
 </body>
 </html>

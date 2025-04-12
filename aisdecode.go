@@ -41,6 +41,17 @@ type DataPoint struct {
     Distance  float64
 }
 
+type FilterParams struct {
+	Latitude   float64
+	Longitude  float64
+	Radius     float64
+	MaxResults int
+	MaxAge     float64
+}
+
+var clientSummaryFilters = make(map[socket.SocketId]FilterParams)
+var clientSummaryFiltersMutex sync.Mutex
+
 type Metrics struct {
 	SerialMessagesPerSec    float64 `json:"serial_messages_per_sec"`
 	UDPMessagesPerSec       float64 `json:"udp_messages_per_sec"`
@@ -148,6 +159,9 @@ var (
 
 var vesselHistoryMutex sync.Mutex
 var vesselLastCoordinates = make(map[string]struct{ lat, lon float64 })
+
+var lastSummaryRequest = make(map[socket.SocketId]time.Time)
+var lastSummaryRequestMutex sync.Mutex
 
 var (
     pendingVesselDataMutex sync.Mutex
@@ -792,6 +806,64 @@ func appendToWindowWithLock(message string, window *[]dedupeState, mutex *sync.M
 	defer mutex.Unlock()
 	*window = append(*window, dedupeState{message: message, timestamp: time.Now()})
 }
+
+func filterVesselsByLocationAndLimit(vessels map[string]map[string]interface{},
+	lat, lon, radius float64, maxResults int, maxAge float64) map[string]map[string]interface{} {
+
+	type vesselItem struct {
+		id          string
+		vessel      map[string]interface{}
+		lastUpdated time.Time
+	}
+
+	var matching []vesselItem
+	// If maxAge is greater than zero, calculate the cutoff time.
+	var cutoff time.Time
+	if maxAge > 0 {
+		cutoff = time.Now().UTC().Add(-time.Duration(maxAge * float64(time.Hour)))
+	}
+
+	for id, vessel := range vessels {
+		vLat, okLat := vessel["Latitude"].(float64)
+		vLon, okLon := vessel["Longitude"].(float64)
+		if !okLat || !okLon {
+			continue
+		}
+		distance := haversine(lat, lon, vLat, vLon)
+		if distance <= radius {
+			tStr, okTime := vessel["LastUpdated"].(string)
+			var lastTime time.Time
+			if okTime {
+				if t, err := time.Parse(time.RFC3339Nano, tStr); err == nil {
+					lastTime = t
+				}
+			}
+			// If a maxAge was provided, only include vessels updated within that timeframe.
+			if !cutoff.IsZero() && lastTime.Before(cutoff) {
+				continue
+			}
+			matching = append(matching, vesselItem{
+				id:          id,
+				vessel:      vessel,
+				lastUpdated: lastTime,
+			})
+		}
+	}
+
+	if maxResults > 0 && len(matching) > maxResults {
+		sort.Slice(matching, func(i, j int) bool {
+			return matching[i].lastUpdated.After(matching[j].lastUpdated)
+		})
+		matching = matching[:maxResults]
+	}
+
+	result := make(map[string]map[string]interface{})
+	for _, item := range matching {
+		result[item.id] = item.vessel
+	}
+	return result
+}
+
 
 // mergeMaps merges newData into baseData. Values in newData override those in baseData.
 func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[string]interface{} {
@@ -1541,18 +1613,7 @@ func main() {
 			    log.Printf("Client %s subscribed to metrics room", client.Id())
 		})
 
-		vesselDataMutex.Lock()
-		completeData := filterCompleteVesselData(vesselData)
-		summaryData := filterVesselSummary(completeData)
-		vesselDataMutex.Unlock()
-		summaryJSON, err := json.Marshal(summaryData)
-		if err != nil {
-			log.Printf("Error marshaling latest vessel summary: %v", err)
-			return
-		}
-		if err := client.Emit("latest_vessel_summary", string(summaryJSON)); err != nil {
-			log.Printf("Error sending latest vessel summary to client %s: %v", client.Id(), err)
-		}
+
 		client.On("disconnect", func(args ...any) {
 		    log.Printf("Socket.IO client disconnected: %s", client.Id())
 
@@ -1581,6 +1642,9 @@ func main() {
 		        delete(clientRooms, client.Id())
 		    }
 		    roomsMutex.Unlock()
+		    clientSummaryFiltersMutex.Lock()
+		    delete(clientSummaryFilters, client.Id())
+	            clientSummaryFiltersMutex.Unlock()
 		})
 
 
@@ -1603,29 +1667,182 @@ func main() {
 		})
 
 		client.On("requestSummary", func(args ...any) {
-		    log.Printf("Client %s requested vessel summary", client.Id())
-		
-		    vesselDataMutex.Lock()
-		    completeData := filterCompleteVesselData(vesselData)
-		    summaryData := filterVesselSummary(completeData)
-		    vesselDataMutex.Unlock()
-
-		    summaryJSON, err := json.Marshal(summaryData)
-		    if err != nil {
-		        log.Printf("Error marshaling latest vessel summary: %v", err)
+		    // Throttle summary requests: if this client has requested very recently, drop the new request.
+		    lastSummaryRequestMutex.Lock()
+		    if lastTime, ok := lastSummaryRequest[client.Id()]; ok && time.Since(lastTime) < 250*time.Millisecond {
+		        lastSummaryRequestMutex.Unlock()
+		        log.Printf("Throttling requestSummary from client %s", client.Id())
 		        return
 		    }
-		
-		    if err := sioServer.To(socket.Room("latest_vessel_summary")).Emit("latest_vessel_summary", string(summaryJSON)); err != nil {
-		        log.Printf("Error sending latest vessel state to client %s: %v", client.Id(), err)
+		    // Update the client's last request time.
+		    lastSummaryRequest[client.Id()] = time.Now()
+		    lastSummaryRequestMutex.Unlock()
+
+		    // Parse client input outside any locks.
+		    var filterLat, filterLon, filterRadius float64
+		    var maxResults int
+		    var maxAge float64 // in hours
+
+		    if len(args) > 0 {
+		        if paramStr, ok := args[0].(string); ok {
+		            var params struct {
+		                Latitude   float64 `json:"latitude"`
+		                Longitude  float64 `json:"longitude"`
+		                Radius     float64 `json:"radius"`
+		                MaxResults int     `json:"maxResults"`
+		                MaxAge     float64 `json:"maxAge"`
+		            }
+		            if err := json.Unmarshal([]byte(paramStr), &params); err != nil {
+                		log.Printf("Error parsing filter parameters from client %s: %v", client.Id(), err)
+		            } else {
+		                filterLat = params.Latitude
+		                filterLon = params.Longitude
+		                filterRadius = params.Radius
+		                maxResults = params.MaxResults
+		                maxAge = params.MaxAge
+		            }
+		        }
+		    }
+		    // Sanitize maxAge: allow between 0 and 168 hours (1 week); default to 24 if out of range.
+		    if maxAge <= 0 || maxAge > 168 {
+		        maxAge = 24
+		    }
+
+		    // Save the client's filter parameters—hold the lock only briefly.
+		    clientSummaryFiltersMutex.Lock()
+		    clientSummaryFilters[client.Id()] = FilterParams{
+		        Latitude:   filterLat,
+		        Longitude:  filterLon,
+		        Radius:     filterRadius,
+		        MaxResults: maxResults,
+		        MaxAge:     maxAge,
+		    }
+		    clientSummaryFiltersMutex.Unlock()
+
+		    // Obtain a local copy of the vessel state.
+		    vesselDataMutex.Lock()
+		    completeData := filterCompleteVesselData(vesselData)
+		    vesselDataMutex.Unlock()
+
+		    // Apply filtering based on the client parameters.
+		    var resultData map[string]map[string]interface{}
+		    if filterLat == 0 && filterLon == 0 && filterRadius == 0 {
+		        resultData = completeData
+		    } else {
+		        resultData = filterVesselsByLocationAndLimit(completeData, filterLat, filterLon, filterRadius, maxResults, maxAge)
+		    }
+
+		    summaryData := filterVesselSummary(resultData)
+		    summaryJSON, err := json.Marshal(summaryData)
+		    if err != nil {
+		        log.Printf("Error marshaling filtered vessel summary: %v", err)
+		        return
+		    }
+
+		    // Emit the summary to the requesting client.
+		    if err := client.Emit("latest_vessel_summary", string(summaryJSON)); err != nil {
+		        log.Printf("Error sending filtered vessel summary to client %s: %v", client.Id(), err)
 		    }
 		})
+
+
 	})
 
 	// --- Setup HTTP server ---
 	fs := http.FileServer(http.Dir(*webRoot))
 	http.Handle("/", fs)
 	http.Handle("/socket.io/", engineServer)
+
+	http.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
+		// Only allow POST requests.
+		if r.Method != http.MethodPost {
+			http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Decode the JSON payload expecting a "query" field.
+		var req struct {
+			Query string `json:"query"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+		req.Query = strings.ToLower(strings.TrimSpace(req.Query))
+		if req.Query == "" {
+			http.Error(w, "Empty query string", http.StatusBadRequest)
+			return
+		}
+
+		req.Query = strings.ToLower(strings.TrimSpace(req.Query))
+		if len(req.Query) < 3 {
+			http.Error(w, "Search query must be at least 3 characters", http.StatusBadRequest)
+			return
+		}
+
+		// Lock vesselData while iterating.
+		vesselDataMutex.Lock()
+		// Use filterCompleteVesselData to get only vessels with valid data.
+		completeData := filterCompleteVesselData(vesselData)
+		vesselDataMutex.Unlock()
+
+		// Prepare the results map.
+		results := make(map[string]map[string]interface{})
+
+		// Iterate over all vessels and look for a case-insensitive match.
+		for id, v := range completeData {
+			matched := false
+			// Check "Name"
+			if name, ok := v["Name"].(string); ok && strings.Contains(strings.ToLower(name), req.Query) {
+				matched = true
+			}
+			// Check "CallSign"
+			if !matched {
+				if cs, ok := v["CallSign"].(string); ok && strings.Contains(strings.ToLower(cs), req.Query) {
+					matched = true
+				}
+			}
+			// Check "UserID" (if available)
+			if !matched {
+				if mmsi, ok := v["UserID"].(string); ok && strings.Contains(strings.ToLower(mmsi), req.Query) {
+					matched = true
+				} else if mmsiFloat, ok := v["UserID"].(float64); ok {
+					mmsiStr := fmt.Sprintf("%.0f", mmsiFloat)
+					if strings.Contains(strings.ToLower(mmsiStr), req.Query) {
+						matched = true
+					}
+				}
+			}
+			// Check "ImoNumber" (if available)
+			if !matched {
+				if imo, ok := v["ImoNumber"].(string); ok && strings.Contains(strings.ToLower(imo), req.Query) {
+					matched = true
+				} else if imoFloat, ok := v["ImoNumber"].(float64); ok {
+					imoStr := fmt.Sprintf("%.0f", imoFloat)
+					if strings.Contains(strings.ToLower(imoStr), req.Query) {
+						matched = true
+					}
+				}
+			}
+			if matched {
+				// Only return the selected fields.
+				results[id] = map[string]interface{}{
+					"UserID":      v["UserID"],
+					"Name":        v["Name"],
+					"CallSign":    v["CallSign"],
+					"ImoNumber":   v["ImoNumber"],
+					"NumMessages": v["NumMessages"],
+				}
+			}
+		}
+
+		// Return the JSON result.
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(results); err != nil {
+			http.Error(w, "Error encoding response", http.StatusInternalServerError)
+		}
+	})
+
 
 	// Add HTTP endpoint for vessel state.
 	http.HandleFunc("/state/", func(w http.ResponseWriter, r *http.Request) {
@@ -2944,72 +3161,93 @@ func main() {
 		}
 	}()
 
-	go func() {
-		ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
-		for range ticker.C {
-			// Remove vessels that haven't updated within expireAfter.
-			vesselDataMutex.Lock()
-			now := time.Now().UTC()
-			for id, vessel := range vesselData {
-				lastUpdatedStr, ok := vessel["LastUpdated"].(string)
-				if !ok {
-					delete(vesselData, id)
-					continue
-				}
-				t, err := time.Parse(time.RFC3339Nano, lastUpdatedStr)
-				if err != nil || now.Sub(t) > *expireAfter {
-					delete(vesselData, id)
-				}
-			}
-			latestData := filterCompleteVesselData(vesselData)
-			vesselDataMutex.Unlock()
-	
-			changeMutex.Lock()
-			if changeAvailable {
-				changeAvailable = false
-				changeMutex.Unlock()
-				
-				// Create the summary data payload for clients.
-				summaryData := filterVesselSummary(latestData)
-				summaryJSON, err := json.Marshal(summaryData)
-				if err != nil {
-					log.Printf("Error marshaling latest vessel summary: %v", err)
-					continue
-				}
-				clientsMutex.Lock()
-				for _, client := range clients {
-					go func(c *socket.Socket, msg string) {
-						if err := c.Emit("latest_vessel_summary", msg); err != nil {
-							log.Printf("Error sending latest vessel summary to client %s: %v", c.Id(), err)
-						}
-					}(client, string(summaryJSON))
-				}
-				clientsMutex.Unlock()
-			
-				// Save the complete vessel data to state file.
-				latestDataJSON, err := json.Marshal(latestData)
-				if err != nil {
-					log.Printf("Error marshaling complete vessel data for state file: %v", err)
-				} else if !*noState {
-					if err := os.WriteFile(statePath, latestDataJSON, 0644); err != nil {
-						log.Printf("Error writing state file %s: %v", statePath, err)
-					}
-				}
-			
-				previousVesselData = deepCopyVesselData(latestData)
-				if *dumpVesselData {
-					indentJSON, err := json.MarshalIndent(latestData, "", "  ")
-					if err != nil {
-						log.Printf("Error marshaling latest vessel data: %v", err)
-					} else {
-						log.Printf("Latest vessel data:\n%s", string(indentJSON))
-					}
-				}
-			} else {
-				changeMutex.Unlock()
-			}
-		}
-	}()
+go func() {
+    defer func() {
+        if r := recover(); r != nil {
+            log.Printf("Recovered in summary-update ticker: %v", r)
+        }
+    }()
+    ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
+    defer ticker.Stop()
+    for range ticker.C {
+        // Create a local copy of vessel data.
+        vesselDataMutex.Lock()
+        currentData := filterCompleteVesselData(vesselData)
+        vesselDataMutex.Unlock()
+
+        // Create a local copy of client filters.
+        clientSummaryFiltersMutex.Lock()
+        filtersCopy := make(map[socket.SocketId]FilterParams)
+        for id, fp := range clientSummaryFilters {
+            filtersCopy[id] = fp
+        }
+        clientSummaryFiltersMutex.Unlock()
+
+        // Loop over client filters and prepare/send personalized summary.
+        for clientID, fp := range filtersCopy {
+            // Validate/sanitize filtering parameters.
+            if fp.MaxAge <= 0 || fp.MaxAge > 168 {
+                fp.MaxAge = 24
+            }
+            var filtered map[string]map[string]interface{}
+            if fp.Latitude == 0 && fp.Longitude == 0 && fp.Radius == 0 {
+                filtered = currentData
+            } else {
+                filtered = filterVesselsByLocationAndLimit(currentData, fp.Latitude, fp.Longitude, fp.Radius, fp.MaxResults, fp.MaxAge)
+            }
+            summaryData := filterVesselSummary(filtered)
+            summaryJSON, err := json.Marshal(summaryData)
+            if err != nil {
+                log.Printf("Error marshaling summary for client %s: %v", clientID, err)
+                continue
+            }
+            // Send summary in a separate goroutine with recover.
+            go func(clientID socket.SocketId, msg string) {
+                defer func() {
+                    if r := recover(); r != nil {
+                        log.Printf("Recovered in emit for client %s: %v", clientID, r)
+                    }
+                }()
+                // Look up the client outside of any critical section.
+                clientsMutex.Lock()
+                var client *socket.Socket
+                for _, c := range clients {
+                    if c.Id() == clientID {
+                        client = c
+                        break
+                    }
+                }
+                clientsMutex.Unlock()
+                if client != nil {
+                    if err := client.Emit("latest_vessel_summary", msg); err != nil {
+                        log.Printf("Error sending summary to client %s: %v", clientID, err)
+                    }
+                }
+            }(clientID, string(summaryJSON))
+        }
+
+        // Save the complete vessel state to disk (done outside of client loops).
+        latestDataJSON, err := json.Marshal(currentData)
+        if err != nil {
+            log.Printf("Error marshaling complete vessel data for state file: %v", err)
+        } else if !*noState {
+            if err := os.WriteFile(statePath, latestDataJSON, 0644); err != nil {
+                log.Printf("Error writing state file %s: %v", statePath, err)
+            }
+        }
+
+        previousVesselData = deepCopyVesselData(currentData)
+        if *dumpVesselData {
+            indentJSON, err := json.MarshalIndent(currentData, "", "  ")
+            if err != nil {
+                log.Printf("Error marshaling latest vessel data: %v", err)
+            } else {
+                log.Printf("Latest vessel data:\n%s", string(indentJSON))
+            }
+        }
+    }
+}()
+
 
 
 
@@ -3022,89 +3260,89 @@ func main() {
 	    }
 	}()
 
-go func() {
-    ticker := time.NewTicker(1 * time.Second)
-    defer ticker.Stop()
-    for range ticker.C {
-        now := time.Now()
-        cutoff := now.Add(-1 * time.Minute)
+	go func() {
+	    ticker := time.NewTicker(1 * time.Second)
+	    defer ticker.Stop()
+	    for range ticker.C {
+	        now := time.Now()
+	        cutoff := now.Add(-1 * time.Minute)
 
-        var sum float64
-        var count int
-        var maxVal float64
+	        var sum float64
+	        var count int
+	        var maxVal float64
 
-        // Lock the distances and filter out only data points from the last minute.
-        distancesMutex.Lock()
-        var newWindow []DataPoint
-        for _, dp := range rollingDistances {
-            if dp.Timestamp.After(cutoff) { // include points within the last minute
-                newWindow = append(newWindow, dp)
-                sum += dp.Distance
-                count++
-                if dp.Distance > maxVal {
-                    maxVal = dp.Distance
-                }
-            }
-        }
-        // Update our window to discard old data.
-        rollingDistances = newWindow
-        distancesMutex.Unlock()
+	        // Lock the distances and filter out only data points from the last minute.
+        	distancesMutex.Lock()
+	        var newWindow []DataPoint
+	        for _, dp := range rollingDistances {
+	            if dp.Timestamp.After(cutoff) { // include points within the last minute
+	                newWindow = append(newWindow, dp)
+	                sum += dp.Distance
+	                count++
+	                if dp.Distance > maxVal {
+	                    maxVal = dp.Distance
+	                }
+	            }
+	        }
+	        // Update our window to discard old data.
+	        rollingDistances = newWindow
+	        distancesMutex.Unlock()
 
-        var avg float64
-        if count > 0 {
-            avg = math.Round(sum / float64(count))
-        } else {
-            avg = 0
-        }
+	        var avg float64
+	        if count > 0 {
+	            avg = math.Round(sum / float64(count))
+	        } else {
+	            avg = 0
+	        }
 
-        // Build the metrics payload
-        metrics := Metrics{
-            SerialMessagesPerSec:    float64(serialCounter.Count(1 * time.Second)),
-            SerialMessagesPerMin:    float64(serialCounter.Count(1 * time.Minute)),
-            UDPMessagesPerSec:       float64(udpCounter.Count(1 * time.Second)),
-            UDPMessagesPerMin:       float64(udpCounter.Count(1 * time.Minute)),
-            TotalMessages:           totalMessages,
-            TotalDeduplications:     dedupeMessages,
-            ActiveWebSockets:        len(clients),
-            ActiveWebSocketRooms:    func() map[string]int {
-                                         roomsMutex.Lock()
-                                         defer roomsMutex.Unlock()
-                                         // make a copy of activeRooms
-                                         roomsCopy := make(map[string]int)
-                                         for room, count := range activeRooms {
-                                             roomsCopy[room] = count
-                                         }
-                                         return roomsCopy
-                                     }(),
-            NumVesselsClassA:        calculateVesselCounts()["Class A"],
-            NumVesselsClassB:        calculateVesselCounts()["Class B"],
-            NumVesselsAtoN:          calculateVesselCounts()["AtoN"],
-            NumVesselsBaseStation:   calculateVesselCounts()["Base Station"],
-            NumVesselsSAR:           calculateVesselCounts()["SAR"],
-            TotalKnownVessels:       len(vesselData),
-            UptimeSeconds:           int(time.Since(startTime).Seconds()),
-            MaxDistanceMeters:       math.Round(maxVal),
-            AverageDistanceMeters:   avg,
-        }
+	        // Build the metrics payload
+	        metrics := Metrics{
+	            SerialMessagesPerSec:    float64(serialCounter.Count(1 * time.Second)),
+	            SerialMessagesPerMin:    float64(serialCounter.Count(1 * time.Minute)),
+	            UDPMessagesPerSec:       float64(udpCounter.Count(1 * time.Second)),
+	            UDPMessagesPerMin:       float64(udpCounter.Count(1 * time.Minute)),
+	            TotalMessages:           totalMessages,
+	            TotalDeduplications:     dedupeMessages,
+	            ActiveWebSockets:        len(clients),
+	            ActiveWebSocketRooms:    func() map[string]int {
+                                roomsMutex.Lock()
+	                        defer roomsMutex.Unlock()
+	                        // make a copy of activeRooms
+                                roomsCopy := make(map[string]int)
+                                for room, count := range activeRooms {
+                                roomsCopy[room] = count
+                                }
+                                return roomsCopy
+                    }(),
+	            NumVesselsClassA:        calculateVesselCounts()["Class A"],
+	            NumVesselsClassB:        calculateVesselCounts()["Class B"],
+	            NumVesselsAtoN:          calculateVesselCounts()["AtoN"],
+	            NumVesselsBaseStation:   calculateVesselCounts()["Base Station"],
+	            NumVesselsSAR:           calculateVesselCounts()["SAR"],
+	            TotalKnownVessels:       len(vesselData),
+	            UptimeSeconds:           int(time.Since(startTime).Seconds()),
+	            MaxDistanceMeters:       math.Round(maxVal),
+	            AverageDistanceMeters:   avg,
+	        }
 
-        metricsMutex.Lock()
-        lastMetrics = metrics
-        metricsMutex.Unlock()
+	        metricsMutex.Lock()
+	        lastMetrics = metrics
+	        metricsMutex.Unlock()
 
-        metricsJSON, err := json.Marshal(metrics)
-        if err != nil {
-            log.Printf("Error marshaling metrics: %v", err)
-            continue
-        }
+	        metricsJSON, err := json.Marshal(metrics)
+	        if err != nil {
+	            log.Printf("Error marshaling metrics: %v", err)
+	            continue
+	        }
 
-        // Emit asynchronously so a slow client won't block
-        go func(msg string) {
-            if err := sioServer.To("metrics").Emit("metrics_update", msg); err != nil {
-                log.Printf("Error emitting metrics: %v", err)
-            }
-        }(string(metricsJSON))
-    }
-}()
+	        // Emit asynchronously so a slow client won't block
+	        go func(msg string) {
+	            if err := sioServer.To("metrics").Emit("metrics_update", msg); err != nil {
+	                log.Printf("Error emitting metrics: %v", err)
+	            }
+	        }(string(metricsJSON))
+	    }
+	}()
 
 
 	go func() {
