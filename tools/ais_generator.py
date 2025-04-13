@@ -242,6 +242,9 @@ def main():
         help="Maximum movement in meters per message update (default: 100)"
     )
     args = parser.parse_args()
+    
+    # Calculate delay interval from rate.
+    interval = 1.0 / args.rate if args.rate > 0 else 1.0
 
     # Generate initial positions with a vessel class and a random initial bearing.
     mmsi_data = {}
@@ -257,7 +260,6 @@ def main():
 
     # Create a UDP socket.
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    interval = 1.0 / args.rate if args.rate > 0 else 1.0
 
     print(f"Sending dummy AIS sentences to {args.host}:{args.port} at {args.rate} message(s) per second.")
     print("MMSI data (MMSI: {lat, lon, class, bearing}):")
@@ -277,6 +279,7 @@ def main():
         sentence = construct_nmea_sentence(channel, encoded_payload, fill)
         sock.sendto(sentence.encode('ascii'), (args.host, args.port))
         print("Static message:", sentence)
+        time.sleep(interval)  # Adhere to rate setting for static message
         
         # --- Send initial dynamic (position) message for this vessel ---
         lat = data["lat"]
@@ -294,6 +297,7 @@ def main():
         sentence = construct_nmea_sentence(channel, encoded_payload, fill)
         sock.sendto(sentence.encode('ascii'), (args.host, args.port))
         print("Initial dynamic message:", sentence)
+        time.sleep(interval)  # Adhere to rate setting for dynamic message
 
     # --- Main loop: Send dynamic position messages ---
     try:
@@ -323,7 +327,7 @@ def main():
             encoded_payload, fill = ais_sixbit_encode(bit_str)
             sentence = construct_nmea_sentence(channel, encoded_payload, fill)
             sock.sendto(sentence.encode('ascii'), (args.host, args.port))
-            print(sentence)
+            print("Dynamic message:", sentence)
             time.sleep(interval)
     except KeyboardInterrupt:
         print("\nTerminating AIS sentence generator.")
