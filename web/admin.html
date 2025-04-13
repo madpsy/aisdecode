@@ -233,86 +233,93 @@
     });
 
     // --- Allowed UUIDs Functions ---
-    function loadAllowedUUIDs() {
-      fetch("/alloweduuids", {
-        headers: { "Authorization": "Basic " + btoa("admin:" + authPassword) }
-      })
-      .then(response => {
-        if (!response.ok) throw new Error("Failed to load allowed UUIDs (" + response.status + ")");
-        return response.json();
-      })
-      .then(data => {
-        allowedUUIDs = data;
-        renderUnusedUUIDs();
-      })
-      .catch(error => {
-        console.error("Allowed UUIDs error:", error.message);
-      });
-    }
+function loadAllowedUUIDs() {
+  fetch("/alloweduuids", {
+    headers: { "Authorization": "Basic " + btoa("admin:" + authPassword) }
+  })
+  .then(response => {
+    if (!response.ok) throw new Error("Failed to load allowed UUIDs (" + response.status + ")");
+    return response.json();
+  })
+  .then(data => {
+    allowedUUIDs = data;
+    // Remove the direct call to renderUnusedUUIDs here.
+    // The rendering of unused UUIDs is handled in loadReceivers() after building the receiver UUID set.
+  })
+  .catch(error => {
+    console.error("Allowed UUIDs error:", error.message);
+  });
+}
+
 
     // --- Receiver Management ---
-    function loadReceivers() {
-      fetch("/managereceivers", {
-        headers: { "Authorization": "Basic " + btoa("admin:" + authPassword) }
-      })
-      .then(response => {
-        if (!response.ok) throw new Error("Failed to load receivers (" + response.status + ")");
-        return response.json();
-      })
-      .then(data => {
-        const tbody = document.getElementById("receiversList");
-        tbody.innerHTML = "";
-        const receiverUUIDSet = new Set();
-        data.forEach(rec => {
-          receiverUUIDSet.add(rec.uuid);
-          const tr = document.createElement("tr");
-          const localTime = rec.LastUpdated ? new Date(rec.LastUpdated).toLocaleString() : "";
-          tr.innerHTML = `
-            <td>${rec.uuid}</td>
-            <td>${rec.name || ""}</td>
-            <td>${rec.description || ""}</td>
-            <td>${rec.latitude || ""}</td>
-            <td>${rec.longitude || ""}</td>
-            <td>${rec.url || ""}</td>
-            <td>${localTime}</td>
-            <td><input type="checkbox" class="allowedCheckbox" data-uuid="${rec.uuid}"></td>
-            <td class="actions">
-              <button class="editBtn" data-uuid="${rec.uuid}">Edit</button>
-              <button class="deleteBtn" data-uuid="${rec.uuid}">Delete</button>
-            </td>
-          `;
-          tbody.appendChild(tr);
-        });
-        document.querySelectorAll(".allowedCheckbox").forEach(cb => {
-          const uuid = cb.getAttribute("data-uuid");
-          cb.checked = allowedUUIDs.includes(uuid);
-          cb.addEventListener("change", function() {
-            if (this.checked) {
-              updateAllowedUUID(uuid, "PUT");
-            } else {
-              updateAllowedUUID(uuid, "DELETE");
-            }
-          });
-        });
-        document.querySelectorAll(".editBtn").forEach(btn => {
-          btn.addEventListener("click", function() {
-            const uuid = this.getAttribute("data-uuid");
-            editReceiver(uuid);
-          });
-        });
-        document.querySelectorAll(".deleteBtn").forEach(btn => {
-          btn.addEventListener("click", function() {
-            const uuid = this.getAttribute("data-uuid");
-            deleteReceiver(uuid);
-          });
-        });
-        // Render unused UUIDs based on the set of receiver UUIDs
-        renderUnusedUUIDs(receiverUUIDSet);
-      })
-      .catch(error => {
-        document.getElementById("receiverError").innerText = "Error: " + error.message;
+function loadReceivers() {
+  fetch("/managereceivers", {
+    headers: { "Authorization": "Basic " + btoa("admin:" + authPassword) }
+  })
+  .then(response => {
+    if (!response.ok) throw new Error("Failed to load receivers (" + response.status + ")");
+    return response.json();
+  })
+  .then(data => {
+    const tbody = document.getElementById("receiversList");
+    tbody.innerHTML = "";
+    const receiverUUIDSet = new Set();
+    data.forEach(rec => {
+      receiverUUIDSet.add(rec.uuid);
+      const tr = document.createElement("tr");
+      const localTime = rec.LastUpdated ? new Date(rec.LastUpdated).toLocaleString() : "";
+      tr.innerHTML = `
+        <td>${rec.uuid}</td>
+        <td>${rec.name || ""}</td>
+        <td>${rec.description || ""}</td>
+        <td>${rec.latitude || ""}</td>
+        <td>${rec.longitude || ""}</td>
+        <td>${rec.url || ""}</td>
+        <td>${localTime}</td>
+        <td><input type="checkbox" class="allowedCheckbox" data-uuid="${rec.uuid}"></td>
+        <td class="actions">
+          <button class="editBtn" data-uuid="${rec.uuid}">Edit</button>
+          <button class="deleteBtn" data-uuid="${rec.uuid}">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+    // Use the receiver UUID set to render the unused allowed UUIDs.
+    renderUnusedUUIDs(receiverUUIDSet);
+    
+    // Update allowed checkboxes.
+    document.querySelectorAll(".allowedCheckbox").forEach(cb => {
+      const uuid = cb.getAttribute("data-uuid");
+      cb.checked = allowedUUIDs.includes(uuid);
+      cb.addEventListener("change", function() {
+        if (this.checked) {
+          updateAllowedUUID(uuid, "PUT");
+        } else {
+          updateAllowedUUID(uuid, "DELETE");
+        }
       });
-    }
+    });
+    
+    // Attach listeners for edit and delete buttons...
+    document.querySelectorAll(".editBtn").forEach(btn => {
+      btn.addEventListener("click", function() {
+        const uuid = this.getAttribute("data-uuid");
+        editReceiver(uuid);
+      });
+    });
+    document.querySelectorAll(".deleteBtn").forEach(btn => {
+      btn.addEventListener("click", function() {
+        const uuid = this.getAttribute("data-uuid");
+        deleteReceiver(uuid);
+      });
+    });
+  })
+  .catch(error => {
+    document.getElementById("receiverError").innerText = "Error: " + error.message;
+  });
+}
+
 
     // Render the list of allowed UUIDs that do not match any receiver.
     function renderUnusedUUIDs(receiverUUIDSet = new Set()) {
@@ -507,18 +514,26 @@
         body: JSON.stringify({ uuid: uuid })
       })
       .then(response => {
-        if (!response.ok) return response.text().then(text => { throw new Error(text); });
+        if (!response.ok)
+          return response.text().then(text => { throw new Error(text); });
         return response.text();
       })
       .then(msg => {
         document.getElementById("receiverMessage").innerText = msg;
-        loadReceivers();
-        loadAllowedUUIDs();
+        // If the deleted receiver's UUID is in the allowed list, remove it.
+        if (allowedUUIDs.includes(uuid)) {
+          updateAllowedUUID(uuid, "DELETE");
+        } else {
+          // Otherwise, just refresh both lists.
+          loadAllowedUUIDs();
+          loadReceivers();
+        }
       })
       .catch(error => {
         document.getElementById("receiverError").innerText = "Error: " + error.message;
       });
     }
+
 
     // --- Map Initialization for My Info Section ---
     function initMap() {

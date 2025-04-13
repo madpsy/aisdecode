@@ -23,6 +23,14 @@
           border: none;
           transition: transform 0.5s ease-out;
         }
+	.leaflet-div-icon.non-vessel-icon {
+	  width: 30px !important;
+	  height: 30px !important;
+	  padding: 0 !important;
+	  margin: 0 !important;
+	  text-align: center;
+	  line-height: 30px;
+	}
 	#vessel-detail a {
 	  text-decoration: none;
 	}
@@ -506,6 +514,9 @@
 	 localStorage.removeItem('vesselData');
         // Detect if the device is touch capable.
         const isMobile = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+
+	const TOOLTIP_ZOOM_THRESHOLD = 12;
+
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
 	let userLatLng = null;
@@ -916,20 +927,29 @@ function createBoatIcon(type, heading = 0) {
 }
 
 function getCustomIcon(vesselState, iconUrl) {
-  // Use TrueHeading if valid; otherwise, fallback to COG if valid; default to 0.
+  // Determine the heading as before
   const heading = (typeof vesselState.TrueHeading === 'number' && vesselState.TrueHeading < 360)
-                    ? vesselState.TrueHeading
-                    : (typeof vesselState.Cog === 'number' && vesselState.Cog >= 0 && vesselState.Cog < 360)
-                      ? vesselState.Cog
-                      : 0;
-    return L.divIcon({
-      html: `<img src="${iconUrl}" style="transform: rotate(${heading}deg);" width="20" height="40">`,
-      className: '', // Use empty class to avoid extra styling
-      iconSize: [20, 40],
-      iconAnchor: [20, 0],
-      popupAnchor: [0, -20]
-    });
+      ? vesselState.TrueHeading
+      : (typeof vesselState.Cog === 'number' && vesselState.Cog >= 0 && vesselState.Cog < 360)
+        ? vesselState.Cog
+        : 0;
+  
+  return L.divIcon({
+    html: `<div class="non-vessel-icon-image" style="
+              width: 30px;
+              height: 30px;
+              background-image: url('${iconUrl}');
+              background-size: contain;
+              background-repeat: no-repeat;
+              transform: rotate(${heading}deg);
+            "></div>`,
+    className: 'non-vessel-icon', // still used for container styling if needed
+    iconSize: [30, 30],
+    iconAnchor: [15, 15], // center of the 30x30 div
+    popupAnchor: [0, -15]
+  });
 }
+
 
 function getVesselIcon(vesselState) {
   if (map.getZoom() < 10) {
@@ -1602,8 +1622,13 @@ function renderSearchResults(data) {
     entry.addEventListener('click', event => {
       event.stopPropagation();
       const userID = entry.getAttribute('data-userid');
-      // Instead of directly focusing, call selectVesselById which handles the state retrieval.
-      selectVesselById(userID);
+      if (receiverData.hasOwnProperty(userID)) {
+        const marker = receiverMarkers[userID];
+        map.setView(marker.getLatLng(), 10);
+        marker.openPopup();
+      } else {
+        selectVesselById(userID);
+      }
     });
   });
 }
@@ -2667,7 +2692,7 @@ function applyLogFilters() {
     	    }
                 if (vesselState.Name && mmsi !== focusedVessel) {
                   vesselMarkers[mmsi].unbindTooltip();
-		  if (map.getZoom() >= 10) {
+		  if (map.getZoom() >= TOOLTIP_ZOOM_THRESHOLD) {
                     vesselMarkers[mmsi].bindTooltip(vesselState.Name, {
                       permanent: true,
                       direction: 'top',
@@ -2698,7 +2723,7 @@ function applyLogFilters() {
 		).addTo(map);
                 marker.bindPopup(popupContent, { autoPan: false });
  		const currentZoom = map.getZoom();
-                if (currentZoom >= 10 && vesselState.Name) {
+                if (currentZoom >= TOOLTIP_ZOOM_THRESHOLD && vesselState.Name) {
                   marker.bindTooltip(vesselState.Name, {
                     permanent: true,
                     direction: 'top',
@@ -2794,7 +2819,7 @@ document.getElementById('vessel-filter').addEventListener('input', function(even
     searchInterval = setInterval(() => {
       // Use the latest query value in case the user modifies it.
       performSearch(currentSearchQuery);
-    }, 5000);
+    }, 10000);
   }
 });
 
@@ -2802,9 +2827,7 @@ document.getElementById('vessel-filter').addEventListener('input', function(even
 function performSearch(query) {
   fetch('/search', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query: query })
   })
   .then(response => {
@@ -2814,17 +2837,32 @@ function performSearch(query) {
     return response.json();
   })
   .then(searchResults => {
-    // Render search results in the overlay.
-    renderSearchResults(searchResults);
+    // Ensure searchResults is an array.
+    if (!Array.isArray(searchResults)) {
+      searchResults = Object.values(searchResults);
+    }
+    // Filter the locally stored receiverData based on the query.
+    const receiverResults = Object.values(receiverData).filter(receiver => {
+      const q = query.toLowerCase();
+      return (
+        receiver.Name.toLowerCase().includes(q) ||
+        (receiver.CallSign && receiver.CallSign.toLowerCase().includes(q)) ||
+        receiver.UserID.toString().includes(q)
+      );
+    });
+
+    // Merge the two arrays.
+    const combinedResults = searchResults.concat(receiverResults);
+    
+    // (Optional) If you want to eliminate duplicates, you could deduplicate based on UserID.
+    renderSearchResults(combinedResults);
   })
   .catch(err => {
     console.error('Search request failed:', err);
-    // Optionally, fall back to updating the overlay.
+    // Optionally, fall back to updating the overlay normally.
     updateOverlay();
   });
 }
-
-
 
 
         document.getElementById('clear-history').addEventListener('click', clearHistory);
@@ -3501,26 +3539,33 @@ document.getElementById('show-ports').addEventListener('change', function() {
 
 map.on('zoomend', function() {
   const currentZoom = map.getZoom();
-  //sendSummaryRequest();
   for (const mmsi in vesselMarkers) {
     let marker = vesselMarkers[mmsi];
-    // Check if this is the focused vessel – its icon and tooltip remain unchanged.
+    // Focused vessel: update icon and tooltip based on the current zoom.
     if (mmsi === focusedVessel?.toString()) {
-      marker.bindTooltip(vesselData[mmsi].Name, {
-        permanent: true,
-        direction: 'top',
-        className: 'vessel-tooltip'
-      }).openTooltip();
-      // Revert to the standard vessel icon (as defined by getVesselIcon)
+      if (currentZoom >= TOOLTIP_ZOOM_THRESHOLD) {
+        marker.bindTooltip(vesselData[mmsi].Name, {
+          permanent: true,
+          direction: 'top',
+          className: 'vessel-tooltip'
+        }).openTooltip();
+      } else {
+        marker.unbindTooltip();
+      }
+      // Always use the detailed icon logic (which itself checks zoom level)
       marker.setIcon(getVesselIcon(vesselData[mmsi]));
     } else {
       // For non-focused vessels:
       if (currentZoom < 10) {
-        // Remove tooltip and set the icon to a simple circle
+        // When zoom level is below 10, show simple circle markers and no tooltips.
         marker.unbindTooltip();
         marker.setIcon(createCircleIcon(vesselData[mmsi]));
+      } else if (currentZoom < TOOLTIP_ZOOM_THRESHOLD) {
+        // At zoom levels between 10 and 11.99, show the detailed icon but no tooltip.
+        marker.unbindTooltip();
+        marker.setIcon(getVesselIcon(vesselData[mmsi]));
       } else {
-        // Rebind tooltip and revert to the standard icon
+        // At zoom levels 12 and above, add tooltips and detailed icons.
         marker.bindTooltip(vesselData[mmsi].Name, {
           permanent: true,
           direction: 'top',
@@ -3531,6 +3576,7 @@ map.on('zoomend', function() {
     }
   }
 });
+
 
 const debouncedSendSummaryRequest = debounce(sendSummaryRequest, 250);
 map.on("moveend", debouncedSendSummaryRequest);
