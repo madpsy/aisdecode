@@ -264,7 +264,7 @@ def main():
     for m, data in mmsi_data.items():
         print(f"  {m}: {data}")
 
-    # --- Send static data messages for every MMSI ---
+    # --- Send static data messages and the initial dynamic position message for every MMSI ---
     for mmsi, data in mmsi_data.items():
         vessel_class = data["class"]
         if vessel_class == 'A':
@@ -277,7 +277,24 @@ def main():
         sentence = construct_nmea_sentence(channel, encoded_payload, fill)
         sock.sendto(sentence.encode('ascii'), (args.host, args.port))
         print("Static message:", sentence)
-    
+        
+        # --- Send initial dynamic (position) message for this vessel ---
+        lat = data["lat"]
+        lon = data["lon"]
+        cog = data["bearing"]
+        heading = data["bearing"]
+
+        if vessel_class == 'A':
+            bit_str = build_type1_payload(mmsi, lat, lon, cog, heading)
+            channel = "A"
+        else:
+            bit_str = build_type18_payload(mmsi, lat, lon, cog, heading)
+            channel = "B"
+        encoded_payload, fill = ais_sixbit_encode(bit_str)
+        sentence = construct_nmea_sentence(channel, encoded_payload, fill)
+        sock.sendto(sentence.encode('ascii'), (args.host, args.port))
+        print("Initial dynamic message:", sentence)
+
     # --- Main loop: Send dynamic position messages ---
     try:
         while True:

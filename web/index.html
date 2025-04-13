@@ -1120,7 +1120,7 @@ function updateMarkersInView() {
 
 function updateTracksInView() {
   const showPaths = document.getElementById('show-paths').checked;
-  
+
   // If the history checkbox is unchecked, remove all track layers and exit.
   if (!showPaths) {
     for (const mmsi in vesselTracks) {
@@ -1130,8 +1130,7 @@ function updateTracksInView() {
     }
     return;
   }
-  
-  const bounds = map.getBounds().pad(0.2);
+
   const onlyFocussed = document.getElementById('only-focussed').checked;
   const showStationary = document.getElementById('stationary').checked;
   const now = Date.now();
@@ -1140,16 +1139,24 @@ function updateTracksInView() {
     const track = vesselTracks[mmsi];
     const vessel = vesselData[mmsi];
 
-    // If "Only Tracked" is enabled, only show the focused vessel's track.
-    if (onlyFocussed && focusedVessel && mmsi !== focusedVessel.toString()) {
+    // Always show the track for the focused vessel—even if it's off screen.
+    if (String(mmsi) === String(focusedVessel)) {
+      if (!map.hasLayer(track)) {
+        map.addLayer(track);
+      }
+      // Skip further filtering for the focused vessel.
+      continue;
+    }
+
+    // If "Only Tracked" is enabled, show only the focused vessel's track.
+    if (onlyFocussed && focusedVessel && String(mmsi) !== String(focusedVessel)) {
       if (map.hasLayer(track)) {
         map.removeLayer(track);
       }
       continue;
     }
 
-    // If "Stationary" is disabled, filter out tracks for vessels that haven't updated recently
-    // or whose Speed Over Ground (Sog) is not valid or too low.
+    // Apply the "Stationary" filter if disabled.
     if (!showStationary && vessel && vessel.lastUpdate) {
       const ageSeconds = (now - vessel.lastUpdate) / 1000;
       if (ageSeconds > 120 || (typeof vessel.Sog !== "number" || vessel.Sog <= 0.5)) {
@@ -1160,21 +1167,14 @@ function updateTracksInView() {
       }
     }
 
-    // Check if any point in the track is within the current map bounds.
-    const latlngs = track.getLatLngs();
-    const isVisible = latlngs.some(pt => bounds.contains(pt));
-
-    if (isVisible) {
-      if (!map.hasLayer(track)) {
-        map.addLayer(track);
-      }
-    } else {
-      if (map.hasLayer(track)) {
-        map.removeLayer(track);
-      }
+    // For all non-focused vessels that pass the above filters,
+    // always add the track regardless of the map bounds.
+    if (!map.hasLayer(track)) {
+      map.addLayer(track);
     }
   }
 }
+
 
 function attachPolylineEvents(polyline, userID) {
   polyline.on('mousemove', function(e) {
