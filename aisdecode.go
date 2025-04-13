@@ -358,6 +358,29 @@ func loadReceiverCoordinates(stateDir string) (float64, float64, error) {
     return lat, lon, nil
 }
 
+func cleanupOldVessels(expireAfter time.Duration) {
+    cutoff := time.Now().UTC().Add(-expireAfter)
+    vesselDataMutex.Lock()
+    defer vesselDataMutex.Unlock()
+    for id, vessel := range vesselData {
+        if tStr, ok := vessel["LastUpdated"].(string); ok {
+            if t, err := time.Parse(time.RFC3339Nano, tStr); err == nil {
+                if t.Before(cutoff) {
+                    // If UserID is stored as float, format it as an integer
+                    var userIDFormatted string
+                    if userFloat, ok := vessel["UserID"].(float64); ok {
+                        userIDFormatted = fmt.Sprintf("%.0f", userFloat)
+                    } else {
+                        userIDFormatted = fmt.Sprintf("%v", vessel["UserID"])
+                    }
+                    log.Printf("Deleting vessel: id=%s, UserID=%s, LastUpdated=%s", id, userIDFormatted, tStr)
+                    delete(vesselData, id)
+                }
+            }
+        }
+    }
+}
+
 func updateDistanceMetrics(vesselLat, vesselLon, receiverLat, receiverLon float64) {
     distance := haversine(receiverLat, receiverLon, vesselLat, vesselLon)
     
@@ -1545,6 +1568,15 @@ func main() {
 		for range ticker.C {
 			pushReceiverFilesFromMemory(*aggregatorPublicURL)
 		}
+	}()
+
+	cleanupOldVessels(*expireAfter)
+	go func() {
+	    ticker := time.NewTicker(1 * time.Hour)
+	    defer ticker.Stop()
+	    for range ticker.C {
+	        cleanupOldVessels(*expireAfter)
+	    }
 	}()
 	
 	// --- Setup Socket.IO server ---
