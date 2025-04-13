@@ -242,11 +242,12 @@ def main():
         help="Maximum movement in meters per message update (default: 100)"
     )
     args = parser.parse_args()
-    
-    # Calculate delay interval from rate.
+
+    # Calculate interval delay based on the rate for all messages.
     interval = 1.0 / args.rate if args.rate > 0 else 1.0
 
     # Generate initial positions with a vessel class and a random initial bearing.
+    # Also create a counter to track the number of dynamic messages sent for each vessel.
     mmsi_data = {}
     while len(mmsi_data) < args.mmsi_count:
         mmsi = random.randint(100000000, 999999999)
@@ -255,20 +256,21 @@ def main():
             lon = random.uniform(-180, 180)
             vessel_class = random.choice(['A', 'B'])
             init_bearing = random.uniform(0, 360)
-            mmsi_data[mmsi] = {"lat": lat, "lon": lon, "class": vessel_class, "bearing": init_bearing}
+            mmsi_data[mmsi] = {"lat": lat, "lon": lon, "class": vessel_class, "bearing": init_bearing, "count": 0}
     mmsi_list = list(mmsi_data.keys())
 
     # Create a UDP socket.
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     print(f"Sending dummy AIS sentences to {args.host}:{args.port} at {args.rate} message(s) per second.")
-    print("MMSI data (MMSI: {lat, lon, class, bearing}):")
+    print("MMSI data (MMSI: {lat, lon, class, bearing, count}):")
     for m, data in mmsi_data.items():
         print(f"  {m}: {data}")
 
     # --- Send static data messages and the initial dynamic position message for every MMSI ---
     for mmsi, data in mmsi_data.items():
         vessel_class = data["class"]
+        # Send the static message for the vessel.
         if vessel_class == 'A':
             payload_bin = build_type5_static_payload(mmsi, "SYNTH_DATA_GEN")
             channel = "A"
@@ -279,9 +281,9 @@ def main():
         sentence = construct_nmea_sentence(channel, encoded_payload, fill)
         sock.sendto(sentence.encode('ascii'), (args.host, args.port))
         print("Static message:", sentence)
-        time.sleep(interval)  # Adhere to rate setting for static message
-        
-        # --- Send initial dynamic (position) message for this vessel ---
+        time.sleep(interval)
+
+        # Send the initial dynamic (position) message for the vessel.
         lat = data["lat"]
         lon = data["lon"]
         cog = data["bearing"]
@@ -297,33 +299,54 @@ def main():
         sentence = construct_nmea_sentence(channel, encoded_payload, fill)
         sock.sendto(sentence.encode('ascii'), (args.host, args.port))
         print("Initial dynamic message:", sentence)
-        time.sleep(interval)  # Adhere to rate setting for dynamic message
+        time.sleep(interval)
 
-    # --- Main loop: Send dynamic position messages ---
+    # --- Main loop: Continuously send dynamic position messages ---
     try:
         while True:
+            # Choose a random vessel.
             mmsi = random.choice(mmsi_list)
             data = mmsi_data[mmsi]
             old_lat = data["lat"]
             old_lon = data["lon"]
             old_bearing = data["bearing"]
 
+            # Update the vessel's position.
             new_lat, new_lon, new_bearing = update_position(old_lat, old_lon, args.max_distance, old_bearing)
             cog = new_bearing
             heading = new_bearing
 
-            # Update the vessel's state.
-            mmsi_data[mmsi]["lat"] = new_lat
-            mmsi_data[mmsi]["lon"] = new_lon
-            mmsi_data[mmsi]["bearing"] = new_bearing
+            # Update the vessel's stored state.
+            data["lat"] = new_lat
+            data["lon"] = new_lon
+            data["bearing"] = new_bearing
 
-            if data["class"] == 'A':
+            # Increment the count of dynamic messages sent for this vessel.
+            data["count"] += 1
+
+            # Every 20th dynamic message should be preceded by a static message.
+            if data["count"] % 20 == 0:
+                vessel_class = data["class"]
+                if vessel_class == 'A':
+                    payload_bin = build_type5_static_payload(mmsi, "SYNTH_DATA_GEN")
+                    channel = "A"
+                else:
+                    payload_bin = build_type24_static_payload(mmsi, "SYNTH_DATA_GEN")
+                    channel = "B"
+                encoded_payload, fill = ais_sixbit_encode(payload_bin)
+                static_sentence = construct_nmea_sentence(channel, encoded_payload, fill)
+                sock.sendto(static_sentence.encode('ascii'), (args.host, args.port))
+                print("Periodic static message (preceding 20th dynamic):", static_sentence)
+                time.sleep(interval)
+
+            # Send the dynamic position message.
+            vessel_class = data["class"]
+            if vessel_class == 'A':
                 bit_str = build_type1_payload(mmsi, new_lat, new_lon, cog, heading)
                 channel = "A"
             else:
                 bit_str = build_type18_payload(mmsi, new_lat, new_lon, cog, heading)
                 channel = "B"
-
             encoded_payload, fill = ais_sixbit_encode(bit_str)
             sentence = construct_nmea_sentence(channel, encoded_payload, fill)
             sock.sendto(sentence.encode('ascii'), (args.host, args.port))
