@@ -1754,152 +1754,152 @@ func main() {
 	http.Handle("/", fs)
 	http.Handle("/socket.io/", engineServer)
 
-http.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodPost {
-        http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
-        return
-    }
+	http.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
+	    if r.Method != http.MethodPost {
+	        http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+	        return
+	    }
 
-    var req struct {
-        Query  string  `json:"query"`
-        MaxAge float64 `json:"maxAge"`
-    }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
-        return
-    }
-    req.Query = strings.ToLower(strings.TrimSpace(req.Query))
-    if req.Query == "" {
-        http.Error(w, "Empty query string", http.StatusBadRequest)
-        return
-    }
-    if len(req.Query) < 3 {
-        http.Error(w, "Search query must be at least 3 characters", http.StatusBadRequest)
-        return
-    }
-
-    vesselDataMutex.Lock()
-    completeData := filterCompleteVesselData(vesselData)
-    vesselDataMutex.Unlock()
-
-    var cutoff time.Time
-    if req.MaxAge > 0 {
-        cutoff = time.Now().UTC().Add(-time.Duration(req.MaxAge * float64(time.Hour)))
-    }
-
-    // Build a slice to hold matching vessels.
-    type vesselResult struct {
-        ID          string
-        UserID      interface{}
-        Name        interface{}
-        CallSign    interface{}
-        ImoNumber   interface{}
-        NumMessages interface{}
-        LastUpdated time.Time
-    }
-    var matches []vesselResult
-
-    for id, v := range completeData {
-        matched := false
-        if name, ok := v["Name"].(string); ok && strings.Contains(strings.ToLower(name), req.Query) {
-            matched = true
-        }
-        if !matched {
-            if cs, ok := v["CallSign"].(string); ok && strings.Contains(strings.ToLower(cs), req.Query) {
-                matched = true
-            }
-        }
-        if !matched {
-            if mmsi, ok := v["UserID"].(string); ok && strings.Contains(strings.ToLower(mmsi), req.Query) {
-                matched = true
-            } else if mmsiFloat, ok := v["UserID"].(float64); ok {
-                mmsiStr := fmt.Sprintf("%.0f", mmsiFloat)
-                if strings.Contains(strings.ToLower(mmsiStr), req.Query) {
-                    matched = true
-                }
-            }
-        }
-        if !matched {
-            if imo, ok := v["ImoNumber"].(string); ok && strings.Contains(strings.ToLower(imo), req.Query) {
-                matched = true
-            } else if imoFloat, ok := v["ImoNumber"].(float64); ok {
-                imoStr := fmt.Sprintf("%.0f", imoFloat)
-                if strings.Contains(strings.ToLower(imoStr), req.Query) {
-                    matched = true
-                }
-            }
-        }
-
-        if matched {
-            if !cutoff.IsZero() {
-                lastUpdatedStr, ok := v["LastUpdated"].(string)
-                if !ok {
-                    continue
-                }
-                lastUpdated, err := time.Parse(time.RFC3339Nano, lastUpdatedStr)
-                if err != nil || lastUpdated.Before(cutoff) {
-                    continue
-                }
-                matches = append(matches, vesselResult{
-                    ID:          id,
-                    UserID:      v["UserID"],
-                    Name:        v["Name"],
-                    CallSign:    v["CallSign"],
-                    ImoNumber:   v["ImoNumber"],
-                    NumMessages: v["NumMessages"],
-                    LastUpdated: lastUpdated,
-                })
-            } else {
-                // If no cutoff is applied, still parse LastUpdated for sorting.
-                lastUpdatedStr, ok := v["LastUpdated"].(string)
-               	if !ok {
-                    continue
-                }
-                lastUpdated, err := time.Parse(time.RFC3339Nano, lastUpdatedStr)
-                if err != nil {
-                    continue
-                }
-                matches = append(matches, vesselResult{
-                    ID:          id,
-                    UserID:      v["UserID"],
-                    Name:        v["Name"],
-                    CallSign:    v["CallSign"],
-                    ImoNumber:   v["ImoNumber"],
-                    NumMessages: v["NumMessages"],
-                    LastUpdated: lastUpdated,
-                })
-            }
-        }
-    }
-
-    // Sort matches by LastUpdated descending.
-    sort.Slice(matches, func(i, j int) bool {
-        return matches[i].LastUpdated.After(matches[j].LastUpdated)
-    })
-
-    // Limit to top 100.
-    if len(matches) > 100 {
-        matches = matches[:100]
-    }
-
-    // Convert the matches into a map for JSON response.
-    results := make(map[string]map[string]interface{})
-    for _, m := range matches {
-        results[m.ID] = map[string]interface{}{
-            "UserID":      m.UserID,
-            "Name":        m.Name,
-            "CallSign":    m.CallSign,
-            "ImoNumber":   m.ImoNumber,
-            "NumMessages": m.NumMessages,
-            "LastUpdated": m.LastUpdated.Format(time.RFC3339Nano),
-        }
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    if err := json.NewEncoder(w).Encode(results); err != nil {
-        http.Error(w, "Error encoding response", http.StatusInternalServerError)
-    }
-})
+	    var req struct {
+	        Query  string  `json:"query"`
+	        MaxAge float64 `json:"maxAge"`
+	    }
+	    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	        http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+	        return
+	    }
+	    req.Query = strings.ToLower(strings.TrimSpace(req.Query))
+	    if req.Query == "" {
+	        http.Error(w, "Empty query string", http.StatusBadRequest)
+	        return
+	    }
+	    if len(req.Query) < 3 {
+	        http.Error(w, "Search query must be at least 3 characters", http.StatusBadRequest)
+	        return
+	    }
+	
+	    vesselDataMutex.Lock()
+	    completeData := filterCompleteVesselData(vesselData)
+	    vesselDataMutex.Unlock()
+	
+	    var cutoff time.Time
+	    if req.MaxAge > 0 {
+	        cutoff = time.Now().UTC().Add(-time.Duration(req.MaxAge * float64(time.Hour)))
+	    }
+	
+	    // Build a slice to hold matching vessels.
+	    type vesselResult struct {
+	        ID          string
+	        UserID      interface{}
+	        Name        interface{}
+	        CallSign    interface{}
+	        ImoNumber   interface{}
+	        NumMessages interface{}
+	        LastUpdated time.Time
+	    }
+	    var matches []vesselResult
+	
+	    for id, v := range completeData {
+	        matched := false
+	        if name, ok := v["Name"].(string); ok && strings.Contains(strings.ToLower(name), req.Query) {
+	            matched = true
+	        }
+	        if !matched {
+	            if cs, ok := v["CallSign"].(string); ok && strings.Contains(strings.ToLower(cs), req.Query) {
+	                matched = true
+	            }
+	        }
+	        if !matched {
+	            if mmsi, ok := v["UserID"].(string); ok && strings.Contains(strings.ToLower(mmsi), req.Query) {
+	                matched = true
+	            } else if mmsiFloat, ok := v["UserID"].(float64); ok {
+	                mmsiStr := fmt.Sprintf("%.0f", mmsiFloat)
+	                if strings.Contains(strings.ToLower(mmsiStr), req.Query) {
+	                    matched = true
+	                }
+	            }
+	        }
+	        if !matched {
+	            if imo, ok := v["ImoNumber"].(string); ok && strings.Contains(strings.ToLower(imo), req.Query) {
+	                matched = true
+	            } else if imoFloat, ok := v["ImoNumber"].(float64); ok {
+	                imoStr := fmt.Sprintf("%.0f", imoFloat)
+	                if strings.Contains(strings.ToLower(imoStr), req.Query) {
+	                    matched = true
+	                }
+	            }
+	        }
+	
+	        if matched {
+	            if !cutoff.IsZero() {
+        	        lastUpdatedStr, ok := v["LastUpdated"].(string)
+	                if !ok {
+	                    continue
+	                }
+	                lastUpdated, err := time.Parse(time.RFC3339Nano, lastUpdatedStr)
+	                if err != nil || lastUpdated.Before(cutoff) {
+        	            continue
+        	        }
+	                matches = append(matches, vesselResult{
+	                    ID:          id,
+	                    UserID:      v["UserID"],
+	                    Name:        v["Name"],
+	                    CallSign:    v["CallSign"],
+	                    ImoNumber:   v["ImoNumber"],
+	                    NumMessages: v["NumMessages"],
+	                    LastUpdated: lastUpdated,
+	                })
+	            } else {
+	                // If no cutoff is applied, still parse LastUpdated for sorting.
+	                lastUpdatedStr, ok := v["LastUpdated"].(string)
+	               	if !ok {
+	                    continue
+	                }
+	                lastUpdated, err := time.Parse(time.RFC3339Nano, lastUpdatedStr)
+	                if err != nil {
+	                    continue
+	                }
+	                matches = append(matches, vesselResult{
+	                    ID:          id,
+	                    UserID:      v["UserID"],
+	                    Name:        v["Name"],
+	                    CallSign:    v["CallSign"],
+	                    ImoNumber:   v["ImoNumber"],
+	                    NumMessages: v["NumMessages"],
+	                    LastUpdated: lastUpdated,
+	                })
+	            }
+	        }
+	    }
+	
+	    // Sort matches by LastUpdated descending.
+	    sort.Slice(matches, func(i, j int) bool {
+	        return matches[i].LastUpdated.After(matches[j].LastUpdated)
+	    })
+	
+	    // Limit to top 100.
+	    if len(matches) > 100 {
+	        matches = matches[:100]
+	    }
+	
+	    // Convert the matches into a map for JSON response.
+	    results := make(map[string]map[string]interface{})
+	    for _, m := range matches {
+	        results[m.ID] = map[string]interface{}{
+	            "UserID":      m.UserID,
+	            "Name":        m.Name,
+	            "CallSign":    m.CallSign,
+	            "ImoNumber":   m.ImoNumber,
+	            "NumMessages": m.NumMessages,
+	            "LastUpdated": m.LastUpdated.Format(time.RFC3339Nano),
+	        }
+	    }
+	
+	    w.Header().Set("Content-Type", "application/json")
+	    if err := json.NewEncoder(w).Encode(results); err != nil {
+	        http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	    }
+	})
 
 	// Add HTTP endpoint for vessel state.
 	http.HandleFunc("/state/", func(w http.ResponseWriter, r *http.Request) {
