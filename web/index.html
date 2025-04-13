@@ -3155,6 +3155,10 @@ function showFlashMessage(message, parentEl) {
           if (currentDisplay === 'none') {
             overlay.style.display = 'block';
             this.textContent = 'Hide Vessels';
+	    const filterInput = document.getElementById('vessel-filter');
+	    if (filterInput.value.trim().length >= 3) {
+	      filterInput.dispatchEvent(new Event('input'));
+	    }
           } else {
             overlay.style.display = 'none';
             this.textContent = 'Show Vessels';
@@ -3205,6 +3209,11 @@ window.addEventListener('load', () => {
   const params = new URLSearchParams(window.location.search);
   const userIDParam = params.get('UserID');
   const skipUserZoom = Boolean(userIDParam);
+
+  const filterInput = document.getElementById('vessel-filter');
+  if (filterInput.value.trim().length >= 3) {
+    filterInput.dispatchEvent(new Event('input'));
+  }
 
   // If UserID is provided, fetch the summary and center the map accordingly.
   if (userIDParam) {
