@@ -1915,22 +1915,23 @@ func main() {
 	    }
 	
 	    // Convert the matches into a map for JSON response.
-	    results := make(map[string]map[string]interface{})
+	    var results []map[string]interface{}
 	    for _, m := range matches {
-	        results[m.ID] = map[string]interface{}{
+	        results = append(results, map[string]interface{}{
 	            "UserID":      m.UserID,
 	            "Name":        m.Name,
 	            "CallSign":    m.CallSign,
 	            "ImoNumber":   m.ImoNumber,
 	            "NumMessages": m.NumMessages,
 	            "LastUpdated": m.LastUpdated.Format(time.RFC3339Nano),
-	        }
+	        })
 	    }
-	
+
 	    w.Header().Set("Content-Type", "application/json")
 	    if err := json.NewEncoder(w).Encode(results); err != nil {
 	        http.Error(w, "Error encoding response", http.StatusInternalServerError)
 	    }
+
 	})
 
 	// Add HTTP endpoint for vessel state.

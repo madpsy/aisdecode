@@ -2842,11 +2842,6 @@ function performSearch(query) {
     return response.json();
   })
   .then(searchResults => {
-    // Ensure searchResults is an array.
-    if (!Array.isArray(searchResults)) {
-      searchResults = Object.values(searchResults);
-    }
-    // Filter the locally stored receiverData based on the query.
     const receiverResults = Object.values(receiverData).filter(receiver => {
       const q = query.toLowerCase();
       return (
