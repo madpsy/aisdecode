@@ -541,16 +541,44 @@
 
 	const receiverData = {};    // Stores receiver info keyed by receiver ID.
 
-        // Initialize the Leaflet map.
-        const map = L.map('map').setView([55.0, -3.0], 5);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
+	// Create the base layers
+	const googleSat = L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
+	  maxZoom: 20,
+	  subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+	  attribution: '&copy; Google'
+	});
+
+	const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+	  attribution: '&copy; OpenStreetMap'
+	});
+
+	// Object to hold your base layers.
+	const baseLayers = {
+	  "Google": googleSat,
+	  "OSM": osm
+	};
+
+	// Initialize the map with a default base layer
+	const map = L.map('map').setView([55.0, -3.0], 5);
+	osm.addTo(map);
+
+	// Add the layers control.
+	L.control.layers(baseLayers, null, { position: 'topleft' }).addTo(map);
+
+	// Listen for the base layer change event.
+	map.on('baselayerchange', function(e) {
+	  // 'e.name' holds the key ("Google" or "OSM")
+	  localStorage.setItem('selectedBasemap', e.name);
+	  if (map.hasLayer(openSeaMapLayer)) {
+	    openSeaMapLayer.bringToFront();
+	  }
+	});
 
         // OpenSeaMap overlay layer (enabled by default).
         const openSeaMapLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-          attribution: 'Map data: &copy; OpenSeaMap contributors'
+          attribution: 'Map data: &copy; OpenSeaMap'
         }).addTo(map);
+	openSeaMapLayer.bringToFront();
 
     const allowedMessageTypes = {
       "PositionReport": true,
@@ -2027,13 +2055,15 @@ function updateOverlay() {
   filteredEntries.sort((a, b) => new Date(b.LastUpdated) - new Date(a.LastUpdated));
   const topEntries = filteredEntries.slice(0, 100);
 
-  // Count visible markers (optional).
+  const bounds = map.getBounds();
   let visibleCount = 0;
   for (const id in vesselMarkers) {
     if (map.hasLayer(vesselMarkers[id])) visibleCount++;
   }
   for (const id in receiverMarkers) {
-    if (map.hasLayer(receiverMarkers[id])) visibleCount++;
+    if (bounds.contains(receiverMarkers[id].getLatLng())) {
+	visibleCount++;
+    }
   }
 
   // Update the overlay count text.
@@ -2543,18 +2573,20 @@ function applyLogFilters() {
 	    updateTracksInView();
             updateOverlay();
 	});
-        document.getElementById('openseamap-overlay').addEventListener('change', () => {
-          const overlayEnabled = document.getElementById('openseamap-overlay').checked;
-          if (overlayEnabled) {
-            if (!map.hasLayer(openSeaMapLayer)) {
-              map.addLayer(openSeaMapLayer);
-            }
-          } else {
-            if (map.hasLayer(openSeaMapLayer)) {
-              map.removeLayer(openSeaMapLayer);
-            }
-          }
-        });
+	document.getElementById('openseamap-overlay').addEventListener('change', () => {
+	  const overlayEnabled = document.getElementById('openseamap-overlay').checked;
+	  if (overlayEnabled) {
+	    if (!map.hasLayer(openSeaMapLayer)) {
+	      map.addLayer(openSeaMapLayer);
+	    }
+	    // Bring it to the front after it’s added.
+	    openSeaMapLayer.bringToFront();
+	  } else {
+	    if (map.hasLayer(openSeaMapLayer)) {
+	      map.removeLayer(openSeaMapLayer);
+	    }
+	  }
+	});
 
         // Connect to the Socket.IO server.
         const socket = io();
@@ -3434,6 +3466,30 @@ historySlider.addEventListener('input', () => {
 });
 
 document.addEventListener("DOMContentLoaded", function() {
+
+  const savedBasemap = localStorage.getItem('selectedBasemap');
+
+  if (savedBasemap) {
+    // Remove any default layer if needed.
+    // (Here googleSat is added as default; you might want to remove it if the saved layer is different.)
+    if (savedBasemap === "OSM") {
+      // Remove the default Google layer (if it's on the map)
+      if (map.hasLayer(googleSat)) {
+        map.removeLayer(googleSat);
+      }
+      // Add the OSM layer.
+      osm.addTo(map);
+    } else if (savedBasemap === "Google") {
+      if (map.hasLayer(osm)) {
+        map.removeLayer(osm);
+      }
+      googleSat.addTo(map);
+    }
+    if (map.hasLayer(openSeaMapLayer)) {
+      openSeaMapLayer.bringToFront();
+    }
+  }
+
   // History slider elements
   const historySlider = document.getElementById("history-slider");
   const historyValueDisplay = document.getElementById("history-value");
