@@ -689,6 +689,7 @@ func externalLookupCall(vesselID string, lookupURL string, stateDir string) {
         return
     }
     req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("User-Agent", "AIS Decoder https://github.com/madpsy/aisdecode/")
 
     // Set Basic Auth using fixed username "lookup" and the myinfo uuid as the password.
     myinfoPath := filepath.Join(stateDir, "myinfo.json")
@@ -1754,96 +1755,114 @@ func main() {
 	http.Handle("/socket.io/", engineServer)
 
 	http.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
-		// Only allow POST requests.
-		if r.Method != http.MethodPost {
-			http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
-			return
-		}
+	    // Only allow POST requests.
+	    if r.Method != http.MethodPost {
+	        http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+	        return
+	    }
 
-		// Decode the JSON payload expecting a "query" field.
-		var req struct {
-			Query string `json:"query"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
-			return
-		}
-		req.Query = strings.ToLower(strings.TrimSpace(req.Query))
-		if req.Query == "" {
-			http.Error(w, "Empty query string", http.StatusBadRequest)
-			return
-		}
+	    // Define a request struct that includes an optional MaxAge field (in hours).
+	    var req struct {
+	        Query  string  `json:"query"`
+	        MaxAge float64 `json:"maxAge"` // Optional: maximum age in hours
+	    }
+	    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	        http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+	        return
+	    }
+	    req.Query = strings.ToLower(strings.TrimSpace(req.Query))
+	    if req.Query == "" {
+	        http.Error(w, "Empty query string", http.StatusBadRequest)
+	        return
+	    }
+	    if len(req.Query) < 3 {
+	        http.Error(w, "Search query must be at least 3 characters", http.StatusBadRequest)
+	        return
+	    }
+	
+	    // Lock vesselData and retrieve only vessels with valid data.
+	    vesselDataMutex.Lock()
+	    completeData := filterCompleteVesselData(vesselData)
+	    vesselDataMutex.Unlock()
 
-		req.Query = strings.ToLower(strings.TrimSpace(req.Query))
-		if len(req.Query) < 3 {
-			http.Error(w, "Search query must be at least 3 characters", http.StatusBadRequest)
-			return
-		}
+	    // Compute a cutoff time if maxAge is provided and greater than zero.
+	    var cutoff time.Time
+	    if req.MaxAge > 0 {
+	        // Multiply req.MaxAge (hours) by time.Hour to get a duration.
+	        cutoff = time.Now().UTC().Add(-time.Duration(req.MaxAge * float64(time.Hour)))
+	    }
 
-		// Lock vesselData while iterating.
-		vesselDataMutex.Lock()
-		// Use filterCompleteVesselData to get only vessels with valid data.
-		completeData := filterCompleteVesselData(vesselData)
-		vesselDataMutex.Unlock()
+	    // Prepare a map for the search results.
+	    results := make(map[string]map[string]interface{})
 
-		// Prepare the results map.
-		results := make(map[string]map[string]interface{})
+	    // Iterate over all vessels and perform matching.
+	    for id, v := range completeData {
+	        matched := false
+	        // Check "Name"
+	        if name, ok := v["Name"].(string); ok && strings.Contains(strings.ToLower(name), req.Query) {
+	            matched = true
+	        }
+	        // Check "CallSign"
+	       	if !matched {
+	            if cs, ok := v["CallSign"].(string); ok && strings.Contains(strings.ToLower(cs), req.Query) {
+        	        matched = true
+	            }
+	        }
+	        // Check "UserID"
+	        if !matched {
+	            if mmsi, ok := v["UserID"].(string); ok && strings.Contains(strings.ToLower(mmsi), req.Query) {
+	                matched = true
+	            } else if mmsiFloat, ok := v["UserID"].(float64); ok {
+	                mmsiStr := fmt.Sprintf("%.0f", mmsiFloat)
+	                if strings.Contains(strings.ToLower(mmsiStr), req.Query) {
+	                    matched = true
+	                }
+	            }
+	        }
+	        // Check "ImoNumber"
+	        if !matched {
+	            if imo, ok := v["ImoNumber"].(string); ok && strings.Contains(strings.ToLower(imo), req.Query) {
+	                matched = true
+	            } else if imoFloat, ok := v["ImoNumber"].(float64); ok {
+	                imoStr := fmt.Sprintf("%.0f", imoFloat)
+	                if strings.Contains(strings.ToLower(imoStr), req.Query) {
+	                    matched = true
+	                }
+	            }
+	        }
 
-		// Iterate over all vessels and look for a case-insensitive match.
-		for id, v := range completeData {
-			matched := false
-			// Check "Name"
-			if name, ok := v["Name"].(string); ok && strings.Contains(strings.ToLower(name), req.Query) {
-				matched = true
-			}
-			// Check "CallSign"
-			if !matched {
-				if cs, ok := v["CallSign"].(string); ok && strings.Contains(strings.ToLower(cs), req.Query) {
-					matched = true
-				}
-			}
-			// Check "UserID" (if available)
-			if !matched {
-				if mmsi, ok := v["UserID"].(string); ok && strings.Contains(strings.ToLower(mmsi), req.Query) {
-					matched = true
-				} else if mmsiFloat, ok := v["UserID"].(float64); ok {
-					mmsiStr := fmt.Sprintf("%.0f", mmsiFloat)
-					if strings.Contains(strings.ToLower(mmsiStr), req.Query) {
-						matched = true
-					}
-				}
-			}
-			// Check "ImoNumber" (if available)
-			if !matched {
-				if imo, ok := v["ImoNumber"].(string); ok && strings.Contains(strings.ToLower(imo), req.Query) {
-					matched = true
-				} else if imoFloat, ok := v["ImoNumber"].(float64); ok {
-					imoStr := fmt.Sprintf("%.0f", imoFloat)
-					if strings.Contains(strings.ToLower(imoStr), req.Query) {
-						matched = true
-					}
-				}
-			}
-			if matched {
-				// Only return the selected fields.
-				results[id] = map[string]interface{}{
-					"UserID":      v["UserID"],
-					"Name":        v["Name"],
-					"CallSign":    v["CallSign"],
-					"ImoNumber":   v["ImoNumber"],
-					"NumMessages": v["NumMessages"],
-					"LastUpdated": v["LastUpdated"],
-				}
-			}
-		}
+	        // If the vessel matches the query, check its LastUpdated field against the cutoff.
+	        if matched {
+	            if !cutoff.IsZero() {
+	                // If the vessel has no valid LastUpdated field, skip it.
+	                lastUpdatedStr, ok := v["LastUpdated"].(string)
+	               	if !ok {
+	                    continue
+	                }
+	                lastUpdated, err := time.Parse(time.RFC3339Nano, lastUpdatedStr)
+	                if err != nil || lastUpdated.Before(cutoff) {
+	                    // The vessel's LastUpdated is too old—skip it.
+	                    continue
+	                }
+	            }
+	            // Add selected fields to the results.
+	            results[id] = map[string]interface{}{
+	                "UserID":      v["UserID"],
+	                "Name":        v["Name"],
+	                "CallSign":    v["CallSign"],
+	                "ImoNumber":   v["ImoNumber"],
+	                "NumMessages": v["NumMessages"],
+	                "LastUpdated": v["LastUpdated"],
+	            }
+	        }
+	    }
 
-		// Return the JSON result.
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(results); err != nil {
-			http.Error(w, "Error encoding response", http.StatusInternalServerError)
-		}
+	    // Return the JSON result.
+	    w.Header().Set("Content-Type", "application/json")
+	    if err := json.NewEncoder(w).Encode(results); err != nil {
+	        http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	    }
 	})
-
 
 	// Add HTTP endpoint for vessel state.
 	http.HandleFunc("/state/", func(w http.ResponseWriter, r *http.Request) {

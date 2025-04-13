@@ -2825,10 +2825,15 @@ document.getElementById('vessel-filter').addEventListener('input', function(even
 
 // Function that performs the search fetch.
 function performSearch(query) {
+  // Get the current max-age value from the age slider (in hours)
+  const ageSlider = document.getElementById("age-slider");
+  const maxAge = parseInt(ageSlider.value, 10); // Convert the value to an integer
+
+  // Include both the query and the max-age (with field name "MaxAge") in the request body.
   fetch('/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: query })
+    body: JSON.stringify({ query: query, MaxAge: maxAge })
   })
   .then(response => {
     if (!response.ok) {
@@ -2851,15 +2856,12 @@ function performSearch(query) {
       );
     });
 
-    // Merge the two arrays.
+    // Merge the two arrays and render the results.
     const combinedResults = searchResults.concat(receiverResults);
-    
-    // (Optional) If you want to eliminate duplicates, you could deduplicate based on UserID.
     renderSearchResults(combinedResults);
   })
   .catch(err => {
     console.error('Search request failed:', err);
-    // Optionally, fall back to updating the overlay normally.
     updateOverlay();
   });
 }
