@@ -1915,7 +1915,7 @@ func main() {
 	    }
 	
 	    // Convert the matches into a map for JSON response.
-	    var results []map[string]interface{}
+	    results := make([]map[string]interface{}, 0)
 	    for _, m := range matches {
 	        results = append(results, map[string]interface{}{
 	            "UserID":      m.UserID,
