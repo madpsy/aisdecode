@@ -31,6 +31,7 @@
     const osmTileCache = {}; // New cache for OpenStreetMap tiles
     let lastSummaryLat = null;
     let lastSummaryLon = null;
+    let showSeamapOverlay = true;
 
     function getTileImage(tileX, tileY, zoom) {
       const key = `${zoom}/${tileX}/${tileY}`;
@@ -158,7 +159,6 @@
       
       // Send the updated parameters via socket.
       socket.emit("requestSummary", JSON.stringify(filterParams));
-      debugLog("Sent summary request: " + JSON.stringify(filterParams));
     }
 
     function latLonToNM(deltaLat, deltaLon, refLat) {
@@ -296,89 +296,92 @@ function updateStats() {
     // ------------------------------
     // Draw the Background Map with Dynamic OpenStreetMap & OpenSeaMap Tiles
     // ------------------------------
-    function drawBackground() {
-      if (currentVesselLat === null || currentVesselLon === null) return;
-      const zoom = currentZoom;
+function drawBackground() {
+  if (currentVesselLat === null || currentVesselLon === null) return;
+  const zoom = currentZoom;
 
-      // Compute vessel's global pixel coordinates
-      const vesselPixelX = lonToPixel(currentVesselLon, zoom);
-      const vesselPixelY = latToPixel(currentVesselLat, zoom);
+  // Compute vessel's global pixel coordinates
+  const vesselPixelX = lonToPixel(currentVesselLon, zoom);
+  const vesselPixelY = latToPixel(currentVesselLat, zoom);
 
-      // Determine the center tile based on the vessel's location
-      const centerTileX = lonToTile(currentVesselLon, zoom);
-      const centerTileY = latToTile(currentVesselLat, zoom);
+  // Determine the center tile based on the vessel's location
+  const centerTileX = lonToTile(currentVesselLon, zoom);
+  const centerTileY = latToTile(currentVesselLat, zoom);
 
-      // Compute the pixel origin for the center tile
-      const tileOriginX = centerTileX * 256;
-      const tileOriginY = centerTileY * 256;
+  // Compute the pixel origin for the center tile
+  const tileOriginX = centerTileX * 256;
+  const tileOriginY = centerTileY * 256;
 
-      // Calculate the vessel's offset within its center tile
-      const offsetTileX = vesselPixelX - tileOriginX;
-      const offsetTileY = vesselPixelY - tileOriginY;
+  // Calculate the vessel's offset within its center tile
+  const offsetTileX = vesselPixelX - tileOriginX;
+  const offsetTileY = vesselPixelY - tileOriginY;
 
-      // Determine map resolution and scale
-      const resolution = (Math.cos(currentVesselLat * Math.PI / 180) * 2 * Math.PI * 6378137) / (256 * Math.pow(2, zoom));
-      const canvasScale = radarRadiusPx / 1852; // 1 NM = 1852 meters
-      const tileCanvasWidth = 256 * resolution * canvasScale;
-      const tileDrawScale = tileCanvasWidth / 256;
+  // Determine map resolution and scale
+  const resolution = (Math.cos(currentVesselLat * Math.PI / 180) * 2 * Math.PI * 6378137) / (256 * Math.pow(2, zoom));
+  const canvasScale = radarRadiusPx / 1852; // 1 NM = 1852 meters
+  const tileCanvasWidth = 256 * resolution * canvasScale;
+  const tileDrawScale = tileCanvasWidth / 256;
 
-      // Compute the drawing origin so that the vessel is centered
-      const drawOriginX = canvasSize / 2 - offsetTileX * tileDrawScale;
-      const drawOriginY = canvasSize / 2 - offsetTileY * tileDrawScale;
+  // Compute the drawing origin so that the vessel is centered
+  const drawOriginX = canvasSize / 2 - offsetTileX * tileDrawScale;
+  const drawOriginY = canvasSize / 2 - offsetTileY * tileDrawScale;
 
-      // --------------------
-      // 1. Draw the OpenStreetMap Base Layer
-      // --------------------
-      ctx.save();
-      // Rotate background relative to vessel heading using smooth rotation (currentRotation)
-      ctx.translate(canvasSize / 2, canvasSize / 2);
-      ctx.rotate(-currentRotation * Math.PI / 180);
-      ctx.translate(-canvasSize / 2, -canvasSize / 2);
-      ctx.globalAlpha = 0.5;
-      // Draw a grid of OSM tiles (3x3) around the center tile
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const tileX = centerTileX + dx;
-          const tileY = centerTileY + dy;
-          const tileImg = getOSMTileImage(tileX, tileY, zoom);
-          const drawX = drawOriginX + dx * tileCanvasWidth;
-          const drawY = drawOriginY + dy * tileCanvasWidth;
-          if (tileImg.complete) {
-            ctx.drawImage(tileImg, drawX, drawY, tileCanvasWidth, tileCanvasWidth);
-          } else {
-            tileImg.onload = function() {
-              drawRadarGauge();
-            };
-          }
-        }
+  // --------------------
+  // 1. Draw the OpenStreetMap Base Layer
+  // --------------------
+  ctx.save();
+  // Rotate background relative to vessel heading using smooth rotation (currentRotation)
+  ctx.translate(canvasSize / 2, canvasSize / 2);
+  ctx.rotate(-currentRotation * Math.PI / 180);
+  ctx.translate(-canvasSize / 2, -canvasSize / 2);
+  ctx.globalAlpha = 0.5;
+  // Draw a grid of OSM tiles (3x3) around the center tile
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const tileX = centerTileX + dx;
+      const tileY = centerTileY + dy;
+      const tileImg = getOSMTileImage(tileX, tileY, zoom);
+      const drawX = drawOriginX + dx * tileCanvasWidth;
+      const drawY = drawOriginY + dy * tileCanvasWidth;
+      if (tileImg.complete) {
+        ctx.drawImage(tileImg, drawX, drawY, tileCanvasWidth, tileCanvasWidth);
+      } else {
+        tileImg.onload = function() {
+          drawRadarGauge();
+        };
       }
-      ctx.restore();
-
-      // --------------------
-      // 2. Draw the OpenSeaMap Seamark Overlay
-      // --------------------
-      ctx.save();
-      ctx.translate(canvasSize / 2, canvasSize / 2);
-      ctx.rotate(-currentRotation * Math.PI / 180);
-      ctx.translate(-canvasSize / 2, -canvasSize / 2);
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const tileX = centerTileX + dx;
-          const tileY = centerTileY + dy;
-          const tileImg = getTileImage(tileX, tileY, zoom);
-          const drawX = drawOriginX + dx * tileCanvasWidth;
-          const drawY = drawOriginY + dy * tileCanvasWidth;
-          if (tileImg.complete) {
-            ctx.drawImage(tileImg, drawX, drawY, tileCanvasWidth, tileCanvasWidth);
-          } else {
-            tileImg.onload = function() {
-              drawRadarGauge();
-            };
-          }
-        }
-      }
-      ctx.restore();
     }
+  }
+  ctx.restore();
+
+  // --------------------
+  // 2. Draw the OpenSeaMap Seamark Overlay (if enabled)
+  // --------------------
+  if (showSeamapOverlay) {
+    ctx.save();
+    ctx.translate(canvasSize / 2, canvasSize / 2);
+    ctx.rotate(-currentRotation * Math.PI / 180);
+    ctx.translate(-canvasSize / 2, -canvasSize / 2);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const tileX = centerTileX + dx;
+        const tileY = centerTileY + dy;
+        const tileImg = getTileImage(tileX, tileY, zoom);
+        const drawX = drawOriginX + dx * tileCanvasWidth;
+        const drawY = drawOriginY + dy * tileCanvasWidth;
+        if (tileImg.complete) {
+          ctx.drawImage(tileImg, drawX, drawY, tileCanvasWidth, tileCanvasWidth);
+        } else {
+          tileImg.onload = function() {
+            drawRadarGauge();
+          };
+        }
+      }
+    }
+    ctx.restore();
+  }
+}
+
 
     // ------------------------------
     // Draw the Radar Gauge (Overlaying the background)
@@ -775,6 +778,25 @@ socket.on("ais_data", function(message) {
           console.error("Failed to fetch summary data:", error);
         });
     });
+
+radarCanvas.addEventListener("click", function(event) {
+  const rect = radarCanvas.getBoundingClientRect();
+  const clickX = event.clientX - rect.left;
+  const clickY = event.clientY - rect.top;
+  const centerX = canvasSize / 2;
+  const centerY = canvasSize / 2;
+  
+  // Calculate the distance from the click to the center of the canvas
+  const dx = clickX - centerX;
+  const dy = clickY - centerY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  
+  // Toggle the overlay if click is within the radar circle
+  if (distance <= radarRadiusPx) {
+    showSeamapOverlay = !showSeamapOverlay;
+    drawRadarGauge();
+  }
+});
 
   </script>
 </body>
