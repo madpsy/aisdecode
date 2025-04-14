@@ -177,18 +177,18 @@
             <h3>Total Known Vessels</h3>
             <p id="val-total_known_vessels">--</p>
           </div>
-	 <div class="digital-card" id="card-max_distance_nm">
-	   <h3>Max Distance (NM)</h3>
-	   <p id="val-max_distance_nm">--</p>
-	</div>
-	 <div class="digital-card" id="card-average_distance_nm">
-	   <h3>Avg Distance (NM)</h3>
-	   <p id="val-average_distance_nm">--</p>
-	 </div>
-           <div class="digital-card" id="card-active_websockets">
-             <h3>Active Websockets</h3>
-             <p id="val-active_websockets">--</p>
-           </div>
+          <div class="digital-card" id="card-max_distance_nm">
+            <h3>Max Distance (NM)</h3>
+            <p id="val-max_distance_nm">--</p>
+          </div>
+          <div class="digital-card" id="card-average_distance_nm">
+            <h3>Avg Distance (NM)</h3>
+            <p id="val-average_distance_nm">--</p>
+          </div>
+          <div class="digital-card" id="card-active_websockets">
+            <h3>Active Websockets</h3>
+            <p id="val-active_websockets">--</p>
+          </div>
         </div>
         <!-- Second row: Websocket Rooms (separated into two cards) -->
         <div class="digital-dashboard">
@@ -213,12 +213,13 @@
   <details id="historicalSection" open>
     <summary>Historical Metrics</summary>
     <div id="charts">
-      <!-- Historical charts will be inserted here -->
+      <!-- Historical charts groups/canvases will be created by ensureChartGroupsExist() -->
     </div>
   </details>
 
   <script>
-    // --- Global vessel summary object (used in websocket room labeling) ---
+    // --- Global Variables & Helpers ---
+    // Global vessel summary object (used in websocket room labeling)
     let vesselSummary = {};
     async function fetchVesselSummary() {
       try {
@@ -231,7 +232,10 @@
     fetchVesselSummary();
     setInterval(fetchVesselSummary, 60 * 1000);
 
-    // --- Helper functions for number and uptime formatting ---
+    // Global object to store Chart.js instances so they can be updated instead of recreated.
+    let chartInstances = {};
+
+    // Helper functions for formatting
     function formatUptime(seconds) {
       const d = Math.floor(seconds / (3600 * 24));
       const h = Math.floor((seconds % (3600 * 24)) / 3600);
@@ -250,8 +254,7 @@
       }
     }
 
-    // --- Socket.IO Connection & Live Metrics Updates (for local mode) ---
-    // Create the socket without auto-connecting.
+    // --- Socket.IO Connection & Live Metrics Updates ---
     const socket = io({ autoConnect: false });
     function updateLiveDisplay(metrics) {
       const liveDiv = document.getElementById("liveMetrics");
@@ -285,7 +288,7 @@
         metrics.max_distance_meters !== undefined ? (metrics.max_distance_meters / 1852).toFixed(0) : "--";
       document.getElementById("val-average_distance_nm").textContent =
         metrics.average_distance_meters !== undefined ? (metrics.average_distance_meters / 1852).toFixed(0) : "--";
-      // Update websocket rooms in two separate cards.
+      // Update websocket rooms
       const trackedContainer = document.getElementById("val-tracked_vessels");
       const activeContainer = document.getElementById("val-active_websocket_rooms");
       trackedContainer.innerHTML = "";
@@ -346,12 +349,11 @@
         console.error("Error parsing live metrics:", e);
       }
     });
-    // When connected, subscribe to metrics.
     socket.on("connect", function() {
       socket.emit("subscribeMetrics");
     });
 
-    // --- Chart Creation Functions (unchanged) ---
+    // --- Chart Creation Helper Functions ---
     function getFixedTimeRangeForAverage(averageType) {
       const now = new Date();
       let min, unit, stepSize;
@@ -443,301 +445,337 @@
         }
       });
     }
-
-    // --- Historical Charts Rendering ---
-    // This function fetches historical metrics from the given endpoint.
-
-async function renderHistoricalChartsNonLocal(endpoint) {
-  try {
-    const scrollPos = window.pageYOffset;
-    const response = await fetch(endpoint);
-
-    if (!response.ok) {
-      alert("Error: Unable to fetch receiver metrics. Received HTTP " + response.status);
-      return;
+    // This helper updates or creates a chart instance.
+    function updateOrCreateChart(canvas, createFn, uniqueId, labels, datasets, chartLabel, timeConfig) {
+      if (chartInstances[uniqueId]) {
+         chartInstances[uniqueId].data.labels = labels;
+         chartInstances[uniqueId].data.datasets = datasets;
+         chartInstances[uniqueId].options.scales.x.min = timeConfig.min;
+         chartInstances[uniqueId].options.scales.x.max = timeConfig.max;
+         chartInstances[uniqueId].update();
+      } else {
+         const ctx = canvas.getContext("2d");
+         chartInstances[uniqueId] = createFn(ctx, labels, datasets, chartLabel, timeConfig);
+      }
     }
 
-    const historical = await response.json();
-    if (!historical) return;
-    const averagesData = {
-      minute: historical.minute_averages,
-      hour: historical.hour_averages,
-      day: historical.day_averages,
-      week: historical.week_averages
-    };
-    const chartsDiv = document.getElementById("charts");
-    chartsDiv.innerHTML = "";
+    // Helper: Create historical chart groups if not yet created.
+    function ensureChartGroupsExist() {
+      const chartsDiv = document.getElementById("charts");
+      // Check one of the canvas elements by ID.
+      if (!document.getElementById("msgPerMin_row1_minute")) {
+        chartsDiv.innerHTML = "";
+        // Group 1: Messages per Minute
+        let group1 = document.createElement("div");
+        group1.className = "chart-container";
+        let group1Heading = document.createElement("h3");
+        group1Heading.textContent = "Messages per Minute";
+        group1.appendChild(group1Heading);
 
-    // Group 1: Serial & UDP Messages per Minute
-    let group1 = document.createElement("div");
-    group1.className = "chart-container";
-    let group1Heading = document.createElement("h3");
-    group1Heading.textContent = "Messages per Minute";
-    group1.appendChild(group1Heading);
+        let row1 = document.createElement("div");
+        row1.className = "chart-row";
+        ["minute", "hour"].forEach(function(avgType) {
+          let col = document.createElement("div");
+          col.className = "chart-column";
+          let subHeading = document.createElement("h4");
+          subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
+          col.appendChild(subHeading);
+          let canvas = document.createElement("canvas");
+          canvas.id = "msgPerMin_row1_" + avgType;
+          col.appendChild(canvas);
+          row1.appendChild(col);
+        });
+        group1.appendChild(row1);
 
-    let row1 = document.createElement("div");
-    row1.className = "chart-row";
-    ["minute", "hour"].forEach(function(avgType) {
-      let col = document.createElement("div");
-      col.className = "chart-column";
-      let subHeading = document.createElement("h4");
-      subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
-      col.appendChild(subHeading);
-      let canvas = document.createElement("canvas");
-      col.appendChild(canvas);
-      let snapshots = averagesData[avgType] || [];
-      const timeConfig = getFixedTimeRangeForAverage(avgType);
-      let timestamps = snapshots.map(snap => new Date(snap.timestamp));
-      let serialData = snapshots.map(snap => snap.serial_messages_per_min.average);
-      let udpData = snapshots.map(snap => snap.udp_messages_per_min.average);
+        let row1b = document.createElement("div");
+        row1b.className = "chart-row";
+        ["day", "week"].forEach(function(avgType) {
+          let col = document.createElement("div");
+          col.className = "chart-column";
+          let subHeading = document.createElement("h4");
+          subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
+          col.appendChild(subHeading);
+          let canvas = document.createElement("canvas");
+          canvas.id = "msgPerMin_row1b_" + avgType;
+          col.appendChild(canvas);
+          row1b.appendChild(col);
+        });
+        group1.appendChild(row1b);
+        chartsDiv.appendChild(group1);
 
-      const datasets = [];
-      if (!serialData.every(value => value === 0)) {
-        datasets.push({ label: "Serial Msgs/min", data: serialData, fill: false, borderColor: "blue" });
+        // Group 2: Vessel Counts (Stacked)
+        let group2 = document.createElement("div");
+        group2.className = "chart-container";
+        let group2Heading = document.createElement("h3");
+        group2Heading.textContent = "Vessel Counts (Stacked)";
+        group2.appendChild(group2Heading);
+
+        let row2 = document.createElement("div");
+        row2.className = "chart-row";
+        ["minute", "hour"].forEach(function(avgType) {
+          let col = document.createElement("div");
+          col.className = "chart-column";
+          let subHeading = document.createElement("h4");
+          subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
+          col.appendChild(subHeading);
+          let canvas = document.createElement("canvas");
+          canvas.id = "vesselCounts_row2_" + avgType;
+          col.appendChild(canvas);
+          row2.appendChild(col);
+        });
+        group2.appendChild(row2);
+
+        let row2b = document.createElement("div");
+        row2b.className = "chart-row";
+        ["day", "week"].forEach(function(avgType) {
+          let col = document.createElement("div");
+          col.className = "chart-column";
+          let subHeading = document.createElement("h4");
+          subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
+          col.appendChild(subHeading);
+          let canvas = document.createElement("canvas");
+          canvas.id = "vesselCounts_row2b_" + avgType;
+          col.appendChild(canvas);
+          row2b.appendChild(col);
+        });
+        group2.appendChild(row2b);
+        chartsDiv.appendChild(group2);
+
+        // Group 4: Distance Metrics (NM)
+        let group4 = document.createElement("div");
+        group4.className = "chart-container";
+        let group4Heading = document.createElement("h3");
+        group4Heading.textContent = "Distance Metrics (NM)";
+        group4.appendChild(group4Heading);
+
+        let row4a = document.createElement("div");
+        row4a.className = "chart-row";
+        ["minute", "hour"].forEach(function(avgType) {
+          let col = document.createElement("div");
+          col.className = "chart-column";
+          let subHeading = document.createElement("h4");
+          subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
+          col.appendChild(subHeading);
+          let canvas = document.createElement("canvas");
+          canvas.id = "distanceNM_row4a_" + avgType;
+          col.appendChild(canvas);
+          row4a.appendChild(col);
+        });
+        group4.appendChild(row4a);
+
+        let row4b = document.createElement("div");
+        row4b.className = "chart-row";
+        ["day", "week"].forEach(function(avgType) {
+          let col = document.createElement("div");
+          col.className = "chart-column";
+          let subHeading = document.createElement("h4");
+          subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
+          col.appendChild(subHeading);
+          let canvas = document.createElement("canvas");
+          canvas.id = "distanceNM_row4b_" + avgType;
+          col.appendChild(canvas);
+          row4b.appendChild(col);
+        });
+        group4.appendChild(row4b);
+        chartsDiv.appendChild(group4);
+
+        // Group 3: Active Websockets
+        let group3 = document.createElement("div");
+        group3.className = "chart-container";
+        let group3Heading = document.createElement("h3");
+        group3Heading.textContent = "Active Websockets";
+        group3.appendChild(group3Heading);
+
+        let row3 = document.createElement("div");
+        row3.className = "chart-row";
+        ["minute", "hour"].forEach(function(avgType) {
+          let col = document.createElement("div");
+          col.className = "chart-column";
+          let subHeading = document.createElement("h4");
+          subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
+          col.appendChild(subHeading);
+          let canvas = document.createElement("canvas");
+          canvas.id = "activeWS_row3_" + avgType;
+          col.appendChild(canvas);
+          row3.appendChild(col);
+        });
+        group3.appendChild(row3);
+
+        let row3b = document.createElement("div");
+        row3b.className = "chart-row";
+        ["day", "week"].forEach(function(avgType) {
+          let col = document.createElement("div");
+          col.className = "chart-column";
+          let subHeading = document.createElement("h4");
+          subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
+          col.appendChild(subHeading);
+          let canvas = document.createElement("canvas");
+          canvas.id = "activeWS_row3b_" + avgType;
+          col.appendChild(canvas);
+          row3b.appendChild(col);
+        });
+        group3.appendChild(row3b);
+        chartsDiv.appendChild(group3);
       }
-      if (!udpData.every(value => value === 0)) {
-        datasets.push({ label: "UDP Msgs/min", data: udpData, fill: false, borderColor: "red" });
+    }
+
+    // --- Historical Charts Rendering ---
+    async function renderHistoricalChartsNonLocal(endpoint) {
+      try {
+        const scrollPos = window.pageYOffset;
+        const response = await fetch(endpoint);
+        if (!response.ok) {
+          alert("Error: Unable to fetch receiver metrics. Received HTTP " + response.status);
+          return;
+        }
+        const historical = await response.json();
+        if (!historical) return;
+        const averagesData = {
+          minute: historical.minute_averages,
+          hour: historical.hour_averages,
+          day: historical.day_averages,
+          week: historical.week_averages
+        };
+        // Ensure that the historical charts groups and canvases are present.
+        ensureChartGroupsExist();
+
+        // --- Now Update Each Chart Using updateOrCreateChart ---
+
+        // Group 1: Messages per Minute
+        ["minute", "hour"].forEach(function(avgType) {
+          let canvas = document.getElementById("msgPerMin_row1_" + avgType);
+          let snapshots = averagesData[avgType] || [];
+          const timeConfig = getFixedTimeRangeForAverage(avgType);
+          let labels = snapshots.map(snap => new Date(snap.timestamp));
+          let serialData = snapshots.map(snap => snap.serial_messages_per_min.average);
+          let udpData = snapshots.map(snap => snap.udp_messages_per_min.average);
+          const datasets = [];
+          if (!serialData.every(value => value === 0)) {
+            datasets.push({ label: "Serial Msgs/min", data: serialData, fill: false, borderColor: "blue" });
+          }
+          if (!udpData.every(value => value === 0)) {
+            datasets.push({ label: "UDP Msgs/min", data: udpData, fill: false, borderColor: "red" });
+          }
+          updateOrCreateChart(canvas, createMultiLineChartCustom, "msgPerMin_row1_" + avgType, labels, datasets, "Msgs per Minute", timeConfig);
+        });
+        ["day", "week"].forEach(function(avgType) {
+          let canvas = document.getElementById("msgPerMin_row1b_" + avgType);
+          let snapshots = averagesData[avgType] || [];
+          const timeConfig = getFixedTimeRangeForAverage(avgType);
+          let labels = snapshots.map(snap => new Date(snap.timestamp));
+          let serialData = snapshots.map(snap => snap.serial_messages_per_min.average);
+          let udpData = snapshots.map(snap => snap.udp_messages_per_min.average);
+          const datasets = [];
+          if (!serialData.every(value => value === 0)) {
+            datasets.push({ label: "Serial Msgs/min", data: serialData, fill: false, borderColor: "blue" });
+          }
+          if (!udpData.every(value => value === 0)) {
+            datasets.push({ label: "UDP Msgs/min", data: udpData, fill: false, borderColor: "red" });
+          }
+          updateOrCreateChart(canvas, createMultiLineChartCustom, "msgPerMin_row1b_" + avgType, labels, datasets, "Msgs per Minute", timeConfig);
+        });
+
+        // Group 2: Vessel Counts (Stacked)
+        ["minute", "hour"].forEach(function(avgType) {
+          let canvas = document.getElementById("vesselCounts_row2_" + avgType);
+          let snapshots = averagesData[avgType] || [];
+          const timeConfig = getFixedTimeRangeForAverage(avgType);
+          let labels = snapshots.map(snap => new Date(snap.timestamp));
+          let classA = snapshots.map(snap => snap.num_vessels_class_a.average);
+          let classB = snapshots.map(snap => snap.num_vessels_class_b.average);
+          let aton   = snapshots.map(snap => snap.num_vessels_aton.average);
+          let base   = snapshots.map(snap => snap.num_vessels_base_station.average);
+          let sar    = snapshots.map(snap => snap.num_vessels_sar.average);
+          let datasets = [
+            { label: "Class A", data: classA, backgroundColor: "rgba(54, 162, 235, 0.7)" },
+            { label: "Class B", data: classB, backgroundColor: "rgba(255, 99, 132, 0.7)" },
+            { label: "AtoN",    data: aton,   backgroundColor: "rgba(255, 206, 86, 0.7)" },
+            { label: "Base",    data: base,   backgroundColor: "rgba(75, 192, 192, 0.7)" },
+            { label: "SAR",     data: sar,    backgroundColor: "rgba(153, 102, 255, 0.7)" }
+          ];
+          updateOrCreateChart(canvas, createStackedBarChartCustom, "vesselCounts_row2_" + avgType, labels, datasets, "Vessel Types", timeConfig);
+        });
+        ["day", "week"].forEach(function(avgType) {
+          let canvas = document.getElementById("vesselCounts_row2b_" + avgType);
+          let snapshots = averagesData[avgType] || [];
+          const timeConfig = getFixedTimeRangeForAverage(avgType);
+          let labels = snapshots.map(snap => new Date(snap.timestamp));
+          let classA = snapshots.map(snap => snap.num_vessels_class_a.average);
+          let classB = snapshots.map(snap => snap.num_vessels_class_b.average);
+          let aton   = snapshots.map(snap => snap.num_vessels_aton.average);
+          let base   = snapshots.map(snap => snap.num_vessels_base_station.average);
+          let sar    = snapshots.map(snap => snap.num_vessels_sar.average);
+          let datasets = [
+            { label: "Class A", data: classA, backgroundColor: "rgba(54, 162, 235, 0.7)" },
+            { label: "Class B", data: classB, backgroundColor: "rgba(255, 99, 132, 0.7)" },
+            { label: "AtoN",    data: aton,   backgroundColor: "rgba(255, 206, 86, 0.7)" },
+            { label: "Base",    data: base,   backgroundColor: "rgba(75, 192, 192, 0.7)" },
+            { label: "SAR",     data: sar,    backgroundColor: "rgba(153, 102, 255, 0.7)" }
+          ];
+          updateOrCreateChart(canvas, createStackedBarChartCustom, "vesselCounts_row2b_" + avgType, labels, datasets, "Vessel Types", timeConfig);
+        });
+
+        // Group 4: Distance Metrics (NM)
+        ["minute", "hour"].forEach(function(avgType) {
+          let canvas = document.getElementById("distanceNM_row4a_" + avgType);
+          let snapshots = averagesData[avgType] || [];
+          const timeConfig = getFixedTimeRangeForAverage(avgType);
+          let labels = snapshots.map(snap => new Date(snap.timestamp));
+          let maxDistanceData = snapshots.map(snap => (snap.max_distance_meters.average / 1852).toFixed(0));
+          let avgDistanceData = snapshots.map(snap => (snap.average_distance_meters.average / 1852).toFixed(0));
+          const datasets = [];
+          if (!maxDistanceData.every(value => value === "0")) {
+            datasets.push({ label: "Max Distance (NM)", data: maxDistanceData, fill: false, borderColor: "purple" });
+          }
+          if (!avgDistanceData.every(value => value === "0")) {
+            datasets.push({ label: "Avg Distance (NM)", data: avgDistanceData, fill: false, borderColor: "orange" });
+          }
+          updateOrCreateChart(canvas, createMultiLineChartCustom, "distanceNM_row4a_" + avgType, labels, datasets, "Distance (NM)", timeConfig);
+        });
+        ["day", "week"].forEach(function(avgType) {
+          let canvas = document.getElementById("distanceNM_row4b_" + avgType);
+          let snapshots = averagesData[avgType] || [];
+          const timeConfig = getFixedTimeRangeForAverage(avgType);
+          let labels = snapshots.map(snap => new Date(snap.timestamp));
+          let maxDistanceData = snapshots.map(snap => (snap.max_distance_meters.average / 1852).toFixed(0));
+          let avgDistanceData = snapshots.map(snap => (snap.average_distance_meters.average / 1852).toFixed(0));
+          const datasets = [];
+          if (!maxDistanceData.every(value => value === "0")) {
+            datasets.push({ label: "Max Distance (NM)", data: maxDistanceData, fill: false, borderColor: "purple" });
+          }
+          if (!avgDistanceData.every(value => value === "0")) {
+            datasets.push({ label: "Avg Distance (NM)", data: avgDistanceData, fill: false, borderColor: "orange" });
+          }
+          updateOrCreateChart(canvas, createMultiLineChartCustom, "distanceNM_row4b_" + avgType, labels, datasets, "Distance (NM)", timeConfig);
+        });
+
+        // Group 3: Active Websockets
+        ["minute", "hour"].forEach(function(avgType) {
+          let canvas = document.getElementById("activeWS_row3_" + avgType);
+          let snapshots = averagesData[avgType] || [];
+          const timeConfig = getFixedTimeRangeForAverage(avgType);
+          let labels = snapshots.map(snap => new Date(snap.timestamp));
+          let activeWS = snapshots.map(snap => snap.active_websockets.average);
+          updateOrCreateChart(canvas, createMultiLineChartCustom, "activeWS_row3_" + avgType, labels, [{ label: "Active Websockets", data: activeWS, fill: false, borderColor: "green" }], "Active Websockets", timeConfig);
+        });
+        ["day", "week"].forEach(function(avgType) {
+          let canvas = document.getElementById("activeWS_row3b_" + avgType);
+          let snapshots = averagesData[avgType] || [];
+          const timeConfig = getFixedTimeRangeForAverage(avgType);
+          let labels = snapshots.map(snap => new Date(snap.timestamp));
+          let activeWS = snapshots.map(snap => snap.active_websockets.average);
+          updateOrCreateChart(canvas, createMultiLineChartCustom, "activeWS_row3b_" + avgType, labels, [{ label: "Active Websockets", data: activeWS, fill: false, borderColor: "green" }], "Active Websockets", timeConfig);
+        });
+    
+        setTimeout(() => {
+          window.scrollTo(0, scrollPos);
+        }, 50);
+      } catch (e) {
+        console.error("Error rendering historical charts:", e);
       }
-
-
-    createMultiLineChartCustom(canvas.getContext("2d"), timestamps, datasets, "Msgs per Minute", timeConfig);
-
-      row1.appendChild(col);
-    });
-    group1.appendChild(row1);
-
-    let row1b = document.createElement("div");
-    row1b.className = "chart-row";
-    ["day", "week"].forEach(function(avgType) {
-      let col = document.createElement("div");
-      col.className = "chart-column";
-      let subHeading = document.createElement("h4");
-      subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
-      col.appendChild(subHeading);
-      let canvas = document.createElement("canvas");
-      col.appendChild(canvas);
-      let snapshots = averagesData[avgType] || [];
-      const timeConfig = getFixedTimeRangeForAverage(avgType);
-      let timestamps = snapshots.map(snap => new Date(snap.timestamp));
-      let serialData = snapshots.map(snap => snap.serial_messages_per_min.average);
-      let udpData = snapshots.map(snap => snap.udp_messages_per_min.average);
-
-      const datasets = [];
-      if (!serialData.every(value => value === 0)) {
-        datasets.push({ label: "Serial Msgs/min", data: serialData, fill: false, borderColor: "blue" });
-      }
-      if (!udpData.every(value => value === 0)) {
-        datasets.push({ label: "UDP Msgs/min", data: udpData, fill: false, borderColor: "red" });
-      }
-
-
-      createMultiLineChartCustom(canvas.getContext("2d"), timestamps, datasets, "Msgs per Minute", timeConfig);
-
-      row1b.appendChild(col);
-    });
-    group1.appendChild(row1b);
-    chartsDiv.appendChild(group1);
-
-    // Group 2: Vessel Counts (Stacked)
-    let group2 = document.createElement("div");
-    group2.className = "chart-container";
-    let group2Heading = document.createElement("h3");
-    group2Heading.textContent = "Vessel Counts (Stacked)";
-    group2.appendChild(group2Heading);
-
-    let row2 = document.createElement("div");
-    row2.className = "chart-row";
-    ["minute", "hour"].forEach(function(avgType) {
-      let col = document.createElement("div");
-      col.className = "chart-column";
-      let subHeading = document.createElement("h4");
-      subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
-      col.appendChild(subHeading);
-      let canvas = document.createElement("canvas");
-      col.appendChild(canvas);
-      let snapshots = averagesData[avgType] || [];
-      const timeConfig = getFixedTimeRangeForAverage(avgType);
-      let timestamps = snapshots.map(snap => new Date(snap.timestamp));
-      let classA = snapshots.map(snap => snap.num_vessels_class_a.average);
-      let classB = snapshots.map(snap => snap.num_vessels_class_b.average);
-      let aton   = snapshots.map(snap => snap.num_vessels_aton.average);
-      let base   = snapshots.map(snap => snap.num_vessels_base_station.average);
-      let sar    = snapshots.map(snap => snap.num_vessels_sar.average);
-      createStackedBarChartCustom(canvas.getContext("2d"), timestamps, [
-        { label: "Class A", data: classA, backgroundColor: "rgba(54, 162, 235, 0.7)" },
-        { label: "Class B", data: classB, backgroundColor: "rgba(255, 99, 132, 0.7)" },
-        { label: "AtoN",    data: aton,   backgroundColor: "rgba(255, 206, 86, 0.7)" },
-        { label: "Base",    data: base,   backgroundColor: "rgba(75, 192, 192, 0.7)" },
-        { label: "SAR",     data: sar,    backgroundColor: "rgba(153, 102, 255, 0.7)" }
-      ], "Vessel Types", timeConfig);
-      row2.appendChild(col);
-    });
-    group2.appendChild(row2);
-
-    let row2b = document.createElement("div");
-    row2b.className = "chart-row";
-    ["day", "week"].forEach(function(avgType) {
-      let col = document.createElement("div");
-      col.className = "chart-column";
-      let subHeading = document.createElement("h4");
-      subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
-      col.appendChild(subHeading);
-      let canvas = document.createElement("canvas");
-      col.appendChild(canvas);
-      let snapshots = averagesData[avgType] || [];
-      const timeConfig = getFixedTimeRangeForAverage(avgType);
-      let timestamps = snapshots.map(snap => new Date(snap.timestamp));
-      let classA = snapshots.map(snap => snap.num_vessels_class_a.average);
-      let classB = snapshots.map(snap => snap.num_vessels_class_b.average);
-      let aton   = snapshots.map(snap => snap.num_vessels_aton.average);
-      let base   = snapshots.map(snap => snap.num_vessels_base_station.average);
-      let sar    = snapshots.map(snap => snap.num_vessels_sar.average);
-      createStackedBarChartCustom(canvas.getContext("2d"), timestamps, [
-        { label: "Class A", data: classA, backgroundColor: "rgba(54, 162, 235, 0.7)" },
-        { label: "Class B", data: classB, backgroundColor: "rgba(255, 99, 132, 0.7)" },
-        { label: "AtoN",    data: aton,   backgroundColor: "rgba(255, 206, 86, 0.7)" },
-        { label: "Base",    data: base,   backgroundColor: "rgba(75, 192, 192, 0.7)" },
-        { label: "SAR",     data: sar,    backgroundColor: "rgba(153, 102, 255, 0.7)" }
-      ], "Vessel Types", timeConfig);
-      row2b.appendChild(col);
-    });
-    group2.appendChild(row2b);
-    chartsDiv.appendChild(group2);
-
-    // Group 4: Distance Metrics (NM)
-    let group4 = document.createElement("div");
-    group4.className = "chart-container";
-    let group4Heading = document.createElement("h3");
-    group4Heading.textContent = "Distance Metrics (NM)";
-    group4.appendChild(group4Heading);
-
-    // Row for minute and hour averages
-    let row4a = document.createElement("div");
-    row4a.className = "chart-row";
-    ["minute", "hour"].forEach(function(avgType) {
-      let col = document.createElement("div");
-      col.className = "chart-column";
-      let subHeading = document.createElement("h4");
-      subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
-      col.appendChild(subHeading);
-      let canvas = document.createElement("canvas");
-      col.appendChild(canvas);
-      let snapshots = averagesData[avgType] || [];
-      const timeConfig = getFixedTimeRangeForAverage(avgType);
-      let timestamps = snapshots.map(snap => new Date(snap.timestamp));
-      
-      // Convert meters to NM (1 NM = 1852 m) and round to 0 decimals.
-      let maxDistanceData = snapshots.map(snap => (snap.max_distance_meters.average / 1852).toFixed(0));
-      let avgDistanceData = snapshots.map(snap => (snap.average_distance_meters.average / 1852).toFixed(0));
-      
-      const datasets = [];
-      // Only add the dataset if not all values are 0.
-      if (!maxDistanceData.every(value => value === "0")) {
-        datasets.push({ label: "Max Distance (NM)", data: maxDistanceData, fill: false, borderColor: "purple" });
-      }
-      if (!avgDistanceData.every(value => value === "0")) {
-        datasets.push({ label: "Avg Distance (NM)", data: avgDistanceData, fill: false, borderColor: "orange" });
-      }
-      createMultiLineChartCustom(canvas.getContext("2d"), timestamps, datasets, "Distance (NM)", timeConfig);
-      row4a.appendChild(col);
-    });
-    group4.appendChild(row4a);
-
-    // Row for day and week averages
-    let row4b = document.createElement("div");
-    row4b.className = "chart-row";
-    ["day", "week"].forEach(function(avgType) {
-      let col = document.createElement("div");
-      col.className = "chart-column";
-      let subHeading = document.createElement("h4");
-      subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
-      col.appendChild(subHeading);
-      let canvas = document.createElement("canvas");
-      col.appendChild(canvas);
-      let snapshots = averagesData[avgType] || [];
-      const timeConfig = getFixedTimeRangeForAverage(avgType);
-      let timestamps = snapshots.map(snap => new Date(snap.timestamp));
-      
-      let maxDistanceData = snapshots.map(snap => (snap.max_distance_meters.average / 1852).toFixed(0));
-      let avgDistanceData = snapshots.map(snap => (snap.average_distance_meters.average / 1852).toFixed(0));
-      
-      const datasets = [];
-      if (!maxDistanceData.every(value => value === "0")) {
-        datasets.push({ label: "Max Distance (NM)", data: maxDistanceData, fill: false, borderColor: "purple" });
-      }
-      if (!avgDistanceData.every(value => value === "0")) {
-        datasets.push({ label: "Avg Distance (NM)", data: avgDistanceData, fill: false, borderColor: "orange" });
-      }
-      createMultiLineChartCustom(canvas.getContext("2d"), timestamps, datasets, "Distance (NM)", timeConfig);
-      row4b.appendChild(col);
-    });
-    group4.appendChild(row4b);
-
-    // Append the distance charts group to the main charts container.
-    chartsDiv.appendChild(group4);
-
-    // Group 3: Active Websockets
-    let group3 = document.createElement("div");
-    group3.className = "chart-container";
-    let group3Heading = document.createElement("h3");
-    group3Heading.textContent = "Active Websockets";
-    group3.appendChild(group3Heading);
-
-    let row3 = document.createElement("div");
-    row3.className = "chart-row";
-    ["minute", "hour"].forEach(function(avgType) {
-      let col = document.createElement("div");
-      col.className = "chart-column";
-      let subHeading = document.createElement("h4");
-      subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
-      col.appendChild(subHeading);
-      let canvas = document.createElement("canvas");
-      col.appendChild(canvas);
-      let snapshots = averagesData[avgType] || [];
-      const timeConfig = getFixedTimeRangeForAverage(avgType);
-      let timestamps = snapshots.map(snap => new Date(snap.timestamp));
-      let activeWS = snapshots.map(snap => snap.active_websockets.average);
-      createMultiLineChartCustom(canvas.getContext("2d"), timestamps, [
-        { label: "Active Websockets", data: activeWS, fill: false, borderColor: "green" }
-      ], "Active Websockets", timeConfig);
-      row3.appendChild(col);
-    });
-    group3.appendChild(row3);
-
-    let row3b = document.createElement("div");
-    row3b.className = "chart-row";
-    ["day", "week"].forEach(function(avgType) {
-      let col = document.createElement("div");
-      col.className = "chart-column";
-      let subHeading = document.createElement("h4");
-      subHeading.textContent = avgType.charAt(0).toUpperCase() + avgType.slice(1) + " Averages";
-      col.appendChild(subHeading);
-      let canvas = document.createElement("canvas");
-      col.appendChild(canvas);
-      let snapshots = averagesData[avgType] || [];
-      const timeConfig = getFixedTimeRangeForAverage(avgType);
-      let timestamps = snapshots.map(snap => new Date(snap.timestamp));
-      let activeWS = snapshots.map(snap => snap.active_websockets.average);
-      createMultiLineChartCustom(canvas.getContext("2d"), timestamps, [
-        { label: "Active Websockets", data: activeWS, fill: false, borderColor: "green" }
-      ], "Active Websockets", timeConfig);
-      row3b.appendChild(col);
-    });
-    group3.appendChild(row3b);
-    chartsDiv.appendChild(group3);
-
-    setTimeout(() => {
-       window.scrollTo(0, scrollPos);
-    }, 50);
-  } catch (e) {
-    console.error("Error rendering historical charts:", e);
-  }
-}
-
-
+    }
 
     // --- Receivers Dropdown & Mode Switching ---
-    // Global variable to hold the interval ID for historical updates.
     let historicalIntervalId = null;
     async function populateReceivers() {
       try {
@@ -756,18 +794,15 @@ async function renderHistoricalChartsNonLocal(endpoint) {
           option.textContent = receiver.name;
           select.appendChild(option);
         });
-        // Check for an optional 'id' query parameter.
         const params = new URLSearchParams(window.location.search);
         const queryId = params.get("id");
         let receiverToSelect = null;
         if (queryId) {
           receiverToSelect = receiversData.find(r => String(r.id) === queryId);
           if (receiverToSelect) {
-            // Set the dropdown's value to the query parameter.
             select.value = queryId;
           }
         }
-        // If not found (or query not provided), use the first receiver.
         if (!receiverToSelect) {
           receiverToSelect = receiversData[0];
         }
@@ -780,16 +815,13 @@ async function renderHistoricalChartsNonLocal(endpoint) {
     function handleReceiverChange(receiver) {
       const isLocal = (receiver.local === true || receiver.local === "true");
       if (isLocal) {
-        // For local receivers, show both live metrics and historical charts.
         document.getElementById("liveSection").classList.remove("hidden");
         document.getElementById("liveTable").classList.remove("hidden");
         document.getElementById("liveDashboard").classList.remove("hidden");
         document.getElementById("historicalSection").classList.remove("hidden");
-        // Connect to the socket if not connected.
         if (!socket.connected) {
           socket.connect();
         }
-        // Use the original historical endpoint for local metrics.
         const localHistoryEndpoint = "/metrics";
         renderHistoricalChartsNonLocal(localHistoryEndpoint);
         if (historicalIntervalId) {
@@ -797,12 +829,10 @@ async function renderHistoricalChartsNonLocal(endpoint) {
         }
         historicalIntervalId = setInterval(renderHistoricalChartsNonLocal, 60 * 1000, localHistoryEndpoint);
       } else {
-        // For non-local receivers, hide live metrics and show historical charts.
         document.getElementById("liveSection").classList.add("hidden");
         document.getElementById("liveTable").classList.add("hidden");
         document.getElementById("liveDashboard").classList.add("hidden");
         document.getElementById("historicalSection").classList.remove("hidden");
-        // Disconnect the socket if connected.
         if (socket.connected) {
           socket.disconnect();
         }

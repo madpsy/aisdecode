@@ -393,9 +393,6 @@
     <span id="status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: red; display: inline-block; margin-right: 5px;"></span>
     <span id="status-text">Disconnected</span>
   </div>
-    <input type="checkbox" id="auto-zoom">
-    Auto Zoom
-  </label>
         <label>
     <input type="checkbox" id="only-focussed">
     Only Tracked
@@ -419,7 +416,7 @@
         <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Types</button>
     </div>
 
-    <div id="vessel-legend" style="display: none; position: absolute; top: 240px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
+    <div id="vessel-legend" style="display: none; position: absolute; top: 220px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
         <div id="legend-content"></div>
     </div>
 
@@ -642,9 +639,9 @@ function sendSummaryRequest() {
   const filterParams = {
     latitude: center.lat,
     longitude: center.lng,
-    radius: radius,     // in meters
+    radius: radius,      // in meters
     maxResults: 500,    // fixed limit
-    maxAge: maxAge,     // in hours
+    maxAge: maxAge,       // in hours
     updatePeriod: 10    // in seconds
   };
   
@@ -1026,6 +1023,8 @@ function debounce(func, wait) {
     }, wait);
   };
 }
+
+const debouncedAdjustMapBounds = debounce(adjustMapBounds, 500);
 
 function filterMarkersByAge(ageHours) {
   const now = Date.now();
@@ -1927,13 +1926,6 @@ function adjustMapBounds() {
   }
 }
 
-
-        document.getElementById('auto-zoom').addEventListener('change', (event) => {
-          if (event.target.checked) {
-            adjustMapBounds();
-          }
-        });
-
         // Utility: Compute a time elapsed string.
         function timeAgo(timestamp) {
           const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -2011,9 +2003,6 @@ if (!showStationary) {
     }
   }
 
-  if (document.getElementById('auto-zoom').checked) {
-    adjustMapBounds();
-  }
   updateMarkersInView();
   updateTracksInView();
   updateOverlay();
@@ -2134,43 +2123,45 @@ function isVesselVisibleByAge(vessel) {
         setInterval(updateOverlay, 1000);
 
         // Update marker and track visibility based on the "Only Tracked" checkbox.
-    function updateFocussedVisibility() {
-      const onlyFocussed = document.getElementById('only-focussed').checked;
-      const showPaths = document.getElementById('show-paths').checked;
-      if (onlyFocussed && focusedVessel) {
-        for (const userID in vesselMarkers) {
-          if (userID !== focusedVessel.toString()) {
-            if (map.hasLayer(vesselMarkers[userID])) map.removeLayer(vesselMarkers[userID]);
-            if (vesselTracks[userID] && map.hasLayer(vesselTracks[userID])) {
-              map.removeLayer(vesselTracks[userID]);
-            }
-          } else {
-            if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
-            if (vesselTracks[userID]) {
-              if (showPaths && !map.hasLayer(vesselTracks[userID])) {
-                map.addLayer(vesselTracks[userID]);
-              } else if (!showPaths && map.hasLayer(vesselTracks[userID])) {
-                map.removeLayer(vesselTracks[userID]);
-              }
-            }
-          }
+function updateFocussedVisibility() {
+  const onlyFocussed = document.getElementById('only-focussed').checked;
+  const showPaths = document.getElementById('show-paths').checked;
+  if (onlyFocussed && focusedVessel) {
+    for (const userID in vesselMarkers) {
+      if (userID !== focusedVessel.toString()) {
+        if (map.hasLayer(vesselMarkers[userID])) map.removeLayer(vesselMarkers[userID]);
+        if (vesselTracks[userID] && map.hasLayer(vesselTracks[userID])) {
+          map.removeLayer(vesselTracks[userID]);
         }
       } else {
-        for (const userID in vesselMarkers) {
-          if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
-        }
-        for (const userID in vesselTracks) {
-          if (showPaths) {
-            if (!map.hasLayer(vesselTracks[userID])) map.addLayer(vesselTracks[userID]);
-          } else {
-            if (map.hasLayer(vesselTracks[userID])) map.removeLayer(vesselTracks[userID]);
+        if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
+        if (vesselTracks[userID]) {
+          if (showPaths && !map.hasLayer(vesselTracks[userID])) {
+            map.addLayer(vesselTracks[userID]);
+          } else if (!showPaths && map.hasLayer(vesselTracks[userID])) {
+            map.removeLayer(vesselTracks[userID]);
           }
         }
       }
-      updateMarkersInView();
-      updateTracksInView();
-      updateOverlay();
     }
+  } else {
+    // When Only Tracked is unchecked, simply ensure all markers/tracks are added/removed correctly.
+    for (const userID in vesselMarkers) {
+      if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
+    }
+    for (const userID in vesselTracks) {
+      if (showPaths && !map.hasLayer(vesselTracks[userID])) {
+        map.addLayer(vesselTracks[userID]);
+      } else if (!showPaths && map.hasLayer(vesselTracks[userID])) {
+        map.removeLayer(vesselTracks[userID]);
+      }
+    }
+  }
+  updateMarkersInView();
+  updateTracksInView();
+  updateOverlay();
+}
+
 
 
         // --- Live Logs functionality ---
@@ -2558,7 +2549,7 @@ function applyLogFilters() {
 		  attachPolylineEvents(vesselTracks[userID], userID);
 		}
             });
-            adjustMapBounds();
+            debouncedAdjustMapBounds();
             updateOverlay();
 	    updateStationaryMarkers();
           } catch (e) {
@@ -2817,9 +2808,6 @@ function applyLogFilters() {
 	  updateMarkersInView();
 	  updateTracksInView();
           localStorage.setItem('vesselData', JSON.stringify(vesselData));
-          if (document.getElementById('auto-zoom').checked) {
-            adjustMapBounds();
-          }
         });
 
 // Use a debounced function to limit the frequency of requests:
@@ -3168,11 +3156,21 @@ function showFlashMessage(message, parentEl) {
 	  // Fetch missing data from /state/<UserID> and update overlay.
 	  fetchMissingData(userID);
 
-          if (initialFocus || document.getElementById('auto-zoom').checked) {
-            let bounds = L.latLngBounds([]);
-            bounds.extend(vesselMarkers[userID].getLatLng());
-            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
-          }
+	if (initialFocus) {
+	  const markerLatLng = vesselMarkers[userID].getLatLng();
+	  const currentZoom = map.getZoom();
+	  const desiredZoom = 13;
+  
+	  if (currentZoom >= desiredZoom) {
+	    // If already zoomed in enough, just pan to the vessel's location.
+	    map.panTo(markerLatLng);
+	  } else {
+	    // Otherwise, fit bounds and set the zoom to desiredZoom at most.
+	    let bounds = L.latLngBounds([]);
+	    bounds.extend(markerLatLng);
+	    map.fitBounds(bounds, { padding: [50, 50], maxZoom: desiredZoom });
+	  }
+	}
 
           updateFocussedVisibility();
         }
@@ -3304,9 +3302,6 @@ window.addEventListener('load', () => {
         userLatLng = [newPos.lat, newPos.lng];
         document.getElementById('latlong-display').textContent =
           `${newPos.lat.toFixed(5)}, ${newPos.lng.toFixed(5)}`;
-	if (document.getElementById('auto-zoom').checked) {
-		map.setView(newPos, map.getZoom());
-	}
       });        
 
         if (!skipUserZoom) {
@@ -3344,11 +3339,11 @@ window.addEventListener('load', () => {
         }, 1000); // 1 second delay; adjust if necessary
       },
       (error) => {
-        adjustMapBounds();
+        debouncedAdjustMapBounds();
       }
     );
   } else {
-    adjustMapBounds();
+    debouncedAdjustMapBounds();
   }
 
  refreshReceivers();
