@@ -22,7 +22,7 @@
     h1, h2 {
       margin-bottom: 10px;
     }
-    /* Style the new dropdown (no label) */
+    /* Style the receiver dropdown */
     #receiver-select {
       margin-bottom: 5px;
       font-size: 1rem;
@@ -40,6 +40,15 @@
       border: 1px solid #ccc;
       border-radius: 8px;
       margin-bottom: 20px;
+    }
+    /* Slider container style */
+    #slider-container {
+      width: 90%;
+      max-width: 1000px;
+      margin-bottom: 20px;
+    }
+    #slider-container label {
+      font-size: 1rem;
     }
     #stats, #vessel-list, #vessel-ab-list {
       width: 90%;
@@ -111,6 +120,14 @@
   </label>
   
   <div id="map"></div>
+  
+  <!-- Slider to filter vessels by max age of LastUpdated -->
+  <div id="slider-container">
+    <label for="age-slider">Max Age (hours): <span id="age-value">12</span></label>
+    <!-- Set the default value to 12 hours -->
+    <input type="range" id="age-slider" min="1" max="24" value="12">
+  </div>
+  
   <div id="stats">
     <h2>Distance Statistics</h2>
     <table>
@@ -289,10 +306,19 @@
           });
         }
     
+        // NEW: Filter vessels based on the slider (Max Age in hours)
+        const sliderValue = document.getElementById("age-slider").value;
+        const maxAge = parseInt(sliderValue);
+        const now = Date.now();
+        const vesselsInTimeRange = vessels.filter(v => {
+          const lastUpdatedTime = new Date(v.lastUpdated).getTime();
+          const diffHours = (now - lastUpdatedTime) / (1000 * 3600);
+          return diffHours <= maxAge;
+        });
+    
         // Apply the ">1 Message" filter.
-        // When the checkbox (#message-check) is checked, only keep vessels with numMessages >= 2.
         const filterMessages = document.getElementById("message-check").checked;
-        const filteredVessels = filterMessages ? vessels.filter(v => v.numMessages >= 2) : vessels;
+        const filteredVessels = filterMessages ? vesselsInTimeRange.filter(v => v.numMessages >= 2) : vesselsInTimeRange;
     
         // Compute overall statistics based on filtered vessels.
         const distances = filteredVessels.map(v => v.distance);
@@ -609,7 +635,6 @@
     
     // Add event listener for the ">1 Message" checkbox.
     document.getElementById("message-check").addEventListener("change", function() {
-      // Reload data for the current receiver when the checkbox status changes.
       const select = document.getElementById("receiver-select");
       const selectedId = select.value;
       fetch('/receivers')
@@ -623,6 +648,26 @@
         .catch(err => {
           console.error("Error retrieving receiver info:", err);
         });
+    });
+    
+    // Add slider event listener to refresh the map when its value changes.
+    document.getElementById("age-slider").addEventListener("input", function() {
+      // Update the displayed slider value.
+      document.getElementById("age-value").textContent = this.value;
+      // Reload the current receiver data so that the map refreshes with the new time filter.
+      const select = document.getElementById("receiver-select");
+      const selectedId = select.value;
+      fetch('/receivers')
+          .then(res => res.json())
+          .then(receiversData => {
+            const fullReceiver = receiversData.find(r => String(r.id) === selectedId);
+            if (fullReceiver) {
+              loadReceiverData(fullReceiver);
+            }
+          })
+          .catch(err => {
+            console.error("Error retrieving receiver info:", err);
+          });
     });
     
     // Initialize the receivers dropdown when the page loads.
