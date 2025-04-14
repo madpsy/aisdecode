@@ -42,11 +42,13 @@ type DataPoint struct {
 }
 
 type FilterParams struct {
-	Latitude   float64
-	Longitude  float64
-	Radius     float64
-	MaxResults int
-	MaxAge     float64
+	Latitude     float64
+	Longitude    float64
+	Radius       float64
+	MaxResults   int
+	MaxAge       float64
+	UpdatePeriod int
+	LastUpdate   time.Time
 }
 
 var clientSummaryFilters = make(map[socket.SocketId]FilterParams)
@@ -1347,7 +1349,6 @@ func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]m
 			"UserID":               v["UserID"],
 			"Name":                 v["Name"],
 			"CallSign":             v["CallSign"],
-			"ImageURL":		v["ImageURL"],
 			"LastUpdated":          v["LastUpdated"],
 			"NumMessages":          v["NumMessages"],
 			"Destination":          v["Destination"],
@@ -1381,7 +1382,7 @@ func main() {
 	udpListenPort := flag.Int("udp-listen-port", 8101, "UDP listen port for incoming NMEA data (default: 8101)")
 	dedupeWindowDuration := flag.Int("dedupe-window", 1000, "Deduplication window in milliseconds (default: 1000, set to 0 to disable deduplication)")
 	dumpVesselData := flag.Bool("dump-vessel-data", false, "Log the latest vessel data to the screen whenever it is updated")
-	updateInterval := flag.Int("update-interval", 10, "Update interval in seconds for emitting latest vessel data (default: 10)")
+	updateInterval := flag.Int("update-interval", 60, "Update interval in seconds for saving latest vessel state")
 	expireAfter := flag.Duration("expire-after", 24*time.Hour, "Expire vessel data if no update is received within this duration (default: 24h)")
 	noState := flag.Bool("no-state", false, "When specified, do not save or load the state (default: false)")
 	stateDir := flag.String("state-dir", "state", "Directory to store state (default: state)")
@@ -1714,16 +1715,18 @@ func main() {
 		    // Parse client input outside any locks.
 		    var filterLat, filterLon, filterRadius float64
 		    var maxResults int
-		    var maxAge float64 // in hours
+		    var maxAge float64
+		    var updatePeriod int
 
 		    if len(args) > 0 {
 		        if paramStr, ok := args[0].(string); ok {
 		            var params struct {
-		                Latitude   float64 `json:"latitude"`
-		                Longitude  float64 `json:"longitude"`
-		                Radius     float64 `json:"radius"`
-		                MaxResults int     `json:"maxResults"`
-		                MaxAge     float64 `json:"maxAge"`
+		                Latitude     float64 `json:"latitude"`
+		                Longitude    float64 `json:"longitude"`
+		                Radius       float64 `json:"radius"`
+		                MaxResults   int     `json:"maxResults"`
+		                MaxAge       float64 `json:"maxAge"`
+				UpdatePeriod int     `json:"updatePeriod"`
 		            }
 		            if err := json.Unmarshal([]byte(paramStr), &params); err != nil {
                 		log.Printf("Error parsing filter parameters from client %s: %v", client.Id(), err)
@@ -1733,6 +1736,7 @@ func main() {
 		                filterRadius = params.Radius
 		                maxResults = params.MaxResults
 		                maxAge = params.MaxAge
+				updatePeriod = params.UpdatePeriod
 		            }
 		        }
 		    }
@@ -1741,14 +1745,20 @@ func main() {
 		        maxAge = 24
 		    }
 
+		    if updatePeriod < 1 || updatePeriod > 60 {
+		        updatePeriod = 10
+		    }
+
 		    // Save the client's filter parameters—hold the lock only briefly.
 		    clientSummaryFiltersMutex.Lock()
 		    clientSummaryFilters[client.Id()] = FilterParams{
-		        Latitude:   filterLat,
-		        Longitude:  filterLon,
-		        Radius:     filterRadius,
-		        MaxResults: maxResults,
-		        MaxAge:     maxAge,
+		        Latitude:     filterLat,
+		        Longitude:    filterLon,
+		        Radius:       filterRadius,
+		        MaxResults:   maxResults,
+		        MaxAge:       maxAge,
+			UpdatePeriod: updatePeriod,
+			LastUpdate:   time.Now(),
 		    }
 		    clientSummaryFiltersMutex.Unlock()
 
@@ -3251,95 +3261,116 @@ func main() {
 		}
 	}()
 
-go func() {
-    defer func() {
-        if r := recover(); r != nil {
-            log.Printf("Recovered in summary-update ticker: %v", r)
-        }
-    }()
-    ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
-    defer ticker.Stop()
-    for range ticker.C {
-        // Create a local copy of vessel data.
-        vesselDataMutex.Lock()
-        currentData := filterCompleteVesselData(vesselData)
-        vesselDataMutex.Unlock()
+	go func() {
+	    defer func() {
+	        if r := recover(); r != nil {
+	            log.Printf("Recovered in state-saving ticker: %v", r)
+	        }
+	    }()
+	    ticker := time.NewTicker(time.Duration(*updateInterval) * time.Second)
+	    defer ticker.Stop()
+	    for range ticker.C {
+	        // Create a local copy of vessel data.
+	        vesselDataMutex.Lock()
+	        currentData := filterCompleteVesselData(vesselData)
+	        vesselDataMutex.Unlock()
 
-        // Create a local copy of client filters.
-        clientSummaryFiltersMutex.Lock()
-        filtersCopy := make(map[socket.SocketId]FilterParams)
-        for id, fp := range clientSummaryFilters {
-            filtersCopy[id] = fp
-        }
-        clientSummaryFiltersMutex.Unlock()
-
-        // Loop over client filters and prepare/send personalized summary.
-        for clientID, fp := range filtersCopy {
-            // Validate/sanitize filtering parameters.
-            if fp.MaxAge <= 0 || fp.MaxAge > 168 {
-                fp.MaxAge = 24
-            }
-            var filtered map[string]map[string]interface{}
-            if fp.Latitude == 0 && fp.Longitude == 0 && fp.Radius == 0 {
-                filtered = currentData
-            } else {
-                filtered = filterVesselsByLocationAndLimit(currentData, fp.Latitude, fp.Longitude, fp.Radius, fp.MaxResults, fp.MaxAge)
-            }
-            summaryData := filterVesselSummary(filtered)
-            summaryJSON, err := json.Marshal(summaryData)
-            if err != nil {
-                log.Printf("Error marshaling summary for client %s: %v", clientID, err)
-                continue
-            }
-            // Send summary in a separate goroutine with recover.
-            go func(clientID socket.SocketId, msg string) {
-                defer func() {
-                    if r := recover(); r != nil {
-                        log.Printf("Recovered in emit for client %s: %v", clientID, r)
-                    }
-                }()
-                // Look up the client outside of any critical section.
-                clientsMutex.Lock()
-                var client *socket.Socket
-                for _, c := range clients {
-                    if c.Id() == clientID {
-                        client = c
-                        break
-                    }
-                }
-                clientsMutex.Unlock()
-                if client != nil {
-                    if err := client.Emit("latest_vessel_summary", msg); err != nil {
-                        log.Printf("Error sending summary to client %s: %v", clientID, err)
-                    }
-                }
-            }(clientID, string(summaryJSON))
-        }
-
-        // Save the complete vessel state to disk (done outside of client loops).
-        latestDataJSON, err := json.Marshal(currentData)
-        if err != nil {
-            log.Printf("Error marshaling complete vessel data for state file: %v", err)
-        } else if !*noState {
-            if err := os.WriteFile(statePath, latestDataJSON, 0644); err != nil {
-                log.Printf("Error writing state file %s: %v", statePath, err)
-            }
-        }
-
-        previousVesselData = deepCopyVesselData(currentData)
-        if *dumpVesselData {
-            indentJSON, err := json.MarshalIndent(currentData, "", "  ")
-            if err != nil {
-                log.Printf("Error marshaling latest vessel data: %v", err)
-            } else {
-                log.Printf("Latest vessel data:\n%s", string(indentJSON))
-            }
-        }
-    }
-}()
-
-
-
+	        // Save the complete vessel state to disk (if state persistence is enabled).
+	        latestDataJSON, err := json.Marshal(currentData)
+	        if err != nil {
+	            log.Printf("Error marshaling complete vessel data for state file: %v", err)
+	        } else if !*noState {
+	            if err := os.WriteFile(statePath, latestDataJSON, 0644); err != nil {
+	                log.Printf("Error writing state file %s: %v", statePath, err)
+	            }
+	        }
+	
+	        // Update the copy of previous vessel data.
+	        previousVesselData = deepCopyVesselData(currentData)
+	
+	        // Optionally log (or dump) the latest vessel data.
+	        if *dumpVesselData {
+	            indentJSON, err := json.MarshalIndent(currentData, "", "  ")
+	            if err != nil {
+	                log.Printf("Error marshaling latest vessel data: %v", err)
+	            } else {
+	                log.Printf("Latest vessel data:\n%s", string(indentJSON))
+	            }
+	        }
+	    }
+	}()
+	
+	go func() {
+	    ticker := time.NewTicker(1 * time.Second) // Runs every 1 second
+	    defer ticker.Stop()
+	    for range ticker.C {
+	        // Get a fresh copy of vessel data
+	        vesselDataMutex.Lock()
+	        currentData := filterCompleteVesselData(vesselData)
+	        vesselDataMutex.Unlock()
+	  
+	        // Copy the client filters
+	        clientSummaryFiltersMutex.Lock()
+	        filtersCopy := make(map[socket.SocketId]FilterParams)
+	        for id, fp := range clientSummaryFilters {
+	            filtersCopy[id] = fp
+	        }
+	        clientSummaryFiltersMutex.Unlock()
+	  
+	        now := time.Now()
+	        // Loop over client filters and emit summary only if the client's updatePeriod has elapsed
+	        for clientID, fp := range filtersCopy {
+	            if now.Sub(fp.LastUpdate) < time.Duration(fp.UpdatePeriod)*time.Second {
+	                continue
+	            }
+	            // Update last update time in the shared map
+	            fp.LastUpdate = now
+	            clientSummaryFiltersMutex.Lock()
+	            clientSummaryFilters[clientID] = fp
+	            clientSummaryFiltersMutex.Unlock()
+	  
+	            var filtered map[string]map[string]interface{}
+	            if fp.Latitude == 0 && fp.Longitude == 0 && fp.Radius == 0 {
+	                filtered = currentData
+	            } else {
+	                filtered = filterVesselsByLocationAndLimit(
+	                    currentData, fp.Latitude, fp.Longitude, fp.Radius,
+	                    fp.MaxResults, fp.MaxAge,
+	                )
+	            }
+	  
+	            summaryData := filterVesselSummary(filtered)
+	            summaryJSON, err := json.Marshal(summaryData)
+	            if err != nil {
+	                log.Printf("Error marshaling summary for client %s: %v", clientID, err)
+	                continue
+	            }
+	  
+	            // Emit in a separate goroutine to avoid blocking.
+	            go func(clientID socket.SocketId, msg string) {
+	                defer func() {
+	                    if r := recover(); r != nil {
+	                        log.Printf("Recovered in emit for client %s: %v", clientID, r)
+	                    }
+	                }()
+	                clientsMutex.Lock()
+	                var client *socket.Socket
+	                for _, c := range clients {
+	                    if c.Id() == clientID {
+	                        client = c
+	                        break
+	                    }
+	                }
+	                clientsMutex.Unlock()
+	                if client != nil {
+	                    if err := client.Emit("latest_vessel_summary", msg); err != nil {
+	                        log.Printf("Error sending summary to client %s: %v", clientID, err)
+	                    }
+	                }
+	            }(clientID, string(summaryJSON))
+	        }
+	    }
+	}()
 
 	go func() {
 	    ticker := time.NewTicker(1 * time.Minute)

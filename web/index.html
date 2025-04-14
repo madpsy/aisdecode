@@ -642,9 +642,10 @@ function sendSummaryRequest() {
   const filterParams = {
     latitude: center.lat,
     longitude: center.lng,
-    radius: radius,      // in meters
+    radius: radius,     // in meters
     maxResults: 500,    // fixed limit
-    maxAge: maxAge       // in hours
+    maxAge: maxAge,     // in hours
+    updatePeriod: 10    // in seconds
   };
   
   // Send the filter parameters to the server.
