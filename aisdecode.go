@@ -59,6 +59,12 @@ type FilterParams struct {
 var clientSummaryFilters = make(map[socket.SocketId]FilterParams)
 var clientSummaryFiltersMutex sync.Mutex
 
+var mapPool = sync.Pool{
+    New: func() interface{} {
+        return make(map[string]interface{})
+    },
+}
+
 type Metrics struct {
 	SerialMessagesPerSec    float64 `json:"serial_messages_per_sec"`
 	UDPMessagesPerSec       float64 `json:"udp_messages_per_sec"`
@@ -1159,15 +1165,22 @@ func isDataChanged(currentData, previousData map[string]map[string]interface{}) 
 }
 
 func deepCopyVesselData(original map[string]map[string]interface{}) map[string]map[string]interface{} {
-	copy := make(map[string]map[string]interface{})
-	for id, vesselInfo := range original {
-		newInfo := make(map[string]interface{})
-		for k, v := range vesselInfo {
-			newInfo[k] = v
-		}
-		copy[id] = newInfo
-	}
-	return copy
+    // Allocate the top-level copy with the same capacity.
+    copyMap := make(map[string]map[string]interface{}, len(original))
+    for id, vesselInfo := range original {
+        // Get a new map from the pool.
+        newInfo := mapPool.Get().(map[string]interface{})
+        // Clear it first (in case it contains data)
+        for k := range newInfo {
+            delete(newInfo, k)
+        }
+        // Now copy all key/value pairs.
+        for k, v := range vesselInfo {
+            newInfo[k] = v
+        }
+        copyMap[id] = newInfo
+    }
+    return copyMap
 }
 
 // isDuplicate checks if a message is a duplicate within the deduplication window.
