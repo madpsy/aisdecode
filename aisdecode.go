@@ -926,21 +926,67 @@ func filterVesselsByLocationAndLimit(vessels map[string]map[string]interface{},
 
 
 // equalMap performs a “shallow” equality check for maps with string keys.
-// Adjust this function if you know the maps contain only basic types.
+// equalMap compares two maps recursively.
 func equalMap(a, b map[string]interface{}) bool {
     if len(a) != len(b) {
         return false
     }
     for k, va := range a {
         vb, ok := b[k]
-        if !ok || va != vb { // simple equality for primitives
+        if !ok {
             return false
+        }
+        // Check the type of the value and compare accordingly.
+        switch vaTyped := va.(type) {
+        case map[string]interface{}:
+            vbTyped, ok := vb.(map[string]interface{})
+            if !ok || !equalMap(vaTyped, vbTyped) {
+                return false
+            }
+        case []interface{}:
+            vbSlice, ok := vb.([]interface{})
+            if !ok || !equalSlice(vaTyped, vbSlice) {
+                return false
+            }
+        default:
+            // Use the simple equality check for values assumed to be comparable (numbers, strings, etc.)
+            if va != vb {
+                return false
+            }
+        }
+    }
+    return true
+}
+
+// equalSlice compares two slices of interface{} recursively.
+func equalSlice(a, b []interface{}) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for i, va := range a {
+        vb := b[i]
+        switch vaTyped := va.(type) {
+        case map[string]interface{}:
+            vbTyped, ok := vb.(map[string]interface{})
+            if !ok || !equalMap(vaTyped, vbTyped) {
+                return false
+            }
+        case []interface{}:
+            vbSlice, ok := vb.([]interface{})
+            if !ok || !equalSlice(vaTyped, vbSlice) {
+                return false
+            }
+        default:
+            if va != vb {
+                return false
+            }
         }
     }
     return true
 }
 
 // mergeMaps merges newData into baseData. Values in newData override those in baseData.
+// It updates baseData only if the new value is different.
 func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[string]interface{} {
     if baseData == nil {
         baseData = make(map[string]interface{})
@@ -990,10 +1036,15 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
         }
         // For keys that already exist, update only if the value is actually different.
         if existing, ok := baseData[key]; ok {
-            // When both values are maps, use the custom comparison instead of reflect.DeepEqual.
             if a, okA := existing.(map[string]interface{}); okA {
                 if b, okB := value.(map[string]interface{}); okB {
                     if equalMap(a, b) {
+                        continue
+                    }
+                }
+            } else if existingSlice, okA := existing.([]interface{}); okA {
+                if b, okB := value.([]interface{}); okB {
+                    if equalSlice(existingSlice, b) {
                         continue
                     }
                 }
@@ -1044,6 +1095,7 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
 
     return baseData
 }
+
 
 // filterCompleteVesselData filters vessels that have all required fields.
 func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[string]map[string]interface{} {
