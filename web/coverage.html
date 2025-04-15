@@ -241,7 +241,7 @@
       try {
         let dataUrl = "";
         if (receiver.local) {
-          dataUrl = "/state";
+          dataUrl = "/summary";
         } else {
           dataUrl = `/receivers/${receiver.id}/state.json`;
         }
@@ -302,7 +302,8 @@
             AISClass: vessel.AISClass,
             imageURL: vessel.ImageURL,
             vesselType: vesselType, // only for Class A & B vessels
-            numMessages: vessel.NumMessages || 0  // store the number of messages
+            numMessages: vessel.NumMessages || 0, // store the number of messages
+            UserID: vessel.UserID  // to be used for fetching updated state data on hover
           });
         }
     
@@ -368,23 +369,24 @@
     
         // --- Add vessel markers.
         filteredVessels.forEach(vessel => {
+          // Create the initial tooltip content (will be updated on hover)
           const relativeTime = timeAgo(vessel.lastUpdated);
-          let tooltipContent = `<div style="display: flex; align-items: center;">`;
-          tooltipContent += `<div style="flex: 1; text-align: left;">`;
-          tooltipContent += `<div><strong>${vessel.name}</strong></div>`;
-          tooltipContent += `<div>MMSI: ${vessel.mmsi}</div>`;
-          tooltipContent += `<div>Distance: ${vessel.distance.toFixed(2)} NM</div>`;
-          tooltipContent += `<div>Last Updated: ${relativeTime}</div>`;
-          tooltipContent += `<div>Class: ${vessel.AISClass}</div>`;
+          let initialTooltip = `<div style="display: flex; align-items: center;">`;
+          initialTooltip += `<div style="flex: 1; text-align: left;">`;
+          initialTooltip += `<div><strong>${vessel.name}</strong></div>`;
+          initialTooltip += `<div>MMSI: ${vessel.mmsi}</div>`;
+          initialTooltip += `<div>Distance: ${vessel.distance.toFixed(2)} NM</div>`;
+          initialTooltip += `<div>Last Updated: ${relativeTime}</div>`;
+          initialTooltip += `<div>Class: ${vessel.AISClass}</div>`;
           if (vessel.vesselType) {
-            tooltipContent += `<div>Type: ${vessel.vesselType}</div>`;
+            initialTooltip += `<div>Type: ${vessel.vesselType}</div>`;
           }
-          tooltipContent += `<div>Messages: ${vessel.numMessages}</div>`;
-          tooltipContent += `</div>`;
+          initialTooltip += `<div>Messages: ${vessel.numMessages}</div>`;
+          initialTooltip += `</div>`;
           if (vessel.imageURL && vessel.imageURL.trim() !== "") {
-            tooltipContent += `<div style="margin-left: 10px;"><img src="${vessel.imageURL}" style="width:100px; height:auto;"/></div>`;
+            initialTooltip += `<div style="margin-left: 10px;"><img src="${vessel.imageURL}" style="width:100px; height:auto;"/></div>`;
           }
-          tooltipContent += `</div>`;
+          initialTooltip += `</div>`;
     
           const colorMap = {
             'A': 'blue',
@@ -401,15 +403,51 @@
             fillOpacity: 1,
             weight: 1
           })
-          .bindTooltip(tooltipContent, {direction: 'top', sticky: true})
+          .bindTooltip(initialTooltip, {direction: 'top', sticky: true})
           .addTo(mapInstance);
+    
+          // On click, simply open the tooltip.
           marker.on('click', function() {
             closeAllVesselTooltips(this);
             this.openTooltip();
           });
+    
+          // On mouseover, fetch the updated state data and update the tooltip.
           marker.on('mouseover', function() {
             closeAllVesselTooltips(this);
-            this.openTooltip();
+            // Fetch updated data from /state/<UserID>
+            fetch(`/state/${vessel.UserID}`)
+              .then(response => {
+                if (!response.ok) {
+                  throw new Error("Network response was not ok");
+                }
+                return response.json();
+              })
+              .then(stateData => {
+                const updatedRelativeTime = timeAgo(stateData.LastUpdated);
+                let updatedTooltip = `<div style="display: flex; align-items: center;">`;
+                updatedTooltip += `<div style="flex: 1; text-align: left;">`;
+                updatedTooltip += `<div><strong>${stateData.Name}</strong></div>`;
+                updatedTooltip += `<div>CallSign: ${stateData.CallSign || 'N/A'}</div>`;
+                updatedTooltip += `<div>Destination: ${stateData.Destination || 'N/A'}</div>`;
+                updatedTooltip += `<div>Distance: ${vessel.distance.toFixed(2)} NM</div>`;
+                updatedTooltip += `<div>Last Updated: ${updatedRelativeTime}</div>`;
+                updatedTooltip += `<div>Class: ${stateData.AISClass}</div>`;
+                updatedTooltip += `<div>Messages: ${stateData.NumMessages}</div>`;
+                updatedTooltip += `</div>`;
+                if (stateData.ImageURL && stateData.ImageURL.trim() !== "") {
+                  updatedTooltip += `<div style="margin-left: 10px;"><img src="${stateData.ImageURL}" style="width:100px; height:auto;"/></div>`;
+                }
+                updatedTooltip += `</div>`;
+                // Update the tooltip with the fresh data.
+                this.bindTooltip(updatedTooltip, {direction: 'top', sticky: true});
+                this.openTooltip();
+              })
+              .catch(err => {
+                console.error("Error fetching updated state for vessel:", err);
+                // Fallback: use the initial tooltip if fetching fails.
+                this.openTooltip();
+              });
           });
           vesselMarkers[vessel.mmsi] = marker;
         });

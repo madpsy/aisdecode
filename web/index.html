@@ -3080,15 +3080,27 @@ function focusOnVessel(userID, initialFocus = true) {
       <br><a href="https://www.vesselfinder.com/vessels/details/${vesselData[userID].UserID}" target="_blank">Lookup</a> |
       <span id="copy-link" style="cursor:pointer; color:blue;">Link</span>`;
     if (vesselData[userID].ImageURL) {
-      headerEl.innerHTML += `<br><img id="vessel-image" src="${vesselData[userID].ImageURL}" style="max-width: 100%; margin: 5px 0; height: auto; cursor:pointer;" alt="Vessel Image">`;
-      attachImageClick();
-      detailOverlay.style.maxHeight = '400px';
+      headerEl.innerHTML += `<br><img id="vessel-image" src="${vesselData[userID].ImageURL}" 
+      style="max-width: 100%; margin: 5px 0; height: auto; cursor:pointer;" 
+      alt="Vessel Image" />`;
+
+      const vesselImg = document.getElementById('vessel-image');
+  
+      vesselImg.onload = function() {
+       // Image loaded successfully; now attach click event or any other interactions.
+       attachImageClick();
+       detailOverlay.style.maxHeight = '400px';
+     };
+  
+     vesselImg.onerror = function() {
+        console.error("Image failed to load:", vesselData[userID].ImageURL);
+    };
     } else {
       detailOverlay.style.maxHeight = '300px';
     }
-  } else {
-    headerEl.textContent = "Vessel Details";
-  }
+     } else {
+       headerEl.textContent = "Vessel Details";
+    }
   
   // Attach copy link event.
   const copyLinkEl = document.getElementById('copy-link');
@@ -3340,10 +3352,12 @@ window.addEventListener('load', () => {
       },
       (error) => {
         debouncedAdjustMapBounds();
+        map.fire('moveend');
       }
     );
   } else {
     debouncedAdjustMapBounds();
+    map.fire('moveend');
   }
 
  refreshReceivers();

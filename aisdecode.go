@@ -1681,25 +1681,6 @@ func main() {
 	            clientSummaryFiltersMutex.Unlock()
 		})
 
-
-		client.On("requestState", func(args ...any) {
-		    log.Printf("Client %s requested latest vessel state", client.Id())
-    
-		    vesselDataMutex.Lock()
-		    completeData := filterCompleteVesselData(vesselData)
-		    vesselDataMutex.Unlock()
-
-		    stateJSON, err := json.Marshal(completeData)
-		    if err != nil {
-		        log.Printf("Error marshaling latest vessel state: %v", err)
-		        return
-		    }
-		
-		    if err := sioServer.To(socket.Room("latest_vessel_state")).Emit("latest_vessel_state", string(stateJSON)); err != nil {
-		        log.Printf("Error sending latest vessel state to client %s: %v", client.Id(), err)
-		    }
-		})
-
 		client.On("requestSummary", func(args ...any) {
 		    // Throttle summary requests: if this client has requested very recently, drop the new request.
 		    lastSummaryRequestMutex.Lock()
@@ -1951,16 +1932,6 @@ func main() {
 		vesselDataMutex.Lock()
 		defer vesselDataMutex.Unlock()
 
-		// If no specific userID is provided, return all complete vessels.
-		if userID == "" {
-			latestData := filterCompleteVesselData(vesselData)
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(latestData); err != nil {
-				http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
-			}
-			return
-		}
-
 		// Lookup the vessel data for the specified userID.
 		vessel, exists := vesselData[userID]
 		if !exists {
@@ -1976,34 +1947,140 @@ func main() {
 	})
 
 	http.HandleFunc("/summary/", func(w http.ResponseWriter, r *http.Request) {
-	    // Extract the vessel userid from the URL path.
+	    // Extract an optional vessel ID from the URL.
 	    userID := strings.TrimPrefix(r.URL.Path, "/summary/")
+    
 	    vesselDataMutex.Lock()
 	    defer vesselDataMutex.Unlock()
-
-	    // If no specific userID is provided, return summary data for all complete vessels.
-	    if userID == "" {
-	        completeData := filterCompleteVesselData(vesselData)
-	        summaryData := filterVesselSummary(completeData)
+    
+	    // If a specific vessel ID is provided, return only that vessel's summary.
+	    if userID != "" {
+	        vessel, exists := vesselData[userID]
+	        if !exists {
+	            http.Error(w, "Vessel not found", http.StatusNotFound)
+	            return
+	        }
+	        vesselSummary := filterVesselSummary(map[string]map[string]interface{}{
+	            userID: vessel,
+	        })
 	        w.Header().Set("Content-Type", "application/json")
-	        if err := json.NewEncoder(w).Encode(summaryData); err != nil {
+	        if err := json.NewEncoder(w).Encode(vesselSummary[userID]); err != nil {
 	            http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
 	        }
 	        return
 	    }
-
-	    // Lookup the vessel data for the specified userID.
-	    vessel, exists := vesselData[userID]
-	    if !exists {
-	        http.Error(w, "Vessel not found", http.StatusNotFound)
+    
+	    // Get a complete copy of vessel data.
+	    completeData := filterCompleteVesselData(vesselData)
+    
+	    // Parse query parameters.
+	    query := r.URL.Query()
+	    latStr := query.Get("latitude")
+	    lonStr := query.Get("longitude")
+	    radiusStr := query.Get("radius")
+	    maxResultsStr := query.Get("maxResults")
+	    maxAgeStr := query.Get("maxAge")
+    
+	    var (
+	        lat, lon, radius, maxAge float64
+	        maxResults               int
+	        err                      error
+	    )
+    
+	    if latStr != "" {
+	        lat, err = strconv.ParseFloat(latStr, 64)
+	        if err != nil {
+	            lat = 0
+	        }
+	    }
+	    if lonStr != "" {
+	        lon, err = strconv.ParseFloat(lonStr, 64)
+	        if err != nil {
+	            lon = 0
+	        }
+	    }
+	    if radiusStr != "" {
+	        radius, err = strconv.ParseFloat(radiusStr, 64)
+	        if err != nil {
+	            radius = 0
+	        }
+	    }
+	    if maxResultsStr != "" {
+	        maxResults, err = strconv.Atoi(maxResultsStr)
+	        if err != nil {
+	            maxResults = 0
+	        }
+	    }
+	    if maxAgeStr != "" {
+	        maxAge, err = strconv.ParseFloat(maxAgeStr, 64)
+	        if err != nil {
+	            maxAge = 24
+	        }
+	    } else {
+	        maxAge = 24 // default 24 hours if not provided
+	    }
+	    // Enforce sensible maxAge limits (between >0 and 168 hours).
+	    if maxAge <= 0 || maxAge > 168 {
+	        maxAge = 24
+	    }
+    
+	    var filtered map[string]map[string]interface{}
+	    // If a spatial filter is provided, use the existing helper to filter by location and age.
+	    if lat != 0 || lon != 0 || radius != 0 {
+	        filtered = filterVesselsByLocationAndLimit(completeData, lat, lon, radius, maxResults, maxAge)
+	    } else {
+	        // If no spatial filtering, enforce maxAge filtering.
+	        cutoff := time.Now().UTC().Add(-time.Duration(maxAge * float64(time.Hour)))
+	        filtered = make(map[string]map[string]interface{})
+	        for id, vessel := range completeData {
+	            tStr, ok := vessel["LastUpdated"].(string)
+	            if !ok {
+	                continue
+	            }
+	            t, err := time.Parse(time.RFC3339Nano, tStr)
+	            if err != nil {
+	                continue
+	            }
+	            if t.Before(cutoff) {
+	                continue
+	            }
+	            filtered[id] = vessel
+	        }
+	    }
+	    
+	    // Build the summary.
+	    summaryData := filterVesselSummary(filtered)
+	    
+	    // If maxResults is specified and greater than zero, limit the number of returned entries.
+	    if maxResults > 0 && len(summaryData) > maxResults {
+	        // Convert map to a slice.
+	        summarySlice := make([]map[string]interface{}, 0, len(summaryData))
+	        for _, entry := range summaryData {
+	            summarySlice = append(summarySlice, entry)
+	        }
+	        // Optionally, sort the slice by LastUpdated (descending).
+	        sort.Slice(summarySlice, func(i, j int) bool {
+	            t1, err1 := time.Parse(time.RFC3339Nano, fmt.Sprintf("%v", summarySlice[i]["LastUpdated"]))
+	            t2, err2 := time.Parse(time.RFC3339Nano, fmt.Sprintf("%v", summarySlice[j]["LastUpdated"]))
+	            if err1 != nil || err2 != nil {
+	                return false
+	            }
+	            return t1.After(t2)
+	        })
+	        // Truncate the slice.
+	        summarySlice = summarySlice[:maxResults]
+	        w.Header().Set("Content-Type", "application/json")
+	        if err := json.NewEncoder(w).Encode(summarySlice); err != nil {
+	            http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+	        }
 	        return
 	    }
-
-	    // Create a summary for the specific vessel.
-	    vesselSummary := filterVesselSummary(map[string]map[string]interface{}{userID: vessel})
+	    
+	    // Return the summary map if no truncation is needed.
 	    w.Header().Set("Content-Type", "application/json")
-	    if err := json.NewEncoder(w).Encode(vesselSummary[userID]); err != nil {
+	    if err := json.NewEncoder(w).Encode(summaryData); err != nil {
 	        http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+	        return
 	    }
 	})
 
