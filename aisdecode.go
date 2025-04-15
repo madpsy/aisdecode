@@ -31,6 +31,10 @@ import (
 
 var startTime = time.Now()
 
+var liveVesselData = make(map[string]map[string]interface{})
+var liveDataMutex sync.RWMutex  // Protects liveVesselData
+var previousVesselDataMutex sync.RWMutex
+
 type SlidingWindowCounter struct {
     mu     sync.Mutex
     events []time.Time
@@ -791,9 +795,9 @@ func externalLookupCall(vesselID string, lookupURL string, stateDir string) {
     }
 
     // Update vessel state with the lookup results.
-    vesselDataMutex.Lock()
-    defer vesselDataMutex.Unlock()
-    if vessel, exists := vesselData[vesselID]; exists {
+    liveDataMutex.Lock()
+    defer liveDataMutex.Unlock()
+    if vessel, exists := liveVesselData[vesselID]; exists {
         vessel["Name"] = nameStr
         if callSignStr != "" {
             vessel["CallSign"] = callSignStr
@@ -898,6 +902,21 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
     }
     // Merge all top-level keys from newData, with special logic for "Name".
     for key, value := range newData {
+        if key == "LastUpdated" {
+             if currentVal, exists := baseData["LastUpdated"]; exists {
+            newTS, err := time.Parse(time.RFC3339Nano, value.(string))
+              if err != nil {
+                continue
+              }
+              currentTS, err := time.Parse(time.RFC3339Nano, currentVal.(string))
+              if err != nil {
+                continue
+              }
+              if newTS.Before(currentTS) {
+                return baseData
+              }
+           }
+        }
         if key == "Name" {
             incomingName, ok := value.(string)
             if !ok || strings.TrimSpace(incomingName) == "" {
@@ -1369,6 +1388,30 @@ func filterVesselSummary(vessels map[string]map[string]interface{}) map[string]m
 	return summary
 }
 
+
+func handleReceivedState(conn net.Conn) {
+    defer conn.Close()
+    data, err := io.ReadAll(conn)
+    if err != nil {
+        log.Printf("Error reading from receive-state connection: %v", err)
+        return
+    }
+    var receivedState map[string]map[string]interface{}
+    if err := json.Unmarshal(data, &receivedState); err != nil {
+        log.Printf("Error unmarshaling received state JSON: %v", err)
+        return
+    }
+    liveDataMutex.Lock()
+    defer liveDataMutex.Unlock()
+    count := 0
+    for vesselID, newState := range receivedState {
+        merged := mergeMaps(liveVesselData[vesselID], newState, "receive-state")
+        liveVesselData[vesselID] = merged
+        count++
+    }
+    log.Printf("Merged received state for %d vessel(s)", count)
+}
+
 func main() {
 	startTime := time.Now()
 	// Command-line flags.
@@ -1391,8 +1434,29 @@ func main() {
 	allowAllUUIDs := flag.Bool("allow-all-uuids", false, "If specified, allows all receiver UUIDs (by default, UUIDs are restricted via allowed list)")
 	logAllDecodesDir := flag.String("log-all-decodes", "", "Directory path to log every decoded message (optional)")
 	aggregatorUploadPeriod := flag.Int("aggregator-upload-period", 1, "Aggregator upload period in minutes (default: 1, 0 disables periodic uploads)")
+	sendState := flag.String("send-state", "", "TCP destination (ip:port) to send JSON state")
+	receiveStatePort := flag.Int("receive-state", 0, "TCP port to listen on for incoming state JSON messages")
 
 	flag.Parse()
+
+	if *receiveStatePort > 0 {
+	    go func() {
+	        addr := fmt.Sprintf(":%d", *receiveStatePort)
+	        ln, err := net.Listen("tcp", addr)
+	        if err != nil {
+	            log.Fatalf("Error starting receive-state TCP listener on %s: %v", addr, err)
+	        }
+	        log.Printf("Listening for incoming state on TCP port %d", *receiveStatePort)
+	        for {
+	            conn, err := ln.Accept()
+	            if err != nil {
+	                log.Printf("Error accepting connection on receive-state listener: %v", err)
+	                continue
+        	    }
+	            go handleReceivedState(conn)
+	        }
+	    }()
+	}
 	
 	if *stateDir != "" {
   	   if err := os.MkdirAll(*stateDir, 0755); err != nil {
@@ -1548,6 +1612,12 @@ func main() {
 					vesselDataMutex.Lock()
 					vesselData = loadedData
 					vesselDataMutex.Unlock()
+					liveDataMutex.Lock()
+					for id, state := range loadedData {
+						liveVesselData[id] = state
+					}
+					liveDataMutex.Unlock()
+					
 					log.Printf("Loaded vessel state from %s", statePath)
 				}
 			}
@@ -3091,8 +3161,10 @@ func main() {
 
 		decoded, err := nmeaCodec.ParseSentence(rawNmea)
 		if err != nil {
+		  if *debug {
 		    log.Printf("Error decoding sentence: %v", err)
-		    continue
+                  }
+		  continue
 		}
 		if decoded == nil || decoded.Packet == nil {
 		    continue
@@ -3175,12 +3247,12 @@ func main() {
 			aggregatorDedupeWindow = append(aggregatorDedupeWindow, dedupeState{message: rawNmea, timestamp: time.Now()})
 
 			// Process vessel data update.
-			vesselDataMutex.Lock()
+			liveDataMutex.Lock()
 
 			cleanInvalidData(newData)
 
 			msgType := getMessageTypeName(decoded.Packet)
-			merged := mergeMaps(vesselData[vesselID], newData, msgType)
+			merged := mergeMaps(liveVesselData[vesselID], newData, msgType)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			addMessageType(merged, decoded.Packet)
 			// Get current time
@@ -3203,8 +3275,8 @@ func main() {
 
 			// Set rolling total for NumMessages.
 			merged["NumMessages"] = float64(len(validTimestamps))
-			vesselData[vesselID] = merged
-			vesselDataMutex.Unlock()
+			liveVesselData[vesselID] = merged
+			liveDataMutex.Unlock()
 
 			if *externalLookupURL != "" {
 			    vesselDataMutex.Lock()
@@ -3329,7 +3401,10 @@ func main() {
 			vesselDataMutex.Lock()
 			latestData := filterCompleteVesselData(vesselData)
 			vesselDataMutex.Unlock()
-			if !isDataChanged(latestData, previousVesselData) {
+			previousVesselDataMutex.RLock()
+			changed := isDataChanged(latestData, previousVesselData)
+			previousVesselDataMutex.RUnlock()
+			if !changed {
 				continue
 			}
 			changeMutex.Lock()
@@ -3352,18 +3427,51 @@ func main() {
 	        currentData := filterCompleteVesselData(vesselData)
 	        vesselDataMutex.Unlock()
 
-	        // Save the complete vessel state to disk (if state persistence is enabled).
-	        latestDataJSON, err := json.Marshal(currentData)
-	        if err != nil {
-	            log.Printf("Error marshaling complete vessel data for state file: %v", err)
-	        } else if !*noState {
-	            if err := os.WriteFile(statePath, latestDataJSON, 0644); err != nil {
-	                log.Printf("Error writing state file %s: %v", statePath, err)
-	            }
-	        }
+		latestDataJSON, err := json.Marshal(currentData)
+		if err != nil {
+		    log.Printf("Error marshaling complete vessel data: %v", err)
+		    continue
+		}
+
+		// Write state to disk first, if disk writing is enabled.
+		if !*noState {
+		    if err := os.WriteFile(statePath, latestDataJSON, 0644); err != nil {
+		        log.Printf("Error writing state file %s: %v", statePath, err)
+		    }
+		}
+
+		// If a TCP address is provided, push the data over TCP with timeouts.
+		if *sendState != "" {
+		    // Define timeout durations.
+		    dialTimeout := 1 * time.Second  // Timeout for establishing the connection.
+		    writeTimeout := 10 * time.Second // Timeout for the write operation.
+
+		    // Use DialTimeout to establish the connection within the timeout period.
+		    conn, err := net.DialTimeout("tcp", *sendState, dialTimeout)
+		    if err != nil {
+		        log.Printf("Error dialing TCP address %s: %v", *sendState, err)
+		    } else {
+		        // Set a deadline for both reading and writing on the connection.
+		        err = conn.SetDeadline(time.Now().Add(writeTimeout))
+		        if err != nil {
+		            log.Printf("Error setting deadline for TCP connection: %v", err)
+		        } else {
+		            // Write the JSON state over TCP.
+		            _, err = conn.Write(latestDataJSON)
+		            if err != nil {
+		                log.Printf("Error sending state via TCP: %v", err)
+		            } else {
+				log.Printf("Sent state via TCP")
+			    }
+		        }
+		        conn.Close()
+		    }
+		}
 	
 	        // Update the copy of previous vessel data.
+		previousVesselDataMutex.Lock()
 	        previousVesselData = deepCopyVesselData(currentData)
+		previousVesselDataMutex.Unlock()
 	
 	        // Optionally log (or dump) the latest vessel data.
 	        if *dumpVesselData {
@@ -3565,16 +3673,31 @@ func main() {
 	        vesselMsgTimestampsMutex.Unlock()
         
 	        // Step 2: Update vesselData with the computed counts.
-	        vesselDataMutex.Lock()
+	        liveDataMutex.Lock()
 	        for vesselID, count := range validCounts {
-	            if vessel, exists := vesselData[vesselID]; exists {
+	            if vessel, exists := liveVesselData[vesselID]; exists {
 	                vessel["NumMessages"] = float64(count)
 	            }
 	        }
-	        vesselDataMutex.Unlock()
+	        liveDataMutex.Unlock()
 	    }
 	}()
 
+go func() {
+    ticker := time.NewTicker(3 * time.Second)
+    defer ticker.Stop()
+    for range ticker.C {
+        // Lock and deep-copy liveVesselData in one shot.
+        liveDataMutex.RLock()
+        snapshot := deepCopyVesselData(liveVesselData)
+        liveDataMutex.RUnlock()
+        
+        // Update the snapshot to be served by HTTP handlers, etc.
+        vesselDataMutex.Lock()
+        vesselData = snapshot
+        vesselDataMutex.Unlock()
+    }
+}()
 
 	// --- Read from serial port line-by-line (if -serial-port is specified) ---
 	if *serialPort != "" {
@@ -3618,8 +3741,10 @@ func main() {
 
 		decoded, err := nmeaCodec.ParseSentence(line)
 		if err != nil {
+                     if *debug {
 			log.Printf("Error decoding sentence: %v", err)
-			continue
+		     }
+		     continue
 		}
 			if decoded == nil || decoded.Packet == nil {
 				continue
@@ -3687,9 +3812,9 @@ func main() {
 			}
 
 			// Update vessel state using the same newData.
-			vesselDataMutex.Lock()
+			liveDataMutex.Lock()
 			msgType := getMessageTypeName(decoded.Packet)
-			merged := mergeMaps(vesselData[vesselID], newData, msgType)
+			merged := mergeMaps(liveVesselData[vesselID], newData, msgType)
 			merged["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
 			addMessageType(merged, decoded.Packet)
 			// Get current time
@@ -3713,8 +3838,8 @@ func main() {
 			// Set rolling total for NumMessages.
 			merged["NumMessages"] = float64(len(validTimestamps))
 
-			vesselData[vesselID] = merged
-			vesselDataMutex.Unlock()
+			liveVesselData[vesselID] = merged
+			liveDataMutex.Unlock()
 
 			if *externalLookupURL != "" {
 			    vesselDataMutex.Lock()
@@ -3839,7 +3964,10 @@ func main() {
 			vesselDataMutex.Lock()
 			latestData := filterCompleteVesselData(vesselData)
 			vesselDataMutex.Unlock()
-			if !isDataChanged(latestData, previousVesselData) {
+			previousVesselDataMutex.RLock()
+			changed := isDataChanged(latestData, previousVesselData)
+			previousVesselDataMutex.RUnlock()
+			if !changed {
 				continue
 			}
 			changeMutex.Lock()
