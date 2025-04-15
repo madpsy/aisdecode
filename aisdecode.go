@@ -387,6 +387,29 @@ func cleanupOldVessels(expireAfter time.Duration) {
     }
 }
 
+func cleanupOldLiveVessels(expireAfter time.Duration) {
+    cutoff := time.Now().UTC().Add(-expireAfter)
+    liveDataMutex.Lock()
+    defer liveDataMutex.Unlock()
+    for id, vessel := range liveVesselData {
+        if tStr, ok := vessel["LastUpdated"].(string); ok {
+            if t, err := time.Parse(time.RFC3339Nano, tStr); err == nil {
+                if t.Before(cutoff) {
+                    // For logging, format the UserID as needed.
+                    var userIDFormatted string
+                    if userFloat, ok := vessel["UserID"].(float64); ok {
+                        userIDFormatted = fmt.Sprintf("%.0f", userFloat)
+                    } else {
+                        userIDFormatted = fmt.Sprintf("%v", vessel["UserID"])
+                    }
+                    log.Printf("Deleting live vessel: id=%s, UserID=%s, LastUpdated=%s", id, userIDFormatted, tStr)
+                    delete(liveVesselData, id)
+                }
+            }
+        }
+    }
+}
+
 func updateDistanceMetrics(vesselLat, vesselLon, receiverLat, receiverLon float64) {
     distance := haversine(receiverLat, receiverLon, vesselLat, vesselLon)
     
@@ -1642,11 +1665,13 @@ func main() {
 	}()
 
 	cleanupOldVessels(*expireAfter)
+	cleanupOldLiveVessels(*expireAfter)
 	go func() {
 	    ticker := time.NewTicker(1 * time.Hour)
 	    defer ticker.Stop()
 	    for range ticker.C {
 	        cleanupOldVessels(*expireAfter)
+		cleanupOldLiveVessels(*expireAfter)
 	    }
 	}()
 	
