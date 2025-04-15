@@ -14,7 +14,7 @@ go mod tidy
 # Create output directory.
 mkdir -p build
 
-# Build function for a given platform.
+# Function to build binary for a given platform.
 build_binary() {
   local os="$1"
   local arch="$2"
@@ -23,12 +23,24 @@ build_binary() {
   env GOOS="$os" GOARCH="$arch" go build -o "build/${out}" .
 }
 
-# Build for each target platform.
-build_binary linux   amd64   "aisdecode-linux-amd64"
-build_binary darwin  amd64   "aisdecode-darwin-amd64"
-build_binary windows amd64   "aisdecode-windows-amd64.exe"
-build_binary linux   arm     "aisdecode-linux-arm"
-build_binary linux   arm64   "aisdecode-linux-arm64"
-
-echo "All builds succeeded. Binaries are located in the 'build' directory."
-
+# Check if the -all flag was provided.
+if [ "$1" == "-all" ]; then
+    # Build all defined OS/architecture combinations.
+    build_binary linux   amd64   "aisdecode-linux-amd64"
+    build_binary darwin  amd64   "aisdecode-darwin-amd64"
+    build_binary windows amd64   "aisdecode-windows-amd64.exe"
+    build_binary linux   arm     "aisdecode-linux-arm"
+    build_binary linux   arm64   "aisdecode-linux-arm64"
+    echo "All builds succeeded. Binaries are located in the 'build' directory."
+else
+    # Build only for the host OS/architecture.
+    host_os=$(go env GOOS)
+    host_arch=$(go env GOARCH)
+    output_name="aisdecode-${host_os}-${host_arch}"
+    if [ "$host_os" == "windows" ]; then
+        output_name="${output_name}.exe"
+    fi
+    echo "Building for host: ${host_os} (${host_arch})..."
+    go build -o "build/${output_name}" .
+    echo "Build succeeded. Binary is located in the 'build' directory."
+fi

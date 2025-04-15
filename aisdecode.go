@@ -3684,7 +3684,7 @@ func main() {
 	}()
 
 go func() {
-    ticker := time.NewTicker(3 * time.Second)
+    ticker := time.NewTicker(1 * time.Second)
     defer ticker.Stop()
     for range ticker.C {
         // Lock and deep-copy liveVesselData in one shot.
