@@ -20,6 +20,7 @@ import (
 	"net/url"
         "io"
 	"sort"
+	_ "net/http/pprof"
 
 	"go.bug.st/serial"
 	"github.com/google/uuid"
@@ -3721,6 +3722,15 @@ go func() {
         vesselDataMutex.Lock()
         vesselData = snapshot
         vesselDataMutex.Unlock()
+    }
+}()
+
+
+go func() {
+    // This server will serve pprof endpoints at http://localhost:6060/debug/pprof/
+    log.Println("Starting pprof server on :6060")
+    if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+        log.Fatalf("pprof server failed: %v", err)
     }
 }()
 
