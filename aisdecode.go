@@ -1143,16 +1143,16 @@ func isDataChanged(currentData, previousData map[string]map[string]interface{}) 
 }
 
 func deepCopyVesselData(original map[string]map[string]interface{}) map[string]map[string]interface{} {
-    // Allocate the top-level copy with the same capacity.
+    // Preallocate the top-level map with the same capacity as the original.
     copyMap := make(map[string]map[string]interface{}, len(original))
     for id, vesselInfo := range original {
-        // Get a new map from the pool.
+        // Get an empty map from the pool.
         newInfo := mapPool.Get().(map[string]interface{})
-        // Clear it first (in case it contains data)
+        // Clear any data leftover from previous usage.
         for k := range newInfo {
             delete(newInfo, k)
         }
-        // Now copy all key/value pairs.
+        // Copy all key-value pairs.
         for k, v := range vesselInfo {
             newInfo[k] = v
         }
