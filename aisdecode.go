@@ -20,6 +20,7 @@ import (
 	"net/url"
         "io"
 	"sort"
+	"reflect"
 	_ "net/http/pprof"
 
 	"go.bug.st/serial"
@@ -930,40 +931,36 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
     if baseData == nil {
         baseData = make(map[string]interface{})
     }
-    // Merge all top-level keys from newData, with special logic for "Name".
+    // Merge all top-level keys from newData; update only if the new value is different.
     for key, value := range newData {
         if key == "LastUpdated" {
-             if currentVal, exists := baseData["LastUpdated"]; exists {
-            newTS, err := time.Parse(time.RFC3339Nano, value.(string))
-              if err != nil {
-                continue
-              }
-              currentTS, err := time.Parse(time.RFC3339Nano, currentVal.(string))
-              if err != nil {
-                continue
-              }
-              if newTS.Before(currentTS) {
-                return baseData
-              }
-           }
+            if currentVal, exists := baseData["LastUpdated"]; exists {
+                newTS, err := time.Parse(time.RFC3339Nano, value.(string))
+                if err != nil {
+                    continue
+                }
+                currentTS, err := time.Parse(time.RFC3339Nano, currentVal.(string))
+                if err != nil {
+                    continue
+                }
+                if newTS.Before(currentTS) {
+                    continue
+                }
+            }
         }
         if key == "Name" {
             incomingName, ok := value.(string)
             if !ok || strings.TrimSpace(incomingName) == "" {
-     	      continue
-    	    }
+                continue
+            }
             incomingName = strings.TrimSpace(incomingName)
-            
-            // Determine the effective current name by stripping any NameExtension.
             effectiveCurrentName := ""
             if existingName, exists := baseData["Name"].(string); exists && strings.TrimSpace(existingName) != "" {
                 effectiveCurrentName = strings.TrimSpace(existingName)
                 var ext string
-                // Check for a NameExtension in baseData.
                 if e, ok := baseData["NameExtension"].(string); ok && strings.TrimSpace(e) != "" {
                     ext = strings.TrimSpace(e)
                 }
-                // Also check if newData carries a NameExtension.
                 if e, ok := newData["NameExtension"].(string); ok && strings.TrimSpace(e) != "" {
                     ext = strings.TrimSpace(e)
                 }
@@ -972,59 +969,32 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
                     effectiveCurrentName = strings.TrimSpace(effectiveCurrentName)
                 }
             }
-            // If there's an effective current name that is valid (not "NO NAME")
-            // and it matches the incoming name, then skip updating.
-            if effectiveCurrentName != "" && strings.ToUpper(effectiveCurrentName) != "NO NAME" && effectiveCurrentName == incomingName {
+            if effectiveCurrentName != "" && strings.ToUpper(effectiveCurrentName) != "NO NAME" &&
+                effectiveCurrentName == incomingName {
                 continue
             }
-            baseData["Name"] = incomingName
-        } else {
-            baseData[key] = value
         }
-    }
-
-    // Elevate selected fields from ReportA while keeping the nested structure.
-    if reportA, ok := newData["ReportA"].(map[string]interface{}); ok {
-        if name, ok := reportA["Name"].(string); ok && strings.TrimSpace(name) != "" {
-            if existingName, exists := baseData["Name"].(string); !exists ||
-                strings.TrimSpace(existingName) == "" ||
-                strings.ToUpper(strings.TrimSpace(existingName)) == "NO NAME" ||
-                strings.TrimSpace(existingName) != strings.TrimSpace(name) {
-                baseData["Name"] = strings.TrimSpace(name)
-            }
-        }
-    }
-
-    // Continue with other merging logic (e.g. ReportB, AISClass, etc.).
-    if reportB, ok := newData["ReportB"].(map[string]interface{}); ok {
-        if cs, ok := reportB["CallSign"].(string); ok && strings.TrimSpace(cs) != "" {
-            baseData["CallSign"] = cs
-        }
-        if dim, ok := reportB["Dimension"]; ok {
-            baseData["Dimension"] = dim
-        }
-        if fixType, ok := reportB["FixType"]; ok {
-            baseData["FixType"] = fixType
-        }
-        if shipType, ok := reportB["ShipType"]; ok {
-            if shipTypeFloat, ok := shipType.(float64); ok {
-                if shipTypeFloat != 0 || baseData["Type"] == nil {
-                    baseData["Type"] = shipType
-                }
-            } else if shipTypeStr, ok := shipType.(string); ok {
-                if shipTypeStr != "0" || baseData["Type"] == nil {
-                    baseData["Type"] = shipType
+        // For keys that already exist, update only if the value is actually different.
+        if existing, ok := baseData[key]; ok {
+            // When both values are maps, use reflect.DeepEqual to compare.
+            if reflect.TypeOf(existing).Kind() == reflect.Map &&
+                reflect.TypeOf(value).Kind() == reflect.Map {
+                if reflect.DeepEqual(existing, value) {
+                    continue
                 }
             } else {
-                baseData["Type"] = shipType
+                // For non-map types, a simple equality check is sufficient.
+                if existing == value {
+                    continue
+                }
             }
         }
+        baseData[key] = value
     }
-    
+
     // Set AISClass based on message type.
     switch msgType {
     case "ShipStaticData", "PositionReport":
-        // Class A messages: mark vessel as Class A.
         baseData["AISClass"] = "A"
     case "AidsToNavigationReport":
         baseData["AISClass"] = "AtoN"
@@ -1033,13 +1003,12 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
     case "StandardSearchAndRescueAircraftReport":
         baseData["AISClass"] = "SAR"
     default:
-        // Default to Class B if no class has been set.
         if _, ok := baseData["AISClass"]; !ok {
             baseData["AISClass"] = "B"
         }
     }
 
-    // Handle NameExtension: if present, append it if not already there.
+    // Handle NameExtension: if present, append it to the Name if not already included.
     if ext, ok := baseData["NameExtension"].(string); ok && strings.TrimSpace(ext) != "" {
         ext = strings.TrimSpace(ext)
         if name, ok := baseData["Name"].(string); ok && strings.TrimSpace(name) != "" {
@@ -1051,16 +1020,17 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
         }
         delete(baseData, "NameExtension")
     }
-    
-    // Fallback logic: if current Name is "NO NAME", then use fallback value based on msgType.
+
+    // Fallback logic: if current Name is "NO NAME", use a fallback based on msgType.
     if name, ok := baseData["Name"].(string); ok && strings.ToUpper(strings.TrimSpace(name)) == "NO NAME" {
         if fallback, valid := fallbackNameForMessageType(msgType); valid {
             baseData["Name"] = fallback
         }
     }
-    
+
     return baseData
 }
+
 
 // filterCompleteVesselData filters vessels that have all required fields.
 func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[string]map[string]interface{} {
