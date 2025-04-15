@@ -1066,24 +1066,32 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
 func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[string]map[string]interface{} {
     filteredData := make(map[string]map[string]interface{})
     for id, vesselInfo := range vesselData {
-        // Create a deep copy of the nested vesselInfo map.
-        copyInfo := make(map[string]interface{})
+        // Get a map from the pool for the deep copy.
+        copyInfo := mapPool.Get().(map[string]interface{})
+        // Clear any previous content.
+        for k := range copyInfo {
+            delete(copyInfo, k)
+        }
+        // Copy only the key/value pairs you need.
         for k, v := range vesselInfo {
             copyInfo[k] = v
         }
-        // Validate Latitude and Longitude from the copied map.
+        // Validate latitude and longitude.
         lat, latOk := copyInfo["Latitude"].(float64)
         lon, lonOk := copyInfo["Longitude"].(float64)
         if !latOk || !lonOk || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+            // Return the map to the pool if you are not using it.
+            mapPool.Put(copyInfo)
             continue
         }
-        // Set defaults if missing.
+        // Ensure defaults for missing fields.
         if copyInfo["CallSign"] == nil {
             copyInfo["CallSign"] = "NO CALL"
         }
         if name, ok := copyInfo["Name"].(string); !ok || strings.TrimSpace(name) == "" {
             copyInfo["Name"] = "NO NAME"
         }
+        // Add the validated copy to the filtered result.
         filteredData[id] = copyInfo
     }
     return filteredData
