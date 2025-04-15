@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 	"math"
-	"reflect"
 	"net/url"
         "io"
 	"sort"
