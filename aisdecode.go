@@ -925,6 +925,21 @@ func filterVesselsByLocationAndLimit(vessels map[string]map[string]interface{},
 }
 
 
+// equalMap performs a “shallow” equality check for maps with string keys.
+// Adjust this function if you know the maps contain only basic types.
+func equalMap(a, b map[string]interface{}) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for k, va := range a {
+        vb, ok := b[k]
+        if !ok || va != vb { // simple equality for primitives
+            return false
+        }
+    }
+    return true
+}
+
 // mergeMaps merges newData into baseData. Values in newData override those in baseData.
 func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[string]interface{} {
     if baseData == nil {
@@ -975,14 +990,14 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
         }
         // For keys that already exist, update only if the value is actually different.
         if existing, ok := baseData[key]; ok {
-            // When both values are maps, use reflect.DeepEqual to compare.
-            if reflect.TypeOf(existing).Kind() == reflect.Map &&
-                reflect.TypeOf(value).Kind() == reflect.Map {
-                if reflect.DeepEqual(existing, value) {
-                    continue
+            // When both values are maps, use the custom comparison instead of reflect.DeepEqual.
+            if a, okA := existing.(map[string]interface{}); okA {
+                if b, okB := value.(map[string]interface{}); okB {
+                    if equalMap(a, b) {
+                        continue
+                    }
                 }
             } else {
-                // For non-map types, a simple equality check is sufficient.
                 if existing == value {
                     continue
                 }
@@ -1029,7 +1044,6 @@ func mergeMaps(baseData, newData map[string]interface{}, msgType string) map[str
 
     return baseData
 }
-
 
 // filterCompleteVesselData filters vessels that have all required fields.
 func filterCompleteVesselData(vesselData map[string]map[string]interface{}) map[string]map[string]interface{} {
@@ -1147,18 +1161,21 @@ func deepCopyVesselData(original map[string]map[string]interface{}) map[string]m
     for id, vesselInfo := range original {
         // Get an empty map from the pool.
         newInfo := mapPool.Get().(map[string]interface{})
-        // Clear any data leftover from previous usage.
-        for k := range newInfo {
-            delete(newInfo, k)
+        // Instead of iterating over each key-value pair,
+        // you could preallocate a slice of keys
+        keys := make([]string, 0, len(vesselInfo))
+        for k := range vesselInfo {
+            keys = append(keys, k)
         }
-        // Copy all key-value pairs.
-        for k, v := range vesselInfo {
-            newInfo[k] = v
+        for _, k := range keys {
+            newInfo[k] = vesselInfo[k]
         }
+        // Optionally, you could now return the slice to a pool if you manage one.
         copyMap[id] = newInfo
     }
     return copyMap
 }
+
 
 // isDuplicate checks if a message is a duplicate within the deduplication window.
 func isDuplicate(message string, dedupeWindow []dedupeState, windowDuration time.Duration) bool {
