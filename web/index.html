@@ -519,6 +519,9 @@
 
 	let currentLoadedImageUrl = '';
 
+	const vesselSolidTracks = {};
+	const vesselColoredTracks = {};
+
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
 	let userLatLng = null;
@@ -1261,6 +1264,49 @@ function updateLegend() {
 
   // Display the legend
   document.getElementById('vessel-legend').style.display = 'block';
+}
+
+function getColorForSpeed(speed) {
+  // Clamp speed between 0 and 40
+  const clampedSpeed = Math.max(0, Math.min(40, speed));
+  // Calculate the ratio (0 = 0kn, 1 = 40kn)
+  const ratio = clampedSpeed / 40;
+  // For example: transition from green (#00FF00) to red (#FF0000)
+  const red = Math.floor(255 * ratio);
+  const green = Math.floor(255 * (1 - ratio));
+  return `rgb(${red}, ${green}, 0)`;
+}
+
+function createColoredTrack(track) {
+  const segments = [];
+  // Loop through the track segments
+  for (let i = 0; i < track.length - 1; i++) {
+    const pt1 = track[i];
+    const pt2 = track[i + 1];
+    // Use the speed of the first point (or average of pt1 and pt2) for the color
+    const speed = (pt1[3] != null ? pt1[3] : 0);
+    const color = getColorForSpeed(speed);
+    // Create a polyline segment with this color
+    const segment = L.polyline([[pt1[1], pt1[2]], [pt2[1], pt2[2]]], {
+      color: color,
+      weight: 3,
+      opacity: 0.8
+    });
+    segments.push(segment);
+  }
+  // Group the segments so you can treat them as one layer
+  return L.layerGroup(segments);
+}
+
+function updateFocusedVesselTrack(userID) {
+  if (focusedVessel === userID && vesselData[userID] && vesselData[userID].track) {
+    if (vesselColoredTracks[userID]) {
+      map.removeLayer(vesselColoredTracks[userID]);
+    }
+    const newColoredTrack = createColoredTrack(vesselData[userID].track);
+    vesselColoredTracks[userID] = newColoredTrack;
+    map.addLayer(newColoredTrack);
+  }
 }
 
 function createReceiverIcon() {
@@ -2846,6 +2892,8 @@ function getNearestTrackPoint(e, track) {
   });
   return nearestPoint;
 }
+
+
 
 
 // Focus on a particular vessel.
