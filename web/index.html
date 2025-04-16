@@ -2421,200 +2421,200 @@ function applyLogFilters() {
           document.getElementById('status-text').textContent = 'Disconnected';
         });
 
-        // Listen on "latest_vessel_data" which now provides a complete vessel state object.
-        socket.on("latest_vessel_summary", (data) => {
-	  const ageSlider = document.getElementById('age-slider');
-	  const maxAgeHours = parseInt(ageSlider.value, 10); // Get max-age from the slider
-	  const now = Date.now();
-	  const maxAgeMilliseconds = maxAgeHours * 3600000;  // Convert hours to milliseconds
+socket.on("latest_vessel_summary", (data) => {
+  const ageSlider = document.getElementById('age-slider');
+  const maxAgeHours = parseInt(ageSlider.value, 10); // Get max-age from the slider
+  const now = Date.now();
+  const maxAgeMilliseconds = maxAgeHours * 3600000;  // Convert hours to milliseconds
 
-          if (typeof data === "string") {
-            try {
-              data = JSON.parse(data);
-            } catch (e) {
-              console.error("Failed to parse JSON:", e);
-              return;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch (e) {
+      console.error("Failed to parse JSON:", e);
+      return;
+    }
+  }
+  if (typeof data !== "object" || Array.isArray(data)) {
+    console.error("Received invalid data format:", data);
+    return;
+  }
+
+  // Remove vessels that no longer appear in the summary data.
+  const newIDs = new Set(Object.keys(data));
+  for (const mmsi in vesselData) {
+    if (!newIDs.has(mmsi)) {
+      if (vesselMarkers[mmsi]) map.removeLayer(vesselMarkers[mmsi]);
+      if (vesselTracks[mmsi]) map.removeLayer(vesselTracks[mmsi]);
+      delete vesselData[mmsi];
+      delete vesselMarkers[mmsi];
+      delete vesselTracks[mmsi];
+    }
+  }
+
+  for (const mmsi in data) {
+    const vesselState = data[mmsi];
+    const vesselTimestamp = new Date(vesselState.LastUpdated).getTime();
+
+    // Create new vessel data if not already present.
+    if (!vesselData[mmsi]) {
+      vesselData[mmsi] = Object.assign({}, vesselState);
+      vesselData[mmsi].track = [];
+      vesselData[mmsi].color = randomColor();
+    } else {
+      // For a focused vessel, update only non-location/movement fields.
+      if (mmsi === focusedVessel) {
+        // Destructure to remove the location/movement fields.
+        const { Latitude, Longitude, Sog, Cog, TrueHeading, ...nonLocationData } = vesselState;
+        Object.assign(vesselData[mmsi], nonLocationData);
+      } else {
+        // Not in focus, so merge all fields.
+        Object.assign(vesselData[mmsi], vesselState);
+      }
+    }
+    // Always update these timestamp fields.
+    vesselData[mmsi].LastUpdated = vesselState.LastUpdated;
+    vesselData[mmsi].lastUpdate = vesselTimestamp;
+
+    // Update track history when valid location data is available.
+    if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
+      const tolerance = 1e-5;
+      const track = vesselData[mmsi].track;
+      const lastPoint = track[track.length - 1];
+      if (
+        !lastPoint ||
+        Math.abs(lastPoint[1] - vesselState.Latitude) > tolerance ||
+        Math.abs(lastPoint[2] - vesselState.Longitude) > tolerance
+      ) {
+        track.push([
+          vesselState.LastUpdated,
+          vesselState.Latitude,
+          vesselState.Longitude,
+          vesselState.Sog != null ? vesselState.Sog : null,
+          vesselState.Cog != null ? vesselState.Cog : null,
+          vesselState.TrueHeading != null ? vesselState.TrueHeading : null
+        ]);
+        if (track.length > 10000) {
+          track.shift();
+        }
+      }
+    }
+
+    const popupContent = createPopupContent(vesselData[mmsi]);
+
+    // Update marker/track if location data exists…
+    if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
+      if (mmsi !== focusedVessel) {
+        // For vessels not in focus, update location and movement fields.
+        const lat = vesselState.Latitude;
+        const lon = vesselState.Longitude;
+        if (vesselMarkers[mmsi]) {
+          vesselMarkers[mmsi].setLatLng([lat, lon]);
+          vesselMarkers[mmsi].getPopup().setContent(popupContent);
+          const markerElem = vesselMarkers[mmsi].getElement() || vesselMarkers[mmsi]._icon;
+          if (markerElem) {
+            const svg = markerElem.querySelector('svg');
+            if (svg) {
+              const heading =
+                (typeof vesselState.TrueHeading === 'number' && vesselState.TrueHeading < 360)
+                  ? vesselState.TrueHeading
+                  : (typeof vesselState.Cog === 'number' && vesselState.Cog >= 0 && vesselState.Cog < 360)
+                    ? vesselState.Cog
+                    : 0;
+              svg.style.transform = `rotate(${heading}deg)`;
             }
           }
-          if (typeof data !== "object" || Array.isArray(data)) {
-            console.error("Received invalid data format:", data);
-            return;
-          }
-
-          const newIDs = new Set(Object.keys(data));
-          for (const mmsi in vesselData) {
-            if (!newIDs.has(mmsi)) {
-              if (vesselMarkers[mmsi]) map.removeLayer(vesselMarkers[mmsi]);
-              if (vesselTracks[mmsi]) map.removeLayer(vesselTracks[mmsi]);
-              delete vesselData[mmsi];
-              delete vesselMarkers[mmsi];
-              delete vesselTracks[mmsi];
+          if (vesselState.Name && mmsi !== focusedVessel) {
+            vesselMarkers[mmsi].unbindTooltip();
+            if (map.getZoom() >= TOOLTIP_ZOOM_THRESHOLD) {
+              vesselMarkers[mmsi].bindTooltip(vesselState.Name, {
+                permanent: true,
+                direction: 'top',
+                className: 'vessel-tooltip',
+                interactive: true
+              }).openTooltip();
+              attachTooltipClick(vesselMarkers[mmsi], mmsi);
             }
           }
-          for (const mmsi in data) {
-	    const vesselState = data[mmsi];
-	    const vesselTimestamp = new Date(vesselState.LastUpdated).getTime();
-	    const vesselAgeMilliseconds = now - vesselTimestamp;
-
-	    if (
-	      !vesselState.MessageTypes ||
-	      !Array.isArray(vesselState.MessageTypes) ||
-	      !vesselState.MessageTypes.some(type => allowedMessageTypes[type])
-	    ) {
-	      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-	        map.removeLayer(vesselMarkers[mmsi]);
-	      }
-	      delete vesselData[mmsi];
-	      delete vesselMarkers[mmsi];
-	      delete vesselTracks[mmsi];
-	      continue; // Skip plotting this vessel.
-	    }
-
-            if (!vesselData[mmsi]) {
-              vesselData[mmsi] = Object.assign({}, vesselState);
-              vesselData[mmsi].track = [];
-              vesselData[mmsi].color = randomColor();
-            } else {
-              Object.assign(vesselData[mmsi], vesselState);
-            }
-    	    vesselData[mmsi].LastUpdated = vesselState.LastUpdated;
-	    vesselData[mmsi].lastUpdate = vesselTimestamp;
-	    if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
-	      const tolerance = 1e-5;
-	      const track = vesselData[mmsi].track;
-	      const lastPoint = track[track.length - 1];
-	      if (!lastPoint || 
-	          Math.abs(lastPoint[1] - vesselState.Latitude) > tolerance || 
-	          Math.abs(lastPoint[2] - vesselState.Longitude) > tolerance) {
-	        track.push([
-	          vesselState.LastUpdated,
-	          vesselState.Latitude,
-	          vesselState.Longitude,
-	          vesselState.Sog != null ? vesselState.Sog : null,
-	          vesselState.Cog != null ? vesselState.Cog : null,
-	          vesselState.TrueHeading != null ? vesselState.TrueHeading : null
-	        ]);
-	        if (track.length > 10000) {
-	          track.shift();
-	        }
-	      }
-	    }
-
-
-            const popupContent = createPopupContent(vesselData[mmsi]);
-            if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
-              const lat = vesselState.Latitude;
-              const lon = vesselState.Longitude;
-              if (vesselMarkers[mmsi]) {
-                vesselMarkers[mmsi].setLatLng([lat, lon]);
-                vesselMarkers[mmsi].getPopup().setContent(popupContent);
-    	    const markerElem = vesselMarkers[mmsi].getElement() || vesselMarkers[mmsi]._icon;
-    	    if (markerElem) {
-    	      const svg = markerElem.querySelector('svg');
-    	      if (svg) {
-		const heading = (typeof vesselState.TrueHeading === 'number' && vesselState.TrueHeading < 360)
-		  ? vesselState.TrueHeading
-		  : (typeof vesselState.Cog === 'number' && vesselState.Cog >= 0 && vesselState.Cog < 360) 
-		    ? vesselState.Cog 
-		    : 0;  // Default to 0° if neither TrueHeading nor Cog is valid.
-		if (heading !== undefined) {
-	    	        svg.style.transform = `rotate(${heading}deg)`;
-		}
-    	      }
-    	    }
-                if (vesselState.Name && mmsi !== focusedVessel) {
-                  vesselMarkers[mmsi].unbindTooltip();
-		  if (map.getZoom() >= TOOLTIP_ZOOM_THRESHOLD) {
-                    vesselMarkers[mmsi].bindTooltip(vesselState.Name, {
-                      permanent: true,
-                      direction: 'top',
-                      className: 'vessel-tooltip',
-                      interactive: true
-                    }).openTooltip();
-                    attachTooltipClick(vesselMarkers[mmsi], mmsi);
-                  }
-                }
-                vesselMarkers[mmsi].off('click');
-                vesselMarkers[mmsi].on('click', function(e) {
-		if (e && typeof e.stopPropagation === 'function') {
-		  e.stopPropagation();
-		}
-                if (e && typeof e.preventDefault === 'function') {
- 		 e.preventDefault();
-		}
-                  focusOnVessel(mmsi);
-                });
-                if (markerElem) {
-                  markerElem.classList.add('enlarge');
-                  setTimeout(() => markerElem.classList.remove('enlarge'), 500);
-                }
-              } else {
-		const marker = L.marker(
-		  [vesselData[mmsi].Latitude, vesselData[mmsi].Longitude],
-		  { icon: getVesselIcon(vesselData[mmsi]) }
-		).addTo(map);
-                marker.bindPopup(popupContent, { autoPan: false });
- 		const currentZoom = map.getZoom();
-                if (currentZoom >= TOOLTIP_ZOOM_THRESHOLD && vesselState.Name) {
-                  marker.bindTooltip(vesselState.Name, {
-                    permanent: true,
-                    direction: 'top',
-                    className: 'vessel-tooltip',
-                    interactive: true
-                  }).openTooltip();
-                  attachTooltipClick(marker, mmsi);
-                }
-                marker.on('click', function(e) {
-                  if (e && typeof e.stopPropagation === 'function') {
- 		     e.stopPropagation();
-		  }
-                  if (e && typeof e.preventDefault === 'function') {
- 		    e.preventDefault();
-		  }
-                  focusOnVessel(mmsi);
-                });
-                if (!isMobile) {
-                  marker.on('mouseover', function() { this.openPopup(); });
-                  marker.on('mouseout', function() { this.closePopup(); });
-                }
-                vesselMarkers[mmsi] = marker;
-              }
-              const filteredTrack = filterTrackPoints(vesselData[mmsi].track);
-	      if (vesselTracks[mmsi]) {
-	        vesselTracks[mmsi].setLatLngs(getLatLngs(filteredTrack));
-	      } else {
-	        vesselTracks[mmsi] = L.polyline(getLatLngs(filteredTrack), {
-	          color: vesselData[mmsi].color,
-	          weight: 3,
-	          opacity: 0.8,
-	          interactive: true
-	        }).addTo(map);
-	        attachPolylineEvents(vesselTracks[mmsi], mmsi);
-	      }
-
-            } else {
-              if (vesselMarkers[mmsi]) {
-                vesselMarkers[mmsi].getPopup().setContent(popupContent);
-                vesselMarkers[mmsi].unbindTooltip();
-                vesselMarkers[mmsi].bindTooltip(popupContent, {
-                  direction: 'top',
-                  className: 'vessel-tooltip'
-                });
-              }
-            }
-            if (focusedVessel && focusedVessel == mmsi && !detailsOverlayHidden) {
-              if (isMobile) {
-                map.panTo(vesselMarkers[mmsi].getLatLng());
-              } else {
-                focusOnVessel(mmsi, false);
-              }
-            }
+          vesselMarkers[mmsi].off('click');
+          vesselMarkers[mmsi].on('click', function(e) {
+            if (e && typeof e.stopPropagation === 'function') { e.stopPropagation(); }
+            if (e && typeof e.preventDefault === 'function') { e.preventDefault(); }
+            focusOnVessel(mmsi);
+          });
+          const markerElem2 = vesselMarkers[mmsi].getElement() || vesselMarkers[mmsi]._icon;
+          if (markerElem2) {
+            markerElem2.classList.add('enlarge');
+            setTimeout(() => markerElem2.classList.remove('enlarge'), 500);
           }
-          updateOverlay();
-          updateFocussedVisibility();
-	  updateStationaryMarkers();
-          localStorage.setItem('vesselData', JSON.stringify(vesselData));
+        } else {
+          const marker = L.marker(
+            [vesselState.Latitude, vesselState.Longitude],
+            { icon: getVesselIcon(vesselData[mmsi]) }
+          ).addTo(map);
+          marker.bindPopup(popupContent, { autoPan: false });
+          const currentZoom = map.getZoom();
+          if (currentZoom >= TOOLTIP_ZOOM_THRESHOLD && vesselState.Name) {
+            marker.bindTooltip(vesselState.Name, {
+              permanent: true,
+              direction: 'top',
+              className: 'vessel-tooltip',
+              interactive: true
+            }).openTooltip();
+            attachTooltipClick(marker, mmsi);
+          }
+          marker.on('click', function(e) {
+            if (e && typeof e.stopPropagation === 'function') { e.stopPropagation(); }
+            if (e && typeof e.preventDefault === 'function') { e.preventDefault(); }
+            focusOnVessel(mmsi);
+          });
+          if (!isMobile) {
+            marker.on('mouseover', function() { this.openPopup(); });
+            marker.on('mouseout', function() { this.closePopup(); });
+          }
+          vesselMarkers[mmsi] = marker;
+        }
+        const filteredTrack = filterTrackPoints(vesselData[mmsi].track);
+        if (vesselTracks[mmsi]) {
+          vesselTracks[mmsi].setLatLngs(getLatLngs(filteredTrack));
+        } else {
+          vesselTracks[mmsi] = L.polyline(getLatLngs(filteredTrack), {
+            color: vesselData[mmsi].color,
+            weight: 3,
+            opacity: 0.8,
+            interactive: true
+          }).addTo(map);
+          attachPolylineEvents(vesselTracks[mmsi], mmsi);
+        }
+      } else {
+        // For a focused vessel, skip location updates—only update its popup.
+        if (vesselMarkers[mmsi]) {
+          vesselMarkers[mmsi].getPopup().setContent(popupContent);
+        }
+      }
+    } else {
+      if (vesselMarkers[mmsi]) {
+        vesselMarkers[mmsi].getPopup().setContent(popupContent);
+        vesselMarkers[mmsi].unbindTooltip();
+        vesselMarkers[mmsi].bindTooltip(popupContent, {
+          direction: 'top',
+          className: 'vessel-tooltip'
         });
+      }
+    }
+    if (focusedVessel && focusedVessel == mmsi && !detailsOverlayHidden) {
+      if (isMobile) {
+        map.panTo(vesselMarkers[mmsi].getLatLng());
+      } else {
+        focusOnVessel(mmsi, false);
+      }
+    }
+  }
+  updateOverlay();
+  updateFocussedVisibility();
+  updateStationaryMarkers();
+  localStorage.setItem('vesselData', JSON.stringify(vesselData));
+});
 
 // Use a debounced function to limit the frequency of requests:
 // Global variables to store the current search query and the interval timer.
