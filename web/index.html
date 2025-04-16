@@ -406,14 +406,14 @@
     Show Ports
   </label>
   <label>
-    <input type="checkbox" id="show-paths" checked>
+    <input type="checkbox" id="show-paths">
     History
   </label>
         <label>
     <input type="checkbox" id="stationary" checked>
     Stationary
   </label>
-        <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Types</button>
+        <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Legend</button>
     </div>
 
     <div id="vessel-legend" style="display: none; position: absolute; top: 220px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
@@ -609,9 +609,10 @@
           liveLogsContent.innerHTML = "<div class='placeholder' style='font-family: monospace; font-size: 12px; color: #888; text-align: center; padding: 10px;'>Waiting for next message...</div>";
         }
 
-        // Clicking on the map resets any vessel focus.
+
 map.on('click', () => {
   if (focusedVessel) {
+    document.getElementById('show-paths').checked = false;
     const vessel = vesselData[focusedVessel];
     vesselMarkers[focusedVessel].getTooltip().setContent(vessel.Name);
     vesselMarkers[focusedVessel].setZIndexOffset(0);
@@ -1175,41 +1176,42 @@ function clearHistory() {
   location.reload();
 }
 
-function attachPolylineEvents(polyline, userID) {
-  polyline.on('mousemove', function(e) {
-    const nearest = getNearestTrackPoint(e, vesselData[userID].track);
-    if (nearest) {
-      const [timestamp, lat, lon, sog, cog, trueHeading] = nearest.info;
-      const localTime = new Date(timestamp).toLocaleString();
-      const vessel = vesselData[userID];
-      const name = vessel.Name || "Unknown Vessel";
-      const callsign = vessel.CallSign || "N/A";
-      
-      let popupContent = `<strong>${name} (${callsign})</strong><br>
-                          ${localTime}<br>
-                          ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>`;
-      if (sog !== null) {
-        popupContent += `Speed: ${sog} kn<br>`;
+function attachPolylineEvents(layerGroup, userID) {
+  // Iterate over each polyline in the layer group.
+  layerGroup.eachLayer(function(polylineSegment) {
+    polylineSegment.on('mousemove', function(e) {
+      const nearest = getNearestTrackPoint(e, vesselData[userID].track);
+      if (nearest) {
+        const [timestamp, lat, lon, sog, cog, trueHeading] = nearest.info;
+        const localTime = new Date(timestamp).toLocaleString();
+        const vessel = vesselData[userID];
+        const name = vessel.Name || "Unknown Vessel";
+        const callsign = vessel.CallSign || "N/A";
+        
+        let popupContent = `<strong>${name} (${callsign})</strong><br>
+                            ${localTime}<br>
+                            ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>`;
+        if (sog !== null) {
+          popupContent += `Speed: ${sog} kn<br>`;
+        }
+        if (cog !== null) {
+          popupContent += `Course: ${cog}°<br>`;
+        }
+        if (trueHeading !== null) {
+          popupContent += `Heading: ${trueHeading}°<br>`;
+        }
+        
+        L.popup({ closeButton: false, autoPan: false })
+          .setLatLng(nearest.ptLatLng)
+          .setContent(popupContent)
+          .openOn(map);
       }
-      if (cog !== null) {
-        popupContent += `Course: ${cog}°<br>`;
-      }
-      if (trueHeading !== null) {
-        popupContent += `Heading: ${trueHeading}°<br>`;
-      }
-      
-      L.popup({ closeButton: false, autoPan: false })
-        .setLatLng(nearest.ptLatLng)
-        .setContent(popupContent)
-        .openOn(map);
-    }
-  });
-  
-  polyline.on('mouseout', function() {
-    map.closePopup();
+    });
+    polylineSegment.on('mouseout', function() {
+      map.closePopup();
+    });
   });
 }
-
 
 function updateLegend() {
 
@@ -1267,15 +1269,18 @@ function updateLegend() {
 }
 
 function getColorForSpeed(speed) {
-  // Clamp speed between 0 and 40
-  const clampedSpeed = Math.max(0, Math.min(40, speed));
-  // Calculate the ratio (0 = 0kn, 1 = 40kn)
-  const ratio = clampedSpeed / 40;
-  // For example: transition from green (#00FF00) to red (#FF0000)
-  const red = Math.floor(255 * ratio);
-  const green = Math.floor(255 * (1 - ratio));
-  return `rgb(${red}, ${green}, 0)`;
+  const maxSpeed = 20;  // maximum expected speed in knots
+  // Clamp the speed value between 0 and maxSpeed
+  const clampedSpeed = Math.max(0, Math.min(maxSpeed, speed));
+  // Compute a ratio (0 = 0 knots, 1 = maxSpeed)
+  const ratio = clampedSpeed / maxSpeed;
+  // Calculate hue: 120 (green) at 0 knots to 0 (red) at 20 knots.
+  // Here, a higher ratio gives a lower hue value.
+  const hue = (1 - ratio) * 120;
+  // Return a string with full saturation and 50% lightness.
+  return `hsl(${hue}, 100%, 50%)`;
 }
+
 
 function createColoredTrack(track) {
   const segments = [];
@@ -1385,52 +1390,16 @@ function hydrateTrackHistory(userID) {
         return (now - pointTime) <= historyHours * 3600000;
       });
       
-      // Update the polyline on the map with the filtered set of track points.
-      // getLatLngs extracts only the [lat, lng] pairs from filteredTrack.
+      // --- Update the polyline on the map using speed-based colors ---
+      // Remove any existing track for this vessel.
       if (vesselTracks[userID]) {
-        vesselTracks[userID].setLatLngs(getLatLngs(filteredTrack));
-        vesselTracks[userID].options.interactive = true;
-        // (Re)attach event handlers if needed.
-        vesselTracks[userID].on('mousemove', function(e) {
-          const nearest = getNearestTrackPoint(e, vesselData[userID].track);
-          if (nearest) {
-            const [timestamp, lat, lon, sog, cog, trueHeading] = nearest.info;
-            const localTime = new Date(timestamp).toLocaleString();
-            const vessel = vesselData[userID];
-            const name = vessel.Name ? vessel.Name : "Unknown Vessel";
-            const callsign = vessel.CallSign ? vessel.CallSign : "N/A";
-
-            let popupContent = `<strong>${name} (${callsign})</strong><br>
-                                ${localTime}<br>
-                                ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>`;
-            if (sog !== null) {
-              popupContent += `Speed: ${sog} kn<br>`;
-            }
-            if (cog !== null) {
-              popupContent += `Course: ${cog}°<br>`;
-            }
-            if (trueHeading !== null) {
-              popupContent += `Heading: ${trueHeading}°<br>`;
-            }
-            
-            L.popup({ closeButton: false, autoPan: false })
-              .setLatLng(nearest.ptLatLng)
-              .setContent(popupContent)
-              .openOn(map);
-          }
-        });
-        vesselTracks[userID].on('mouseout', function() {
-          map.closePopup();
-        });
-      } else {
-        vesselTracks[userID] = L.polyline(getLatLngs(filteredTrack), {
-          color: vesselData[userID].color,
-          weight: 3,
-          opacity: 0.8,
-          interactive: true
-        }).addTo(map);
-        attachPolylineEvents(vesselTracks[userID], userID);
+        map.removeLayer(vesselTracks[userID]);
       }
+      // Use createColoredTrack() to generate the new colored track layer.
+      vesselTracks[userID] = createColoredTrack(filteredTrack);
+      map.addLayer(vesselTracks[userID]);
+      // Reattach events (e.g., mousemove and mouseout) to the new polyline segments.
+      attachPolylineEvents(vesselTracks[userID], userID);
       
       // Force re-addition of the polyline in case update functions have removed it.
       if (!map.hasLayer(vesselTracks[userID])) {
@@ -1959,31 +1928,43 @@ function adjustMapBounds() {
 function updateStationaryMarkers() {
   const showStationary = document.getElementById('stationary').checked;
   const onlyFocussed = document.getElementById('only-focussed').checked;
-  const now = Date.now();
+  const showPaths = document.getElementById('show-paths').checked;
 
   for (const mmsi in vesselData) {
-    const vesselState = vesselData[mmsi];
-
-    if (vesselState.lastUpdate) {
-      const ageSeconds = (now - vesselState.lastUpdate) / 1000;
-
-    }
-
-    // If we haven't removed the marker, make sure markers and tracks are visible.
+    // Always ensure the marker is visible.
     if (vesselMarkers[mmsi] && !map.hasLayer(vesselMarkers[mmsi])) {
       map.addLayer(vesselMarkers[mmsi]);
     }
+    // Now handle track visibility based on only-focussed status.
     if (vesselTracks[mmsi]) {
-      const showPaths = document.getElementById('show-paths').checked;
-      if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
-        map.addLayer(vesselTracks[mmsi]);
-      } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
-        map.removeLayer(vesselTracks[mmsi]);
+      // If onlyFocussed is active and a vessel is focused,
+      // then only display the track if this vessel is the focused one.
+      if (onlyFocussed && focusedVessel) {
+        if (mmsi === focusedVessel) {
+          if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
+            map.addLayer(vesselTracks[mmsi]);
+          } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
+            map.removeLayer(vesselTracks[mmsi]);
+          }
+        } else {
+          // Ensure non-focused vessel tracks are not shown.
+          if (map.hasLayer(vesselTracks[mmsi])) {
+            map.removeLayer(vesselTracks[mmsi]);
+          }
+        }
+      } else {
+        // If not filtering by focus, add/remove tracks for every vessel normally.
+        if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
+          map.addLayer(vesselTracks[mmsi]);
+        } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
+          map.removeLayer(vesselTracks[mmsi]);
+        }
       }
     }
   }
   updateOverlay();
 }
+
 
 
         // Update the known vessels overlay.
@@ -2101,8 +2082,6 @@ function isVesselVisibleByAge(vessel) {
 
         // Update marker and track visibility based on the "Only Tracked" checkbox.
 function updateFocussedVisibility() {
-  // In Only Tracked mode, you expect only the focused vessel to be present.
-  // So simply ensure that its marker and track are visible.
   if (focusedVessel) {
     if (!map.hasLayer(vesselMarkers[focusedVessel])) {
       map.addLayer(vesselMarkers[focusedVessel]);
@@ -2159,58 +2138,54 @@ function updateFocussedVisibility() {
       return html;
     }
 
+function subscribeInstantUpdates(userID) {
+  // Build the channel name and subscribe.
+  instantChannel = "ais_data/" + userID;
+  socket.emit("subscribe", instantChannel);
 
-    function subscribeInstantUpdates(userID) {
-      // Build the channel name and subscribe.
-      instantChannel = "ais_data/" + userID;
-      socket.emit("subscribe", instantChannel);
+  // Define the generic handler that updates the vessel's data
+  // and its marker position on the map.
+  instantHandler = function(message) {
+    // Parse string messages if needed.
+    if (typeof message === "string") {
+      try {
+        message = JSON.parse(message);
+      } catch (e) {
+        console.error("Error parsing message:", e);
+        return;
+      }
+    }
 
-      // Define the generic handler that updates the vessel's data
-      // and its marker position on the map.
-instantHandler = function(message) {
-  // Parse string messages if needed.
-  if (typeof message === "string") {
-    try {
-      message = JSON.parse(message);
-    } catch (e) {
-      console.error("Error parsing message:", e);
+    // Filter out message types not allowed.
+    if (!allowedMessageTypes[message.type]) {
       return;
     }
-  }
 
-  // Since we're subscribed to a single vessel's channel, no vessel filtering is needed here.
-  // However, you can still filter by message type if you want.
-  if (!allowedMessageTypes[message.type]) {
-    return;
-  }
+    // Update each field present in the incoming message.
+    if (message.data && message.data.UserID) {
+      Object.keys(message.data).forEach(function(field) {
+        vesselData[userID][field] = message.data[field];
+      });
+    }
 
-  // Update each field present in the incoming message.
-  if (message.data && message.data.UserID) {
-    Object.keys(message.data).forEach(field => {
-      vesselData[userID][field] = message.data[field];
-    });
-  }
+    if (message.timestamp) {
+      vesselData[userID].lastUpdate = new Date(message.timestamp).getTime();
+    }
 
-  if (message.timestamp) {
-    vesselData[userID].lastUpdate = new Date(message.timestamp).getTime();
-  }
+    // If the message includes valid position data, update marker and track.
+    if (typeof message.data.Latitude === "number" &&
+        typeof message.data.Longitude === "number") {
 
-  // If the message includes a new position, update the marker position and popup.
-  if (typeof message.data.Latitude === "number" &&
-      typeof message.data.Longitude === "number") {
-    if (vesselMarkers[userID]) {
-      vesselMarkers[userID].setLatLng([message.data.Latitude, message.data.Longitude]);
-      // Update popup content with the updated data.
-      const popupContent = createPopupContent(vesselData[userID]);
-      vesselMarkers[userID].getPopup().setContent(popupContent);
-      if (focusedVessel === userID) {
-        updateLatLongDisplay();
-      }
-	const heading =
-	  (message.data.TrueHeading !== undefined && message.data.TrueHeading < 360)
-	    ? message.data.TrueHeading
-	    : message.data.Cog || 0;
-      if (heading !== undefined) {
+      // Update the marker position and popup content.
+      if (vesselMarkers[userID]) {
+        vesselMarkers[userID].setLatLng([message.data.Latitude, message.data.Longitude]);
+        const popupContent = createPopupContent(vesselData[userID]);
+        vesselMarkers[userID].getPopup().setContent(popupContent);
+        
+        // Update the SVG icon rotation if applicable.
+        const heading = (typeof message.data.TrueHeading === "number" && message.data.TrueHeading < 360)
+          ? message.data.TrueHeading
+          : (message.data.Cog != null ? message.data.Cog : 0);
         const markerElem = vesselMarkers[userID].getElement() || vesselMarkers[userID]._icon;
         if (markerElem) {
           const svg = markerElem.querySelector('svg');
@@ -2219,43 +2194,53 @@ instantHandler = function(message) {
           }
         }
       }
+
+  if (focusedVessel && userID !== focusedVessel) {
+    if (vesselTracks[userID] && map.hasLayer(vesselTracks[userID])) {
+      map.removeLayer(vesselTracks[userID]);
     }
-    
-    // Add the new position to the vessel's track array immediately.
-    vesselData[userID].track = vesselData[userID].track || [];
-    vesselData[userID].track.push([
-      message.timestamp,
-      message.data.Latitude,
-      message.data.Longitude,
-      message.data.Sog != null ? message.data.Sog : null,
-      message.data.Cog != null ? message.data.Cog : null,
-      message.data.TrueHeading != null ? message.data.TrueHeading : null
-    ]);
-    
-    const filteredTrack = filterTrackPoints(vesselData[userID].track);
-    if (vesselTracks[userID]) {
-      vesselTracks[userID].setLatLngs(getLatLngs(filteredTrack));
-    } else {
-      vesselTracks[userID] = L.polyline(getLatLngs(filteredTrack), {
-        color: vesselData[userID].color,
-        weight: 3,
-        opacity: 0.8,
-        interactive: true
-      }).addTo(map);
+    // Skip updating history for this vessel.
+    return;
+  }
+      
+      // Append the new position to the vessel's track.
+      vesselData[userID].track = vesselData[userID].track || [];
+      vesselData[userID].track.push([
+        message.timestamp,
+        message.data.Latitude,
+        message.data.Longitude,
+        (message.data.Sog != null ? message.data.Sog : null),
+        (message.data.Cog != null ? message.data.Cog : null),
+        (message.data.TrueHeading != null ? message.data.TrueHeading : null)
+      ]);
+      
+      // Filter the track based on history slider settings.
+      const filteredTrack = filterTrackPoints(vesselData[userID].track);
+      
+      // --- Update the vessel track using the speed-based colored polyline ---
+      // Remove any existing track for this vessel.
+      if (vesselTracks[userID]) {
+        map.removeLayer(vesselTracks[userID]);
+      }
+      // Create a new colored track using createColoredTrack.
+      vesselTracks[userID] = createColoredTrack(filteredTrack);
+      map.addLayer(vesselTracks[userID]);
+      // Reattach event handlers (e.g., for mousemove popups) to the new colored track.
       attachPolylineEvents(vesselTracks[userID], userID);
     }
-  }
 
-  // Update the vessel detail overlay.
-  updateVesselDetailOverlay();
+    // Update the vessel detail overlay.
+    updateVesselDetailOverlay();
 
-  // Also, add the message to the live logs modal.
-  addLiveLogEntry(message);
-};
+    // Also, add the message to the live logs modal.
+    addLiveLogEntry(message);
+  };
 
-      // Attach the handler.
-      socket.on("ais_data", instantHandler);
-    }
+  // Attach the handler to the socket.
+  socket.on("ais_data", instantHandler);
+}
+
+
 
     function unsubscribeInstantUpdates() {
       if (instantChannel && instantHandler) {
@@ -2613,30 +2598,6 @@ socket.on("latest_vessel_summary", (data) => {
     vesselData[mmsi].LastUpdated = vesselState.LastUpdated;
     vesselData[mmsi].lastUpdate = vesselTimestamp;
 
-    // Update track history when valid location data is available.
-    if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
-      const tolerance = 1e-5;
-      const track = vesselData[mmsi].track;
-      const lastPoint = track[track.length - 1];
-      if (
-        !lastPoint ||
-        Math.abs(lastPoint[1] - vesselState.Latitude) > tolerance ||
-        Math.abs(lastPoint[2] - vesselState.Longitude) > tolerance
-      ) {
-        track.push([
-          vesselState.LastUpdated,
-          vesselState.Latitude,
-          vesselState.Longitude,
-          vesselState.Sog != null ? vesselState.Sog : null,
-          vesselState.Cog != null ? vesselState.Cog : null,
-          vesselState.TrueHeading != null ? vesselState.TrueHeading : null
-        ]);
-        if (track.length > 10000) {
-          track.shift();
-        }
-      }
-    }
-
     const popupContent = createPopupContent(vesselData[mmsi]);
 
     // Update marker/track if location data exists…
@@ -2713,16 +2674,11 @@ socket.on("latest_vessel_summary", (data) => {
         }
         const filteredTrack = filterTrackPoints(vesselData[mmsi].track);
         if (vesselTracks[mmsi]) {
-          vesselTracks[mmsi].setLatLngs(getLatLngs(filteredTrack));
-        } else {
-          vesselTracks[mmsi] = L.polyline(getLatLngs(filteredTrack), {
-            color: vesselData[mmsi].color,
-            weight: 3,
-            opacity: 0.8,
-            interactive: true
-          }).addTo(map);
-          attachPolylineEvents(vesselTracks[mmsi], mmsi);
-        }
+	  map.removeLayer(vesselTracks[mmsi]);
+	}
+	vesselTracks[mmsi] = createColoredTrack(filteredTrack);
+	map.addLayer(vesselTracks[mmsi]);
+	attachPolylineEvents(vesselTracks[mmsi], mmsi);
       } else {
         // For a focused vessel, skip location updates—only update its popup.
         if (vesselMarkers[mmsi]) {
@@ -2739,6 +2695,7 @@ socket.on("latest_vessel_summary", (data) => {
         });
       }
     }
+
     if (focusedVessel && focusedVessel == mmsi && !detailsOverlayHidden) {
       if (isMobile) {
         map.panTo(vesselMarkers[mmsi].getLatLng());
@@ -2899,6 +2856,7 @@ function getNearestTrackPoint(e, track) {
 // Focus on a particular vessel.
 function focusOnVessel(userID, initialFocus = true) {
   // Unfocus previously focused vessel
+  document.getElementById('show-paths').checked = true;
   if (focusedVessel && focusedVessel !== userID) {
     const prevMarker = vesselMarkers[focusedVessel];
     if (prevMarker) {
@@ -2961,6 +2919,19 @@ function focusOnVessel(userID, initialFocus = true) {
   
   // Set the new focused vessel.
   focusedVessel = userID;
+
+  for (const mmsi in vesselTracks) {
+    if (mmsi !== focusedVessel && map.hasLayer(vesselTracks[mmsi])) {
+      map.removeLayer(vesselTracks[mmsi]);
+    }
+  }
+
+  // Now add the focused vessel’s polyline (if it exists) based on the "show-paths" checkbox.
+  if (document.getElementById('show-paths').checked && vesselTracks[focusedVessel] && !map.hasLayer(vesselTracks[focusedVessel])) {
+    map.addLayer(vesselTracks[focusedVessel]);
+  }
+
+
   const marker = vesselMarkers[userID];
   if (!marker) return; // Ensure marker exists
   marker.setZIndexOffset(1000);
@@ -3279,30 +3250,31 @@ window.addEventListener('load', () => {
   }
 });
 
-    document.getElementById('show-paths').addEventListener('change', function() {
-      const showPaths = this.checked;
-      const onlyFocussed = document.getElementById('only-focussed').checked;
-      if (onlyFocussed && focusedVessel) {
-        // Only toggle the focused vessel's track.
-        if (vesselTracks[focusedVessel]) {
-          if (showPaths && !map.hasLayer(vesselTracks[focusedVessel])) {
-            map.addLayer(vesselTracks[focusedVessel]);
-          } else if (!showPaths && map.hasLayer(vesselTracks[focusedVessel])) {
-            map.removeLayer(vesselTracks[focusedVessel]);
-          }
-        }
-      } else {
-        // Toggle tracks for all vessels.
-        for (const mmsi in vesselTracks) {
-          if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
-            map.addLayer(vesselTracks[mmsi]);
-          } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
-            map.removeLayer(vesselTracks[mmsi]);
-          }
-        }
+document.getElementById('show-paths').addEventListener('change', function() {
+  const showPaths = this.checked;
+  const onlyFocussed = document.getElementById('only-focussed').checked;
+  if (onlyFocussed && focusedVessel) {
+    // Only toggle the focused vessel's track.
+    if (vesselTracks[focusedVessel]) {
+      if (showPaths && !map.hasLayer(vesselTracks[focusedVessel])) {
+        map.addLayer(vesselTracks[focusedVessel]);
+      } else if (!showPaths && map.hasLayer(vesselTracks[focusedVessel])) {
+        map.removeLayer(vesselTracks[focusedVessel]);
       }
-      updateFocussedVisibility();
-    });
+    }
+  } else {
+    // Toggle tracks for all vessels.
+    for (const mmsi in vesselTracks) {
+      if (showPaths && !map.hasLayer(vesselTracks[mmsi])) {
+        map.addLayer(vesselTracks[mmsi]);
+      } else if (!showPaths && map.hasLayer(vesselTracks[mmsi])) {
+        map.removeLayer(vesselTracks[mmsi]);
+      }
+    }
+  }
+  updateFocussedVisibility();
+});
+
 
 
 // Conversion: 1 nautical mile = 1852 meters.
@@ -3358,10 +3330,10 @@ document.getElementById('toggle-legend').addEventListener('click', function() {
   if (window.getComputedStyle(legend).display === 'none') {
     legend.style.display = 'block';  // Make it visible first
     updateLegend();                  // Then update the content immediately
-    this.textContent = 'Hide Types';
+    this.textContent = 'Hide Legend';
   } else {
     legend.style.display = 'none';
-    this.textContent = 'Show Types';
+    this.textContent = 'Show Legend';
   }
 });
 
@@ -3448,15 +3420,24 @@ document.getElementById("history-slider").addEventListener("input", () => {
   
   const now = Date.now();
   // Immediately update the polyline tracks for all vessels using the new slider value.
-  for (let userID in vesselData) {
-    if (vesselData[userID].track && vesselTracks[userID]) {
-      const filteredTrack = vesselData[userID].track.filter(pt => {
-        const pointTime = new Date(pt[0]).getTime();
-        return (now - pointTime) <= historyHours * 3600000;
-      });
-      vesselTracks[userID].setLatLngs(getLatLngs(filteredTrack));
+for (let userID in vesselData) {
+  if (vesselData[userID].track) {
+    const filteredTrack = vesselData[userID].track.filter(pt => {
+      const pointTime = new Date(pt[0]).getTime();
+      return (now - pointTime) <= historyHours * 3600000;
+    });
+    // Remove the old track layer (if it exists)
+    if (vesselTracks[userID]) {
+      map.removeLayer(vesselTracks[userID]);
     }
+    // Create a new colored track layer using createColoredTrack
+    vesselTracks[userID] = createColoredTrack(filteredTrack);
+    map.addLayer(vesselTracks[userID]);
+    // Attach any necessary event handlers to the new layer.
+    attachPolylineEvents(vesselTracks[userID], userID);
   }
+}
+
   
   // Debounce the fetch for additional history data for the focused vessel.
   clearTimeout(historyDebounceTimer);
