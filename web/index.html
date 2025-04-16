@@ -316,7 +316,7 @@
 }
 #github-link {
   position: absolute;
-  bottom: 5px; /* Adjust as needed */
+  bottom: 5px; 
   left: 50%;
   transform: translateX(-50%);
   color: black;
@@ -325,6 +325,35 @@
   z-index: 1500;
   font-weight: bold;
 }
+
+.speed-scale-container {
+  margin-bottom: 6px;
+  padding: 0 5px;       
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.speed-scale-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    hsl(120,100%,50%) 0%,    /* green */
+    hsl(60, 100%,50%) 50%,   /* yellow */
+    hsl(0,  100%,50%) 100%   /* red */
+  );
+  margin-bottom: 2px;
+}
+
+.speed-scale-labels {
+  display: flex;
+  justify-content: space-between;
+}
+
+.speed-scale-labels span {
+}
+
     </style>
 </head>
 
@@ -417,6 +446,13 @@
     </div>
 
     <div id="vessel-legend" style="display: none; position: absolute; top: 220px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
+      <div class="speed-scale-container">
+        <div class="speed-scale-bar"></div>
+        <div class="speed-scale-labels">
+          <span>0 kn</span>
+          <span>20 kn</span>
+        </div>
+      </div>
         <div id="legend-content"></div>
     </div>
 
