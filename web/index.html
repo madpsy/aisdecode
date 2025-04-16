@@ -430,7 +430,10 @@
 
     <!-- Vessel detail overlay (bottom right) -->
     <div id="vessel-detail">
-        <h4 id="vessel-detail-header">Vessel Details</h4>
+        <div id="vessel-detail-header">
+	  <div id="vessel-header-text"></div>
+	  <div id="vessel-header-image"></div>
+	</div>
         <div id="detail-content"></div>
     </div>
 
@@ -513,6 +516,8 @@
         const isMobile = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
 	const TOOLTIP_ZOOM_THRESHOLD = 12;
+
+	let currentLoadedImageUrl = '';
 
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
@@ -1027,6 +1032,80 @@ function getVesselIcon(vesselState) {
   return createBoatIcon(vesselState.Type, heading);
 }
 
+function attachImageClick(imgElem) {
+  imgElem.addEventListener('click', function(e) {
+    e.stopPropagation(); // Prevent the click from bubbling up if needed.
+    openImageModal(this.src);
+  });
+}
+
+// Preload the vessel image before inserting it into the container.
+function loadVesselImage(url, container) {
+  url = url.trim();
+  // Create the image element.
+  const img = document.createElement('img');
+  img.id = 'vessel-image';
+  img.style.maxWidth = '100%';
+  img.style.margin = '5px 0';
+  img.style.height = 'auto';
+  img.style.cursor = 'pointer';
+  img.alt = 'Vessel Image';
+
+  // Attach the click event immediately.
+  img.addEventListener('click', function(e) {
+    e.stopPropagation();
+    // Use the current src of the image when clicked.
+    openImageModal(img.src);
+  });
+
+  // When the image loads, append it to the container.
+  img.onload = function() {
+    // Remove any previously appended image with the same id.
+    const existingImg = container.querySelector('#vessel-image');
+    if (existingImg) {
+      existingImg.remove();
+    }
+    container.appendChild(img);
+  };
+
+  // Handle loading errors.
+  img.onerror = function() {
+    console.error("Image failed to load:", url);
+    // Optionally, retry loading after a delay or show a fallback image.
+  };
+
+  // Set the image source (this starts the asynchronous load).
+  img.src = url;
+}
+
+function updateVesselDetailHeader(userID) {
+  // Grab our dedicated containers.
+  const textContainer = document.getElementById('vessel-header-text');
+  const imageContainer = document.getElementById('vessel-header-image');
+  
+  // Update the text container with the vessel name, lookup, and copy link.
+  textContainer.innerHTML = `<h4>${vesselData[userID].Name}<br>
+    <a href="https://www.vesselfinder.com/vessels/details/${vesselData[userID].UserID}" target="_blank">Lookup</a> |
+    <span id="copy-link" style="cursor:pointer; color:blue;">Link</span></h4>`;
+  
+  // Check if there is an image URL.
+  if (vesselData[userID].ImageURL) {
+    // Only update the image if the URL has changed.
+    if (currentLoadedImageUrl !== vesselData[userID].ImageURL) {
+      // Clear any existing content in the image container.
+      imageContainer.innerHTML = '';
+      // Load and inject the image into the image container.
+      loadVesselImage(vesselData[userID].ImageURL, imageContainer);
+      currentLoadedImageUrl = vesselData[userID].ImageURL;
+      document.getElementById('vessel-detail').style.maxHeight = '400px';
+    }
+  } else {
+    // No image URL: clear any previous image.
+    imageContainer.innerHTML = '';
+    currentLoadedImageUrl = '';
+    document.getElementById('vessel-detail').style.maxHeight = '300px';
+  }
+}
 
 function updateLatLongDisplay() {
   const latlongDisplay = document.getElementById('latlong-display');
@@ -2885,34 +2964,13 @@ function focusOnVessel(userID, initialFocus = true) {
     document.getElementById('toggle-detail-overlay').textContent = 'Show Details';
   }
   
-  // Update vessel detail header.
-  const headerEl = document.getElementById('vessel-detail-header');
-  if (vesselData[userID].UserID) {
-    headerEl.innerHTML = `${vesselData[userID].Name}
-      <br><a href="https://www.vesselfinder.com/vessels/details/${vesselData[userID].UserID}" target="_blank">Lookup</a> |
-      <span id="copy-link" style="cursor:pointer; color:blue;">Link</span>`;
-    if (vesselData[userID].ImageURL) {
-      headerEl.innerHTML += `<br><img id="vessel-image" src="${vesselData[userID].ImageURL}" 
-      style="max-width: 100%; margin: 5px 0; height: auto; cursor:pointer;" 
-      alt="Vessel Image" />`;
-
-      const vesselImg = document.getElementById('vessel-image');
-  
-      vesselImg.onload = function() {
-       // Image loaded successfully; now attach click event or any other interactions.
-       attachImageClick();
-       detailOverlay.style.maxHeight = '400px';
-     };
-  
-     vesselImg.onerror = function() {
-        console.error("Image failed to load:", vesselData[userID].ImageURL);
-    };
-    } else {
-      detailOverlay.style.maxHeight = '300px';
-    }
-     } else {
-       headerEl.textContent = "Vessel Details";
-    }
+  if (isMobile) {
+    setTimeout(() => {
+      updateVesselDetailHeader(userID);
+    }, 300);  // 300 ms delay; adjust as needed
+  } else {
+    updateVesselDetailHeader(userID);
+  }
   
   // Attach copy link event.
   const copyLinkEl = document.getElementById('copy-link');
