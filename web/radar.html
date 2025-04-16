@@ -756,7 +756,7 @@ socket.on("ais_data", function(message) {
     window.addEventListener("resize", resizeCanvas);
 
     window.addEventListener("load", () => {
-      fetch(`/summary/${userID}`)
+      fetch(`/summary?userID=${userID}`)
         .then(response => {
           if (!response.ok) {
             throw new Error("Network response was not ok");
@@ -764,20 +764,27 @@ socket.on("ais_data", function(message) {
           return response.json();
         })
         .then(summaryData => {
-          if (summaryData.Latitude && summaryData.Longitude) {
-            // If TrueHeading is not available, use Cog as a fallback
-            const heading = (summaryData.TrueHeading !== undefined && summaryData.TrueHeading !== null) 
-                              ? summaryData.TrueHeading 
-                              : summaryData.Cog;
-            updateMainVesselPosition(summaryData.Latitude, summaryData.Longitude, heading);
+          // Check if the object has a key that matches the current userID.
+          if (summaryData.hasOwnProperty(userID)) {
+            const mainData = summaryData[userID];
+            if (mainData.Latitude && mainData.Longitude) {
+              // Use TrueHeading if available, otherwise fallback to Cog.
+              const heading = (mainData.TrueHeading !== undefined && mainData.TrueHeading !== null) 
+                                ? mainData.TrueHeading 
+                                : mainData.Cog;
+              updateMainVesselPosition(mainData.Latitude, mainData.Longitude, heading);
+            } else {
+              console.error("Summary data for user does not contain valid Latitude/Longitude");
+            }
           } else {
-            console.error("Summary data does not contain valid Latitude/Longitude");
+            console.error("Summary data does not contain the key for the current UserID");
           }
         })
         .catch((error) => {
           console.error("Failed to fetch summary data:", error);
         });
     });
+
 
 radarCanvas.addEventListener("click", function(event) {
   const rect = radarCanvas.getBoundingClientRect();

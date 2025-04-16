@@ -1836,94 +1836,130 @@ func main() {
 	            clientSummaryFiltersMutex.Unlock()
 		})
 
-		client.On("requestSummary", func(args ...any) {
-		    // Throttle summary requests: if this client has requested very recently, drop the new request.
-		    lastSummaryRequestMutex.Lock()
-		    if lastTime, ok := lastSummaryRequest[client.Id()]; ok && time.Since(lastTime) < 250*time.Millisecond {
-		        lastSummaryRequestMutex.Unlock()
-		        log.Printf("Throttling requestSummary from client %s", client.Id())
-		        return
-		    }
-		    // Update the client's last request time.
-		    lastSummaryRequest[client.Id()] = time.Now()
-		    lastSummaryRequestMutex.Unlock()
+	client.On("requestSummary", func(args ...any) {
+		// Throttle summary requests.
+		lastSummaryRequestMutex.Lock()
+		if lastTime, ok := lastSummaryRequest[client.Id()]; ok && time.Since(lastTime) < 250*time.Millisecond {
+			lastSummaryRequestMutex.Unlock()
+			log.Printf("Throttling requestSummary from client %s", client.Id())
+			return
+		}
+		lastSummaryRequest[client.Id()] = time.Now()
+		lastSummaryRequestMutex.Unlock()
+	
+		// Parse client input.
+		var filterLat, filterLon, filterRadius float64
+		var maxResults int
+		var maxAge float64
+		var updatePeriod int
+		var minSpeed float64       // Optional: minimum speed filter.
+		var exactUserID string     // Optional: exact UserID filter.
 
-		    // Parse client input outside any locks.
-		    var filterLat, filterLon, filterRadius float64
-		    var maxResults int
-		    var maxAge float64
-		    var updatePeriod int
-
-		    if len(args) > 0 {
-		        if paramStr, ok := args[0].(string); ok {
-		            var params struct {
-		                Latitude     float64 `json:"latitude"`
-		                Longitude    float64 `json:"longitude"`
-		                Radius       float64 `json:"radius"`
-		                MaxResults   int     `json:"maxResults"`
-		                MaxAge       float64 `json:"maxAge"`
-				UpdatePeriod int     `json:"updatePeriod"`
-		            }
-		            if err := json.Unmarshal([]byte(paramStr), &params); err != nil {
-                		log.Printf("Error parsing filter parameters from client %s: %v", client.Id(), err)
-		            } else {
-		                filterLat = params.Latitude
-		                filterLon = params.Longitude
-		                filterRadius = params.Radius
-		                maxResults = params.MaxResults
-		                maxAge = params.MaxAge
-				updatePeriod = params.UpdatePeriod
-		            }
-		        }
-		    }
-		    // Sanitize maxAge: allow between 0 and 168 hours (1 week); default to 24 if out of range.
-		    if maxAge <= 0 || maxAge > 168 {
-		        maxAge = 24
-		    }
-
-		    if updatePeriod < 1 || updatePeriod > 60 {
-		        updatePeriod = 10
-		    }
-
-		    // Save the client's filter parameters—hold the lock only briefly.
-		    clientSummaryFiltersMutex.Lock()
-		    clientSummaryFilters[client.Id()] = FilterParams{
-		        Latitude:     filterLat,
-		        Longitude:    filterLon,
-		        Radius:       filterRadius,
-		        MaxResults:   maxResults,
-		        MaxAge:       maxAge,
+		if len(args) > 0 {
+			if paramStr, ok := args[0].(string); ok {
+				var params struct {
+					Latitude     float64 `json:"latitude"`
+					Longitude    float64 `json:"longitude"`
+					Radius       float64 `json:"radius"`
+					MaxResults   int     `json:"maxResults"`
+					MaxAge       float64 `json:"maxAge"`
+					UpdatePeriod int     `json:"updatePeriod"`
+					MinSpeed     float64 `json:"minSpeed"`   // Optional minimum speed.
+					UserID       string  `json:"userID"`     // Optional exact UserID match.
+				}
+				if err := json.Unmarshal([]byte(paramStr), &params); err != nil {
+					log.Printf("Error parsing filter parameters from client %s: %v", client.Id(), err)
+				} else {
+					filterLat = params.Latitude
+					filterLon = params.Longitude
+					filterRadius = params.Radius
+					maxResults = params.MaxResults
+					maxAge = params.MaxAge
+					updatePeriod = params.UpdatePeriod
+					minSpeed = params.MinSpeed
+					exactUserID = strings.TrimSpace(params.UserID)
+				}
+			}
+		}
+	
+		// Sanitize maxAge and updatePeriod.
+		if maxAge <= 0 || maxAge > 168 {
+			maxAge = 24
+		}
+		if updatePeriod < 1 || updatePeriod > 60 {
+			updatePeriod = 10
+		}
+	
+		// Save the client's filter parameters.
+		clientSummaryFiltersMutex.Lock()
+		clientSummaryFilters[client.Id()] = FilterParams{
+			Latitude:     filterLat,
+			Longitude:    filterLon,
+			Radius:       filterRadius,
+			MaxResults:   maxResults,
+			MaxAge:       maxAge,
 			UpdatePeriod: updatePeriod,
 			LastUpdate:   time.Now(),
-		    }
-		    clientSummaryFiltersMutex.Unlock()
-
-		    // Obtain a local copy of the vessel state.
-		    vesselDataMutex.Lock()
-		    completeData := filterCompleteVesselData(vesselData)
-		    vesselDataMutex.Unlock()
-
-		    // Apply filtering based on the client parameters.
-		    var resultData map[string]map[string]interface{}
-		    if filterLat == 0 && filterLon == 0 && filterRadius == 0 {
-		        resultData = completeData
-		    } else {
-		        resultData = filterVesselsByLocationAndLimit(completeData, filterLat, filterLon, filterRadius, maxResults, maxAge)
-		    }
-
-		    summaryData := filterVesselSummary(resultData)
-		    summaryJSON, err := json.Marshal(summaryData)
-		    if err != nil {
-		        log.Printf("Error marshaling filtered vessel summary: %v", err)
-		        return
-		    }
-
-		    // Emit the summary to the requesting client.
-		    if err := client.Emit("latest_vessel_summary", string(summaryJSON)); err != nil {
-		        log.Printf("Error sending filtered vessel summary to client %s: %v", client.Id(), err)
-		    }
-		})
-
+		}
+		clientSummaryFiltersMutex.Unlock()
+	
+		// Obtain a local copy of vessel data.
+		vesselDataMutex.Lock()
+		completeData := filterCompleteVesselData(vesselData)
+		vesselDataMutex.Unlock()
+	
+		// Apply filtering based on the client parameters.
+		var resultData map[string]map[string]interface{}
+		if filterLat == 0 && filterLon == 0 && filterRadius == 0 {
+			resultData = completeData
+		} else {
+			resultData = filterVesselsByLocationAndLimit(completeData, filterLat, filterLon, filterRadius, maxResults, maxAge)
+		}
+	
+		// Apply the optional minSpeed filter.
+		if minSpeed > 0 {
+			for id, vessel := range resultData {
+				// "Sog" is the JSON field for speed over ground.
+				sog, ok := vessel["Sog"].(float64)
+				if !ok || sog < minSpeed {
+					delete(resultData, id)
+				}
+			}
+		}
+	
+		// Apply the optional UserID filter.
+		if exactUserID != "" {
+			for id, vessel := range resultData {
+				// Check the "UserID" field.
+				// It could be stored as either a string or a number.
+				matches := false
+				if uidVal, exists := vessel["UserID"]; exists {
+					switch v := uidVal.(type) {
+					case string:
+						matches = v == exactUserID
+					case float64:
+						// Convert the number to a string with no fractional part.
+						matches = fmt.Sprintf("%.0f", v) == exactUserID
+					}
+				}
+				if !matches {
+					delete(resultData, id)
+				}
+			}
+		}
+		
+		// Build the vessel summary and send it to the client.
+		summaryData := filterVesselSummary(resultData)
+		summaryJSON, err := json.Marshal(summaryData)
+		if err != nil {
+			log.Printf("Error marshaling filtered vessel summary: %v", err)
+			return
+		}
+	
+		if err := client.Emit("latest_vessel_summary", string(summaryJSON)); err != nil {
+			log.Printf("Error sending filtered vessel summary to client %s: %v", client.Id(), err)
+		}
+	})
 
 	})
 
@@ -2101,142 +2137,148 @@ func main() {
 		}
 	})
 
-	http.HandleFunc("/summary/", func(w http.ResponseWriter, r *http.Request) {
-	    // Extract an optional vessel ID from the URL.
-	    userID := strings.TrimPrefix(r.URL.Path, "/summary/")
-    
-	    vesselDataMutex.Lock()
-	    defer vesselDataMutex.Unlock()
-    
-	    // If a specific vessel ID is provided, return only that vessel's summary.
-	    if userID != "" {
-	        vessel, exists := vesselData[userID]
-	        if !exists {
-	            http.Error(w, "Vessel not found", http.StatusNotFound)
-	            return
-	        }
-	        vesselSummary := filterVesselSummary(map[string]map[string]interface{}{
-	            userID: vessel,
-	        })
-	        w.Header().Set("Content-Type", "application/json")
-	        if err := json.NewEncoder(w).Encode(vesselSummary[userID]); err != nil {
-	            http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
-	        }
-	        return
-	    }
-    
-	    // Get a complete copy of vessel data.
-	    completeData := filterCompleteVesselData(vesselData)
-    
-	    // Parse query parameters.
-	    query := r.URL.Query()
-	    latStr := query.Get("latitude")
-	    lonStr := query.Get("longitude")
-	    radiusStr := query.Get("radius")
-	    maxResultsStr := query.Get("maxResults")
-	    maxAgeStr := query.Get("maxAge")
-    
-	    var (
-	        lat, lon, radius, maxAge float64
-	        maxResults               int
-	        err                      error
-	    )
-    
-	    if latStr != "" {
-	        lat, err = strconv.ParseFloat(latStr, 64)
-	        if err != nil {
-	            lat = 0
-	        }
-	    }
-	    if lonStr != "" {
-	        lon, err = strconv.ParseFloat(lonStr, 64)
-	        if err != nil {
-	            lon = 0
-	        }
-	    }
-	    if radiusStr != "" {
-	        radius, err = strconv.ParseFloat(radiusStr, 64)
-	        if err != nil {
-	            radius = 0
-	        }
-	    }
-	    if maxResultsStr != "" {
-	        maxResults, err = strconv.Atoi(maxResultsStr)
-	        if err != nil {
-	            maxResults = 0
-	        }
-	    }
-	    if maxAgeStr != "" {
-	        maxAge, err = strconv.ParseFloat(maxAgeStr, 64)
-	        if err != nil {
-	            maxAge = 24
-	        }
-	    } else {
-	        maxAge = 24 // default 24 hours if not provided
-	    }
-	    // Enforce sensible maxAge limits (between >0 and 168 hours).
-	    if maxAge <= 0 || maxAge > 168 {
-	        maxAge = 24
-	    }
-    
-	    var filtered map[string]map[string]interface{}
-	    // If a spatial filter is provided, use the existing helper to filter by location and age.
-	    if lat != 0 || lon != 0 || radius != 0 {
-	        filtered = filterVesselsByLocationAndLimit(completeData, lat, lon, radius, maxResults, maxAge)
-	    } else {
-	        // If no spatial filtering, enforce maxAge filtering.
-	        cutoff := time.Now().UTC().Add(-time.Duration(maxAge * float64(time.Hour)))
-	        filtered = make(map[string]map[string]interface{})
-	        for id, vessel := range completeData {
-	            tStr, ok := vessel["LastUpdated"].(string)
-	            if !ok {
-	                continue
-	            }
-	            t, err := time.Parse(time.RFC3339Nano, tStr)
-	            if err != nil {
-	                continue
-	            }
-	            if t.Before(cutoff) {
-	                continue
-	            }
-	            filtered[id] = vessel
-	        }
-	    }
-	    
-	    // Build the summary.
-	    summaryData := filterVesselSummary(filtered)
-	    
-	    // If maxResults is specified and greater than zero, limit the number of returned entries.
-	    if maxResults > 0 && len(summaryData) > maxResults {
-	        // Convert map to a slice.
-	        summarySlice := make([]map[string]interface{}, 0, len(summaryData))
-	        for _, entry := range summaryData {
-	            summarySlice = append(summarySlice, entry)
-	        }
-	        // Optionally, sort the slice by LastUpdated (descending).
-	        sort.Slice(summarySlice, func(i, j int) bool {
-	            t1, err1 := time.Parse(time.RFC3339Nano, fmt.Sprintf("%v", summarySlice[i]["LastUpdated"]))
-	            t2, err2 := time.Parse(time.RFC3339Nano, fmt.Sprintf("%v", summarySlice[j]["LastUpdated"]))
-	            if err1 != nil || err2 != nil {
-	                return false
-	            }
-	            return t1.After(t2)
-	        })
-	        // Truncate the slice.
-	        summarySlice = summarySlice[:maxResults]
-	        w.Header().Set("Content-Type", "application/json")
-	        if err := json.NewEncoder(w).Encode(summarySlice); err != nil {
-	            http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
-	        }
-	        return
-	    }
-	    
-	    // Return the summary map if no truncation is needed.
-	    w.Header().Set("Content-Type", "application/json")
-	    if err := json.NewEncoder(w).Encode(summaryData); err != nil {
-	        http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
-	        return
-	    }
+	http.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
+
+		// Obtain the complete vessel data copy.
+		completeData := filterCompleteVesselData(vesselData)
+
+		// Parse query parameters.
+		query := r.URL.Query()
+		latStr := query.Get("latitude")
+		lonStr := query.Get("longitude")
+		radiusStr := query.Get("radius")
+		maxResultsStr := query.Get("maxResults")
+		maxAgeStr := query.Get("maxAge")
+		minSpeedStr := query.Get("minSpeed")   // Optional: minimum speed filter.
+		userIDParam := strings.TrimSpace(query.Get("userID")) // Optional: exact UserID filter.
+	
+		var (
+			lat, lon, radius, maxAge float64
+			maxResults               int
+			err                      error
+		)
+
+		if latStr != "" {
+			lat, err = strconv.ParseFloat(latStr, 64)
+			if err != nil {
+				lat = 0
+			}
+		}
+		if lonStr != "" {
+			lon, err = strconv.ParseFloat(lonStr, 64)
+			if err != nil {
+				lon = 0
+			}
+		}
+		if radiusStr != "" {
+			radius, err = strconv.ParseFloat(radiusStr, 64)
+			if err != nil {
+				radius = 0
+			}
+		}
+		if maxResultsStr != "" {
+			maxResults, err = strconv.Atoi(maxResultsStr)
+			if err != nil {
+				maxResults = 0
+			}
+		}
+		if maxAgeStr != "" {
+			maxAge, err = strconv.ParseFloat(maxAgeStr, 64)
+			if err != nil {
+				maxAge = 24
+			}
+		} else {
+			maxAge = 24 // default to 24 hours
+		}
+	
+		// Enforce sensible maxAge limits.
+		if maxAge <= 0 || maxAge > 168 {
+			maxAge = 24
+		}
+	
+		var filtered map[string]map[string]interface{}
+		// Apply spatial filtering if any location parameter is provided.
+		if lat != 0 || lon != 0 || radius != 0 {
+			filtered = filterVesselsByLocationAndLimit(completeData, lat, lon, radius, maxResults, maxAge)
+		} else {
+			// Otherwise enforce age filtering.
+			cutoff := time.Now().UTC().Add(-time.Duration(maxAge * float64(time.Hour)))
+			filtered = make(map[string]map[string]interface{})
+			for id, vessel := range completeData {
+				tStr, ok := vessel["LastUpdated"].(string)
+				if !ok {
+					continue
+				}
+				t, err := time.Parse(time.RFC3339Nano, tStr)
+				if err != nil || t.Before(cutoff) {
+					continue
+				}
+				filtered[id] = vessel
+			}
+		}
+	
+		// Apply the optional minSpeed filter if provided.
+		if minSpeedStr != "" {
+			minSpeedVal, err := strconv.ParseFloat(minSpeedStr, 64)
+			if err == nil && minSpeedVal > 0 {
+				for id, vessel := range filtered {
+					sog, ok := vessel["Sog"].(float64)
+					if !ok || sog < minSpeedVal {
+						delete(filtered, id)
+					}
+				}
+			}
+		}
+	
+		// Apply the optional exact UserID filter if provided.
+		if userIDParam != "" {
+			for id, vessel := range filtered {
+				matches := false
+				if uidVal, exists := vessel["UserID"]; exists {
+					switch v := uidVal.(type) {
+					case string:
+						matches = (v == userIDParam)
+					case float64:
+						matches = (fmt.Sprintf("%.0f", v) == userIDParam)
+					}
+				}
+				if !matches {
+					delete(filtered, id)
+				}
+			}
+		}
+	
+		// Build the vessel summary.
+		summaryData := filterVesselSummary(filtered)
+	
+		// If a maximum result count is set and we have more than that, limit and sort the output.
+		if maxResults > 0 && len(summaryData) > maxResults {
+			summarySlice := make([]map[string]interface{}, 0, len(summaryData))
+			for _, entry := range summaryData {
+				summarySlice = append(summarySlice, entry)
+			}
+			sort.Slice(summarySlice, func(i, j int) bool {
+				t1, err1 := time.Parse(time.RFC3339Nano, fmt.Sprintf("%v", summarySlice[i]["LastUpdated"]))
+				t2, err2 := time.Parse(time.RFC3339Nano, fmt.Sprintf("%v", summarySlice[j]["LastUpdated"]))
+				if err1 != nil || err2 != nil {
+					return false
+				}
+				return t1.After(t2)
+			})
+			summarySlice = summarySlice[:maxResults]
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(summarySlice); err != nil {
+				http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+				return
+			}
+			return
+		}
+	
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(summaryData); err != nil {
+			http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+			return
+		}
 	})
 
 	http.HandleFunc("/history/", func(w http.ResponseWriter, r *http.Request) {
