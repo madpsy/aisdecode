@@ -140,7 +140,7 @@
 	  max-width: 200px;
           width: auto;
           overflow-y: auto;
-          z-index: 1000;
+          z-index: 1500;
           font-family: Arial, sans-serif;
           font-size: 13px;
           line-height: 1.4;
@@ -1087,7 +1087,7 @@ function updateVesselDetailHeader(userID) {
   const imageContainer = document.getElementById('vessel-header-image');
   
   // Update the text container with the vessel name, lookup, and copy link.
-  textContainer.innerHTML = `<h4>${vesselData[userID].Name}<br>
+  textContainer.innerHTML = `<h4><font size="3">${vesselData[userID].Name}</font><br>
     <a href="https://www.vesselfinder.com/vessels/details/${vesselData[userID].UserID}" target="_blank">Lookup</a> |
     <span id="copy-link" style="cursor:pointer; color:blue;">Link</span></h4>`;
   
