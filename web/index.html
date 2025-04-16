@@ -1001,22 +1001,24 @@ function getCustomIcon(vesselState, iconUrl) {
 
 
 function getVesselIcon(vesselState) {
+  // For lower zoom levels, show a simple circle marker.
   if (map.getZoom() < 10) {
     return createCircleIcon(vesselState);
   }
-  const types = vesselState.MessageTypes || [];
   
-  if (types.includes('AidsToNavigationReport')) {
-    return getCustomIcon(vesselState, 'images/aids-to-navigation.png');
-  }
-  if (types.includes('BaseStationReport')) {
-    return getCustomIcon(vesselState, 'images/base-station.png');
-  }
-  if (types.includes('StandardSearchAndRescueAircraftReport')) {
-    return getCustomIcon(vesselState, 'images/sar-aircraft.png');
+  // Check the AISClass value for special cases.
+  if (vesselState.AISClass) {
+    const aisClass = vesselState.AISClass.trim();
+    if (aisClass === "AtoN") {
+      return getCustomIcon(vesselState, 'images/aids-to-navigation.png');
+    } else if (aisClass === "Base Station") {
+      return getCustomIcon(vesselState, 'images/base-station.png');
+    } else if (aisClass === "SAR") {
+      return getCustomIcon(vesselState, 'images/sar-aircraft.png');
+    }
   }
   
-  // Compute heading using the same logic as in getCustomIcon
+  // Default: compute the vessel's heading and create a boat icon.
   const heading = (typeof vesselState.TrueHeading === 'number' && vesselState.TrueHeading < 360)
                     ? vesselState.TrueHeading
                     : (typeof vesselState.Cog === 'number' && vesselState.Cog >= 0 && vesselState.Cog < 360)
@@ -1024,6 +1026,7 @@ function getVesselIcon(vesselState) {
                       : 0;
   return createBoatIcon(vesselState.Type, heading);
 }
+
 
 function updateLatLongDisplay() {
   const latlongDisplay = document.getElementById('latlong-display');
