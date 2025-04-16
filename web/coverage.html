@@ -192,8 +192,12 @@
         const select = document.getElementById("receiver-select");
         // Clear any existing options.
         select.innerHTML = "";
-        // Create and append an option for each receiver.
-        receiversData.forEach(receiver => {
+
+        // Filter receivers to only include those with state === true.
+        const filteredReceivers = receiversData.filter(receiver => receiver.state === true);
+
+        // Create and append an option for each receiver in the filtered list.
+        filteredReceivers.forEach(receiver => {
           const option = document.createElement("option");
           option.value = receiver.id;
           // Store receiver details as dataset attributes for easy access.
@@ -204,15 +208,15 @@
           option.textContent = receiver.name;
           select.appendChild(option);
         });
-        
+
         // Check if an "id" query parameter is specified.
         const params = new URLSearchParams(window.location.search);
         const queryId = params.get("id");
 
         let receiverToLoad = null;
         if (queryId) {
-          // Find the receiver with the given id.
-          receiverToLoad = receiversData.find(r => String(r.id) === queryId);
+          // Find the receiver with the given id in the filtered list.
+          receiverToLoad = filteredReceivers.find(r => String(r.id) === queryId);
           if (receiverToLoad) {
             for (let i = 0; i < select.options.length; i++) {
               if (select.options[i].value === queryId) {
@@ -222,13 +226,16 @@
             }
           }
         }
-        // If no valid query parameter, use the first receiver.
-        if (!receiverToLoad && receiversData.length > 0) {
-          receiverToLoad = receiversData[0];
+        // If no valid query parameter, use the first receiver from the filtered list.
+        if (!receiverToLoad && filteredReceivers.length > 0) {
+          receiverToLoad = filteredReceivers[0];
           select.selectedIndex = 0;
         }
         if (receiverToLoad) {
           loadReceiverData(receiverToLoad);
+        } else {
+          console.error("No receiver with state enabled was found.");
+          alert("No available receivers with state enabled.");
         }
       } catch (error) {
         console.error("Error populating receivers:", error);

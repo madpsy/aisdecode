@@ -860,14 +860,23 @@ function refreshReceivers() {
           if (receiverMarkers[id]) {
 		  // Update marker position.
 		  receiverMarkers[id].setLatLng([lat, lng]);
-		  // Rebuild the popup content with the updated time.
 		  const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
-		  let linksHTML = "";
-		  if (receiver.url && receiver.url.trim() !== "") {
-		    linksHTML += `<a href="${receiver.url}" target="_blank">Website</a> | `;
-		  }
-		  linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a> | `;
-		  linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
+	    	  let linksHTML = "";
+	    	  if (receiver.url && receiver.url.trim() !== "") {
+	    	    linksHTML += `<a href="${receiver.url}" target="_blank">Website</a>`;
+	    	  }
+	    	  if (receiver.metrics) {
+	    	    if (linksHTML !== "") {
+	    	      linksHTML += " | ";
+	    	    }
+	    	    linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a>`;
+	    	  }
+	    	  if (receiver.state) {
+	    	    if (linksHTML !== "") {
+	    	      linksHTML += " | ";
+	    	    }
+	    	    linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
+	    	  }
 		  const popupContent = `
 		    <strong>${receiver.name}</strong><br>
 		    ${receiver.description}<br>
@@ -878,16 +887,24 @@ function refreshReceivers() {
 		  receiverMarkers[id].setPopupContent(popupContent);
           } else {
             const marker = L.marker([lat, lng], { icon: createReceiverIcon() }).addTo(map);
-
-            // Build popup content including website/metrics/coverage links.
             const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
             let linksHTML = "";
-            if (receiver.url && receiver.url.trim() !== "") {
-              linksHTML += `<a href="${receiver.url}" target="_blank">Website</a> | `;
-            }
-            linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a> | `;
-            linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
-
+	    if (receiver.url && receiver.url.trim() !== "") {
+	      linksHTML += `<a href="${receiver.url}" target="_blank">Website</a>`;
+	    }
+	    if (receiver.metrics) {
+	      // Add separator if needed.
+	      if (linksHTML !== "") {
+	        linksHTML += " | ";
+	      }
+	      linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a>`;
+	    }
+	    if (receiver.state) {
+	      if (linksHTML !== "") {
+	        linksHTML += " | ";
+	      }
+	      linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
+	    }
             const popupContent = `
               <strong>${receiver.name}</strong><br>
               ${receiver.description}<br>

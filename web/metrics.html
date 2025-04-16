@@ -784,7 +784,11 @@
         const receiversData = await response.json();
         const select = document.getElementById("receiver-select");
         select.innerHTML = "";
-        receiversData.forEach(receiver => {
+
+        // Filter receivers to only include ones with metrics === true
+        const filteredReceivers = receiversData.filter(receiver => receiver.metrics === true);
+
+        filteredReceivers.forEach(receiver => {
           const option = document.createElement("option");
           option.value = receiver.id;
           option.dataset.local = receiver.local;
@@ -794,24 +798,32 @@
           option.textContent = receiver.name;
           select.appendChild(option);
         });
+
         const params = new URLSearchParams(window.location.search);
         const queryId = params.get("id");
         let receiverToSelect = null;
         if (queryId) {
-          receiverToSelect = receiversData.find(r => String(r.id) === queryId);
+          receiverToSelect = filteredReceivers.find(r => String(r.id) === queryId);
           if (receiverToSelect) {
             select.value = queryId;
           }
         }
-        if (!receiverToSelect) {
-          receiverToSelect = receiversData[0];
+        if (!receiverToSelect && filteredReceivers.length > 0) {
+          receiverToSelect = filteredReceivers[0];
         }
-        handleReceiverChange(receiverToSelect);
+    
+        if (receiverToSelect) {
+          handleReceiverChange(receiverToSelect);
+        } else {
+          console.error("No receiver with metrics enabled was found.");
+          alert("No available receivers with metrics enabled.");
+        }
       } catch (error) {
         console.error("Error populating receivers:", error);
         alert("Error fetching receivers data");
       }
     }
+
     function handleReceiverChange(receiver) {
       const isLocal = (receiver.local === true || receiver.local === "true");
       if (isLocal) {

@@ -36,6 +36,14 @@ var liveVesselData = make(map[string]map[string]interface{})
 var liveDataMutex sync.RWMutex  // Protects liveVesselData
 var previousVesselDataMutex sync.RWMutex
 
+type ReceiverStatus struct {
+    Metrics bool
+    State   bool
+}
+
+var receiverStatuses = make(map[string]ReceiverStatus)
+var receiverStatusesMutex sync.RWMutex
+
 type SlidingWindowCounter struct {
     mu     sync.Mutex
     events []time.Time
@@ -2442,6 +2450,8 @@ func main() {
 					// Force local attributes.
 					localReceiver["local"] = true
 					localReceiver["id"] = 0
+					localReceiver["metrics"] = true
+					localReceiver["state"] = true
 
 					// Add LastUpdated field based on the file's modification time.
 					localReceiver["LastUpdated"] = time.Now().UTC().Format(time.RFC3339Nano)
@@ -2478,7 +2488,13 @@ func main() {
 			    delete(recCopy, "password")
 			    recCopy["id"] = numID
 			    recCopy["local"] = false
-			    out = append(out, recCopy)
+			    strUUID := rec["uuid"]
+			    receiverStatusesMutex.RLock()
+			    status := receiverStatuses[strUUID]
+			    receiverStatusesMutex.RUnlock()
+			    recCopy["state"] = status.State
+			    recCopy["metrics"] = status.Metrics
+			    out = append(out, recCopy)				
 			}
 	
 			w.Header().Set("Content-Type", "application/json")
@@ -2659,6 +2675,16 @@ func main() {
 				http.Error(w, "Error updating receivers data: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
+
+		        receiverStatusesMutex.Lock()
+		        status := receiverStatuses[receiverUUID] // if not set before, status will be its zero value (false booleans)
+		        if action == "state" {
+		            status.State = true
+		        } else if action == "metrics" {
+		            status.Metrics = true
+		        }
+		        receiverStatuses[receiverUUID] = status
+		        receiverStatusesMutex.Unlock()
 
 		        // Respond with a success message.
 		        w.WriteHeader(http.StatusOK)
