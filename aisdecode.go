@@ -54,6 +54,8 @@ type FilterParams struct {
 	MaxAge       float64
 	UpdatePeriod int
 	LastUpdate   time.Time
+	UserID       string  
+	MinSpeed     float64 
 }
 
 var clientSummaryFilters = make(map[socket.SocketId]FilterParams)
@@ -1864,8 +1866,8 @@ func main() {
 					MaxResults   int     `json:"maxResults"`
 					MaxAge       float64 `json:"maxAge"`
 					UpdatePeriod int     `json:"updatePeriod"`
-					MinSpeed     float64 `json:"minSpeed"`   // Optional minimum speed.
-					UserID       string  `json:"userID"`     // Optional exact UserID match.
+					MinSpeed     float64 `json:"minSpeed"`
+					UserID       string  `json:"userID"`
 				}
 				if err := json.Unmarshal([]byte(paramStr), &params); err != nil {
 					log.Printf("Error parsing filter parameters from client %s: %v", client.Id(), err)
@@ -1900,6 +1902,8 @@ func main() {
 			MaxAge:       maxAge,
 			UpdatePeriod: updatePeriod,
 			LastUpdate:   time.Now(),
+			UserID:       exactUserID,
+			MinSpeed:     minSpeed,
 		}
 		clientSummaryFiltersMutex.Unlock()
 	
@@ -3631,56 +3635,85 @@ func main() {
 	  
 	        now := time.Now()
 	        // Loop over client filters and emit summary only if the client's updatePeriod has elapsed
-	        for clientID, fp := range filtersCopy {
-	            if now.Sub(fp.LastUpdate) < time.Duration(fp.UpdatePeriod)*time.Second {
-	                continue
-	            }
-	            // Update last update time in the shared map
-	            fp.LastUpdate = now
-	            clientSummaryFiltersMutex.Lock()
-	            clientSummaryFilters[clientID] = fp
-	            clientSummaryFiltersMutex.Unlock()
-	  
-	            var filtered map[string]map[string]interface{}
-	            if fp.Latitude == 0 && fp.Longitude == 0 && fp.Radius == 0 {
-	                filtered = currentData
-	            } else {
-	                filtered = filterVesselsByLocationAndLimit(
-	                    currentData, fp.Latitude, fp.Longitude, fp.Radius,
-	                    fp.MaxResults, fp.MaxAge,
-	                )
-	            }
-	  
-	            summaryData := filterVesselSummary(filtered)
-	            summaryJSON, err := json.Marshal(summaryData)
-	            if err != nil {
-	                log.Printf("Error marshaling summary for client %s: %v", clientID, err)
-	                continue
-	            }
-	  
-	            // Emit in a separate goroutine to avoid blocking.
-	            go func(clientID socket.SocketId, msg string) {
-	                defer func() {
-	                    if r := recover(); r != nil {
-	                        log.Printf("Recovered in emit for client %s: %v", clientID, r)
-	                    }
-	                }()
-	                clientsMutex.Lock()
-	                var client *socket.Socket
-	                for _, c := range clients {
-	                    if c.Id() == clientID {
-	                        client = c
-	                        break
-	                    }
-	                }
-	                clientsMutex.Unlock()
-	                if client != nil {
-	                    if err := client.Emit("latest_vessel_summary", msg); err != nil {
-	                        log.Printf("Error sending summary to client %s: %v", clientID, err)
-	                    }
-	                }
-	            }(clientID, string(summaryJSON))
-	        }
+		for clientID, fp := range filtersCopy {
+		    if now.Sub(fp.LastUpdate) < time.Duration(fp.UpdatePeriod)*time.Second {
+		        continue
+		    }
+		    // Update LastUpdate value in the shared map.
+		    fp.LastUpdate = now
+		    clientSummaryFiltersMutex.Lock()
+		    clientSummaryFilters[clientID] = fp
+		    clientSummaryFiltersMutex.Unlock()
+
+		    // Apply spatial filtering if location parameters are provided.
+		    var filtered map[string]map[string]interface{}
+		    if fp.Latitude == 0 && fp.Longitude == 0 && fp.Radius == 0 {
+		        filtered = currentData
+		    } else {
+		        filtered = filterVesselsByLocationAndLimit(currentData, fp.Latitude, fp.Longitude, fp.Radius, fp.MaxResults, fp.MaxAge)
+		    }
+
+		    // --- Additional UserID Filter ---
+		    if fp.UserID != "" {
+		        for id, vessel := range filtered {
+		            var matches bool
+		            if uidVal, exists := vessel["UserID"]; exists {
+		                switch v := uidVal.(type) {
+		                case string:
+		                    matches = (v == fp.UserID)
+		                case float64:
+		                    matches = (fmt.Sprintf("%.0f", v) == fp.UserID)
+		                }
+		            }
+		            if !matches {
+		                delete(filtered, id)
+		            }
+		        }
+		    }
+		
+		    // --- Additional minSpeed Filter ---
+		    if fp.MinSpeed > 0 {
+		        for id, vessel := range filtered {
+		            // "Sog" is the field for speed over ground.
+		            sog, ok := vessel["Sog"].(float64)
+		            if !ok || sog < fp.MinSpeed {
+		                delete(filtered, id)
+		            }
+		        }
+		    }
+		    // ---------------------------------
+		
+		    // Build and emit the vessel summary.
+		    summaryData := filterVesselSummary(filtered)
+		    summaryJSON, err := json.Marshal(summaryData)
+		    if err != nil {
+		        log.Printf("Error marshaling summary for client %s: %v", clientID, err)
+		        continue
+		    }
+
+		    go func(clientID socket.SocketId, msg string) {
+		        defer func() {
+		            if r := recover(); r != nil {
+		                log.Printf("Recovered in emit for client %s: %v", clientID, r)
+		            }
+		        }()
+		        clientsMutex.Lock()
+		        var client *socket.Socket
+		        for _, c := range clients {
+		            if c.Id() == clientID {
+		                client = c
+		                break
+		            }
+		        }
+		        clientsMutex.Unlock()
+		        if client != nil {
+		            if err := client.Emit("latest_vessel_summary", msg); err != nil {
+		                log.Printf("Error sending summary to client %s: %v", clientID, err)
+		            }
+		        }
+		    }(clientID, string(summaryJSON))
+		}
+
 	    }
 	}()
 

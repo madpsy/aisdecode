@@ -620,39 +620,45 @@ map.on('click', () => {
     updateFocussedVisibility();
     updateStationaryMarkers();
   }
+  sendSummaryRequest();
 });
 
 function sendSummaryRequest() {
-  // Get the center of the current map view.
-  const center = map.getCenter();
+  const onlyTracked = document.getElementById('only-focussed').checked;
   
-  // Compute a radius based on the current bounds.
-  // Here, for example, we compute the distance from the center to the northeast corner.
+  if (onlyTracked && focusedVessel) {
+    const filterParams = { userID: focusedVessel };
+    const jsonPayload = JSON.stringify(filterParams);
+    //console.log("Emitting requestSummary (Only Tracked):", jsonPayload);
+    socket.emit("requestSummary", jsonPayload);
+    updateOverlay();
+    return;
+  }
+  
+  const center = map.getCenter();
   const bounds = map.getBounds();
   const radius = center.distanceTo(bounds.getNorthEast()) * 1.5;
-  
-  // Get the current maxAge (in hours) from the age-slider.
   const ageSlider = document.getElementById("age-slider");
   const maxAge = parseInt(ageSlider.value, 10);
   
-  // Build the filter parameters object.
   const filterParams = {
     latitude: center.lat,
     longitude: center.lng,
     radius: radius,      // in meters
-    maxResults: 500,    // fixed limit
-    maxAge: maxAge,       // in hours
-    updatePeriod: 5    // in seconds
+    maxResults: 500,     // fixed limit
+    maxAge: maxAge,      // in hours
+    updatePeriod: 5      // in seconds
   };
+
+  if (!document.getElementById('stationary').checked) {
+    filterParams.minSpeed = 1;
+  }
   
-  // Send the filter parameters to the server.
-  socket.emit("requestSummary", JSON.stringify(filterParams));
-  
-  // (Optional) Update other UI components immediately:
-  filterMarkersByAge(maxAge);
+  const jsonPayload = JSON.stringify(filterParams);
+  //console.log("Emitting requestSummary:", jsonPayload);
+  socket.emit("requestSummary", jsonPayload);
   updateOverlay();
 }
-
 
         // Mapping objects for Fix Type, Nav Status, and Static Message Types.
         const fixTypeMapping = { 0: "No Fix", 1: "GPS Fix", 2: "DGPS Fix" };
@@ -1026,36 +1032,6 @@ function debounce(func, wait) {
 
 const debouncedAdjustMapBounds = debounce(adjustMapBounds, 500);
 
-function filterMarkersByAge(ageHours) {
-  const now = Date.now();
-  
-  // Iterate over all vessel markers and check their last update time.
-  for (const mmsi in vesselMarkers) {
-    const marker = vesselMarkers[mmsi];
-    const vessel = vesselData[mmsi];
-
-    if (vessel && vessel.lastUpdate) {
-      const ageSeconds = (now - vessel.lastUpdate) / 1000; // Calculate the age in seconds.
-      const maxAgeSeconds = ageHours * 3600;  // Convert hours to seconds.
-
-      // If the vessel's last update is older than the selected age, remove its marker from the map.
-      if (ageSeconds > maxAgeSeconds) {
-        if (map.hasLayer(marker)) {
-          map.removeLayer(marker);
-        }
-      } else {
-        // If the vessel's last update is within the selected age, make sure its marker is visible.
-        if (!map.hasLayer(marker)) {
-          map.addLayer(marker);
-        }
-      }
-    }
-  }
-
-  // Now update the overlay count based on the vessels that remain on the map.
-  updateOverlay();
-}
-
 
 // Function to open the modal with the clicked image
 function openImageModal(imageSrc) {
@@ -1096,113 +1072,6 @@ function clearHistory() {
   updateOverlay();
   location.reload();
 }
-
-// Update markers based on viewport (with a 20% buffer)
-function updateMarkersInView() {
-  const bounds = map.getBounds().pad(0.2);
-  const onlyFocussed = document.getElementById('only-focussed').checked;
-  const showStationary = document.getElementById('stationary').checked;
-  const now = Date.now();
-
-  for (const mmsi in vesselMarkers) {
-    const marker = vesselMarkers[mmsi];
-    const vessel = vesselData[mmsi];
-
-    // If "Only Tracked" is enabled, only show the focused vessel's marker.
-    if (onlyFocussed && focusedVessel && mmsi !== focusedVessel.toString()) {
-      if (map.hasLayer(marker)) {
-        map.removeLayer(marker);
-      }
-      continue;
-    }
-
-    // If "Stationary" is disabled, filter out vessels that haven't updated recently
-    // or whose Speed Over Ground (Sog) is not valid or very low.
-    if (!showStationary && vessel && vessel.lastUpdate) {
-      const ageSeconds = (now - vessel.lastUpdate) / 1000;
-      if (ageSeconds > 120 || (typeof vessel.Sog !== "number" || vessel.Sog <= 0.5)) {
-        if (map.hasLayer(marker)) {
-          map.removeLayer(marker);
-        }
-        continue;
-      }
-    }
-
-    // Finally, use the viewport bounds to determine whether the marker should be visible.
-    if (bounds.contains(marker.getLatLng())) {
-      if (!map.hasLayer(marker)) {
-        map.addLayer(marker);
-        // Re-open the tooltip if it's set to be permanent.
-        const tooltip = marker.getTooltip();
-        if (tooltip && tooltip.options && tooltip.options.permanent) {
-          marker.openTooltip();
-        }
-      }
-    } else {
-      if (map.hasLayer(marker)) {
-        map.removeLayer(marker);
-      }
-    }
-  }
-}
-
-function updateTracksInView() {
-  const showPaths = document.getElementById('show-paths').checked;
-
-  // If the history checkbox is unchecked, remove all track layers and exit.
-  if (!showPaths) {
-    for (const mmsi in vesselTracks) {
-      if (map.hasLayer(vesselTracks[mmsi])) {
-        map.removeLayer(vesselTracks[mmsi]);
-      }
-    }
-    return;
-  }
-
-  const onlyFocussed = document.getElementById('only-focussed').checked;
-  const showStationary = document.getElementById('stationary').checked;
-  const now = Date.now();
-
-  for (const mmsi in vesselTracks) {
-    const track = vesselTracks[mmsi];
-    const vessel = vesselData[mmsi];
-
-    // Always show the track for the focused vessel—even if it's off screen.
-    if (String(mmsi) === String(focusedVessel)) {
-      if (!map.hasLayer(track)) {
-        map.addLayer(track);
-      }
-      // Skip further filtering for the focused vessel.
-      continue;
-    }
-
-    // If "Only Tracked" is enabled, show only the focused vessel's track.
-    if (onlyFocussed && focusedVessel && String(mmsi) !== String(focusedVessel)) {
-      if (map.hasLayer(track)) {
-        map.removeLayer(track);
-      }
-      continue;
-    }
-
-    // Apply the "Stationary" filter if disabled.
-    if (!showStationary && vessel && vessel.lastUpdate) {
-      const ageSeconds = (now - vessel.lastUpdate) / 1000;
-      if (ageSeconds > 120 || (typeof vessel.Sog !== "number" || vessel.Sog <= 0.5)) {
-        if (map.hasLayer(track)) {
-          map.removeLayer(track);
-        }
-        continue;
-      }
-    }
-
-    // For all non-focused vessels that pass the above filters,
-    // always add the track regardless of the map bounds.
-    if (!map.hasLayer(track)) {
-      map.addLayer(track);
-    }
-  }
-}
-
 
 function attachPolylineEvents(polyline, userID) {
   polyline.on('mousemove', function(e) {
@@ -1427,15 +1296,11 @@ function hydrateTrackHistory(userID) {
       localStorage.setItem('vesselData', JSON.stringify(vesselData));
       
       // Now update the UI after CSV processing is complete.
-      updateMarkersInView();
-      updateTracksInView();
       updateOverlay();
     })
     .catch(error => {
       console.error('Error hydrating track history:', error);
       // Optionally, you can call your update functions on error
-      updateMarkersInView();
-      updateTracksInView();
       updateOverlay();
     });
 }
@@ -1946,46 +1811,8 @@ function updateStationaryMarkers() {
   for (const mmsi in vesselData) {
     const vesselState = vesselData[mmsi];
 
-    // When "Only Tracked" is enabled, skip any vessel that's not focused.
-    if (onlyFocussed && focusedVessel && mmsi !== focusedVessel) {
-      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-        map.removeLayer(vesselMarkers[mmsi]);
-      }
-      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
-        map.removeLayer(vesselTracks[mmsi]);
-      }
-      continue; // Skip further processing for non-focused vessels.
-    }
-
     if (vesselState.lastUpdate) {
       const ageSeconds = (now - vesselState.lastUpdate) / 1000;
-
-if (!showStationary) {
-  // Skip removal logic for the vessel in focus.
-  if (mmsi !== focusedVessel) {
-    // Remove vessel if it hasn't updated in over 120 seconds.
-    if (ageSeconds > 120) {
-      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-        map.removeLayer(vesselMarkers[mmsi]);
-      }
-      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
-        map.removeLayer(vesselTracks[mmsi]);
-      }
-      continue;
-    }
-
-    // Remove vessel if SOG is not a valid number or if it's stationary (<= 0.5 kn)
-    if (typeof vesselState.Sog !== "number" || vesselState.Sog <= 0.5) {
-      if (vesselMarkers[mmsi] && map.hasLayer(vesselMarkers[mmsi])) {
-        map.removeLayer(vesselMarkers[mmsi]);
-      }
-      if (vesselTracks[mmsi] && map.hasLayer(vesselTracks[mmsi])) {
-        map.removeLayer(vesselTracks[mmsi]);
-      }
-      continue;
-    }
-  }
-}
 
     }
 
@@ -2002,9 +1829,6 @@ if (!showStationary) {
       }
     }
   }
-
-  updateMarkersInView();
-  updateTracksInView();
   updateOverlay();
 }
 
@@ -2124,44 +1948,23 @@ function isVesselVisibleByAge(vessel) {
 
         // Update marker and track visibility based on the "Only Tracked" checkbox.
 function updateFocussedVisibility() {
-  const onlyFocussed = document.getElementById('only-focussed').checked;
-  const showPaths = document.getElementById('show-paths').checked;
-  if (onlyFocussed && focusedVessel) {
-    for (const userID in vesselMarkers) {
-      if (userID !== focusedVessel.toString()) {
-        if (map.hasLayer(vesselMarkers[userID])) map.removeLayer(vesselMarkers[userID]);
-        if (vesselTracks[userID] && map.hasLayer(vesselTracks[userID])) {
-          map.removeLayer(vesselTracks[userID]);
-        }
-      } else {
-        if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
-        if (vesselTracks[userID]) {
-          if (showPaths && !map.hasLayer(vesselTracks[userID])) {
-            map.addLayer(vesselTracks[userID]);
-          } else if (!showPaths && map.hasLayer(vesselTracks[userID])) {
-            map.removeLayer(vesselTracks[userID]);
-          }
-        }
-      }
+  // In Only Tracked mode, you expect only the focused vessel to be present.
+  // So simply ensure that its marker and track are visible.
+  if (focusedVessel) {
+    if (!map.hasLayer(vesselMarkers[focusedVessel])) {
+      map.addLayer(vesselMarkers[focusedVessel]);
     }
-  } else {
-    // When Only Tracked is unchecked, simply ensure all markers/tracks are added/removed correctly.
-    for (const userID in vesselMarkers) {
-      if (!map.hasLayer(vesselMarkers[userID])) map.addLayer(vesselMarkers[userID]);
-    }
-    for (const userID in vesselTracks) {
-      if (showPaths && !map.hasLayer(vesselTracks[userID])) {
-        map.addLayer(vesselTracks[userID]);
-      } else if (!showPaths && map.hasLayer(vesselTracks[userID])) {
-        map.removeLayer(vesselTracks[userID]);
+    const showPaths = document.getElementById('show-paths').checked;
+    if (vesselTracks[focusedVessel]) {
+      if (showPaths && !map.hasLayer(vesselTracks[focusedVessel])) {
+        map.addLayer(vesselTracks[focusedVessel]);
+      } else if (!showPaths && map.hasLayer(vesselTracks[focusedVessel])) {
+        map.removeLayer(vesselTracks[focusedVessel]);
       }
     }
   }
-  updateMarkersInView();
-  updateTracksInView();
   updateOverlay();
 }
-
 
 
         // --- Live Logs functionality ---
@@ -2560,9 +2363,8 @@ function applyLogFilters() {
         // Listen for changes to the "Only Tracked" and "OpenSeaMap Overlay" checkboxes.
         document.getElementById('only-focussed').addEventListener('change', () => {
   	    updateFocussedVisibility();
-	    updateStationaryMarkers(); // Reapply stationary filtering
-	    updateMarkersInView();
-	    updateTracksInView();
+	    updateStationaryMarkers();
+	    sendSummaryRequest();
             updateOverlay();
 	});
 	document.getElementById('openseamap-overlay').addEventListener('change', () => {
@@ -2637,17 +2439,6 @@ function applyLogFilters() {
 	    const vesselTimestamp = new Date(vesselState.LastUpdated).getTime();
 	    const vesselAgeMilliseconds = now - vesselTimestamp;
 
-	  if (vesselAgeMilliseconds > maxAgeMilliseconds) {
-	    if (vesselMarkers[mmsi]) {
-	      map.removeLayer(vesselMarkers[mmsi]);
-	      delete vesselMarkers[mmsi];
-	    }
-	    if (vesselTracks[mmsi]) {
-	      map.removeLayer(vesselTracks[mmsi]);
-	      delete vesselTracks[mmsi];
-	    }
-	    continue;  // Skip processing for this vessel
-	  }
 	    if (
 	      !vesselState.MessageTypes ||
 	      !Array.isArray(vesselState.MessageTypes) ||
@@ -2805,8 +2596,6 @@ function applyLogFilters() {
           updateOverlay();
           updateFocussedVisibility();
 	  updateStationaryMarkers();
-	  updateMarkersInView();
-	  updateTracksInView();
           localStorage.setItem('vesselData', JSON.stringify(vesselData));
         });
 
@@ -2885,7 +2674,10 @@ function performSearch(query) {
 
         document.getElementById('clear-history').addEventListener('click', clearHistory);
 
-	document.getElementById('stationary').addEventListener('change', updateStationaryMarkers);
+	document.getElementById('stationary').addEventListener('change', () => {
+  	  sendSummaryRequest();
+    	  updateStationaryMarkers();
+	});
 
         // Attach tooltip click listener.
         function attachTooltipClick(marker, userID) {
@@ -3255,7 +3047,7 @@ window.addEventListener('load', () => {
 
   // If UserID is provided, fetch the summary and center the map accordingly.
   if (userIDParam) {
-    fetch(`/summary/${userIDParam}`)
+    fetch(`/summary?userID=${userIDParam}`)
       .then(response => {
         if (!response.ok) {
           throw new Error(`Network error: ${response.status}`);
@@ -3263,10 +3055,12 @@ window.addEventListener('load', () => {
         return response.json();
       })
       .then(data => {
+        const userSummary = data[userIDParam];
+
         // Validate that the summary contains valid Latitude and Longitude fields.
-        if (typeof data.Latitude === 'number' && typeof data.Longitude === 'number') {
+        if (userSummary && typeof userSummary.Latitude === 'number' && typeof userSummary.Longitude === 'number') {
           // Center the map on these coordinates; adjust the zoom level as needed.
-          map.setView([data.Latitude, data.Longitude], 10);
+          map.setView([userSummary.Latitude, userSummary.Longitude], 10);
         } else {
           console.warn('Summary data is missing valid latitude and longitude fields.');
         }
@@ -3274,31 +3068,6 @@ window.addEventListener('load', () => {
       .catch(error => {
         console.error('Error fetching summary:', error);
       });
-  }
-
-  // Existing code: Remove vessels whose last update exceeds the max-age
-  const ageSlider = document.getElementById("age-slider");
-  const maxAgeHours = parseInt(ageSlider.value, 10);  // In hours
-  const maxAgeMilliseconds = maxAgeHours * 3600000; // Convert hours to milliseconds
-  const now = Date.now();
-
-  for (const mmsi in vesselData) {
-    const vesselState = vesselData[mmsi];
-    const vesselTimestamp = new Date(vesselState.LastUpdated).getTime();
-    const vesselAgeMilliseconds = now - vesselTimestamp;
-
-    // If the vessel's last update is older than the selected max-age, remove it from map and data.
-    if (vesselAgeMilliseconds > maxAgeMilliseconds) {
-      if (vesselMarkers[mmsi]) {
-        map.removeLayer(vesselMarkers[mmsi]);
-        delete vesselMarkers[mmsi];
-      }
-      if (vesselTracks[mmsi]) {
-        map.removeLayer(vesselTracks[mmsi]);
-        delete vesselTracks[mmsi];
-      }
-      delete vesselData[mmsi];
-    }
   }
 
   updateStationaryMarkers();
@@ -3563,11 +3332,6 @@ document.getElementById("history-slider").addEventListener("input", () => {
   }, 500); // Adjust debounce delay as needed.
 });
 
-map.on('moveend zoomend', function() {
-  updateMarkersInView();
-  updateTracksInView();
-});
-
 document.getElementById('modal-close').addEventListener('click', closeImageModal);
 document.getElementById('image-modal-overlay').addEventListener('click', function(e) {
   // If the click is on the overlay (not the content), close the modal.
@@ -3584,7 +3348,6 @@ document.getElementById("age-slider").addEventListener("input", () => {
   clearTimeout(ageDebounceTimer);
   ageDebounceTimer = setTimeout(() => {
     sendSummaryRequest();
-    filterMarkersByAge(ageHours);  // Apply the age filter.
     updateOverlay();  // Update the vessel overlay count
   }, 500);  // Adjust the debounce delay as needed.
 });
