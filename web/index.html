@@ -1712,7 +1712,9 @@ function createPopupContent(data) {
 
   addLine(lines, "Destination", data.Destination && data.Destination.trim() !== "" ? data.Destination : null);
   addLine(lines, "Speed", (data.Sog != null ? `${data.Sog} kn` : null));
-
+  if (data.Altitude != null) {
+    addLine(lines, "Altitude", `${data.Altitude} m`);
+  } 
   if (data.Type !== undefined) {
     const typeDescription = staticTypeMapping[data.Type] || data.Type;
     addLine(lines, "Type", typeDescription);
@@ -1822,6 +1824,9 @@ if (data.MID) {
   }
 
   addLine(lines, "Speed", (data.Sog != null ? `${data.Sog} kn` : null));
+  if (data.Altitude != null) {
+    addLine(lines, "Altitude", `${data.Altitude} m`);
+  }
   addLine(lines, "Course", (data.Cog != null ? `${data.Cog}°` : null));
 
   if (data.TrueHeading != null && data.TrueHeading < 360) {
