@@ -1536,7 +1536,12 @@ function selectVesselById(userID) {
         if (typeof stateData.Latitude === "number" && typeof stateData.Longitude === "number") {
           // Update or add the vessel to your global state.
           vesselData[userID] = stateData;
-
+	  if (!vesselData[userID].track) {
+  		vesselData[userID].track = [];
+	  }
+	  if (!vesselData[userID].color) {
+            vesselData[userID].color = randomColor();
+          }
           // Create a marker using your existing function (e.g., getVesselIcon).
           let marker = L.marker(
             [stateData.Latitude, stateData.Longitude],
@@ -1564,13 +1569,13 @@ function selectVesselById(userID) {
       .then(stateData => {
         // Update global state and marker position.
         vesselData[userID] = stateData;
+	if (!vesselData[userID].track) {
+  	   vesselData[userID].track = [];
+	}
         vesselMarkers[userID].setLatLng([stateData.Latitude, stateData.Longitude]);
         vesselMarkers[userID].getPopup().setContent(createPopupContent(stateData));
 
-        // Focus on the vessel.
         focusOnVessel(userID);
-
-        // Fetch the vessel's track/history.
         hydrateTrackHistory(userID);
       })
       .catch(error => {
@@ -2525,7 +2530,8 @@ socket.on("latest_vessel_summary", (data) => {
   // Remove vessels that no longer appear in the summary data.
   const newIDs = new Set(Object.keys(data));
   for (const mmsi in vesselData) {
-    if (!newIDs.has(mmsi)) {
+    // Only remove if the vessel is not in the latest summary AND is not manually focused
+    if (!newIDs.has(mmsi) && mmsi !== focusedVessel) {
       if (vesselMarkers[mmsi]) map.removeLayer(vesselMarkers[mmsi]);
       if (vesselTracks[mmsi]) map.removeLayer(vesselTracks[mmsi]);
       delete vesselData[mmsi];
