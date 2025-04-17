@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIS Metrics Dashboard</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --card-bg: #fff;
+      --card-shadow: rgba(0, 0, 0, 0.1);
+      --primary: #2f80ed;
+      --text: #333;
+      --muted: #666;
+    }
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    h1 {
+      text-align: center;
+      color: var(--primary);
+      margin-bottom: 1rem;
+    }
+    .grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 8px;
+      box-shadow: 0 2px 8px var(--card-shadow);
+      padding: 1rem;
+      text-align: center;
+    }
+    .card h2 {
+      margin: 0;
+      font-size: 1.25rem;
+      color: var(--muted);
+    }
+    .card p {
+      margin: .5rem 0 0;
+      font-size: 2rem;
+      font-weight: bold;
+      color: var(--primary);
+    }
+    section {
+      margin-top: 2rem;
+    }
+    section h3 {
+      margin-bottom: .5rem;
+      color: var(--primary);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--card-bg);
+      box-shadow: 0 1px 4px var(--card-shadow);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    th, td {
+      padding: .5rem;
+      text-align: left;
+    }
+    th {
+      background: var(--primary);
+      color: #fff;
+      font-weight: normal;
+    }
+    tr:nth-child(even) {
+      background: #f0f4ff;
+    }
+    @media (max-width: 600px) {
+      .card p {
+        font-size: 1.5rem;
+      }
+    }
+    .small {
+      font-size: .85rem;
+      color: var(--muted);
+    }
+  </style>
+
+  <script defer>
+    document.addEventListener('DOMContentLoaded', () => {
+      const overviewKeys = [
+        { id: 'total_bytes_forwarded', label: 'Bytes Per Destination' },
+        { id: 'bytes_forwarded_window', label: 'Bytes Per Destination (window)' },
+        { id: 'total_messages', label: 'Total Messages' },
+        { id: 'window_messages', label: 'Messages (window)' },
+        { id: 'total_failures', label: 'Total Failures' },
+        { id: 'window_failures', label: 'Failures (window)' },
+        { id: 'total_downsampled', label: 'Total Downsampled' },
+        { id: 'window_downsampled', label: 'Downsampled (window)' },
+        { id: 'total_deduplicated', label: 'Total Deduplicated' },
+        { id: 'window_deduplicated', label: 'Deduplicated (window)' },
+        { id: 'total_bytes_received', label: 'Total Bytes Received' },
+        { id: 'total_messages_forwarded', label: 'Total Messages Forwarded' },
+        { id: 'window_messages_forwarded', label: 'Messages Forwarded (window)' },
+        { id: 'bytes_received_window', label: 'Bytes Received (window)' }
+      ];
+
+      function formatNumber(value) {
+        if (value >= 1_000_000) {
+          return (value / 1_000_000).toFixed(2) + 'M';
+        } else if (value >= 1_000) {
+          return (value / 1_000).toFixed(2) + 'K';
+        } else {
+          return value.toString();
+        }
+      }
+
+      function formatPercentage(value) {
+        return (value * 100).toFixed(1) + '%';
+      }
+
+      function renderOverview(data) {
+        const container = document.getElementById('overview');
+        container.innerHTML = '';
+
+        // Build dynamic "per X seconds" label
+        const windowSize = data.metric_window_size_sec;
+        const windowLabel = `per ${windowSize} seconds`;
+
+        // Update all table-header spans
+        document.querySelectorAll('.window-size').forEach(el => {
+          el.textContent = windowSize;
+        });
+
+        // Render the overview cards, replacing "(window)" with "per X seconds"
+        overviewKeys.forEach(({ id, label }) => {
+          let displayLabel = label;
+          if (label.includes('(window)')) {
+            displayLabel = label.replace('(window)', windowLabel);
+          }
+          const card = document.createElement('div');
+          card.className = 'card';
+          const title = document.createElement('h2');
+          title.textContent = displayLabel;
+          const value = document.createElement('p');
+          value.textContent = formatNumber(data[id] ?? 0);
+          card.append(title, value);
+          container.appendChild(card);
+        });
+
+        // Calculate and render ratio cards
+        const ratioWindow = data.window_messages > 0
+          ? data.window_messages_forwarded / data.window_messages
+          : 0;
+        const ratioWindowPercent = formatPercentage(ratioWindow);
+
+        const ratioTotal = data.total_messages > 0
+          ? data.total_messages_forwarded / data.total_messages
+          : 0;
+        const ratioTotalPercent = formatPercentage(ratioTotal);
+
+        const cardRatios = [
+          { label: `Forwarded/Received ${windowLabel}`, value: ratioWindowPercent },
+          { label: 'Forwarded/Received (total)', value: ratioTotalPercent },
+          { label: 'Messages Forwarded (total)', value: ratioTotalPercent }
+        ];
+
+        cardRatios.forEach(({ label, value }) => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          const title = document.createElement('h2');
+          title.textContent = label;
+          const valueElem = document.createElement('p');
+          valueElem.textContent = value;
+          card.append(title, valueElem);
+          container.appendChild(card);
+        });
+      }
+
+      function renderMap(tableId, mapObj) {
+        const tbody = document.getElementById(tableId).querySelector('tbody');
+        tbody.innerHTML = '';
+        Object.entries(mapObj || {})
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 25)
+          .forEach(([key, val]) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${key}</td><td>${formatNumber(val)}</td>`;
+            tbody.appendChild(tr);
+          });
+      }
+
+      function renderArray(tableId, arr, keyField, valField) {
+        const tbody = document.getElementById(tableId).querySelector('tbody');
+        tbody.innerHTML = '';
+        (arr || [])
+          .sort((a, b) => b[valField] - a[valField])
+          .slice(0, 25)
+          .forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${item[keyField]}</td><td>${formatNumber(item[valField])}</td>`;
+            tbody.appendChild(tr);
+          });
+      }
+
+      function renderTopUsers(tableId, list) {
+        const tbody = document.getElementById(tableId).querySelector('tbody');
+        tbody.innerHTML = '';
+        (list || []).slice(0, 25).forEach(u => {
+          const perMsg = Object.entries(u.per_message_id || {})
+                            .map(([mid, c]) => `${mid}:${c}`).join(', ');
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${u.user_id}</td>
+            <td>${u.count}</td>
+            <td class="small">${perMsg}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function renderConnectedClients(tableId, list) {
+        const tbody = document.getElementById(tableId).querySelector('tbody');
+        tbody.innerHTML = '';
+        (list || []).forEach(item => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${item.ip}</td>
+            <td>${(item.shards||[]).join(', ')}</td>
+            <td>${item.version}</td>
+            <td>${formatNumber(item.bytes_sent)}</td>
+            <td>${formatNumber(item.messages_sent)}</td>
+            <td>${formatNumber(item.messages_per_window)}</td>
+            <td>${formatNumber(item.bytes_per_window)}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+
+      async function fetchAndRender() {
+        try {
+          const res = await fetch('/metrics');
+          if (!res.ok) throw new Error(res.statusText);
+          const data = await res.json();
+
+          renderOverview(data);
+          renderMap('per_message_id', data.per_message_id);
+          renderTopUsers('top_users', data.top25_per_user_id);
+          renderArray('failures_by_source', data.failures_by_source, 'source_ip', 'count');
+          renderArray('totals_by_source', data.totals_by_source, 'source_ip', 'count');
+          renderArray('bytes_received_by_source', data.bytes_received_by_source, 'source_ip', 'count');
+          renderMap('down_msg', data.per_downsampled_message_id);
+          renderTopUsers('down_user', data.top25_downsampled_per_user_id);
+          renderTopUsers('dedup_users', data.top25_deduplicated_per_user_id);
+          renderArray('dedup_sources', data.top25_deduplicated_per_source, 'source_ip', 'count');
+          renderMap('messages_per_shard', data.messages_per_shard);
+          renderMap('user_ids_per_shard', data.user_ids_per_shard);
+          renderConnectedClients('connected_clients', data.connected_clients);
+        } catch (err) {
+          console.error('Error loading metrics:', err);
+        }
+      }
+
+      fetchAndRender();
+      setInterval(fetchAndRender, 1000);
+    });
+  </script>
+</head>
+
+<body>
+  <h1>AIS Metrics Dashboard</h1>
+  <div class="grid" id="overview"></div>
+
+  <section>
+    <h3>Per Message ID</h3>
+    <table id="per_message_id">
+      <thead>
+        <tr><th>Message ID</th><th>Total</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Top 25 Users</h3>
+    <table id="top_users">
+      <thead>
+        <tr>
+          <th>User ID</th>
+          <th>Total</th>
+          <th>Per Message ID</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Failures by Source IP (Top 25)</h3>
+    <table id="failures_by_source">
+      <thead>
+        <tr><th>Source IP</th><th>Failures</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Totals by Source IP (Top 25)</h3>
+    <table id="totals_by_source">
+      <thead>
+        <tr><th>Source IP</th><th>Total Msgs</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Bytes Received by Source IP (Top 25)</h3>
+    <table id="bytes_received_by_source">
+      <thead>
+        <tr><th>Source IP</th><th>Bytes Received</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Downsampled per Message ID</h3>
+    <table id="down_msg">
+      <thead>
+        <tr><th>Message ID</th><th>Total</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Top 25 Downsampled Users</h3>
+    <table id="down_user">
+      <thead>
+        <tr>
+          <th>User ID</th>
+          <th>Total</th>
+          <th>Per Message ID</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Top 25 Deduplicated Users</h3>
+    <table id="dedup_users">
+      <thead>
+        <tr>
+          <th>User ID</th>
+          <th>Duplicates Dropped</th>
+          <th>Per Message ID</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Top 25 Deduplicated Source IPs</h3>
+    <table id="dedup_sources">
+      <thead>
+        <tr><th>Source IP</th><th>Duplicates Dropped</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Messages per Shard</h3>
+    <table id="messages_per_shard">
+      <thead>
+        <tr><th>Shard</th><th>Messages</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>User IDs per Shard</h3>
+    <table id="user_ids_per_shard">
+      <thead>
+        <tr><th>Shard</th><th>Unique Users</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Connected Clients</h3>
+    <table id="connected_clients">
+      <thead>
+        <tr>
+          <th>IP</th>
+          <th>Shards</th>
+          <th>Version</th>
+          <th>Bytes Sent</th>
+          <th>Msgs Sent</th>
+          <th>Messages per <span class="window-size"></span> seconds</th>
+          <th>Bytes per <span class="window-size"></span> seconds</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</body>
+</html>
