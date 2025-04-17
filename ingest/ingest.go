@@ -25,6 +25,29 @@ type SlidingWindowCounter struct {
 	events []time.Time
 }
 
+func logMemoryStats() {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	log.Printf("Memory Stats: Alloc = %v MB, TotalAlloc = %v MB, Sys = %v MB, HeapAlloc = %v MB, HeapSys = %v MB, NumGC = %v\n",
+		m.Alloc/1024/1024, m.TotalAlloc/1024/1024, m.Sys/1024/1024, m.HeapAlloc/1024/1024, m.HeapSys/1024/1024, m.NumGC)
+}
+
+func startMemoryStatsLogging() {
+	// Start a ticker to log memory stats every minute (60 seconds)
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	// Run in a separate goroutine so that other tasks can run concurrently
+	for {
+		select {
+		case <-ticker.C:
+			// Log memory stats every minute
+			logMemoryStats()
+		}
+	}
+}
+
 func (c *SlidingWindowCounter) AddEvent() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -85,10 +108,11 @@ type UDPPacket struct {
 
 // StreamMessage is what we send to TCP clients:
 type StreamMessage struct {
-	Message   interface{} `json:"message"`
-	SourceIP  string      `json:"source_ip"`
-	Timestamp string      `json:"timestamp"`
-	ShardID   int         `json:"shard_id"`
+	Message     interface{} `json:"message"`
+	SourceIP    string      `json:"source_ip"`
+	Timestamp   string      `json:"timestamp"`
+	ShardID     int         `json:"shard_id"`
+	RawSentence string      `json:"raw_sentence"`
 }
 
 // handshakeReq is the JSON clients must send on connect
@@ -211,6 +235,54 @@ var (
 	lastDedup = map[string]time.Time{} // raw -> last time seen
 )
 
+// Cleanup function to remove old metrics and client data
+func cleanupMetrics() {
+	metricsMu.Lock()
+	defer metricsMu.Unlock()
+
+	// Trim userID totals and messageID totals
+	for userID, count := range userIDTotals {
+		if count == 0 {
+			delete(userIDTotals, userID)
+		}
+	}
+	for messageID, count := range messageIDTotals {
+		if count == 0 {
+			delete(messageIDTotals, messageID)
+		}
+	}
+	for sourceIP, count := range totalSourceTotals {
+		if count == 0 {
+			delete(totalSourceTotals, sourceIP)
+		}
+	}
+}
+
+// Cleanup function to remove old deduplication and downsampling data
+func cleanupDeduplicationState() {
+	dedupMu.Lock()
+	defer dedupMu.Unlock()
+
+	// Remove old deduplication and downsampling entries
+	now := time.Now()
+	for raw, t := range lastDedup {
+		if now.Sub(t) > dedupWindow {
+			delete(lastDedup, raw)
+		}
+	}
+
+	for msgID, users := range lastForward {
+		for userID, t := range users {
+			if now.Sub(t) > *downsampleWindow {
+				delete(users, userID)
+			}
+		}
+		if len(users) == 0 {
+			delete(lastForward, msgID)
+		}
+	}
+}
+
 func main() {
 	flag.Parse()
 
@@ -225,6 +297,8 @@ func main() {
 	if *numWorkers <= 0 {
 		*numWorkers = runtime.NumCPU()
 	}
+
+	go startMemoryStatsLogging()
 
 	// start HTTP metrics endpoint
 	http.Handle("/", http.FileServer(http.Dir(*webPath)))
@@ -295,6 +369,20 @@ func main() {
 		bytesReceivedWindow.Add(int64(n))
 		packetChan <- UDPPacket{raw: raw, sourceIP: srcIP}
 	}
+
+	// Periodically cleanup metrics and deduplication state
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				cleanupMetrics()
+				cleanupDeduplicationState()
+			}
+		}
+	}()
 }
 
 func startStreamListener(port int) {
@@ -507,7 +595,7 @@ func worker(ch <-chan UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACode
 		metricsMu.Unlock()
 
 		// ─── Stream to TCP clients for this shard ─────────────────────
-		streamObj := StreamMessage{Message: decoded.Packet, SourceIP: srcIP, Timestamp: time.Now().UTC().Format(time.RFC3339Nano), ShardID: shard}
+		streamObj := StreamMessage{Message: decoded.Packet, SourceIP: srcIP, Timestamp: time.Now().UTC().Format(time.RFC3339Nano), ShardID: shard, RawSentence: raw}
 		out, err := json.Marshal(streamObj)
 		if err == nil {
 			clientsMu.Lock()
