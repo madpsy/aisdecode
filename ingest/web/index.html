@@ -102,7 +102,8 @@
         { id: 'total_bytes_received', label: 'Total Bytes Received' },
         { id: 'total_messages_forwarded', label: 'Total Messages Forwarded' },
         { id: 'window_messages_forwarded', label: 'Messages Forwarded (window)' },
-        { id: 'bytes_received_window', label: 'Bytes Received (window)' }
+        { id: 'bytes_received_window', label: 'Bytes Received (window)' },
+        { id: 'total_clients', label: 'Total Clients' }
       ];
 
       function formatNumber(value) {
@@ -148,33 +149,16 @@
           container.appendChild(card);
         });
 
-        // Calculate and render ratio cards
-        const ratioWindow = data.window_messages > 0
-          ? data.window_messages_forwarded / data.window_messages
-          : 0;
-        const ratioWindowPercent = formatPercentage(ratioWindow);
-
-        const ratioTotal = data.total_messages > 0
-          ? data.total_messages_forwarded / data.total_messages
-          : 0;
-        const ratioTotalPercent = formatPercentage(ratioTotal);
-
-        const cardRatios = [
-          { label: `Forwarded/Received ${windowLabel}`, value: ratioWindowPercent },
-          { label: 'Forwarded/Received (total)', value: ratioTotalPercent },
-          { label: 'Messages Forwarded (total)', value: ratioTotalPercent }
-        ];
-
-        cardRatios.forEach(({ label, value }) => {
-          const card = document.createElement('div');
-          card.className = 'card';
-          const title = document.createElement('h2');
-          title.textContent = label;
-          const valueElem = document.createElement('p');
-          valueElem.textContent = value;
-          card.append(title, valueElem);
-          container.appendChild(card);
-        });
+        // Add logic for "All Shards Covered" card
+        const allShardsCovered = (data.shards_missing && data.shards_missing.length === 0) ? 'Yes' : 'No';
+        const allShardsCard = document.createElement('div');
+        allShardsCard.className = 'card';
+        const allShardsTitle = document.createElement('h2');
+        allShardsTitle.textContent = 'All Shards Covered';
+        const allShardsValue = document.createElement('p');
+        allShardsValue.textContent = allShardsCovered;
+        allShardsCard.append(allShardsTitle, allShardsValue);
+        container.appendChild(allShardsCard);
       }
 
       function renderMap(tableId, mapObj) {
@@ -218,20 +202,48 @@
         });
       }
 
-      function renderConnectedClients(tableId, list) {
+      function renderConnectedClients(tableId, connectedClients) {
         const tbody = document.getElementById(tableId).querySelector('tbody');
         tbody.innerHTML = '';
-        (list || []).forEach(item => {
+        (connectedClients || []).forEach(client => {
           const tr = document.createElement('tr');
           tr.innerHTML = `
-            <td>${item.ip}</td>
-            <td>${(item.shards||[]).join(', ')}</td>
-            <td>${item.version}</td>
-            <td>${formatNumber(item.bytes_sent)}</td>
-            <td>${formatNumber(item.messages_sent)}</td>
-            <td>${formatNumber(item.messages_per_window)}</td>
-            <td>${formatNumber(item.bytes_per_window)}</td>`;
+            <td>${client.ip}</td>
+            <td>${(client.shards || []).join(', ')}</td>
+            <td>${client.version}</td>
+            <td>${formatNumber(client.bytes_sent)}</td>
+            <td>${formatNumber(client.messages_sent)}</td>
+            <td>${formatNumber(client.messages_per_window)}</td>
+            <td>${formatNumber(client.bytes_per_window)}</td>`;
           tbody.appendChild(tr);
+        });
+      }
+
+      function renderShardsWithoutClients(shards_missing) {
+        const container = document.getElementById('shards_without_clients');
+        const tbody = container.querySelector('tbody');
+        tbody.innerHTML = '';
+
+        // Loop through shards_missing to display all shards without clients
+        shards_missing.forEach(shard => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${shard}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function renderOverlappingClients(shards_multiple) {
+        const container = document.getElementById('overlapping_clients');
+        const tbody = container.querySelector('tbody');
+        tbody.innerHTML = '';
+
+        // Loop through shards_multiple to display shards with multiple clients
+        Object.entries(shards_multiple).forEach(([shard, clients]) => {
+          if (clients.length > 1) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${shard}</td><td>${clients.join(', ')}</td>`;
+            tbody.appendChild(tr);
+          }
         });
       }
 
@@ -254,6 +266,11 @@
           renderMap('messages_per_shard', data.messages_per_shard);
           renderMap('user_ids_per_shard', data.user_ids_per_shard);
           renderConnectedClients('connected_clients', data.connected_clients);
+
+          // New Tables and Cards
+          renderShardsWithoutClients(data.shards_missing);
+          renderOverlappingClients(data.shards_multiple);
+          
         } catch (err) {
           console.error('Error loading metrics:', err);
         }
@@ -408,5 +425,26 @@
       <tbody></tbody>
     </table>
   </section>
+
+  <section>
+    <h3>Shards Without Clients</h3>
+    <table id="shards_without_clients">
+      <thead>
+        <tr><th>Shard</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Overlapping Clients (Shards with more than one client)</h3>
+    <table id="overlapping_clients">
+      <thead>
+        <tr><th>Shard</th><th>Clients</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
 </body>
 </html>

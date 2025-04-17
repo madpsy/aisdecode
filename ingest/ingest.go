@@ -88,6 +88,7 @@ type StreamMessage struct {
 	Message   interface{} `json:"message"`
 	SourceIP  string      `json:"source_ip"`
 	Timestamp string      `json:"timestamp"`
+	ShardID   int         `json:"shard_id"`
 }
 
 // handshakeReq is the JSON clients must send on connect
@@ -162,7 +163,7 @@ var (
 	// bytes received per source IP
 	bytesReceivedTotals = map[string]int64{}
 
-	// bytes forwarded per destination (new)
+	// bytes forwarded per destination
 	totalBytesForwarded int64
 
 	// overall totals
@@ -179,8 +180,9 @@ var (
 	failureSourceCounters          = map[string]*SlidingWindowCounter{}
 	downsampledCounter             = &SlidingWindowCounter{}
 	downsampledMessageTypeCounters = map[string]*SlidingWindowCounter{}
-	downsampledUserIDCounters      = map[string]*SlidingWindowCounter{}
-	totalSourceCounters            = &SlidingWindowCounter{}
+	// fixed: now a map from userID to window counter
+	downsampledUserIDCounters = map[string]*SlidingWindowCounter{}
+	totalSourceCounters       = &SlidingWindowCounter{}
 
 	// Deduplication rolling-window counters
 	dedupCounter        = &SlidingWindowCounter{}
@@ -287,14 +289,10 @@ func main() {
 		totalSourceTotals[srcIP]++
 		bytesReceivedTotals[srcIP] += int64(n)
 		totalBytesReceived += int64(n)
-		if totalSourceCounters == nil {
-			totalSourceCounters = &SlidingWindowCounter{}
-		}
 		totalSourceCounters.AddEvent()
 		metricsMu.Unlock()
 
 		bytesReceivedWindow.Add(int64(n))
-
 		packetChan <- UDPPacket{raw: raw, sourceIP: srcIP}
 	}
 }
@@ -401,14 +399,6 @@ func worker(ch <-chan UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACode
 			userID = fmt.Sprintf("%.0f", uid)
 		}
 
-		// count raw decode per user/msg
-		metricsMu.Lock()
-		if perUserMessageIDCount[userID] == nil {
-			perUserMessageIDCount[userID] = map[string]int64{}
-		}
-		perUserMessageIDCount[userID][msgID]++
-		metricsMu.Unlock()
-
 		// ─── Deduplication ───────────────────────────────
 		if dedupWindow > 0 {
 			dedupMu.Lock()
@@ -448,6 +438,7 @@ func worker(ch <-chan UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACode
 				lastForward[msgID] = map[string]time.Time{}
 			}
 			if now.Sub(lastForward[msgID][userID]) < *downsampleWindow {
+				downMu.Unlock()
 				// record downsample drop
 				metricsMu.Lock()
 				totalDownsampled++
@@ -467,7 +458,6 @@ func worker(ch <-chan UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACode
 				}
 				downsampledPerUserMessageIDCount[userID][msgID]++
 				metricsMu.Unlock()
-				downMu.Unlock()
 				continue
 			}
 			lastForward[msgID][userID] = now
@@ -492,10 +482,8 @@ func worker(ch <-chan UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACode
 		}
 		userIDCounters[userID].AddEvent()
 
-		// new forwarded metrics
 		totalForwarded++
 		forwardedCounter.AddEvent()
-		// per‐destination byte metrics
 		totalBytesForwarded += int64(len(raw))
 		bytesForwardedWindow.Add(int64(len(raw)))
 		metricsMu.Unlock()
@@ -511,11 +499,7 @@ func worker(ch <-chan UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACode
 		metricsMu.Unlock()
 
 		// ─── Stream to TCP clients for this shard ─────────────────────
-		streamObj := StreamMessage{
-			Message:   decoded.Packet,
-			SourceIP:  srcIP,
-			Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-		}
+		streamObj := StreamMessage{Message: decoded.Packet, SourceIP: srcIP, Timestamp: time.Now().UTC().Format(time.RFC3339Nano), ShardID: shard}
 		out, err := json.Marshal(streamObj)
 		if err == nil {
 			clientsMu.Lock()
@@ -539,12 +523,61 @@ func worker(ch <-chan UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACode
 	}
 }
 
+// getTotalClients returns the total number of connected stream clients.
+func getTotalClients() int {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+	return len(clients)
+}
+
+// getShardsMissing returns a slice of shard indices with no client connected.
+func getShardsMissing() []int {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+
+	used := make(map[int]bool)
+	for _, c := range clients {
+		for _, s := range c.shards {
+			used[s] = true
+		}
+	}
+
+	missing := make([]int, 0)
+	for i := 0; i < *streamShards; i++ {
+		if !used[i] {
+			missing = append(missing, i)
+		}
+	}
+	return missing
+}
+
+// getShardsMultiple returns a map of shard indices to the list of client IPs for shards with >1 client.
+func getShardsMultiple() map[int][]string {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+
+	shardMap := make(map[int][]string)
+	for _, c := range clients {
+		for _, s := range c.shards {
+			shardMap[s] = append(shardMap[s], c.ip)
+		}
+	}
+
+	multiple := make(map[int][]string)
+	for s, ips := range shardMap {
+		if len(ips) > 1 {
+			multiple[s] = ips
+		}
+	}
+	return multiple
+}
+
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	metricsMu.RLock()
 	defer metricsMu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
 
-	// compute windowed metrics first (prunes old events)
+	// windowed metrics
 	windowMsgs := totalCounter.Count(*metricWindowSize)
 	windowFailures := failureCounter.Count(*metricWindowSize)
 	windowDownsampled := downsampledCounter.Count(*metricWindowSize)
@@ -553,7 +586,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	windowBytesReceived := bytesReceivedWindow.Sum(*metricWindowSize)
 	windowBytesForwarded := bytesForwardedWindow.Sum(*metricWindowSize)
 
-	// compute per-client metrics (messages and bytes per window)
+	// per-client metrics
 	clientMetrics := make([]map[string]interface{}, 0)
 	clientsMu.Lock()
 	for _, c := range clients {
@@ -570,6 +603,11 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	clientsMu.Unlock()
 
+	// extra metrics
+	totalClients := getTotalClients()
+	shardsMissing := getShardsMissing()
+	shardsMultiple := getShardsMultiple()
+
 	// compute ratios
 	var ratioTotal, ratioWindow float64
 	if totalMessages > 0 {
@@ -579,7 +617,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		ratioWindow = float64(windowForwarded) / float64(windowMsgs)
 	}
 
-	// helper structs
+	// helper types
 	type userStat struct {
 		UserID       string           `json:"user_id"`
 		Count        int64            `json:"count"`
@@ -600,28 +638,20 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		users = users[:25]
 	}
 
-	// top‑25 downsampled users (dropped)
+	// top‑25 downsampled users
 	dsUsers := make([]userStat, 0, len(downsampledUserIDTotals))
 	for uid, cnt := range downsampledUserIDTotals {
-		dsUsers = append(dsUsers, userStat{
-			UserID:       uid,
-			Count:        cnt,
-			PerMessageID: downsampledPerUserMessageIDCount[uid],
-		})
+		dsUsers = append(dsUsers, userStat{UserID: uid, Count: cnt, PerMessageID: downsampledPerUserMessageIDCount[uid]})
 	}
 	sort.Slice(dsUsers, func(i, j int) bool { return dsUsers[i].Count > dsUsers[j].Count })
 	if len(dsUsers) > 25 {
 		dsUsers = dsUsers[:25]
 	}
 
-	// top‑25 deduplicated users (duplicates dropped)
+	// top‑25 deduplicated users
 	dupUsers := make([]userStat, 0, len(deduplicatedUserIDTotals))
 	for uid, cnt := range deduplicatedUserIDTotals {
-		dupUsers = append(dupUsers, userStat{
-			UserID:       uid,
-			Count:        cnt,
-			PerMessageID: dedupPerUserMessageIDCount[uid],
-		})
+		dupUsers = append(dupUsers, userStat{UserID: uid, Count: cnt, PerMessageID: dedupPerUserMessageIDCount[uid]})
 	}
 	sort.Slice(dupUsers, func(i, j int) bool { return dupUsers[i].Count > dupUsers[j].Count })
 	if len(dupUsers) > 25 {
@@ -739,6 +769,9 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		"downsample_window_sec":              downsampleWindow.Seconds(),
 		"deduplication_window_sec":           dedupWindow.Seconds(),
 		"metric_window_size_sec":             (*metricWindowSize).Seconds(),
+		"total_clients":                      totalClients,
+		"shards_missing":                     shardsMissing,
+		"shards_multiple":                    shardsMultiple,
 	}
 
 	json.NewEncoder(w).Encode(resp)
