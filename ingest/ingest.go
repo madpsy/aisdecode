@@ -19,6 +19,15 @@ import (
 	"github.com/BertoldVdb/go-ais/aisnmea"
 )
 
+var bufPool = sync.Pool{
+    New: func() interface{} { return make([]byte, 2048) },
+}
+
+// pool of UDPPacket pointers
+var packetPool = sync.Pool{
+    New: func() interface{} { return new(UDPPacket) },
+}
+
 // SlidingWindowCounter tracks timestamps for rolling‑window counts.
 type SlidingWindowCounter struct {
 	mu     sync.Mutex
@@ -55,17 +64,18 @@ func (c *SlidingWindowCounter) AddEvent() {
 }
 
 func (c *SlidingWindowCounter) Count(window time.Duration) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	cutoff := time.Now().Add(-window)
-	i := 0
-	for ; i < len(c.events); i++ {
-		if c.events[i].After(cutoff) {
-			break
-		}
-	}
-	c.events = c.events[i:]
-	return len(c.events)
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    cutoff := time.Now().Add(-window)
+    i := sort.Search(len(c.events), func(i int) bool {
+        return c.events[i].After(cutoff)
+    })
+    // shrink slice and also reallocate to free underlying array if it's grown too large
+    newLen := len(c.events)-i
+    newEvents := make([]time.Time, newLen)
+    copy(newEvents, c.events[i:])
+    c.events = newEvents
+    return newLen
 }
 
 // SlidingWindowBytesCounter tracks bytes for rolling‑window sums.
@@ -341,36 +351,11 @@ func main() {
 	codec.DropSpace = true
 	nmeaCodec := aisnmea.NMEACodecNew(codec)
 
-	packetChan := make(chan UDPPacket, 1000)
+	packetChan := make(chan *UDPPacket, 1000)
 	for i := 0; i < *numWorkers; i++ {
 		go worker(packetChan, udpConns, nmeaCodec)
 	}
 
-	buf := make([]byte, 2048)
-	for {
-		n, addr, err := pc.ReadFrom(buf)
-		if err != nil {
-			log.Printf("UDP read error: %v", err)
-			continue
-		}
-		raw := string(buf[:n])
-		srcIP := strings.Split(addr.String(), ":")[0]
-
-		// record receive metrics
-		metricsMu.Lock()
-		totalMessages++
-		totalCounter.AddEvent()
-		totalSourceTotals[srcIP]++
-		bytesReceivedTotals[srcIP] += int64(n)
-		totalBytesReceived += int64(n)
-		totalSourceCounters.AddEvent()
-		metricsMu.Unlock()
-
-		bytesReceivedWindow.Add(int64(n))
-		packetChan <- UDPPacket{raw: raw, sourceIP: srcIP}
-	}
-
-	// Periodically cleanup metrics and deduplication state
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
@@ -383,6 +368,34 @@ func main() {
 			}
 		}
 	}()
+
+	for {
+		buf := bufPool.Get().([]byte)
+		n, addr, err := pc.ReadFrom(buf)
+		if err != nil {
+			log.Printf("UDP read error: %v", err)
+			continue
+		}
+		raw := string(buf[:n])
+		bufPool.Put(buf)
+		pkt := packetPool.Get().(*UDPPacket)
+		pkt.raw = raw
+		pkt.sourceIP = strings.Split(addr.String(), ":")[0]
+
+		// record receive metrics
+		metricsMu.Lock()
+		totalMessages++
+		totalCounter.AddEvent()
+		totalSourceTotals[pkt.sourceIP]++
+		bytesReceivedTotals[pkt.sourceIP] += int64(n)
+		totalBytesReceived += int64(n)
+		totalSourceCounters.AddEvent()
+		metricsMu.Unlock()
+
+		bytesReceivedWindow.Add(int64(n))
+		packetChan <- pkt
+	}
+
 }
 
 func startStreamListener(port int) {
@@ -454,8 +467,8 @@ func shardForUser(userID string) int {
 	return int(h.Sum32()) % *streamShards
 }
 
-func worker(ch <-chan UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACodec) {
-	for pkt := range ch {
+func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACodec) {
+   for pkt := range ch {
 		raw, srcIP := pkt.raw, pkt.sourceIP
 		decoded, err := nmea.ParseSentence(raw)
 		if err != nil || decoded == nil || decoded.Packet == nil {
@@ -472,6 +485,9 @@ func worker(ch <-chan UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACode
 			if *debug {
 				log.Printf("[DEBUG] decode failure: %v | raw: %s", err, raw)
 			}
+ 		        pkt.raw = ""
+		        pkt.sourceIP = ""
+		        packetPool.Put(pkt)
 			continue
 		}
 
