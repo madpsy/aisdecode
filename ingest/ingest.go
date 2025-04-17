@@ -399,6 +399,14 @@ func worker(ch <-chan UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACode
 			userID = fmt.Sprintf("%.0f", uid)
 		}
 
+		// ─── Record message for the user and message ID counts ─────────────────
+		metricsMu.Lock()
+		if perUserMessageIDCount[userID] == nil {
+		    perUserMessageIDCount[userID] = map[string]int64{}
+		}
+		perUserMessageIDCount[userID][msgID]++
+		metricsMu.Unlock()
+
 		// ─── Deduplication ───────────────────────────────
 		if dedupWindow > 0 {
 			dedupMu.Lock()
