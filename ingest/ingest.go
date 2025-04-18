@@ -127,7 +127,7 @@ type UDPPacket struct {
 // StreamMessage is what we send to TCP clients
 type StreamMessage struct {
 	Message     interface{} `json:"message"`
-	SourceIP    string      `json:"source_ip"`
+	SourceIP    string      `json:"source_ip,omitempty"`
 	Timestamp   string      `json:"timestamp"`
 	ShardID     int         `json:"shard_id"`
 	RawSentence string      `json:"raw_sentence"`
@@ -162,6 +162,7 @@ var (
 	deduplicationWindowMs = flag.Int("deduplication-window", 0, "Rolling window length in milliseconds for deduplication. 0 means no deduplication")
 	webPath               = flag.String("web-path", "web", "Directory to serve static files from")
 	debugFlag 	      = flag.Bool("debug", false, "Enable debug output")
+	includeSource 	      = flag.Bool("include-source", false, "Include source_ip in the JSON responses")
 
 	streamPort   = flag.Int("stream-port", 8102, "TCP port to listen on for decoded-sentence stream")
 	streamShards = flag.Int("stream-shards", 1, "Number of shards for stream partitioning")
@@ -659,13 +660,6 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 
         msgID, userID := mid, uid
 
-        metricsMu.Lock()
-        if perUserMessageIDCount[userID] == nil {
-            perUserMessageIDCount[userID] = map[string]int64{}
-        }
-        perUserMessageIDCount[userID][msgID]++
-        metricsMu.Unlock()
-
         // Deduplication check based on FNV-1a hash
         if dedupWindow > 0 {
             dedupMu.Lock()
@@ -762,30 +756,47 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         userIDsPerShard[shard][userID] = struct{}{}
         metricsMu.Unlock()
 
+        // Split the raw NMEA sentence by commas and extract the channel (5th field)
+	fields := strings.Split(rawStr, ",")
+	channel := "Unknown"
+	if len(fields) > 5 {
+	    channel = string(fields[4][0]) // Extract only the first character of the 5th field (either 'A' or 'B')
+	}
+
         buf := jsonBufPool.Get().(*bytes.Buffer)
         buf.Reset()
         streamObj := StreamMessage{
             Message:     decoded.Packet,
-            SourceIP:    srcIP,
             Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
             ShardID:     shard,
             RawSentence: rawStr,
         }
+
+	if *includeSource { // Check if -include-source is true
+	    streamObj.SourceIP = srcIP
+	}
+
+        // Add the channel field
+        streamObj.Message = map[string]interface{}{
+            "message": decoded.Packet,
+            "channel": channel,
+        }
+
         json.NewEncoder(buf).Encode(streamObj)
         out := buf.Bytes()
         jsonBufPool.Put(buf)
 
-	if mqttClient != nil && mqttClient.IsConnected() {
-	    token := mqttClient.Publish(*mqttTopic, 0, false, out)
-	    token.Wait()
-	}
+        if mqttClient != nil && mqttClient.IsConnected() {
+            token := mqttClient.Publish(*mqttTopic, 0, false, out)
+            token.Wait()
+        }
 
         clientsMu.Lock()
         for _, c := range clients {
             for _, sub := range c.shards {
                 if sub == shard {
                     c.mu.Lock()
-                    n, err := c.conn.Write(append(out, '\n'))
+                    n, err := c.conn.Write(append(out))
                     if err == nil {
                         c.bytesSent += int64(n)
                         c.messagesSent++
@@ -803,6 +814,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         packetPool.Put(pkt)
     }
 }
+
 
 func getTotalClients() int {
 	clientsMu.Lock()
