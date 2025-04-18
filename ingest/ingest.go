@@ -731,6 +731,11 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         }
 
         metricsMu.Lock()
+	if perUserMessageIDCount[userID] == nil {
+	    perUserMessageIDCount[userID] = map[string]int64{}
+	}
+	perUserMessageIDCount[userID][msgID]++
+
         messageIDTotals[msgID]++
         if messageIDCounters[msgID] == nil {
             messageIDCounters[msgID] = NewFixedWindowCounter()

@@ -324,23 +324,23 @@ function renderMap(tableId, mapObj) {
   <div class="grid" id="overview"></div>
 
   <section>
-    <h3>Per Message ID</h3>
+    <h3>Per Message Type</h3>
     <table id="per_message_id">
       <thead>
-        <tr><th>Message ID</th><th>Total</th></tr>
+        <tr><th>Message Type</th><th>Total</th></tr>
       </thead>
       <tbody></tbody>
     </table>
   </section>
 
   <section>
-    <h3>Top 25 Users</h3>
+    <h3>Top 25 MMSI</h3>
     <table id="top_users">
       <thead>
         <tr>
-          <th>User ID</th>
+          <th>MMSI</th>
           <th>Total</th>
-          <th>Per Message ID</th>
+          <th>Per Message Type</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -378,23 +378,23 @@ function renderMap(tableId, mapObj) {
   </section>
 
   <section>
-    <h3>Downsampled per Message ID</h3>
+    <h3>Downsampled per Message Type</h3>
     <table id="down_msg">
       <thead>
-        <tr><th>Message ID</th><th>Total</th></tr>
+        <tr><th>Message Type</th><th>Total</th></tr>
       </thead>
       <tbody></tbody>
     </table>
   </section>
 
   <section>
-    <h3>Top 25 Downsampled Users</h3>
+    <h3>Top 25 Downsampled MMSI</h3>
     <table id="down_user">
       <thead>
         <tr>
-          <th>User ID</th>
+          <th>MMSI</th>
           <th>Total</th>
-          <th>Per Message ID</th>
+          <th>Per Message Type</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -402,13 +402,13 @@ function renderMap(tableId, mapObj) {
   </section>
 
   <section>
-    <h3>Top 25 Deduplicated Users</h3>
+    <h3>Top 25 Deduplicated MMSI</h3>
     <table id="dedup_users">
       <thead>
         <tr>
-          <th>User ID</th>
+          <th>MMSI</th>
           <th>Duplicates Dropped</th>
-          <th>Per Message ID</th>
+          <th>Per Message Type</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -436,10 +436,10 @@ function renderMap(tableId, mapObj) {
   </section>
 
   <section>
-    <h3>User IDs per Shard</h3>
+    <h3>MMSIs per Shard</h3>
     <table id="user_ids_per_shard">
       <thead>
-        <tr><th>Shard</th><th>Unique Users</th></tr>
+        <tr><th>Shard</th><th>Unique MMSI</th></tr>
       </thead>
       <tbody></tbody>
     </table>
