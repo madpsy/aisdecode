@@ -191,7 +191,7 @@ function renderMap(tableId, mapObj) {
   tbody.innerHTML = '';
 
   // Only translate message IDs if it's a "per_message_id" table
-  const isMessageIdTable = tableId === "per_message_id";
+  const isMessageIdTable = tableId === "per_message_id" || tableId === "down_msg";
 
   Object.entries(mapObj || {})
     .sort(([, a], [, b]) => b - a)
@@ -234,7 +234,7 @@ function renderMap(tableId, mapObj) {
           tr.innerHTML = `
             <td>${u.user_id}</td>
             <td>${u.count}</td>
-            <td class="small">${perMsg}</td>`;
+            <td>${perMsg}</td>`;
           tbody.appendChild(tr);
         });
       }
