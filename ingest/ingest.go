@@ -18,7 +18,7 @@ import (
 	"time"
 	"unsafe"
 	"strconv"
-	_ "net/http/pprof"
+	//_ "net/http/pprof"
 
 	ais "github.com/BertoldVdb/go-ais"
 	"github.com/BertoldVdb/go-ais/aisnmea"
@@ -80,6 +80,12 @@ func (c *FixedWindowCounter) Reset() {
 	c.mu.Lock()
 	c.count = 0
 	c.mu.Unlock()
+}
+
+func fnvHash(message string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(message))
+	return h.Sum32()
 }
 
 // FixedWindowBytesCounter sums bytes in a fixed-duration window and resets at each tick.
@@ -230,7 +236,7 @@ var (
 
 var (
 	dedupMu   sync.Mutex
-	lastDedup = map[string]time.Time{}
+	lastDedup = map[uint32]time.Time{}
 )
 
 func logMemoryStats() {
@@ -259,7 +265,6 @@ func startMemoryStatsLogging() {
 	}
 }
 
-
 func cleanupMetrics() {
 	metricsMu.Lock()
 	defer metricsMu.Unlock()
@@ -283,26 +288,39 @@ func cleanupMetrics() {
 }
 
 func cleanupDeduplicationState() {
-	dedupMu.Lock()
-	defer dedupMu.Unlock()
+    dedupMu.Lock()
+    defer dedupMu.Unlock()
 
-	now := time.Now()
-	for raw, t := range lastDedup {
-		if now.Sub(t) > dedupWindow {
-			delete(lastDedup, raw)
-		}
-	}
-	for msgID, users := range lastForward {
-		for uid, t := range users {
-			if now.Sub(t) > *downsampleWindow {
-				delete(users, uid)
-			}
-		}
-		if len(users) == 0 {
-			delete(lastForward, msgID)
-		}
-	}
+    now := time.Now()
+
+    // Log the number of entries in lastDedup before cleanup
+    // log.Printf("Before cleanup: lastDedup size = %d", len(lastDedup))
+
+    // Track and log cleanup of expired entries in lastDedup map
+    expiredDedupCount := 0
+    notExpiredCount := 0
+    for raw, t := range lastDedup {
+        if now.Sub(t) > dedupWindow {
+            delete(lastDedup, raw)
+            expiredDedupCount++
+        } else {
+            notExpiredCount++
+        }
+    }
+
+    // Log how many entries were pruned and how many are still valid
+    // log.Printf("Cleanup: Removed %d expired entries from lastDedup, %d entries are still valid", expiredDedupCount, notExpiredCount)
+
+    // Log how many entries are left in lastDedup after cleanup
+    // log.Printf("After cleanup: lastDedup size = %d", len(lastDedup))
+
+    // Log total size of lastDedup map
+    if len(lastDedup) > 100000 {  // Arbitrary threshold to indicate if map is getting too large
+        log.Printf("WARNING: lastDedup has grown significantly. Total entries: %d", len(lastDedup))
+    }
 }
+
+
 
 // startMetricsReset resets all fixed-window counters every metricWindowSize period.
 func startMetricsReset() {
@@ -351,11 +369,6 @@ func startMetricsReset() {
 }
 
 func main() {
-	// pprof server
-	go func() {
-		log.Println("Starting pprof server on :6060")
-		log.Fatal(http.ListenAndServe("localhost:6060", nil))
-	}()
 
 	flag.Parse()
 	if *streamShards < 1 {
@@ -370,9 +383,20 @@ func main() {
 	  ticker := time.NewTicker(time.Minute)
 	  for range ticker.C {
 	    cleanupMetrics()
-	    cleanupDeduplicationState()
 	    debug.FreeOSMemory()
 	  }
+	}()
+
+	go func() {
+	    if dedupWindow > 0 {
+	        ticker := time.NewTicker(dedupWindow)
+	        defer ticker.Stop() // Ensure the ticker is stopped when the function exits.
+	        for range ticker.C {
+	            cleanupDeduplicationState()
+	        }
+	    } else {
+	        log.Println("Deduplication is disabled because window is set to 0")
+	    }
 	}()
 
 	// determine window size in seconds (not used for bytes counters)
@@ -530,189 +554,196 @@ func shardForUser(userID string) int {
 }
 
 func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACodec) {
-	for pkt := range ch {
-		rawBytes, srcIP := pkt.raw, pkt.sourceIP
-		rawStr := *(*string)(unsafe.Pointer(&rawBytes))
-		decoded, err := nmea.ParseSentence(rawStr)
-		if err != nil || decoded == nil || decoded.Packet == nil {
-			metricsMu.Lock()
-			totalFailures++
-			failureCounter.AddEvent()
-			failureSourceTotals[srcIP]++
-			if failureSourceCounters[srcIP] == nil {
-				failureSourceCounters[srcIP] = NewFixedWindowCounter()
-			}
-			failureSourceCounters[srcIP].AddEvent()
-			metricsMu.Unlock()
-			if *debugFlag {
-				log.Printf("[DEBUG] decode failure: %v | raw: %s", err, pkt.raw)
-			}
-			pkt.raw = nil
-			pkt.sourceIP = ""
-			packetPool.Put(pkt)
-			continue
-		}
+    for pkt := range ch {
+        rawBytes, srcIP := pkt.raw, pkt.sourceIP
+        rawStr := *(*string)(unsafe.Pointer(&rawBytes))
 
-		hdr := decoded.Packet.GetHeader()
-		msgIDCache.RLock()
-		mid, ok := msgIDCache.m[hdr.MessageID]
-		msgIDCache.RUnlock()
-		if !ok {
-			mid = strconv.Itoa(int(hdr.MessageID))
-			msgIDCache.Lock()
-			msgIDCache.m[hdr.MessageID] = mid
-			msgIDCache.Unlock()
-		}
+        // Use FNV-1a hash of the raw message for deduplication
+        hashedMsg := fnvHash(rawStr)
 
-		userIDCache.RLock()
-		uid, ok := userIDCache.m[hdr.UserID]
-		userIDCache.RUnlock()
-		if !ok {
-			uid = strconv.FormatUint(uint64(hdr.UserID), 10)
-			userIDCache.Lock()
-			userIDCache.m[hdr.UserID] = uid
-			userIDCache.Unlock()
-		}
+        // Decode the NMEA sentence
+        decoded, err := nmea.ParseSentence(rawStr)
+        if err != nil || decoded == nil || decoded.Packet == nil {
+            metricsMu.Lock()
+            totalFailures++
+            failureCounter.AddEvent()
+            failureSourceTotals[srcIP]++
+            if failureSourceCounters[srcIP] == nil {
+                failureSourceCounters[srcIP] = NewFixedWindowCounter()
+            }
+            failureSourceCounters[srcIP].AddEvent()
+            metricsMu.Unlock()
+            if *debugFlag {
+                log.Printf("[DEBUG] decode failure: %v | raw: %s", err, pkt.raw)
+            }
+            pkt.raw = nil
+            pkt.sourceIP = ""
+            packetPool.Put(pkt)
+            continue
+        }
 
-		msgID, userID := mid, uid
+        hdr := decoded.Packet.GetHeader()
+        msgIDCache.RLock()
+        mid, ok := msgIDCache.m[hdr.MessageID]
+        msgIDCache.RUnlock()
+        if !ok {
+            mid = strconv.Itoa(int(hdr.MessageID))
+            msgIDCache.Lock()
+            msgIDCache.m[hdr.MessageID] = mid
+            msgIDCache.Unlock()
+        }
 
-		metricsMu.Lock()
-		if perUserMessageIDCount[userID] == nil {
-			perUserMessageIDCount[userID] = map[string]int64{}
-		}
-		perUserMessageIDCount[userID][msgID]++
-		metricsMu.Unlock()
+        userIDCache.RLock()
+        uid, ok := userIDCache.m[hdr.UserID]
+        userIDCache.RUnlock()
+        if !ok {
+            uid = strconv.FormatUint(uint64(hdr.UserID), 10)
+            userIDCache.Lock()
+            userIDCache.m[hdr.UserID] = uid
+            userIDCache.Unlock()
+        }
 
-		if dedupWindow > 0 {
-			dedupMu.Lock()
-			now := time.Now()
-			if t, seen := lastDedup[rawStr]; seen && now.Sub(t) < dedupWindow {
-				dedupMu.Unlock()
-				metricsMu.Lock()
-				totalDeduplicated++
-				dedupCounter.AddEvent()
-				deduplicatedUserIDTotals[userID]++
-				if dedupUserIDCounters[userID] == nil {
-					dedupUserIDCounters[userID] = NewFixedWindowCounter()
-				}
-				dedupUserIDCounters[userID].AddEvent()
-				deduplicatedSourceTotals[srcIP]++
-				if dedupSourceCounters[srcIP] == nil {
-					dedupSourceCounters[srcIP] = NewFixedWindowCounter()
-				}
-				dedupSourceCounters[srcIP].AddEvent()
-				if dedupPerUserMessageIDCount[userID] == nil {
-					dedupPerUserMessageIDCount[userID] = map[string]int64{}
-				}
-				dedupPerUserMessageIDCount[userID][msgID]++
-				metricsMu.Unlock()
-				continue
-			}
-			lastDedup[rawStr] = now
-			dedupMu.Unlock()
-		}
+        msgID, userID := mid, uid
 
-		if *downsampleWindow > 0 && downsampleTypes[msgID] {
-			now := time.Now()
-			downMu.Lock()
-			if lastForward[msgID] == nil {
-				lastForward[msgID] = map[string]time.Time{}
-			}
-			if now.Sub(lastForward[msgID][userID]) < *downsampleWindow {
-				downMu.Unlock()
-				metricsMu.Lock()
-				totalDownsampled++
-				downsampledCounter.AddEvent()
-				downsampledMessageTypeTotals[msgID]++
-				if downsampledMessageTypeCounters[msgID] == nil {
-					downsampledMessageTypeCounters[msgID] = NewFixedWindowCounter()
-				}
-				downsampledMessageTypeCounters[msgID].AddEvent()
-				downsampledUserIDTotals[userID]++
-				if downsampledUserIDCounters[userID] == nil {
-					downsampledUserIDCounters[userID] = NewFixedWindowCounter()
-				}
-				downsampledUserIDCounters[userID].AddEvent()
-				if downsampledPerUserMessageIDCount[userID] == nil {
-					downsampledPerUserMessageIDCount[userID] = map[string]int64{}
-				}
-				downsampledPerUserMessageIDCount[userID][msgID]++
-				metricsMu.Unlock()
-				continue
-			}
-			lastForward[msgID][userID] = now
-			downMu.Unlock()
-		}
+        metricsMu.Lock()
+        if perUserMessageIDCount[userID] == nil {
+            perUserMessageIDCount[userID] = map[string]int64{}
+        }
+        perUserMessageIDCount[userID][msgID]++
+        metricsMu.Unlock()
 
-		// forward to UDP destinations
-		for _, conn := range udpConns {
-			conn.Write(pkt.raw)
-		}
+        // Deduplication check based on FNV-1a hash
+        if dedupWindow > 0 {
+            dedupMu.Lock()
+            now := time.Now()
+            if t, seen := lastDedup[hashedMsg]; seen && now.Sub(t) < dedupWindow {
+                dedupMu.Unlock()
+                metricsMu.Lock()
+                totalDeduplicated++
+                dedupCounter.AddEvent()
+                deduplicatedUserIDTotals[userID]++
+                if dedupUserIDCounters[userID] == nil {
+                    dedupUserIDCounters[userID] = NewFixedWindowCounter()
+                }
+                dedupUserIDCounters[userID].AddEvent()
+                deduplicatedSourceTotals[srcIP]++
+                if dedupSourceCounters[srcIP] == nil {
+                    dedupSourceCounters[srcIP] = NewFixedWindowCounter()
+                }
+                dedupSourceCounters[srcIP].AddEvent()
+                if dedupPerUserMessageIDCount[userID] == nil {
+                    dedupPerUserMessageIDCount[userID] = map[string]int64{}
+                }
+                dedupPerUserMessageIDCount[userID][msgID]++
+                metricsMu.Unlock()
+                continue
+            }
+            lastDedup[hashedMsg] = now
+            dedupMu.Unlock()
+        }
 
-		metricsMu.Lock()
-		messageIDTotals[msgID]++
-		if messageIDCounters[msgID] == nil {
-			messageIDCounters[msgID] = NewFixedWindowCounter()
-		}
-		messageIDCounters[msgID].AddEvent()
+        // Downsample logic
+        if *downsampleWindow > 0 && downsampleTypes[msgID] {
+            now := time.Now()
+            downMu.Lock()
+            if lastForward[msgID] == nil {
+                lastForward[msgID] = map[string]time.Time{}
+            }
+            if now.Sub(lastForward[msgID][userID]) < *downsampleWindow {
+                downMu.Unlock()
+                metricsMu.Lock()
+                totalDownsampled++
+                downsampledCounter.AddEvent()
+                downsampledMessageTypeTotals[msgID]++
+                if downsampledMessageTypeCounters[msgID] == nil {
+                    downsampledMessageTypeCounters[msgID] = NewFixedWindowCounter()
+                }
+                downsampledMessageTypeCounters[msgID].AddEvent()
+                downsampledUserIDTotals[userID]++
+                if downsampledUserIDCounters[userID] == nil {
+                    downsampledUserIDCounters[userID] = NewFixedWindowCounter()
+                }
+                downsampledUserIDCounters[userID].AddEvent()
+                if downsampledPerUserMessageIDCount[userID] == nil {
+                    downsampledPerUserMessageIDCount[userID] = map[string]int64{}
+                }
+                downsampledPerUserMessageIDCount[userID][msgID]++
+                metricsMu.Unlock()
+                continue
+            }
+            lastForward[msgID][userID] = now
+            downMu.Unlock()
+        }
 
-		userIDTotals[userID]++
-		if userIDCounters[userID] == nil {
-			userIDCounters[userID] = NewFixedWindowCounter()
-		}
-		userIDCounters[userID].AddEvent()
+        // Forward to UDP destinations
+        for _, conn := range udpConns {
+            conn.Write(pkt.raw)
+        }
 
-		totalForwarded++
-		forwardedCounter.AddEvent()
-		totalBytesForwarded += int64(len(pkt.raw))
-		bytesForwardedWindow.Add(int64(len(pkt.raw)))
-		metricsMu.Unlock()
+        metricsMu.Lock()
+        messageIDTotals[msgID]++
+        if messageIDCounters[msgID] == nil {
+            messageIDCounters[msgID] = NewFixedWindowCounter()
+        }
+        messageIDCounters[msgID].AddEvent()
 
-		shard := shardForUser(userID)
-		metricsMu.Lock()
-		messagesPerShard[shard]++
-		if userIDsPerShard[shard] == nil {
-			userIDsPerShard[shard] = make(map[string]struct{})
-		}
-		userIDsPerShard[shard][userID] = struct{}{}
-		metricsMu.Unlock()
+        userIDTotals[userID]++
+        if userIDCounters[userID] == nil {
+            userIDCounters[userID] = NewFixedWindowCounter()
+        }
+        userIDCounters[userID].AddEvent()
 
-		// stream to WebSocket clients
-		buf := jsonBufPool.Get().(*bytes.Buffer)
-		buf.Reset()
-		streamObj := StreamMessage{
-			Message:     decoded.Packet,
-			SourceIP:    srcIP,
-			Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
-			ShardID:     shard,
-			RawSentence: rawStr,
-		}
-		json.NewEncoder(buf).Encode(streamObj)
-		out := buf.Bytes()
-		jsonBufPool.Put(buf)
+        totalForwarded++
+        forwardedCounter.AddEvent()
+        totalBytesForwarded += int64(len(pkt.raw))
+        bytesForwardedWindow.Add(int64(len(pkt.raw)))
+        metricsMu.Unlock()
 
-		clientsMu.Lock()
-		for _, c := range clients {
-			for _, sub := range c.shards {
-				if sub == shard {
-					c.mu.Lock()
-					n, err := c.conn.Write(append(out, '\n'))
-					if err == nil {
-						c.bytesSent += int64(n)
-						c.messagesSent++
-						c.messageWindow.AddEvent()
-						c.bytesWindow.Add(int64(n))
-					}
-					c.mu.Unlock()
-				}
-			}
-		}
-		clientsMu.Unlock()
+        shard := shardForUser(userID)
+        metricsMu.Lock()
+        messagesPerShard[shard]++
+        if userIDsPerShard[shard] == nil {
+            userIDsPerShard[shard] = make(map[string]struct{})
+        }
+        userIDsPerShard[shard][userID] = struct{}{}
+        metricsMu.Unlock()
 
-		pkt.raw = nil
-		pkt.sourceIP = ""
-		packetPool.Put(pkt)
-	}
+        // Stream to WebSocket clients
+        buf := jsonBufPool.Get().(*bytes.Buffer)
+        buf.Reset()
+        streamObj := StreamMessage{
+            Message:     decoded.Packet,
+            SourceIP:    srcIP,
+            Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
+            ShardID:     shard,
+            RawSentence: rawStr,
+        }
+        json.NewEncoder(buf).Encode(streamObj)
+        out := buf.Bytes()
+        jsonBufPool.Put(buf)
+
+        clientsMu.Lock()
+        for _, c := range clients {
+            for _, sub := range c.shards {
+                if sub == shard {
+                    c.mu.Lock()
+                    n, err := c.conn.Write(append(out, '\n'))
+                    if err == nil {
+                        c.bytesSent += int64(n)
+                        c.messagesSent++
+                        c.messageWindow.AddEvent()
+                        c.bytesWindow.Add(int64(n))
+                    }
+                    c.mu.Unlock()
+                }
+            }
+        }
+        clientsMu.Unlock()
+
+        pkt.raw = nil
+        pkt.sourceIP = ""
+        packetPool.Put(pkt)
+    }
 }
 
 func getTotalClients() int {

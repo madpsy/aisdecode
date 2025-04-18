@@ -159,6 +159,30 @@
         allShardsValue.textContent = allShardsCovered;
         allShardsCard.append(allShardsTitle, allShardsValue);
         container.appendChild(allShardsCard);
+
+	const ratioTotal = data.ratio_forwarded_to_received ?? 0;
+	const ratioWindow = data.window_ratio_forwarded_to_received ?? 0;
+
+	// Create the Total Ratio card
+	const ratioCardTotal = document.createElement('div');
+	ratioCardTotal.className = 'card';
+		const ratioTitleTotal = document.createElement('h2');
+	ratioTitleTotal.textContent = 'Total Forwarding Ratio';
+	const ratioValueTotal = document.createElement('p');
+	ratioValueTotal.textContent = formatPercentage(ratioTotal); // Display as percentage
+	ratioCardTotal.append(ratioTitleTotal, ratioValueTotal);
+	container.appendChild(ratioCardTotal);
+
+	// Create the Ratio per X Seconds card (replacing window ratio)
+	const ratioCardWindow = document.createElement('div');
+	ratioCardWindow.className = 'card';
+	const ratioTitleWindow = document.createElement('h2');
+	ratioTitleWindow.textContent = `Forwarding Ratio ${windowLabel}`;  // Label updated
+	const ratioValueWindow = document.createElement('p');
+	ratioValueWindow.textContent = formatPercentage(ratioWindow); // Display as percentage
+	ratioCardWindow.append(ratioTitleWindow, ratioValueWindow);
+	container.appendChild(ratioCardWindow);
+
       }
 
       function renderMap(tableId, mapObj) {
