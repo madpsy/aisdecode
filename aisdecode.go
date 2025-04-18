@@ -3885,15 +3885,6 @@ go func() {
     }
 }()
 
-
-//go func() {
-//    // This server will serve pprof endpoints at http://localhost:6060/debug/pprof/
-//    log.Println("Starting pprof server on :6060")
-//    if err := http.ListenAndServe("0.0.0.0:6060", nil); err != nil {
-//        log.Fatalf("pprof server failed: %v", err)
-//    }
-//}()
-
 	// --- Read from serial port line-by-line (if -serial-port is specified) ---
 	if *serialPort != "" {
 	    scanner := bufio.NewScanner(port)

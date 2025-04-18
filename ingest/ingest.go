@@ -249,6 +249,16 @@ var (
 	lastDedup = map[uint32]time.Time{}
 )
 
+var previousPeriodMetrics struct {
+	windowMsgs          int64
+	windowFailures      int64
+	windowDownsampled   int64
+	windowDedup         int64
+	windowForwarded     int64
+	windowBytesReceived int64
+	windowBytesForwarded int64
+}
+
 func logMemoryStats() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -336,39 +346,31 @@ func cleanupDeduplicationState() {
 func startMetricsReset() {
 	ticker := time.NewTicker(*metricWindowSize)
 	defer ticker.Stop()
+
 	for range ticker.C {
+		// Capture current metrics into the previousPeriodMetrics before resetting
+		metricsMu.Lock()
+		previousPeriodMetrics.windowMsgs = totalCounter.Count()
+		previousPeriodMetrics.windowFailures = failureCounter.Count()
+		previousPeriodMetrics.windowDownsampled = downsampledCounter.Count()
+		previousPeriodMetrics.windowDedup = dedupCounter.Count()
+		previousPeriodMetrics.windowForwarded = forwardedCounter.Count()
+		previousPeriodMetrics.windowBytesReceived = bytesReceivedWindow.Sum()
+		previousPeriodMetrics.windowBytesForwarded = bytesForwardedWindow.Sum()
+		metricsMu.Unlock()
+
+		// Reset all counters
 		metricsMu.Lock()
 		totalCounter.Reset()
-		totalSourceCounters.Reset()
 		failureCounter.Reset()
 		downsampledCounter.Reset()
 		dedupCounter.Reset()
 		forwardedCounter.Reset()
 		bytesReceivedWindow.Reset()
 		bytesForwardedWindow.Reset()
-		for _, c := range messageIDCounters {
-			c.Reset()
-		}
-		for _, c := range userIDCounters {
-			c.Reset()
-		}
-		for _, c := range failureSourceCounters {
-			c.Reset()
-		}
-		for _, c := range downsampledMessageTypeCounters {
-			c.Reset()
-		}
-		for _, c := range downsampledUserIDCounters {
-			c.Reset()
-		}
-		for _, c := range dedupUserIDCounters {
-			c.Reset()
-		}
-		for _, c := range dedupSourceCounters {
-			c.Reset()
-		}
 		metricsMu.Unlock()
 
+		// Reset client-specific windows
 		clientsMu.Lock()
 		for _, c := range clients {
 			c.messageWindow.Reset()
@@ -863,13 +865,13 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	defer metricsMu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
 
-	windowMsgs := totalCounter.Count()
-	windowFailures := failureCounter.Count()
-	windowDownsampled := downsampledCounter.Count()
-	windowDedup := dedupCounter.Count()
-	windowForwarded := forwardedCounter.Count()
-	windowBytesReceived := bytesReceivedWindow.Sum()
-	windowBytesForwarded := bytesForwardedWindow.Sum()
+	windowMsgs := previousPeriodMetrics.windowMsgs
+	windowFailures := previousPeriodMetrics.windowFailures
+	windowDownsampled := previousPeriodMetrics.windowDownsampled
+	windowDedup := previousPeriodMetrics.windowDedup
+	windowForwarded := previousPeriodMetrics.windowForwarded
+	windowBytesReceived := previousPeriodMetrics.windowBytesReceived
+	windowBytesForwarded := previousPeriodMetrics.windowBytesForwarded
 
 	clientMetrics := []map[string]interface{}{}
 	clientsMu.Lock()
