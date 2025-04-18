@@ -18,10 +18,12 @@ import (
 	"time"
 	"unsafe"
 	"strconv"
+	"crypto/tls"
 	//_ "net/http/pprof"
 
 	ais "github.com/BertoldVdb/go-ais"
 	"github.com/BertoldVdb/go-ais/aisnmea"
+	"github.com/eclipse/paho.mqtt.golang"
 )
 
 // how many events we keep per “keyed” counter
@@ -166,6 +168,11 @@ var (
 
 	dedupWindow time.Duration
 	windowSize  int
+
+	mqttServer   = flag.String("mqtt-server", "", "MQTT server host:port")
+	mqttTLS      = flag.Bool("mqtt-tls", false, "Enable MQTT TLS")
+	mqttAuth     = flag.String("mqtt-auth", "", "MQTT authentication (user:pass)")
+	mqttTopic    = flag.String("mqtt-topic", "aisDecodes/message", "MQTT topic to publish messages")
 )
 
 // Globals for streaming clients
@@ -173,6 +180,8 @@ var (
 	clients   []*StreamClient
 	clientsMu sync.Mutex
 )
+
+var mqttClient mqtt.Client
 
 // Metrics for shards
 var (
@@ -371,6 +380,43 @@ func startMetricsReset() {
 func main() {
 
 	flag.Parse()
+
+	    if *mqttServer != "" {
+        // Set MQTT options
+        opts := mqtt.NewClientOptions()
+        opts.AddBroker("tcp://" + *mqttServer)
+
+        // Set MQTT TLS if enabled
+        if *mqttTLS {
+            tlsConfig := &tls.Config{InsecureSkipVerify: true}
+            opts.SetTLSConfig(tlsConfig)
+        }
+
+        // Set MQTT authentication if provided
+        if *mqttAuth != "" {
+            authParts := strings.SplitN(*mqttAuth, ":", 2)
+            if len(authParts) == 2 {
+                opts.SetUsername(authParts[0])
+                opts.SetPassword(authParts[1])
+            } else {
+                log.Fatalf("Invalid MQTT authentication format. Expected user:pass.")
+            }
+        }
+
+        // Set client ID and clean session
+        opts.SetClientID("go-ais-decoder")
+        opts.SetCleanSession(true)
+
+        // Connect to the MQTT broker
+        mqttClient = mqtt.NewClient(opts)
+        if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
+            log.Fatalf("Failed to connect to MQTT broker: %v", token.Error())
+        }
+
+        log.Printf("Connected to MQTT broker: %s", *mqttServer)
+    }
+
+
 	if *streamShards < 1 {
 		*streamShards = 1
 	}
@@ -486,6 +532,14 @@ func main() {
 		bytesReceivedWindow.Add(int64(n))
 		packetChan <- pkt
 	}
+
+	defer func() {
+		if mqttClient.IsConnected() {
+			mqttClient.Disconnect(250)
+			log.Println("Disconnected from MQTT broker")
+		}
+	}()
+
 }
 
 func startStreamListener(port int) {
@@ -708,7 +762,6 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         userIDsPerShard[shard][userID] = struct{}{}
         metricsMu.Unlock()
 
-        // Stream to WebSocket clients
         buf := jsonBufPool.Get().(*bytes.Buffer)
         buf.Reset()
         streamObj := StreamMessage{
@@ -721,6 +774,11 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         json.NewEncoder(buf).Encode(streamObj)
         out := buf.Bytes()
         jsonBufPool.Put(buf)
+
+	if mqttClient != nil && mqttClient.IsConnected() {
+	    token := mqttClient.Publish(*mqttTopic, 0, false, out)
+	    token.Wait()
+	}
 
         clientsMu.Lock()
         for _, c := range clients {

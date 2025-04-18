@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AIS Metrics Dashboard</title>
+  <script src="message_types.js"></script>
   <style>
     :root {
       --bg: #f5f7fa;
@@ -185,18 +186,30 @@
 
       }
 
-      function renderMap(tableId, mapObj) {
-        const tbody = document.getElementById(tableId).querySelector('tbody');
-        tbody.innerHTML = '';
-        Object.entries(mapObj || {})
-          .sort(([, a], [, b]) => b - a)
-          .slice(0, 25)
-          .forEach(([key, val]) => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${key}</td><td>${formatNumber(val)}</td>`;
-            tbody.appendChild(tr);
-          });
-      }
+function renderMap(tableId, mapObj) {
+  const tbody = document.getElementById(tableId).querySelector('tbody');
+  tbody.innerHTML = '';
+
+  // Only translate message IDs if it's a "per_message_id" table
+  const isMessageIdTable = tableId === "per_message_id";
+
+  Object.entries(mapObj || {})
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 25)
+    .forEach(([key, val]) => {
+      const tr = document.createElement('tr');
+      
+      // If we're rendering a message ID table, use aisMessageMapping
+      const displayKey = isMessageIdTable && aisMessageMapping[key]
+        ? aisMessageMapping[key]
+        : key; // For non-message-id tables, just use the raw key value
+
+      tr.innerHTML = `<td>${displayKey}</td><td>${formatNumber(val)}</td>`;
+      tbody.appendChild(tr);
+    });
+}
+
+
 
       function renderArray(tableId, arr, keyField, valField) {
         const tbody = document.getElementById(tableId).querySelector('tbody');
@@ -345,7 +358,7 @@
   </section>
 
   <section>
-    <h3>Totals by Source IP (Top 25)</h3>
+    <h3>Messages by Source IP (Top 25)</h3>
     <table id="totals_by_source">
       <thead>
         <tr><th>Source IP</th><th>Total Msgs</th></tr>
@@ -461,7 +474,7 @@
   </section>
 
   <section>
-    <h3>Overlapping Clients (Shards with more than one client)</h3>
+    <h3>Overlapping Shard Clients</h3>
     <table id="overlapping_clients">
       <thead>
         <tr><th>Shard</th><th>Clients</th></tr>
