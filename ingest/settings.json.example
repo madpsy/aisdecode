@@ -5,25 +5,25 @@
       "host": "127.0.0.1",
       "port": 8001,
       "shards": [0],
-      "description": "Destination for shard 0"
+      "description": "Destination 1 for shard 0"
     },
     {
       "host": "127.0.0.1",
       "port": 8002,
-      "shards": [0, 1],
-      "description": "Destination for shards 0 and 1"
+      "shards": [0],
+      "description": "Destination 2 for shard 0"
     }
   ],
   "metric_window_size":       1,
   "http_port":                8080,
-  "num_workers":              4,
+  "num_workers":              1,
   "downsample_window":        2,
   "deduplication_window_ms":  1000,
   "web_path":                 "web",
   "debug":                    false,
-  "include_source":           true,
+  "include_source":           false,
   "stream_port":              8102,
-  "stream_shards":            2,
+  "stream_shards":            1,
   "mqtt_server":              "",
   "mqtt_tls":                 true,
   "mqtt_auth":                "username:password",
