@@ -28,6 +28,7 @@ import (
 	ais "github.com/BertoldVdb/go-ais"
 	"github.com/BertoldVdb/go-ais/aisnmea"
 	"github.com/eclipse/paho.mqtt.golang"
+
 )
 
 var cfg Config
