@@ -19,11 +19,19 @@ import (
 	"unsafe"
 	"strconv"
 	"crypto/tls"
+	"math"
+	"os"
+        "path/filepath"
+        "io/ioutil"
 	//_ "net/http/pprof"
 
 	ais "github.com/BertoldVdb/go-ais"
 	"github.com/BertoldVdb/go-ais/aisnmea"
 	"github.com/eclipse/paho.mqtt.golang"
+)
+
+var (
+    startTime = time.Now()
 )
 
 // how many events we keep per “keyed” counter
@@ -152,28 +160,44 @@ type StreamClient struct {
 	bytesWindow   *FixedWindowBytesCounter
 }
 
+type Config struct {
+    UDPListenPort          int      `json:"udp_listen_port"`
+    Destinations           []string `json:"udp_destinations"`
+    MetricWindowSize       int      `json:"metric_window_size"`
+    HTTPPort               int      `json:"http_port"`
+    NumWorkers             int      `json:"num_workers"`
+    DownsampleWindow       int      `json:"downsample_window"`
+    DeduplicationWindowMs  int      `json:"deduplication_window_ms"`
+    WebPath                string   `json:"web_path"`
+    Debug                  bool     `json:"debug"`
+    IncludeSource          bool     `json:"include_source"`
+    StreamPort             int      `json:"stream_port"`
+    StreamShards           int      `json:"stream_shards"`
+    MQTTServer             string   `json:"mqtt_server"`
+    MQTTTLS                bool     `json:"mqtt_tls"`
+    MQTTAuth               string   `json:"mqtt_auth"`
+    MQTTTopic              string   `json:"mqtt_topic"`
+}
+
 var (
-	udpPort               = flag.Int("udp-listen-port", 8101, "UDP listen port for NMEA sentences")
-	destinations          = flag.String("udp-destinations", "", "Comma-delimited list of host:port to forward valid sentences")
-	metricWindowSize      = flag.Duration("metric-window-size", time.Minute, "Fixed window size for metrics")
-	httpPort              = flag.Int("http-port", 8080, "HTTP port for metrics endpoint")
-	numWorkers            = flag.Int("num-workers", 0, "Number of concurrent decode workers (0=CPUs)")
-	downsampleWindow      = flag.Duration("downsample-window", 0, "Time window to downsample types 1,2,3,18,19 per UserID")
-	deduplicationWindowMs = flag.Int("deduplication-window", 0, "Rolling window length in milliseconds for deduplication. 0 means no deduplication")
-	webPath               = flag.String("web-path", "web", "Directory to serve static files from")
-	debugFlag 	      = flag.Bool("debug", false, "Enable debug output")
-	includeSource 	      = flag.Bool("include-source", false, "Include source_ip in the JSON responses")
-
-	streamPort   = flag.Int("stream-port", 8102, "TCP port to listen on for decoded-sentence stream")
-	streamShards = flag.Int("stream-shards", 1, "Number of shards for stream partitioning")
-
-	dedupWindow time.Duration
-	windowSize  int
-
-	mqttServer   = flag.String("mqtt-server", "", "MQTT server host:port")
-	mqttTLS      = flag.Bool("mqtt-tls", false, "Enable MQTT TLS")
-	mqttAuth     = flag.String("mqtt-auth", "", "MQTT authentication (user:pass)")
-	mqttTopic    = flag.String("mqtt-topic", "aisDecodes/message", "MQTT topic to publish messages")
+    udpPort               int
+    destinations          string
+    metricWindowSize      time.Duration
+    downsampleWindow      time.Duration
+    deduplicationWindowMs int
+    httpPort              int
+    numWorkers            int
+    webPath               string
+    debugFlag             bool
+    includeSource         bool
+    streamPort            int
+    streamShards          int
+    mqttServer            string
+    mqttTLS               bool
+    mqttAuth              string
+    mqttTopic             string
+    dedupWindow 	  time.Duration
+    windowSize  	  int
 )
 
 // Globals for streaming clients
@@ -259,32 +283,6 @@ var previousPeriodMetrics struct {
 	windowBytesForwarded int64
 }
 
-func logMemoryStats() {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	// Log memory stats
-	log.Printf(
-		"Memory Stats: Alloc = %v MB, TotalAlloc = %v MB, Sys = %v MB, HeapAlloc = %v MB, HeapSys = %v MB, NumGC = %v, LastGC = %v",
-		m.Alloc/1024/1024, // Allocated memory
-		m.TotalAlloc/1024/1024, // Total allocated memory
-		m.Sys/1024/1024, // Memory obtained from the OS
-		m.HeapAlloc/1024/1024, // Allocated heap memory
-		m.HeapSys/1024/1024, // Memory used by the heap
-		m.NumGC, // Number of GC cycles
-		m.LastGC, // Timestamp of last GC
-	)
-}
-
-func startMemoryStatsLogging() {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		logMemoryStats() // Log memory stats every minute
-	}
-}
-
 func cleanupMetrics() {
 	metricsMu.Lock()
 	defer metricsMu.Unlock()
@@ -344,7 +342,7 @@ func cleanupDeduplicationState() {
 
 // startMetricsReset resets all fixed-window counters every metricWindowSize period.
 func startMetricsReset() {
-	ticker := time.NewTicker(*metricWindowSize)
+	ticker := time.NewTicker(metricWindowSize)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -382,22 +380,63 @@ func startMetricsReset() {
 
 func main() {
 
-	flag.Parse()
+    flag.Parse()
+    args := flag.Args()
+    if len(args) != 1 {
+        log.Fatalf("Usage: %s <config-dir>", os.Args[0])
+    }
+    cfgDir := args[0]
+    cfgPath := filepath.Join(cfgDir, "settings.json")
 
-	    if *mqttServer != "" {
+    // Read and unmarshal
+    data, err := ioutil.ReadFile(cfgPath)
+    if err != nil {
+        log.Fatalf("Failed to read config %q: %v", cfgPath, err)
+    }
+    var cfg Config
+    if err := json.Unmarshal(data, &cfg); err != nil {
+        log.Fatalf("Invalid JSON in %q: %v", cfgPath, err)
+    }
+
+    // durations
+    metricWindowSize      = time.Duration(cfg.MetricWindowSize) * time.Second
+    downsampleWindow      = time.Duration(cfg.DownsampleWindow) * time.Second
+    deduplicationWindowMs = cfg.DeduplicationWindowMs
+    dedupWindow	      = time.Duration(deduplicationWindowMs) * time.Millisecond
+    windowSize            = int(metricWindowSize.Seconds())
+
+    // ints & strings
+    udpPort       = cfg.UDPListenPort
+    destinations  = strings.Join(cfg.Destinations, ",")
+    httpPort      = cfg.HTTPPort
+    numWorkers    = cfg.NumWorkers
+    webPath       = cfg.WebPath
+    debugFlag     = cfg.Debug
+    includeSource = cfg.IncludeSource
+    streamPort    = cfg.StreamPort
+    streamShards  = cfg.StreamShards
+
+    // MQTT
+    mqttServer = cfg.MQTTServer
+    mqttTLS    = cfg.MQTTTLS
+    mqttAuth   = cfg.MQTTAuth
+    mqttTopic  = cfg.MQTTTopic
+
+
+    if mqttServer != "" {
         // Set MQTT options
         opts := mqtt.NewClientOptions()
-        opts.AddBroker("tcp://" + *mqttServer)
+        opts.AddBroker("tcp://" + mqttServer)
 
         // Set MQTT TLS if enabled
-        if *mqttTLS {
+        if mqttTLS {
             tlsConfig := &tls.Config{InsecureSkipVerify: true}
             opts.SetTLSConfig(tlsConfig)
         }
 
         // Set MQTT authentication if provided
-        if *mqttAuth != "" {
-            authParts := strings.SplitN(*mqttAuth, ":", 2)
+        if mqttAuth != "" {
+            authParts := strings.SplitN(mqttAuth, ":", 2)
             if len(authParts) == 2 {
                 opts.SetUsername(authParts[0])
                 opts.SetPassword(authParts[1])
@@ -413,19 +452,19 @@ func main() {
         // Connect to the MQTT broker
         mqttClient = mqtt.NewClient(opts)
         if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
-            log.Fatalf("Failed to connect to MQTT broker: %v", token.Error())
+            log.Fatalf("Failesd to connect to MQTT broker: %v", token.Error())
         }
 
-        log.Printf("Connected to MQTT broker: %s", *mqttServer)
+        log.Printf("Connected to MQTT broker: %s", mqttServer)
     }
 
 
-	if *streamShards < 1 {
-		*streamShards = 1
+	if streamShards < 1 {
+		streamShards = 1
 	}
-	dedupWindow = time.Duration(*deduplicationWindowMs) * time.Millisecond
-	if *numWorkers <= 0 {
-		*numWorkers = runtime.NumCPU()
+	dedupWindow = time.Duration(deduplicationWindowMs) * time.Millisecond
+	if numWorkers <= 0 {
+		numWorkers = runtime.NumCPU()
 	}
 
 	go func() {
@@ -463,22 +502,21 @@ func main() {
 
 	// Start periodic resets
 	go startMetricsReset()
-	go startMemoryStatsLogging()
 
-	http.Handle("/", http.FileServer(http.Dir(*webPath)))
+	http.Handle("/", http.FileServer(http.Dir(webPath)))
 	http.HandleFunc("/metrics", metricsHandler)
 	go func() {
-		addr := fmt.Sprintf(":%d", *httpPort)
+		addr := fmt.Sprintf(":%d", httpPort)
 		log.Printf("HTTP serving on http://localhost%s/metrics", addr)
 		log.Fatal(http.ListenAndServe(addr, nil))
 	}()
 
-	go startStreamListener(*streamPort)
+	go startStreamListener(streamPort)
 
 	// Set up UDP connections
 	var udpConns []*net.UDPConn
-	if *destinations != "" {
-		for _, dst := range strings.Split(*destinations, ",") {
+	if destinations != "" {
+		for _, dst := range strings.Split(destinations, ",") {
 			dst = strings.TrimSpace(dst)
 			udpAddr, err := net.ResolveUDPAddr("udp", dst)
 			if err != nil {
@@ -493,7 +531,7 @@ func main() {
 	}
 
 	// Listen for UDP packets
-	udpAddrStr := fmt.Sprintf(":%d", *udpPort)
+	udpAddrStr := fmt.Sprintf(":%d", udpPort)
 	pc, err := net.ListenPacket("udp", udpAddrStr)
 	if err != nil {
 		log.Fatalf("UDP listen %s: %v", udpAddrStr, err)
@@ -505,7 +543,7 @@ func main() {
 	nmeaCodec := aisnmea.NMEACodecNew(codec)
 
 	packetChan := make(chan *UDPPacket, 1000)
-	for i := 0; i < *numWorkers; i++ {
+	for i := 0; i < numWorkers; i++ {
 		go worker(packetChan, udpConns, nmeaCodec)
 	}
 
@@ -569,7 +607,7 @@ func handleStreamConn(conn net.Conn) {
 		return
 	}
 	for _, s := range req.Shards {
-		if s < 0 || s >= *streamShards {
+		if s < 0 || s >= streamShards {
 			conn.Close()
 			return
 		}
@@ -607,7 +645,7 @@ func handleStreamConn(conn net.Conn) {
 func shardForUser(userID string) int {
 	h := fnv.New32a()
 	h.Write([]byte(userID))
-	return int(h.Sum32()) % *streamShards
+	return int(h.Sum32()) % streamShards
 }
 
 func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACodec) {
@@ -630,7 +668,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
             }
             failureSourceCounters[srcIP].AddEvent()
             metricsMu.Unlock()
-            if *debugFlag {
+            if debugFlag {
                 log.Printf("[DEBUG] decode failure: %v | raw: %s", err, pkt.raw)
             }
             pkt.raw = nil
@@ -693,13 +731,13 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         }
 
         // Downsample logic
-        if *downsampleWindow > 0 && downsampleTypes[msgID] {
+        if downsampleWindow > 0 && downsampleTypes[msgID] {
             now := time.Now()
             downMu.Lock()
             if lastForward[msgID] == nil {
                 lastForward[msgID] = map[string]time.Time{}
             }
-            if now.Sub(lastForward[msgID][userID]) < *downsampleWindow {
+            if now.Sub(lastForward[msgID][userID]) < downsampleWindow {
                 downMu.Unlock()
                 metricsMu.Lock()
                 totalDownsampled++
@@ -779,7 +817,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
             RawSentence: rawStr,
         }
 
-	if *includeSource { // Check if -include-source is true
+	if includeSource { // Check if -include-source is true
 	    streamObj.SourceIP = srcIP
 	}
 
@@ -794,7 +832,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         jsonBufPool.Put(buf)
 
         if mqttClient != nil && mqttClient.IsConnected() {
-            token := mqttClient.Publish(*mqttTopic, 0, false, out)
+            token := mqttClient.Publish(mqttTopic, 0, false, out)
             token.Wait()
         }
 
@@ -839,7 +877,7 @@ func getShardsMissing() []int {
 		}
 	}
 	missing := []int{}
-	for i := 0; i < *streamShards; i++ {
+	for i := 0; i < streamShards; i++ {
 		if !used[i] {
 			missing = append(missing, i)
 		}
@@ -866,6 +904,10 @@ func getShardsMultiple() map[int][]string {
 }
 
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
+	uptime := int64(math.Round(time.Since(startTime).Seconds()))
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
 	metricsMu.RLock()
 	defer metricsMu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
@@ -1015,6 +1057,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	clientsMu.Unlock()
 
 	resp := map[string]interface{}{
+		"uptime_seconds":                     uptime,
 		"total_messages":                     totalMessages,
 		"total_failures":                     totalFailures,
 		"total_downsampled":                  totalDownsampled,
@@ -1047,11 +1090,19 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		"window_ratio_forwarded_to_received": ratioWindow,
 		"downsample_window_sec":              downsampleWindow.Seconds(),
 		"deduplication_window_sec":           dedupWindow.Seconds(),
-		"metric_window_size_sec":             (*metricWindowSize).Seconds(),
+		"metric_window_size_sec":             (metricWindowSize).Seconds(),
 		"total_clients":                      totalClients,
 		"shards_missing":                     shardsMissing,
 		"shards_multiple":                    shardsMultiple,
-	}
+		"memory_stats": map[string]uint64{
+	            "alloc_bytes":       mem.Alloc,
+	            "total_alloc_bytes": mem.TotalAlloc,
+	            "sys_bytes":         mem.Sys,
+	            "heap_alloc_bytes":  mem.HeapAlloc,
+	            "heap_sys_bytes":    mem.HeapSys,
+	            "num_gc":            uint64(mem.NumGC),
+	      },
+	}	
 
 	json.NewEncoder(w).Encode(resp)
 }

@@ -184,6 +184,33 @@
 	ratioCardWindow.append(ratioTitleWindow, ratioValueWindow);
 	container.appendChild(ratioCardWindow);
 
+	// Heap Sys Memory
+        const heapSysBytes = data.memory_stats?.heap_sys_bytes ?? 0;
+        const heapSysMB = heapSysBytes / (1024 * 1024);
+        const memCard = document.createElement('div');
+        memCard.className = 'card';
+        const memTitle = document.createElement('h2');
+        memTitle.textContent = 'Memory (Heap)';
+        const memValue = document.createElement('p');
+        memValue.textContent = heapSysMB.toFixed(2) + ' MB';
+        memCard.append(memTitle, memValue);
+        container.appendChild(memCard);
+
+	// Uptime
+	const uptimeSec = data.uptime_seconds ?? 0;
+	const hours   = Math.floor(uptimeSec / 3600);
+	const minutes = Math.floor((uptimeSec % 3600) / 60);
+	const seconds = Math.floor(uptimeSec % 60);
+	const uptimeStr = `${hours}h ${minutes}m ${seconds}s`;
+	const uptimeCard  = document.createElement('div');
+	uptimeCard.className = 'card';
+	const uptimeTitle = document.createElement('h2');
+	uptimeTitle.textContent = 'Uptime';
+	const uptimeValue = document.createElement('p');
+	uptimeValue.textContent = uptimeStr;
+	uptimeCard.append(uptimeTitle, uptimeValue);
+	container.appendChild(uptimeCard);
+
       }
 
 function renderMap(tableId, mapObj) {

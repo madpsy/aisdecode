@@ -1,0 +1,18 @@
+{
+  "udp_listen_port":          8101,
+  "udp_destinations":         [],
+  "metric_window_size":       1,
+  "http_port":                8080,
+  "num_workers":              4,
+  "downsample_window":        2,
+  "deduplication_window_ms":  1000,
+  "web_path":                 "web",
+  "debug":                    false,
+  "include_source":           true,
+  "stream_port":              8102,
+  "stream_shards":            2,
+  "mqtt_server":              "",
+  "mqtt_tls":                 true,
+  "mqtt_auth":                "username:password",
+  "mqtt_topic":               "aisDecodes/message"
+}
