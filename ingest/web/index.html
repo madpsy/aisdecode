@@ -5,88 +5,153 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AIS Metrics Dashboard</title>
   <script src="message_types.js"></script>
-  <style>
-    :root {
-      --bg: #f5f7fa;
-      --card-bg: #fff;
-      --card-shadow: rgba(0, 0, 0, 0.1);
-      --primary: #2f80ed;
-      --text: #333;
-      --muted: #666;
-    }
-    body {
-      margin: 0;
-      padding: 1rem;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
-    h1 {
-      text-align: center;
-      color: var(--primary);
-      margin-bottom: 1rem;
-    }
-    .grid {
-      display: grid;
-      gap: 1rem;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    }
-    .card {
-      background: var(--card-bg);
-      border-radius: 8px;
-      box-shadow: 0 2px 8px var(--card-shadow);
-      padding: 1rem;
-      text-align: center;
-    }
-    .card h2 {
-      margin: 0;
-      font-size: 1.25rem;
-      color: var(--muted);
-    }
+<style>
+  :root {
+    --bg: #f5f7fa;
+    --card-bg: #fff;
+    --card-shadow: rgba(0, 0, 0, 0.1);
+    --primary: #2f80ed;
+    --text: #333;
+    --muted: #666;
+  }
+  body {
+    margin: 0;
+    padding: 1rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  h1 {
+    text-align: center;
+    color: var(--primary);
+    margin-bottom: 1rem;
+  }
+  .grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+  .card {
+    background: var(--card-bg);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px var(--card-shadow);
+    padding: 1rem;
+    text-align: center;
+  }
+  .card h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    color: var(--muted);
+  }
+  .card p {
+    margin: .5rem 0 0;
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--primary);
+  }
+  section {
+    margin-top: 2rem;
+  }
+  section h3 {
+    margin-bottom: .5rem;
+    color: var(--primary);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card-bg);
+    box-shadow: 0 1px 4px var(--card-shadow);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: .5rem;
+    text-align: left;
+  }
+  th {
+    background: var(--primary);
+    color: #fff;
+    font-weight: normal;
+  }
+  tr:nth-child(even) {
+    background: #f0f4ff;
+  }
+  @media (max-width: 600px) {
     .card p {
-      margin: .5rem 0 0;
-      font-size: 2rem;
-      font-weight: bold;
-      color: var(--primary);
+      font-size: 1.5rem;
     }
-    section {
-      margin-top: 2rem;
-    }
-    section h3 {
-      margin-bottom: .5rem;
-      color: var(--primary);
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--card-bg);
-      box-shadow: 0 1px 4px var(--card-shadow);
-      border-radius: 4px;
-      overflow: hidden;
-    }
-    th, td {
-      padding: .5rem;
-      text-align: left;
-    }
-    th {
-      background: var(--primary);
-      color: #fff;
-      font-weight: normal;
-    }
-    tr:nth-child(even) {
-      background: #f0f4ff;
-    }
-    @media (max-width: 600px) {
-      .card p {
-        font-size: 1.5rem;
-      }
-    }
-    .small {
-      font-size: .85rem;
-      color: var(--muted);
-    }
-  </style>
+  }
+  .small {
+    font-size: .85rem;
+    color: var(--muted);
+  }
 
+  /* ——— Settings Modal Styles ——— */
+  .settings-button {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    color: #444;
+  }
+  .settings-button:hover {
+    color: #000;
+  }
+
+  .modal {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0; top: 0;
+    width: 100%; height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.4);
+  }
+
+  .modal-content {
+    position: absolute;
+    top: 5vh;
+    bottom: 5vh;
+    left: 30vw;    
+    right: 30vw;  
+    background-color: #fff;
+    /* remove default padding so iframe can fill */
+    padding: 0;
+    border: 1px solid #888;
+    border-radius: 4px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .close {
+    align-self: flex-end;
+    margin: 8px;
+    font-size: 28px;
+    font-weight: bold;
+    color: #aaa;
+    cursor: pointer;
+  }
+  .close:hover,
+  .close:focus {
+    color: #000;
+    text-decoration: none;
+  }
+
+  #modalSettingsContent {
+    flex: 1;
+    overflow: hidden;
+  }
+  #modalSettingsContent iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+  /* ———————————————————— */
+</style>
   <script defer>
     document.addEventListener('DOMContentLoaded', () => {
       const overviewKeys = [
@@ -342,12 +407,45 @@ function renderMap(tableId, mapObj) {
 
       fetchAndRender();
       setInterval(fetchAndRender, 1000);
+
+      // ——— Settings Modal Logic ———
+      const settingsBtn = document.getElementById('settingsBtn');
+      const modal = document.getElementById('settingsModal');
+      const modalContentContainer = document.getElementById('modalSettingsContent');
+      const closeBtn = modal.querySelector('.close');
+
+      settingsBtn.addEventListener('click', () => {
+        modal.style.display = 'block';
+      });
+
+      closeBtn.addEventListener('click', () => {
+        modal.style.display = 'none';
+      });
+
     });
   </script>
 </head>
 
 <body>
   <h1>AIS Metrics Dashboard</h1>
+
+  <!-- Settings Button (Cog Icon) -->
+  <button id="settingsBtn" class="settings-button" title="Settings">
+    <!-- Inline SVG gear icon (Bootstrap “gear” icon) -->
+    <svg width="24" height="24" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/>
+      <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873
+      0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873
+      1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873
+      1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873
+      1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873
+      1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873
+      1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873
+      1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873
+      1.873 0 0 0 2.692-1.115l.094-.319z"/>
+    </svg>
+  </button>
+
   <div class="grid" id="overview"></div>
 
   <section>
@@ -509,6 +607,19 @@ function renderMap(tableId, mapObj) {
       <tbody></tbody>
     </table>
   </section>
+
+  <!-- Settings Modal Overlay -->
+  <div id="settingsModal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <div id="modalSettingsContent">
+  	<iframe
+	    src="/settings.html"
+	    style="width:100%; height:100%; border:none;"
+	  ></iframe>
+	</div>
+    </div>
+  </div>
 
 </body>
 </html>

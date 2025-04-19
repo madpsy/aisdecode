@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Settings Manager</title>
+  <title>Settings</title>
   <style>
     :root {
       --bg: #f5f7fa;
@@ -110,10 +110,16 @@
       from { transform: translateX(100%); opacity: 0; }
       to   { transform: translateX(0);    opacity: 1; }
     }
+
+   .toast.fade {
+     opacity: 0;
+     transition: opacity 1s ease-out;
+   }
+
   </style>
 </head>
 <body>
-  <header>Settings Manager</header>
+  <header>Settings</header>
   <div class="container">
     <form id="settingsForm" class="card">
       <div class="form-group">
@@ -196,10 +202,12 @@
       toast.className = `toast ${type}`;
       toast.textContent = message;
       toastContainer.appendChild(toast);
+
+      // Set a timeout of 3 seconds to add the fade class
       setTimeout(() => {
         toast.classList.add('fade');
-        toast.addEventListener('transitionend', () => toast.remove());
-      }, 3000);
+        toast.addEventListener('transitionend', () => toast.remove());  // Remove the toast after fade-out
+      }, 3000);  // 3 seconds delay before starting the fade out
     }
 
     async function loadSettings() {
