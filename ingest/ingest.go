@@ -198,7 +198,8 @@ type Config struct {
     MQTTTLS                bool     `json:"mqtt_tls"`
     MQTTAuth               string   `json:"mqtt_auth"`
     MQTTTopic              string   `json:"mqtt_topic"`
-    DownsampleMessageTypes []string `json:"downsample_message_types"` //
+    DownsampleMessageTypes []string `json:"downsample_message_types"`
+    BlockedIPs 		   []string `json:"blocked_ips"`
 }
 
 var (
@@ -220,6 +221,7 @@ var (
     mqttTopic             string
     dedupWindow 	  time.Duration
     windowSize  	  int
+    blockedIPs 		  map[string]struct{}
 )
 
 func settingsHandler(w http.ResponseWriter, r *http.Request) {
@@ -237,17 +239,51 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
             http.Error(w, "invalid body", http.StatusBadRequest)
             return
         }
+
         // Validate that it is valid JSON
         var tmp interface{}
         if err := json.Unmarshal(body, &tmp); err != nil {
             http.Error(w, "invalid JSON", http.StatusBadRequest)
             return
         }
-        // Write the new settings back to disk
-        if err := ioutil.WriteFile(cfgPath, body, 0644); err != nil {
+
+        // Unmarshal into the Config struct
+        var newCfg Config
+        if err := json.Unmarshal(body, &newCfg); err != nil {
+            http.Error(w, "failed to unmarshal settings", http.StatusInternalServerError)
+            return
+        }
+
+        // Validate the blocked IPs field (if present)
+        for _, ip := range newCfg.BlockedIPs {
+            // You can add more validation if necessary, e.g., check if the IP is a valid format.
+            if net.ParseIP(ip) == nil {
+                http.Error(w, "invalid IP in blocked_ips", http.StatusBadRequest)
+                return
+            }
+        }
+
+        // Save the new configuration to disk
+        newCfgData, err := json.MarshalIndent(newCfg, "", "  ")
+        if err != nil {
+            http.Error(w, "failed to marshal updated settings", http.StatusInternalServerError)
+            return
+        }
+
+        if err := ioutil.WriteFile(cfgPath, newCfgData, 0644); err != nil {
             http.Error(w, "failed to write settings", http.StatusInternalServerError)
             return
         }
+
+        // Update global config variable
+        cfg = newCfg
+
+        // Rebuild the blocked IPs set after settings update
+        blockedIPs = make(map[string]struct{})
+        for _, ip := range cfg.BlockedIPs {
+            blockedIPs[ip] = struct{}{}
+        }
+
         // Success, no content to return
         w.WriteHeader(http.StatusNoContent)
 
@@ -302,6 +338,8 @@ var (
 	totalBytesForwarded int64
 	totalBytesReceived  int64
 	totalForwarded      int64
+
+	blockedIPCounters = make(map[string]*FixedWindowCounter)
 )
 
 // Fixed-window counters
@@ -493,6 +531,11 @@ func main() {
         log.Fatalf("Invalid JSON in %q: %v", cfgPath, err)
     }
 
+    blockedIPs = make(map[string]struct{})
+    for _, ip := range cfg.BlockedIPs {
+        blockedIPs[ip] = struct{}{}
+    }
+
     downsampleTypes = make(map[string]bool)
 	for _, msgType := range cfg.DownsampleMessageTypes {
 	    downsampleTypes[msgType] = true
@@ -682,15 +725,6 @@ func main() {
 		pkt.raw = rawBytes
 		pkt.sourceIP = strings.Split(addr.String(), ":")[0]
 
-		metricsMu.Lock()
-		totalMessages++
-		totalCounter.AddEvent()
-		totalSourceTotals[pkt.sourceIP]++
-		bytesReceivedTotals[pkt.sourceIP] += int64(n)
-		totalBytesReceived += int64(n)
-		totalSourceCounters.AddEvent()
-		metricsMu.Unlock()
-
 		bytesReceivedWindow.Add(int64(n))
 		packetChan <- pkt
 	}
@@ -773,6 +807,30 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
     for pkt := range ch {
         rawBytes, srcIP := pkt.raw, pkt.sourceIP
         rawStr := *(*string)(unsafe.Pointer(&rawBytes))
+
+        if _, blocked := blockedIPs[srcIP]; blocked {
+            metricsMu.Lock()
+            if blockedIPCounters[srcIP] == nil {
+                blockedIPCounters[srcIP] = NewFixedWindowCounter()
+            }
+            blockedIPCounters[srcIP].AddEvent()
+            metricsMu.Unlock()
+            pkt.raw = nil
+            pkt.sourceIP = ""
+            packetPool.Put(pkt)
+            continue
+        }
+
+        metricsMu.Lock()
+        totalMessages++
+        totalCounter.AddEvent()
+        totalSourceTotals[pkt.sourceIP]++
+        bytesReceivedTotals[pkt.sourceIP] += int64(len(pkt.raw))
+        totalBytesReceived += int64(len(pkt.raw))
+        totalSourceCounters.AddEvent()
+        metricsMu.Unlock()
+
+        bytesReceivedWindow.Add(int64(len(pkt.raw)))
 
         // Use FNV-1a hash of the raw message for deduplication
         hashedMsg := fnvHash(rawStr)
@@ -1209,7 +1267,14 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		MessagesPerWindow int64  `json:"messages_per_window"`
 		BytesPerWindow    int64  `json:"bytes_per_window"`
 	}
+	blockedIPMetrics := []map[string]interface{}{}
 	clientsMu.Lock()
+    	for ip, counter := range blockedIPCounters {
+        	blockedIPMetrics = append(blockedIPMetrics, map[string]interface{}{
+        	    "source_ip": ip,
+	            "messages_blocked": counter.Count(),
+	        })
+	}
 	connected := []clientInfo{}
 	for _, c := range clients {
 		c.mu.Lock()
@@ -1265,6 +1330,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		"shards_missing":                     shardsMissing,
 		"shards_multiple":                    shardsMultiple,
 		"udp_destinations": 		      udpMetrics,
+		"blocked_ip_metrics":                 blockedIPMetrics,
 		"memory_stats": map[string]uint64{
 	            "alloc_bytes":       mem.Alloc,
 	            "total_alloc_bytes": mem.TotalAlloc,

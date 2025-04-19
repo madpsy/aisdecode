@@ -318,6 +318,18 @@ function renderUdpDestinations(tableId, udpDestinations) {
   });
 }
 
+function renderBlockedIps(data) {
+  const tbody = document.getElementById('blocked_ips').querySelector('tbody');
+  tbody.innerHTML = '';
+
+  (data.blocked_ip_metrics || []).forEach(item => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${item.source_ip}</td><td>${formatNumber(item.messages_blocked)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+
       function renderArray(tableId, arr, keyField, valField) {
         const tbody = document.getElementById(tableId).querySelector('tbody');
         tbody.innerHTML = '';
@@ -413,6 +425,7 @@ function renderUdpDestinations(tableId, udpDestinations) {
           renderShardsWithoutClients(data.shards_missing);
           renderOverlappingClients(data.shards_multiple);
 	  renderUdpDestinations('udp_destinations', data.udp_destinations);
+	  renderBlockedIps(data);
           
         } catch (err) {
           console.error('Error loading metrics:', err);
@@ -511,6 +524,16 @@ function renderUdpDestinations(tableId, udpDestinations) {
     <table id="bytes_received_by_source">
       <thead>
         <tr><th>Source IP</th><th>Bytes Received</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Blocked IPs</h3>
+    <table id="blocked_ips">
+      <thead>
+        <tr><th>IP Address</th><th>Messages Blocked</th></tr>
       </thead>
       <tbody></tbody>
     </table>

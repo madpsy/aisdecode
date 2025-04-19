@@ -173,6 +173,10 @@
         <label for="udp_listen_port">UDP Listen Port</label>
         <input type="number" id="udp_listen_port" />
       </div>
+      <div class="form-group">
+        <label for="blocked_ips">Blocked IPs</label>
+        <textarea id="blocked_ips" rows="5" placeholder="Enter each IP address on a new line"></textarea>
+      </div>
       <div id="udpDestinationsContainer" class="form-group">
         <label>UDP Destinations</label>
         <div id="udpDestinationsList"></div>
@@ -381,6 +385,12 @@ async function loadSettings() {
       downsampledMessages.push(...data.downsample_message_types);  // Populate with values from the settings
     }
 
+    // Populate the Blocked IPs list
+    const blockedIpsTextarea = document.getElementById('blocked_ips');
+    if (data.blocked_ips && Array.isArray(data.blocked_ips)) {
+      blockedIpsTextarea.value = data.blocked_ips.join("\n");  // Join IPs with line breaks
+    }
+
     streamShards = data.stream_shards || 0;
     
     // Render UDP Destinations dynamically
@@ -499,7 +509,10 @@ form.addEventListener('submit', async e => {
     });
   });
 
-  // Prepare the payload for submission, including downsample_message_types as an array
+  // Gather the blocked IPs from the textarea
+  const blockedIps = document.getElementById('blocked_ips').value.split("\n").map(ip => ip.trim()).filter(ip => ip);
+
+  // Prepare the payload for submission, including downsample_message_types as an array and blocked_ips
   const payload = {
     udp_listen_port:         +document.getElementById('udp_listen_port').value,
     udp_destinations:        udpDestinations,
@@ -517,7 +530,8 @@ form.addEventListener('submit', async e => {
     mqtt_tls:                document.getElementById('mqtt_tls').checked,
     mqtt_auth:               document.getElementById('mqtt_auth').value,
     mqtt_topic:              document.getElementById('mqtt_topic').value,
-    downsample_message_types: downsampledMessages
+    downsample_message_types: downsampledMessages,
+    blocked_ips:             blockedIps  // Add the blocked_ips to the payload
   };
 
   try {
@@ -536,7 +550,6 @@ form.addEventListener('submit', async e => {
     showToast('Error saving settings.', 'error');
   }
 });
-
 
     window.addEventListener('DOMContentLoaded', loadSettings);
   </script>

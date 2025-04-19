@@ -14,6 +14,10 @@
       "description": "Destination 2 for shard 0"
     }
   ],
+  "blocked_ips": [
+      "192.168.1.1",
+      "10.0.0.2"
+  ],
   "metric_window_size":       1,
   "http_port":                8080,
   "num_workers":              1,
@@ -27,6 +31,6 @@
   "mqtt_server":              "",
   "mqtt_tls":                 true,
   "mqtt_auth":                "username:password",
-  "mqtt_topic":               "aisDecodes/message",
+  "mqtt_topic":               "aisDecodes",
   "downsample_message_types": ["1", "2", "3", "18", "19"]
 }
