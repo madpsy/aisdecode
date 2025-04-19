@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Settings Manager</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --card-bg: #fff;
+      --card-shadow: rgba(0, 0, 0, 0.1);
+      --primary: #2f80ed;
+      --text: #333;
+      --muted: #666;
+      --input-bg: #f0f4ff;
+      --border: #ccc;
+      --success-bg: #e6ffed;
+      --error-bg: #ffe6e6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      text-align: center;
+      padding: 1rem 0;
+      color: var(--primary);
+      font-size: 1.75rem;
+      font-weight: bold;
+    }
+    .container {
+      flex: 1;
+      max-width: 800px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 8px;
+      box-shadow: 0 2px 8px var(--card-shadow);
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+    }
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-weight: 500;
+    }
+    input[type="text"],
+    input[type="number"],
+    input[type="password"],
+    textarea {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--input-bg);
+      font-size: 1rem;
+    }
+    input[type="checkbox"] {
+      margin-right: 0.5rem;
+    }
+    .button {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .button:hover {
+      background: #246bcc;
+    }
+
+    /* Toast styles */
+    #toast-container {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      z-index: 1000;
+    }
+    .toast {
+      min-width: 200px;
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      font-size: 0.9rem;
+      color: var(--text);
+      animation: slide-in 0.3s ease-out;
+    }
+    .toast.success { background: var(--success-bg); border-left: 4px solid #0a0; }
+    .toast.error   { background: var(--error-bg);   border-left: 4px solid #d00;   }
+
+    @keyframes slide-in {
+      from { transform: translateX(100%); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <header>Settings Manager</header>
+  <div class="container">
+    <form id="settingsForm" class="card">
+      <div class="form-group">
+        <label for="udp_listen_port">UDP Listen Port</label>
+        <input type="number" id="udp_listen_port" />
+      </div>
+      <div class="form-group">
+        <label for="udp_destinations">UDP Destinations (comma-separated host:port pairs)</label>
+        <input type="text" id="udp_destinations" />
+      </div>
+      <div class="form-group">
+        <label for="metric_window_size">Metric Window Size (seconds)</label>
+        <input type="number" id="metric_window_size" />
+      </div>
+      <div class="form-group">
+        <label for="http_port">HTTP Port</label>
+        <input type="number" id="http_port" />
+      </div>
+      <div class="form-group">
+        <label for="num_workers">Number of Workers</label>
+        <input type="number" id="num_workers" />
+      </div>
+      <div class="form-group">
+        <label for="downsample_window">Downsample Window (seconds)</label>
+        <input type="number" id="downsample_window" />
+      </div>
+      <div class="form-group">
+        <label for="deduplication_window_ms">Deduplication Window (ms)</label>
+        <input type="number" id="deduplication_window_ms" />
+      </div>
+      <div class="form-group">
+        <label for="web_path">Web Path</label>
+        <input type="text" id="web_path" />
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="debug" /> Debug</label>
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="include_source" /> Include Source</label>
+      </div>
+      <div class="form-group">
+        <label for="stream_port">Stream Port</label>
+        <input type="number" id="stream_port" />
+      </div>
+      <div class="form-group">
+        <label for="stream_shards">Stream Shards</label>
+        <input type="number" id="stream_shards" />
+      </div>
+      <div class="form-group">
+        <label for="mqtt_server">MQTT Server</label>
+        <input type="text" id="mqtt_server" />
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="mqtt_tls" /> MQTT TLS</label>
+      </div>
+      <div class="form-group">
+        <label for="mqtt_auth">MQTT Auth (user:pass)</label>
+        <input type="password" id="mqtt_auth" />
+      </div>
+      <div class="form-group">
+        <label for="mqtt_topic">MQTT Topic</label>
+        <input type="text" id="mqtt_topic" />
+      </div>
+      <div style="text-align: right;">
+        <button type="submit" class="button">Save Settings</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container"></div>
+
+  <script>
+    const form = document.getElementById('settingsForm');
+    const apiBase = window.location.origin;
+    const toastContainer = document.getElementById('toast-container');
+
+    function showToast(message, type = 'success') {
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      toastContainer.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('fade');
+        toast.addEventListener('transitionend', () => toast.remove());
+      }, 3000);
+    }
+
+    async function loadSettings() {
+      try {
+        const res = await fetch(apiBase + '/settings');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        Object.entries(data).forEach(([key, val]) => {
+          const el = document.getElementById(key);
+          if (!el) return;
+          if (el.type === 'checkbox') el.checked = Boolean(val);
+          else el.value = Array.isArray(val) ? val.join(',') : val;
+        });
+      } catch {
+        showToast('Error loading settings.', 'error');
+      }
+    }
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const payload = {
+        udp_listen_port:         +document.getElementById('udp_listen_port').value,
+        udp_destinations:        document.getElementById('udp_destinations').value.split(',').map(s => s.trim()).filter(Boolean),
+        metric_window_size:      +document.getElementById('metric_window_size').value,
+        http_port:               +document.getElementById('http_port').value,
+        num_workers:             +document.getElementById('num_workers').value,
+        downsample_window:       +document.getElementById('downsample_window').value,
+        deduplication_window_ms: +document.getElementById('deduplication_window_ms').value,
+        web_path:                document.getElementById('web_path').value,
+        debug:                   document.getElementById('debug').checked,
+        include_source:          document.getElementById('include_source').checked,
+        stream_port:             +document.getElementById('stream_port').value,
+        stream_shards:           +document.getElementById('stream_shards').value,
+        mqtt_server:             document.getElementById('mqtt_server').value,
+        mqtt_tls:                document.getElementById('mqtt_tls').checked,
+        mqtt_auth:               document.getElementById('mqtt_auth').value,
+        mqtt_topic:              document.getElementById('mqtt_topic').value
+      };
+      try {
+        const res = await fetch(apiBase + '/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload, null, 2)
+        });
+        if (res.status === 204) {
+          showToast('Settings saved successfully.', 'success');
+          await loadSettings();
+        } else {
+          throw new Error();
+        }
+      } catch {
+        showToast('Error saving settings.', 'error');
+      }
+    });
+
+    window.addEventListener('DOMContentLoaded', loadSettings);
+  </script>
+</body>
+</html>

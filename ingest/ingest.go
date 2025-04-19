@@ -34,6 +34,8 @@ var (
     startTime = time.Now()
 )
 
+var cfgDir string
+
 // how many events we keep per “keyed” counter
 const maxPerKeyEvents = 10000
 // how many events we keep in the global ring buffers
@@ -199,6 +201,42 @@ var (
     dedupWindow 	  time.Duration
     windowSize  	  int
 )
+
+func settingsHandler(w http.ResponseWriter, r *http.Request) {
+    cfgPath := filepath.Join(cfgDir, "settings.json")
+
+    switch r.Method {
+    case http.MethodGet:
+        // Serve the raw settings.json file
+        http.ServeFile(w, r, cfgPath)
+
+    case http.MethodPut:
+        // Read incoming body
+        body, err := io.ReadAll(r.Body)
+        if err != nil {
+            http.Error(w, "invalid body", http.StatusBadRequest)
+            return
+        }
+        // Validate that it is valid JSON
+        var tmp interface{}
+        if err := json.Unmarshal(body, &tmp); err != nil {
+            http.Error(w, "invalid JSON", http.StatusBadRequest)
+            return
+        }
+        // Write the new settings back to disk
+        if err := ioutil.WriteFile(cfgPath, body, 0644); err != nil {
+            http.Error(w, "failed to write settings", http.StatusInternalServerError)
+            return
+        }
+        // Success, no content to return
+        w.WriteHeader(http.StatusNoContent)
+
+    default:
+        // Only GET and PUT are allowed
+        w.Header().Set("Allow", "GET, PUT")
+        http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+    }
+}
 
 // Globals for streaming clients
 var (
@@ -382,10 +420,25 @@ func main() {
 
     flag.Parse()
     args := flag.Args()
-    if len(args) != 1 {
-        log.Fatalf("Usage: %s <config-dir>", os.Args[0])
+
+    var dir string
+    switch len(args) {
+    case 0:
+        // No argument: use current directory
+        var err error
+        dir, err = os.Getwd()
+        if err != nil {
+            log.Fatalf("Failed to get current directory: %v", err)
+        }
+    case 1:
+        // One argument: use it
+        dir = args[0]
+    default:
+        log.Fatalf("Usage: %s [config-dir]", os.Args[0])
     }
-    cfgDir := args[0]
+
+    cfgDir = dir
+
     cfgPath := filepath.Join(cfgDir, "settings.json")
 
     // Read and unmarshal
@@ -505,6 +558,8 @@ func main() {
 
 	http.Handle("/", http.FileServer(http.Dir(webPath)))
 	http.HandleFunc("/metrics", metricsHandler)
+	http.HandleFunc("/settings", settingsHandler)
+
 	go func() {
 		addr := fmt.Sprintf(":%d", httpPort)
 		log.Printf("HTTP serving on http://localhost%s/metrics", addr)
