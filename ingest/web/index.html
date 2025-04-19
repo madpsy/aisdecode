@@ -301,7 +301,22 @@ function renderMap(tableId, mapObj) {
     });
 }
 
+function renderUdpDestinations(tableId, udpDestinations) {
+  const tbody = document.getElementById(tableId).querySelector('tbody');
+  tbody.innerHTML = '';
 
+  (udpDestinations || []).forEach(destination => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${destination.description}</td>
+      <td>${destination.destination}</td>
+      <td>${destination.shards.join(', ')}</td>
+      <td>${formatNumber(destination.messages_sent)}</td>
+      <td>${formatNumber(destination.bytes_sent)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
 
       function renderArray(tableId, arr, keyField, valField) {
         const tbody = document.getElementById(tableId).querySelector('tbody');
@@ -395,10 +410,9 @@ function renderMap(tableId, mapObj) {
           renderMap('messages_per_shard', data.messages_per_shard);
           renderMap('user_ids_per_shard', data.user_ids_per_shard);
           renderConnectedClients('connected_clients', data.connected_clients);
-
-          // New Tables and Cards
           renderShardsWithoutClients(data.shards_missing);
           renderOverlappingClients(data.shards_multiple);
+	  renderUdpDestinations('udp_destinations', data.udp_destinations);
           
         } catch (err) {
           console.error('Error loading metrics:', err);
@@ -582,6 +596,21 @@ function renderMap(tableId, mapObj) {
           <th>Msgs Sent</th>
           <th>Messages per <span class="window-size"></span> seconds</th>
           <th>Bytes per <span class="window-size"></span> seconds</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+  <section>
+    <h3>UDP Destinations</h3>
+    <table id="udp_destinations">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th>IP & Port</th>
+          <th>Shards</th>
+          <th>Messages Sent</th>
+          <th>Bytes Sent</th>
         </tr>
       </thead>
       <tbody></tbody>

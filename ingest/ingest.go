@@ -30,6 +30,8 @@ import (
 	"github.com/eclipse/paho.mqtt.golang"
 )
 
+var cfg Config
+
 var (
     startTime = time.Now()
 )
@@ -162,9 +164,26 @@ type StreamClient struct {
 	bytesWindow   *FixedWindowBytesCounter
 }
 
+type UDPDestination struct {
+    Host       string `json:"host"`
+    Port       int    `json:"port"`
+    Shards     []int  `json:"shards"`
+    Description string `json:"description"`
+}
+
+type UDPDestinationMetrics struct {
+    Destination string   `json:"destination"`
+    Description string   `json:"description"`
+    Shards      []int    `json:"shards"`    // Added field for shard IDs
+    MessagesSent int64   `json:"messages_sent"`
+    BytesSent    int64   `json:"bytes_sent"`
+}
+
+var udpDestinationMetrics = map[string]*UDPDestinationMetrics{}
+
 type Config struct {
     UDPListenPort          int      `json:"udp_listen_port"`
-    Destinations           []string `json:"udp_destinations"`
+    Destinations           []UDPDestination `json:"udp_destinations"`
     MetricWindowSize       int      `json:"metric_window_size"`
     HTTPPort               int      `json:"http_port"`
     NumWorkers             int      `json:"num_workers"`
@@ -179,6 +198,7 @@ type Config struct {
     MQTTTLS                bool     `json:"mqtt_tls"`
     MQTTAuth               string   `json:"mqtt_auth"`
     MQTTTopic              string   `json:"mqtt_topic"`
+    DownsampleMessageTypes []string `json:"downsample_message_types"` //
 }
 
 var (
@@ -230,6 +250,13 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
         }
         // Success, no content to return
         w.WriteHeader(http.StatusNoContent)
+
+        go func() {
+            // Wait for 1 second before exiting
+            time.Sleep(2 * time.Second)
+            log.Println("Settings successfully written. Exiting program.")
+            os.Exit(0)
+        }()
 
     default:
         // Only GET and PUT are allowed
@@ -301,7 +328,7 @@ var (
 var metricsMu sync.RWMutex
 
 var (
-	downsampleTypes = map[string]bool{"1": true, "2": true, "3": true, "18": true, "19": true}
+	downsampleTypes = make(map[string]bool)
 	downMu          sync.Mutex
 	lastForward     = map[string]map[string]time.Time{}
 )
@@ -376,7 +403,23 @@ func cleanupDeduplicationState() {
     }
 }
 
+func initializeUDPDestinationMetrics() {
+    for _, dest := range cfg.Destinations {
+        if len(dest.Shards) == 0 { // Skip destinations with no shards
+            log.Printf("Skipping UDP destination %s:%d because it has no shards configured.", dest.Host, dest.Port)
+            continue
+        }
 
+        destStr := fmt.Sprintf("%s:%d", dest.Host, dest.Port)
+        udpDestinationMetrics[destStr] = &UDPDestinationMetrics{
+            Destination: destStr,
+            Description: dest.Description, // Use description for version
+            Shards:      dest.Shards,      // Set the shards for the destination
+            MessagesSent: 0,
+            BytesSent:    0,
+        }
+    }
+}
 
 // startMetricsReset resets all fixed-window counters every metricWindowSize period.
 func startMetricsReset() {
@@ -446,9 +489,24 @@ func main() {
     if err != nil {
         log.Fatalf("Failed to read config %q: %v", cfgPath, err)
     }
-    var cfg Config
     if err := json.Unmarshal(data, &cfg); err != nil {
         log.Fatalf("Invalid JSON in %q: %v", cfgPath, err)
+    }
+
+    downsampleTypes = make(map[string]bool)
+	for _, msgType := range cfg.DownsampleMessageTypes {
+	    downsampleTypes[msgType] = true
+    }
+
+    log.Println("Configured UDP Destinations and their Shards:")
+    for _, dest := range cfg.Destinations {
+        log.Printf("Destination: %s:%d, Shards: %v", dest.Host, dest.Port, dest.Shards)
+    }
+
+    var destinationStrings []string
+    for _, dest := range cfg.Destinations {
+        destString := fmt.Sprintf("%s:%d", dest.Host, dest.Port)
+        destinationStrings = append(destinationStrings, destString)
     }
 
     // durations
@@ -460,7 +518,7 @@ func main() {
 
     // ints & strings
     udpPort       = cfg.UDPListenPort
-    destinations  = strings.Join(cfg.Destinations, ",")
+    destinations  = strings.Join(destinationStrings, ",")
     httpPort      = cfg.HTTPPort
     numWorkers    = cfg.NumWorkers
     webPath       = cfg.WebPath
@@ -567,6 +625,7 @@ func main() {
 	}()
 
 	go startStreamListener(streamPort)
+	
 
 	// Set up UDP connections
 	var udpConns []*net.UDPConn
@@ -584,6 +643,10 @@ func main() {
 			udpConns = append(udpConns, conn)
 		}
 	}
+
+
+        // Initialize UDP destination metrics
+        initializeUDPDestinationMetrics()
 
 	// Listen for UDP packets
 	udpAddrStr := fmt.Sprintf(":%d", udpPort)
@@ -818,16 +881,46 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
             downMu.Unlock()
         }
 
-        // Forward to UDP destinations
-        for _, conn := range udpConns {
-            conn.Write(pkt.raw)
+        // Now send the raw message to all matching destinations based on shardID
+        // Determine which shard the current packet belongs to (using existing logic)
+        shardID := shardForUser(userID) // Sharding logic for this message
+        metricsMu.Lock()
+        messagesPerShard[shardID]++
+        if userIDsPerShard[shardID] == nil {
+            userIDsPerShard[shardID] = make(map[string]struct{})
+        }
+        userIDsPerShard[shardID][userID] = struct{}{}
+        metricsMu.Unlock()
+
+        // Forward the raw message to the appropriate destinations based on shard ID
+        for _, dest := range cfg.Destinations {
+            for _, destShard := range dest.Shards {
+                if destShard == shardID { // If this shard matches, forward the message
+                    udpAddr := fmt.Sprintf("%s:%d", dest.Host, dest.Port)
+                    udpConn, err := net.Dial("udp", udpAddr)
+                    if err != nil {
+                        log.Printf("Failed to connect to %s: %v", udpAddr, err)
+                        continue
+                    }
+                    _, err = udpConn.Write(pkt.raw) // Send only the raw message
+                    if err != nil {
+                        log.Printf("Failed to send UDP packet to %s: %v", udpAddr, err)
+                    }
+                    udpConn.Close()
+		    udpDestStr := fmt.Sprintf("%s:%d", dest.Host, dest.Port)
+		    udpDestinationMetrics[udpDestStr].MessagesSent++
+		    udpDestinationMetrics[udpDestStr].BytesSent += int64(len(pkt.raw))
+                    break // After sending to one destination, no need to send further
+                }
+            }
         }
 
+        // Update metrics
         metricsMu.Lock()
-	if perUserMessageIDCount[userID] == nil {
-	    perUserMessageIDCount[userID] = map[string]int64{}
-	}
-	perUserMessageIDCount[userID][msgID]++
+        if perUserMessageIDCount[userID] == nil {
+            perUserMessageIDCount[userID] = map[string]int64{}
+        }
+        perUserMessageIDCount[userID][msgID]++
 
         messageIDTotals[msgID]++
         if messageIDCounters[msgID] == nil {
@@ -847,34 +940,25 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         bytesForwardedWindow.Add(int64(len(pkt.raw)))
         metricsMu.Unlock()
 
-        shard := shardForUser(userID)
-        metricsMu.Lock()
-        messagesPerShard[shard]++
-        if userIDsPerShard[shard] == nil {
-            userIDsPerShard[shard] = make(map[string]struct{})
-        }
-        userIDsPerShard[shard][userID] = struct{}{}
-        metricsMu.Unlock()
-
         // Split the raw NMEA sentence by commas and extract the channel (5th field)
-	fields := strings.Split(rawStr, ",")
-	channel := "Unknown"
-	if len(fields) > 5 {
-	    channel = string(fields[4][0]) // Extract only the first character of the 5th field (either 'A' or 'B')
-	}
+        fields := strings.Split(rawStr, ",")
+        channel := "Unknown"
+        if len(fields) > 5 {
+            channel = string(fields[4][0]) // Extract only the first character of the 5th field (either 'A' or 'B')
+        }
 
         buf := jsonBufPool.Get().(*bytes.Buffer)
         buf.Reset()
         streamObj := StreamMessage{
             Message:     decoded.Packet,
             Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
-            ShardID:     shard,
+            ShardID:     shardID, // Send the shard ID for transparency
             RawSentence: rawStr,
         }
 
-	if includeSource { // Check if -include-source is true
-	    streamObj.SourceIP = srcIP
-	}
+        if includeSource { // Check if -include-source is true
+            streamObj.SourceIP = srcIP
+        }
 
         // Add the channel field
         streamObj.Message = map[string]interface{}{
@@ -894,7 +978,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         clientsMu.Lock()
         for _, c := range clients {
             for _, sub := range c.shards {
-                if sub == shard {
+                if sub == shardID {
                     c.mu.Lock()
                     n, err := c.conn.Write(append(out))
                     if err == nil {
@@ -915,7 +999,6 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
     }
 }
 
-
 func getTotalClients() int {
 	clientsMu.Lock()
 	defer clientsMu.Unlock()
@@ -926,11 +1009,22 @@ func getShardsMissing() []int {
 	clientsMu.Lock()
 	defer clientsMu.Unlock()
 	used := make(map[int]bool)
+
+	// Track shards used by clients
 	for _, c := range clients {
 		for _, s := range c.shards {
 			used[s] = true
 		}
 	}
+
+	// Track shards used by UDP destinations
+	for _, dest := range cfg.Destinations {
+		for _, s := range dest.Shards {
+			used[s] = true
+		}
+	}
+
+	// Determine missing shards
 	missing := []int{}
 	for i := 0; i < streamShards; i++ {
 		if !used[i] {
@@ -944,15 +1038,27 @@ func getShardsMultiple() map[int][]string {
 	clientsMu.Lock()
 	defer clientsMu.Unlock()
 	shardMap := make(map[int][]string)
+
+	// Track shards used by clients
 	for _, c := range clients {
 		for _, s := range c.shards {
 			shardMap[s] = append(shardMap[s], c.ip)
 		}
 	}
+
+	// Track shards used by UDP destinations (include host + port)
+	for _, dest := range cfg.Destinations {
+		for _, s := range dest.Shards {
+			udpDest := fmt.Sprintf("%s:%d", dest.Host, dest.Port) // Include host + port
+			shardMap[s] = append(shardMap[s], udpDest)
+		}
+	}
+
+	// Filter out shards that have multiple sources (either clients or multiple UDP destinations)
 	multiple := make(map[int][]string)
-	for s, ips := range shardMap {
-		if len(ips) > 1 {
-			multiple[s] = ips
+	for s, sources := range shardMap {
+		if len(sources) > 1 {
+			multiple[s] = sources
 		}
 	}
 	return multiple
@@ -1085,6 +1191,11 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		uids[s] = len(m)
 	}
 
+        udpMetrics := []UDPDestinationMetrics{}
+        for _, destMetrics := range udpDestinationMetrics {
+             udpMetrics = append(udpMetrics, *destMetrics)
+        }
+
 	type clientInfo struct {
 		IP                string `json:"ip"`
 		Shards            []int  `json:"shards"`
@@ -1149,6 +1260,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		"total_clients":                      totalClients,
 		"shards_missing":                     shardsMissing,
 		"shards_multiple":                    shardsMultiple,
+		"udp_destinations": 		      udpMetrics,
 		"memory_stats": map[string]uint64{
 	            "alloc_bytes":       mem.Alloc,
 	            "total_alloc_bytes": mem.TotalAlloc,

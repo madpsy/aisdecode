@@ -116,6 +116,53 @@
      transition: opacity 1s ease-out;
    }
 
+    /* Styles for horizontal checkboxes */
+    .shard-checkboxes {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .shard-checkboxes label {
+      display: inline-block;
+      margin-right: 1rem;
+    }
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    justify-content: center;
+    align-items: center;
+  }
+  .modal-content {
+    background: #fff;
+    padding: 2rem;
+    border-radius: 8px;
+    width: 80%;
+    max-width: 500px;
+  }
+  .modal-content h2 {
+    margin-top: 0;
+  }
+#messageTypesContainer {
+  max-height: 300px; /* Adjust this value to your preference */
+  overflow-y: auto;
+  padding-right: 10px; /* Space for scrollbar */
+}
+
+#messageTypesContainer div {
+  display: flex;
+  align-items: center;  /* Align checkbox and label vertically */
+  margin: 0.5rem 0;  /* Space between items */
+}
+
+#messageTypesContainer label {
+  margin-left: 0.5rem; /* Space between checkbox and label */
+  font-size: 1rem;
+}
   </style>
 </head>
 <body>
@@ -126,9 +173,10 @@
         <label for="udp_listen_port">UDP Listen Port</label>
         <input type="number" id="udp_listen_port" />
       </div>
-      <div class="form-group">
-        <label for="udp_destinations">UDP Destinations (comma-separated host:port pairs)</label>
-        <input type="text" id="udp_destinations" />
+      <div id="udpDestinationsContainer" class="form-group">
+        <label>UDP Destinations</label>
+        <div id="udpDestinationsList"></div>
+        <button type="button" id="addDestination" class="button">Add Destination</button>
       </div>
       <div class="form-group">
         <label for="metric_window_size">Metric Window Size (seconds)</label>
@@ -183,6 +231,20 @@
         <label for="mqtt_topic">MQTT Topic</label>
         <input type="text" id="mqtt_topic" />
       </div>
+      <div class="form-group">
+        <button type="button" id="downsampleMessagesButton" class="button">Downsampled Messages</button>
+      </div>
+      <div id="downsampleModal" class="modal" style="display: none;">
+        <div class="modal-content">
+          <h2>Select Message Types for Downsampling</h2>
+           <div id="messageTypesContainer" class="shard-checkboxes">
+              <!-- Checkboxes for message types will be dynamically added here -->
+           </div>
+           <button type="button" id="saveDownsampledMessages" class="button">Save</button>
+           <button type="button" id="cancelDownsampledMessages" class="button" style="background-color: #e74c3c;">Cancel</button>
+       </div>
+      </div>
+      <input type="hidden" id="downsample_message_types" />
       <div style="text-align: right;">
         <button type="submit" class="button">Save Settings</button>
       </div>
@@ -193,9 +255,101 @@
   <div id="toast-container"></div>
 
   <script>
+const downsampleMessagesButton = document.getElementById('downsampleMessagesButton');
+const downsampleModal = document.getElementById('downsampleModal');
+const messageTypesContainer = document.getElementById('messageTypesContainer');
+const saveDownsampledMessagesButton = document.getElementById('saveDownsampledMessages');
+const cancelDownsampledMessagesButton = document.getElementById('cancelDownsampledMessages');
+const downsampledMessages = []; // To store selected message types
+
+async function loadMessageTypes() {
+  try {
+    // Fetch the JSON file instead of the JS script
+    const res = await fetch('/message_types.json'); // Path to the message_types.json
+    if (!res.ok) {
+      throw new Error('Error loading JSON file');
+    }
+    const aisMessageMapping = await res.json();  // Parse the JSON response
+
+    // Clear previous checkboxes
+    messageTypesContainer.innerHTML = '';
+
+    // Create checkboxes for each message type
+    Object.entries(aisMessageMapping).forEach(([id, description]) => {
+      const checkboxWrapper = document.createElement('div');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = `message_${id}`;
+      checkbox.value = id;
+
+      // Check if the current message type should be selected
+      checkbox.checked = downsampledMessages.includes(id.toString());  // Ensure it's a string for comparison
+
+      const label = document.createElement('label');
+      label.setAttribute('for', checkbox.id);
+      label.textContent = `${id}: ${description}`;
+
+      checkboxWrapper.appendChild(checkbox);
+      checkboxWrapper.appendChild(label);
+      messageTypesContainer.appendChild(checkboxWrapper);
+    });
+
+    // After rendering, log the checkboxes to see if they are correctly rendered
+    const checkboxes = document.querySelectorAll('#messageTypesContainer input[type="checkbox"]');
+
+  } catch (error) {
+    console.error('Error loading message types:', error);
+    showToast('Error loading message types.', 'error');
+  }
+}
+
+
+
+
+// Show the downsample modal when the button is clicked
+downsampleMessagesButton.addEventListener('click', () => {
+  loadMessageTypes();
+  downsampleModal.style.display = 'flex';
+});
+
+// Close modal without saving
+cancelDownsampledMessagesButton.addEventListener('click', () => {
+  downsampleModal.style.display = 'none';
+});
+
+const downsampleMessageTypesInput = document.getElementById('downsample_message_types');
+
+saveDownsampledMessagesButton.addEventListener('click', () => {
+  downsampledMessages.length = 0;  // Clear existing array
+  const selectedCheckboxes = document.querySelectorAll('#messageTypesContainer input[type="checkbox"]:checked');
+  
+  if (selectedCheckboxes.length === 0) {
+    showToast('No message types selected for downsampling.', 'error');
+    return;
+  }
+
+  // Populate downsampledMessages with selected checkbox values (as strings)
+  selectedCheckboxes.forEach(checkbox => downsampledMessages.push(checkbox.value));
+  
+  // Ensure the downsample_message_types element exists before setting its value
+  if (downsampleMessageTypesInput) {
+    // Use JSON.stringify to make sure it becomes an array, not a string
+    downsampleMessageTypesInput.value = JSON.stringify(downsampledMessages);  // Set array in input field
+  } else {
+    console.error('Error: downsample_message_types input not found.');
+  }
+
+  downsampleModal.style.display = 'none'; // Close the modal
+  showToast('Downsampled messages updated.', 'success');
+});
+
+
     const form = document.getElementById('settingsForm');
     const apiBase = window.location.origin;
     const toastContainer = document.getElementById('toast-container');
+    const udpDestinationsList = document.getElementById('udpDestinationsList');
+    const addDestinationButton = document.getElementById('addDestination');
+    let streamShards = 0;
 
     function showToast(message, type = 'success') {
       const toast = document.createElement('div');
@@ -203,65 +357,186 @@
       toast.textContent = message;
       toastContainer.appendChild(toast);
 
-      // Set a timeout of 3 seconds to add the fade class
       setTimeout(() => {
         toast.classList.add('fade');
-        toast.addEventListener('transitionend', () => toast.remove());  // Remove the toast after fade-out
-      }, 3000);  // 3 seconds delay before starting the fade out
+        toast.addEventListener('transitionend', () => toast.remove());  
+      }, 3000);  
     }
 
-    async function loadSettings() {
-      try {
-        const res = await fetch(apiBase + '/settings');
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        Object.entries(data).forEach(([key, val]) => {
-          const el = document.getElementById(key);
-          if (!el) return;
-          if (el.type === 'checkbox') el.checked = Boolean(val);
-          else el.value = Array.isArray(val) ? val.join(',') : val;
-        });
-      } catch {
-        showToast('Error loading settings.', 'error');
-      }
-    }
-
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      const payload = {
-        udp_listen_port:         +document.getElementById('udp_listen_port').value,
-        udp_destinations:        document.getElementById('udp_destinations').value.split(',').map(s => s.trim()).filter(Boolean),
-        metric_window_size:      +document.getElementById('metric_window_size').value,
-        http_port:               +document.getElementById('http_port').value,
-        num_workers:             +document.getElementById('num_workers').value,
-        downsample_window:       +document.getElementById('downsample_window').value,
-        deduplication_window_ms: +document.getElementById('deduplication_window_ms').value,
-        web_path:                document.getElementById('web_path').value,
-        debug:                   document.getElementById('debug').checked,
-        include_source:          document.getElementById('include_source').checked,
-        stream_port:             +document.getElementById('stream_port').value,
-        stream_shards:           +document.getElementById('stream_shards').value,
-        mqtt_server:             document.getElementById('mqtt_server').value,
-        mqtt_tls:                document.getElementById('mqtt_tls').checked,
-        mqtt_auth:               document.getElementById('mqtt_auth').value,
-        mqtt_topic:              document.getElementById('mqtt_topic').value
-      };
-      try {
-        const res = await fetch(apiBase + '/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload, null, 2)
-        });
-        if (res.status === 204) {
-          showToast('Settings saved successfully.', 'success');
-          await loadSettings();
-        } else {
-          throw new Error();
-        }
-      } catch {
-        showToast('Error saving settings.', 'error');
-      }
+async function loadSettings() {
+  try {
+    const res = await fetch(apiBase + '/settings');
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    Object.entries(data).forEach(([key, val]) => {
+      const el = document.getElementById(key);
+      if (!el) return;
+      if (el.type === 'checkbox') el.checked = Boolean(val);
+      else if (el.type === 'text' || el.type === 'number') el.value = val;
     });
+
+    // Set downsampledMessages from settings response
+    if (data.downsample_message_types && Array.isArray(data.downsample_message_types)) {
+      downsampledMessages.length = 0;  // Clear existing array
+      downsampledMessages.push(...data.downsample_message_types);  // Populate with values from the settings
+    }
+
+    streamShards = data.stream_shards || 0;
+    
+    // Render UDP Destinations dynamically
+    if (data.udp_destinations && data.udp_destinations.length > 0) {
+      udpDestinationsList.innerHTML = ''; // Clear before adding new entries
+      data.udp_destinations.forEach((destination, index) => {
+        createDestinationElement(destination, index);
+      });
+    }
+  } catch {
+    showToast('Error loading settings.', 'error');
+  }
+}
+    // Create a new UDP destination element
+    function createDestinationElement(destination, index) {
+      const div = document.createElement('div');
+      div.classList.add('form-group');
+      div.id = `destination-${index}`;
+      
+      const label = document.createElement('label');
+      label.textContent = `${destination.description} (${destination.host}:${destination.port})`;
+      div.appendChild(label);
+
+      const hostInput = document.createElement('input');
+      hostInput.type = 'text';
+      hostInput.value = destination.host;
+      hostInput.placeholder = 'Host';
+      div.appendChild(hostInput);
+
+      const portInput = document.createElement('input');
+      portInput.type = 'number';
+      portInput.value = destination.port; // Ensure it's treated as a number
+      portInput.placeholder = 'Port';
+      div.appendChild(portInput);
+
+      const descriptionInput = document.createElement('input');
+      descriptionInput.type = 'text';
+      descriptionInput.value = destination.description;
+      descriptionInput.placeholder = 'Description';
+      div.appendChild(descriptionInput);
+
+      // Create shard checkboxes
+      const shardWrapper = document.createElement('div');
+      shardWrapper.classList.add('shard-checkboxes');
+      for (let i = 0; i < streamShards; i++) {
+        const checkboxWrapper = document.createElement('div');
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = i;
+        checkbox.checked = destination.shards.includes(i);
+
+        const checkboxLabel = document.createElement('label');
+        checkboxLabel.textContent = `Shard ${i}`;
+        checkboxWrapper.appendChild(checkbox);
+        checkboxWrapper.appendChild(checkboxLabel);
+
+        shardWrapper.appendChild(checkboxWrapper);
+      }
+      div.appendChild(shardWrapper);
+
+      // Add a delete button
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.textContent = 'Delete';
+      deleteButton.classList.add('button');
+      deleteButton.style.backgroundColor = '#e74c3c'; // Red color for delete
+      deleteButton.onclick = () => div.remove();
+      div.appendChild(deleteButton);
+
+      udpDestinationsList.appendChild(div);
+    }
+
+    addDestinationButton.addEventListener('click', () => {
+      const destinationIndex = udpDestinationsList.children.length;
+      const newDestination = {
+        host: '',
+        port: 0,
+        description: '',
+        shards: []
+      };
+      createDestinationElement(newDestination, destinationIndex);
+    });
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+
+  // Gather all the UDP destinations data
+  const udpDestinations = [];
+  const destinationDivs = document.querySelectorAll('#udpDestinationsList > .form-group');
+
+  destinationDivs.forEach((destDiv, index) => {
+    const hostInput = destDiv.querySelector('input[type="text"]');
+    const portInput = destDiv.querySelector('input[type="number"]');
+    const descriptionInput = destDiv.querySelector('input[type="text"]:nth-of-type(3)'); // Fixing nth-child to nth-of-type
+
+    if (!hostInput || !portInput || !descriptionInput) {
+      console.error('Missing inputs for destination:', destDiv);
+      return; // Skip this destination if any input is missing
+    }
+
+    const host = hostInput.value;
+    const port = parseInt(portInput.value); // Ensure the port is a number
+    const description = descriptionInput.value;
+
+    const selectedShards = [];
+    destDiv.querySelectorAll('.shard-checkboxes input:checked').forEach(checkbox => {
+      selectedShards.push(Number(checkbox.value));
+    });
+
+    udpDestinations.push({
+      host,
+      port,
+      description,
+      shards: selectedShards
+    });
+  });
+
+  // Prepare the payload for submission, including downsample_message_types as an array
+  const payload = {
+    udp_listen_port:         +document.getElementById('udp_listen_port').value,
+    udp_destinations:        udpDestinations,
+    metric_window_size:      +document.getElementById('metric_window_size').value,
+    http_port:               +document.getElementById('http_port').value,
+    num_workers:             +document.getElementById('num_workers').value,
+    downsample_window:       +document.getElementById('downsample_window').value,
+    deduplication_window_ms: +document.getElementById('deduplication_window_ms').value,
+    web_path:                document.getElementById('web_path').value,
+    debug:                   document.getElementById('debug').checked,
+    include_source:          document.getElementById('include_source').checked,
+    stream_port:             +document.getElementById('stream_port').value,
+    stream_shards:           +document.getElementById('stream_shards').value,
+    mqtt_server:             document.getElementById('mqtt_server').value,
+    mqtt_tls:                document.getElementById('mqtt_tls').checked,
+    mqtt_auth:               document.getElementById('mqtt_auth').value,
+    mqtt_topic:              document.getElementById('mqtt_topic').value,
+    downsample_message_types: downsampledMessages
+  };
+
+  try {
+    const res = await fetch(apiBase + '/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload, null, 2)
+    });
+    if (res.status === 204) {
+      showToast('Settings saved successfully.', 'success');
+      await loadSettings();
+    } else {
+      throw new Error();
+    }
+  } catch {
+    showToast('Error saving settings.', 'error');
+  }
+});
+
 
     window.addEventListener('DOMContentLoaded', loadSettings);
   </script>
