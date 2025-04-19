@@ -1005,7 +1005,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         fields := strings.Split(rawStr, ",")
         channel := "Unknown"
         if len(fields) > 5 {
-            channel = string(fields[4][0]) // Extract only the first character of the 5th field (either 'A' or 'B')
+            channel = string(fields[4][0])
         }
 
         buf := jsonBufPool.Get().(*bytes.Buffer)
@@ -1032,7 +1032,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         jsonBufPool.Put(buf)
 
 	if mqttClient != nil && mqttClient.IsConnected() {
-	    topic := fmt.Sprintf("%s/%d/%s/%s", mqttTopic, shardID, userID, "message")
+	    topic := fmt.Sprintf("%s/%d/%s/%s/message", mqttTopic, shardID, userID, msgID)
 	    token := mqttClient.Publish(topic, 0, false, out)
 	    token.Wait()
 	}
