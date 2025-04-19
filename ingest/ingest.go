@@ -534,40 +534,43 @@ func main() {
     mqttTopic  = cfg.MQTTTopic
 
 
-    if mqttServer != "" {
-        // Set MQTT options
-        opts := mqtt.NewClientOptions()
-        opts.AddBroker("tcp://" + mqttServer)
+   if mqttServer != "" {
+    // Set MQTT options
+    opts := mqtt.NewClientOptions()
+    opts.AddBroker("tcp://" + mqttServer)
 
-        // Set MQTT TLS if enabled
-        if mqttTLS {
-            tlsConfig := &tls.Config{InsecureSkipVerify: true}
-            opts.SetTLSConfig(tlsConfig)
-        }
-
-        // Set MQTT authentication if provided
-        if mqttAuth != "" {
-            authParts := strings.SplitN(mqttAuth, ":", 2)
-            if len(authParts) == 2 {
-                opts.SetUsername(authParts[0])
-                opts.SetPassword(authParts[1])
-            } else {
-                log.Fatalf("Invalid MQTT authentication format. Expected user:pass.")
-            }
-        }
-
-        // Set client ID and clean session
-        opts.SetClientID("go-ais-decoder")
-        opts.SetCleanSession(true)
-
-        // Connect to the MQTT broker
-        mqttClient = mqtt.NewClient(opts)
-        if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
-            log.Fatalf("Failesd to connect to MQTT broker: %v", token.Error())
-        }
-
-        log.Printf("Connected to MQTT broker: %s", mqttServer)
+    // Set MQTT TLS if enabled
+    if mqttTLS {
+        tlsConfig := &tls.Config{InsecureSkipVerify: true}
+        opts.SetTLSConfig(tlsConfig)
     }
+
+    // Set MQTT authentication if provided
+    if mqttAuth != "" {
+        authParts := strings.SplitN(mqttAuth, ":", 2)
+        if len(authParts) == 2 {
+            opts.SetUsername(authParts[0])
+            opts.SetPassword(authParts[1])
+        } else {
+            log.Printf("Invalid MQTT authentication format. Expected user:pass.")
+        }
+    }
+
+    // Set client ID and clean session
+    opts.SetClientID("go-ais-decoder")
+    opts.SetCleanSession(true)
+
+    // Create MQTT client
+    mqttClient = mqtt.NewClient(opts)
+
+    // Attempt to connect to the MQTT broker
+    token := mqttClient.Connect()
+    if token.Wait() && token.Error() != nil {
+        log.Printf("Failed to connect to MQTT broker: %v", token.Error())
+    } else {
+        log.Printf("Successfully connected to MQTT broker: %s", mqttServer)
+    }
+   }
 
 
 	if streamShards < 1 {
@@ -970,10 +973,11 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         out := buf.Bytes()
         jsonBufPool.Put(buf)
 
-        if mqttClient != nil && mqttClient.IsConnected() {
-            token := mqttClient.Publish(mqttTopic, 0, false, out)
-            token.Wait()
-        }
+	if mqttClient != nil && mqttClient.IsConnected() {
+	    topic := fmt.Sprintf("%s/%d/%s/%s", mqttTopic, shardID, userID, "message")
+	    token := mqttClient.Publish(topic, 0, false, out)
+	    token.Wait()
+	}
 
         clientsMu.Lock()
         for _, c := range clients {
