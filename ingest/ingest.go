@@ -147,15 +147,15 @@ type StreamMessage struct {
 
 // handshakeReq is the JSON clients must send on connect
 type handshakeReq struct {
-	Shards  []int  `json:"shards"`
-	Version string `json:"version"`
+	Shards      []int  `json:"shards"`
+	Description string `json:"description"`
 }
 
 // StreamClient holds a connected client's state and send-metrics
 type StreamClient struct {
 	conn          net.Conn
 	shards        []int
-	version       string
+	description   string
 	ip            string
 	mu            sync.Mutex
 	bytesSent     int64
@@ -451,8 +451,8 @@ func initializeUDPDestinationMetrics() {
         destStr := fmt.Sprintf("%s:%d", dest.Host, dest.Port)
         udpDestinationMetrics[destStr] = &UDPDestinationMetrics{
             Destination: destStr,
-            Description: dest.Description, // Use description for version
-            Shards:      dest.Shards,      // Set the shards for the destination
+            Description: dest.Description,
+            Shards:      dest.Shards,
             MessagesSent: 0,
             BytesSent:    0,
         }
@@ -772,15 +772,16 @@ func handleStreamConn(conn net.Conn) {
 	client := &StreamClient{
 		conn:          conn,
 		shards:        req.Shards,
-		version:       req.Version,
+		description:   req.Description,
 		ip:            strings.Split(conn.RemoteAddr().String(), ":")[0],
 		messageWindow: NewFixedWindowCounter(),
 		bytesWindow:   NewFixedWindowBytesCounter(),
 	}
+
 	clientsMu.Lock()
 	clients = append(clients, client)
 	clientsMu.Unlock()
-	log.Printf("New stream client %s shards=%v version=%q", client.ip, client.shards, client.version)
+	log.Printf("New stream client %s shards=%v description=%q", client.ip, client.shards, client.description)
 
 	go func() {
 		io.Copy(io.Discard, conn)
@@ -1023,7 +1024,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 
         // Add the channel field
         streamObj.Message = map[string]interface{}{
-            "message": decoded.Packet,
+            "packet": decoded.Packet,
             "channel": channel,
         }
 
@@ -1036,7 +1037,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 	    token := mqttClient.Publish(topic, 0, false, out)
 	    token.Wait()
 	}
-
+	out = append(out, 0)
         clientsMu.Lock()
         for _, c := range clients {
             for _, sub := range c.shards {
@@ -1261,7 +1262,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	type clientInfo struct {
 		IP                string `json:"ip"`
 		Shards            []int  `json:"shards"`
-		Version           string `json:"version"`
+		Description       string `json:"description"`
 		BytesSent         int64  `json:"bytes_sent"`
 		MessagesSent      int64  `json:"messages_sent"`
 		MessagesPerWindow int64  `json:"messages_per_window"`
@@ -1281,7 +1282,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		connected = append(connected, clientInfo{
 			IP:                c.ip,
 			Shards:            c.shards,
-			Version:           c.version,
+			Description:       c.description,
 			BytesSent:         c.bytesSent,
 			MessagesSent:      c.messagesSent,
 			MessagesPerWindow: c.messageWindow.Count(),

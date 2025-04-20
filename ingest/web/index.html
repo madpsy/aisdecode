@@ -364,9 +364,9 @@ function renderBlockedIps(data) {
         (connectedClients || []).forEach(client => {
           const tr = document.createElement('tr');
           tr.innerHTML = `
+	    <td>${client.description}</td>
             <td>${client.ip}</td>
             <td>${(client.shards || []).join(', ')}</td>
-            <td>${client.version}</td>
             <td>${formatNumber(client.bytes_sent)}</td>
             <td>${formatNumber(client.messages_sent)}</td>
             <td>${formatNumber(client.messages_per_window)}</td>
@@ -612,9 +612,9 @@ function renderBlockedIps(data) {
     <table id="connected_clients">
       <thead>
         <tr>
+	  <th>Description</th>
           <th>IP</th>
           <th>Shards</th>
-          <th>Version</th>
           <th>Bytes Sent</th>
           <th>Msgs Sent</th>
           <th>Messages per <span class="window-size"></span> seconds</th>
