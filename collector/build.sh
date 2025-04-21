@@ -4,7 +4,7 @@ set -e
 # If go.mod does not exist, create one.
 if [ ! -f go.mod ]; then
     echo "go.mod not found. Creating go.mod..."
-    go mod init history
+    go mod init collector
 fi
 
 # Tidy the module to ensure go.mod and go.sum are up to date.
@@ -24,11 +24,11 @@ build_binary() {
 }
 
 # Build for each target platform.
-build_binary linux   amd64   "history-linux-amd64"
-build_binary darwin  amd64   "history-darwin-amd64"
-build_binary windows amd64   "history-windows-amd64.exe"
-build_binary linux   arm     "history-linux-arm"
-build_binary linux   arm64   "history-linux-arm64"
+build_binary linux   amd64   "collector-linux-amd64"
+build_binary darwin  amd64   "collector-darwin-amd64"
+build_binary windows amd64   "collector-windows-amd64.exe"
+build_binary linux   arm     "collector-linux-arm"
+build_binary linux   arm64   "collector-linux-arm64"
 
 echo "All builds succeeded. Binaries are located in the 'build' directory."
 
