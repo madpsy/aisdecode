@@ -1,0 +1,36 @@
+{
+  "udp_listen_port": 8101,
+  "udp_destinations": [
+    {
+      "host": "127.0.0.1",
+      "port": 8102,
+      "shards": [
+        0
+      ],
+      "description": "AIS Decoder"
+    }
+  ],
+  "metric_window_size": 1,
+  "http_port": 8080,
+  "num_workers": 4,
+  "downsample_window": 5,
+  "deduplication_window_ms": 200,
+  "web_path": "web",
+  "debug": true,
+  "include_source": true,
+  "stream_port": 8112,
+  "stream_shards": 1,
+  "mqtt_server": "hydros.link9.net:1883",
+  "mqtt_tls": false,
+  "mqtt_auth": "mosquitto:vXAQPd6AIR1L6",
+  "mqtt_topic": "AIS",
+  "downsample_message_types": [
+    "1",
+    "2",
+    "3",
+    "5",
+    "18",
+    "19"
+  ],
+  "blocked_ips": []
+}

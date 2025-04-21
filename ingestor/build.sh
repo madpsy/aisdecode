@@ -4,7 +4,7 @@ set -e
 # If go.mod does not exist, create one.
 if [ ! -f go.mod ]; then
     echo "go.mod not found. Creating go.mod..."
-    go mod init ingest
+    go mod init ingestor
 fi
 
 # Tidy the module to ensure go.mod and go.sum are up to date.
@@ -24,11 +24,11 @@ build_binary() {
 }
 
 # Build for each target platform.
-build_binary linux   amd64   "ingest-linux-amd64"
-build_binary darwin  amd64   "ingest-darwin-amd64"
-build_binary windows amd64   "ingest-windows-amd64.exe"
-build_binary linux   arm     "ingest-linux-arm"
-build_binary linux   arm64   "ingest-linux-arm64"
+build_binary linux   amd64   "ingestor-linux-amd64"
+build_binary darwin  amd64   "ingestor-darwin-amd64"
+build_binary windows amd64   "ingestor-windows-amd64.exe"
+build_binary linux   arm     "ingestor-linux-arm"
+build_binary linux   arm64   "ingestor-linux-arm64"
 
 echo "All builds succeeded. Binaries are located in the 'build' directory."
 
