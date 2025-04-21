@@ -296,6 +296,7 @@ function renderMap(tableId, mapObj) {
         ? aisMessageMapping[key]
         : key; // For non-message-id tables, just use the raw key value
 
+      // Apply the formatNumber function to the value
       tr.innerHTML = `<td>${displayKey}</td><td>${formatNumber(val)}</td>`;
       tbody.appendChild(tr);
     });
@@ -651,7 +652,7 @@ function renderBlockedIps(data) {
   </section>
 
   <section>
-    <h3>Shards Without Clients</h3>
+    <h3>Shards Without Clients / Destinations</h3>
     <table id="shards_without_clients">
       <thead>
         <tr><th>Shard</th></tr>
@@ -661,10 +662,10 @@ function renderBlockedIps(data) {
   </section>
 
   <section>
-    <h3>Overlapping Shard Clients</h3>
+    <h3>Overlapping Shards</h3>
     <table id="overlapping_clients">
       <thead>
-        <tr><th>Shard</th><th>Clients</th></tr>
+        <tr><th>Shard</th><th>Clients / Destinations</th></tr>
       </thead>
       <tbody></tbody>
     </table>
