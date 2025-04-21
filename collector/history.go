@@ -197,6 +197,12 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
 
         if reportB, reportBExists := packetMap["ReportB"].(map[string]interface{}); reportBExists {
             if valid, validExists := reportB["Valid"].(bool); validExists && valid {
+                // If "ShipType" exists in ReportB, rename it to "Type"
+                if shipType, shipTypeExists := reportB["ShipType"].(string); shipTypeExists {
+                    reportB["Type"] = shipType
+                    delete(reportB, "ShipType")
+                }
+                // Flatten ReportB into the main packet map
                 for key, value := range reportB {
                     packetMap[key] = value
                 }

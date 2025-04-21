@@ -146,9 +146,95 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 
 
 func summaryHandler(w http.ResponseWriter, r *http.Request) {
+    // Prepare the SQL query to get all UserID entries and their associated packet data
+    query := `
+        SELECT user_id, message_id, packet
+        FROM summary;
+    `
 
+    // Call the QueryDatabasesForAllShards function to query the database
+    results, err := QueryDatabasesForAllShards(query)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
+        return
+    }
 
+    // Create a map to hold the summarized results for each UserID
+    summarizedResults := make(map[string]map[string]interface{})
+
+    // Iterate over all results from each shard
+    for _, shardData := range results { // removed shardHost
+        for _, row := range shardData {
+            // Extract the UserID and packet data from the row
+            userID, ok := row["user_id"]
+            if !ok {
+                continue
+            }
+
+            // Handle both int and int64 types for user_id
+            var userIDStr string
+            switch v := userID.(type) {
+            case int:
+                userIDStr = fmt.Sprintf("%d", v)
+            case int64:
+                userIDStr = fmt.Sprintf("%d", v)
+            default:
+                continue
+            }
+
+            // Extract the packet field, which is a byte array
+            packetData, ok := row["packet"].([]byte)
+            if !ok {
+                continue
+            }
+
+            // Convert the byte slice to a string (assuming UTF-8 encoding)
+            packetStr := string(packetData)
+
+            // Unmarshal the packet data into a map
+            var packetMap map[string]interface{}
+            if err := json.Unmarshal([]byte(packetStr), &packetMap); err != nil {
+                continue
+            }
+
+            // If the UserID doesn't exist in the result map, initialize it
+            if _, exists := summarizedResults[userIDStr]; !exists {
+                summarizedResults[userIDStr] = make(map[string]interface{})
+                // Initialize the "MessageTypes" field as an empty slice for this user
+                summarizedResults[userIDStr]["MessageTypes"] = []int64{}
+            }
+
+            // Collect the message_id for the "MessageTypes" field (it's int64)
+            messageID, ok := row["message_id"].(int64)
+            if ok {
+                messageTypes := summarizedResults[userIDStr]["MessageTypes"].([]int64)
+                summarizedResults[userIDStr]["MessageTypes"] = append(messageTypes, messageID)
+            }
+
+            // Define the fields to extract from the packet
+            fields := []string{
+                "CallSign", "Cog", "Destination", "Dimension", "Latitude", "Longitude", 
+                "MaximumStaticDraught", "Name", "NavigationalStatus", "Sog", "TrueHeading", "Type",
+            }
+
+            // For each field, check if it exists in the packet data and add it to the summarized results
+            for _, field := range fields {
+                if value, exists := packetMap[field]; exists {
+                    summarizedResults[userIDStr][field] = value
+                }
+            }
+        }
+    }
+
+    // Send the summarized results as JSON
+    w.Header().Set("Content-Type", "application/json")
+    if err := json.NewEncoder(w).Encode(summarizedResults); err != nil {
+        http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
+    }
 }
+
+
+
 
 // Helper function to safely get a string value from packetData (returns empty string if not found)
 func getFieldString(packetData map[string]interface{}, field string) string {
@@ -190,21 +276,16 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
 	// Extract UserID from URL
 	userID := r.URL.Path[len("/state/"):]
 
-	// Prepare the SQL query to get the most recent message for each unique MessageID based on the 'id' column, including 'timestamp'
+	// Prepare the SQL query to get the most recent message for each unique MessageID for the specific user
+	// Querying the 'summary' table which contains the latest message of each type for each user.
 	query := fmt.Sprintf(`
-		SELECT packet, timestamp
-		FROM messages
-		WHERE packet->>'UserID' = '%s'
-		AND id IN (
-			SELECT MAX(id)
-			FROM messages
-			WHERE packet->>'UserID' = '%s'
-			GROUP BY packet->>'MessageID'
-		)
-		ORDER BY id DESC;
-	`, userID, userID)
+		SELECT message_id, packet, timestamp
+		FROM summary
+		WHERE user_id = '%s'
+		ORDER BY message_id;
+	`, userID)
 
-	// Call the QueryDatabaseForUser function
+	// Call the QueryDatabaseForUser function to query the database for the specific user
 	rows, err := QueryDatabaseForUser(userID, query)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
@@ -217,9 +298,8 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Read the result and merge all packets into the mergedResults map
 	for rows.Next() {
-		var packet string
-		var timestamp string
-		if err := rows.Scan(&packet, &timestamp); err != nil {
+		var messageID, packet, timestamp string
+		if err := rows.Scan(&messageID, &packet, &timestamp); err != nil {
 			http.Error(w, fmt.Sprintf("Error scanning result: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -231,22 +311,13 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Ensure MessageID is treated as a string
-		messageID := ""
-		if id, ok := packetData["MessageID"].(string); ok {
-			messageID = id
-		} else if id, ok := packetData["MessageID"].(float64); ok {
-			// If it's a float64, convert it to string
-			messageID = fmt.Sprintf("%v", id)
-		}
-
 		// Remove the 'UserID' field from the packet data
 		delete(packetData, "UserID")
 
 		// Add the 'timestamp' to the packet data
 		packetData["timestamp"] = timestamp
 
-		// Merge the packet data into the mergedResults map
+		// Merge the packet data into the mergedResults map under the corresponding messageID
 		if _, exists := mergedResults[messageID]; !exists {
 			mergedResults[messageID] = make(map[string]interface{})
 		}
