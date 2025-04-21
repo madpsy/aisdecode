@@ -8,7 +8,8 @@ import (
 	"net/http"
 	"os"
 	"hash/fnv"
-	"time" // Added the time package
+	"strconv"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/zishang520/socket.io/v2/socket"
@@ -93,6 +94,96 @@ func QueryDatabaseForUser(userID string, query string) (*sql.Rows, error) {
 	}
 
 	return rows, nil
+}
+
+// QueryDatabasesForAllShards queries all shard databases with the same query.
+func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface{}, error) {
+	results := make(map[string][]map[string]interface{})
+
+	for _, conn := range clientConnections {
+		log.Printf("Querying shard %s at %s:%d", conn.DbHost, conn.DbHost, conn.DbPort)
+
+		// Perform the query on the current shard's database
+		db := conn.Db
+		rows, err := db.Query(query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute query on database for client %s: %v", conn.DbHost, err)
+		}
+		defer rows.Close()
+
+		// Log the number of rows returned by the query
+		var rowCount int
+		columns, err := rows.Columns() // Get the column names dynamically
+		if err != nil {
+			return nil, fmt.Errorf("failed to get columns for client %s: %v", conn.DbHost, err)
+		}
+
+		for rows.Next() {
+			// Create a slice to hold column values dynamically
+			values := make([]interface{}, len(columns))
+			for i := range values {
+				values[i] = new(interface{})
+			}
+			if err := rows.Scan(values...); err != nil {
+				log.Printf("Error scanning result for shard %s: %v", conn.DbHost, err)
+				continue
+			}
+			rowData := make(map[string]interface{})
+			for i, column := range columns {
+				// Store the column value in the rowData map
+				rowData[column] = *(values[i].(*interface{}))
+			}
+			results[conn.DbHost] = append(results[conn.DbHost], rowData)
+			rowCount++
+		}
+
+		// Log the total number of rows returned for the current shard
+		log.Printf("Shard %s returned %d rows", conn.DbHost, rowCount)
+	}
+	// log.Printf("Results collected: %+v", results)
+	return results, nil
+}
+
+
+func summaryHandler(w http.ResponseWriter, r *http.Request) {
+
+
+}
+
+// Helper function to safely get a string value from packetData (returns empty string if not found)
+func getFieldString(packetData map[string]interface{}, field string) string {
+	if value, ok := packetData[field].(string); ok && value != "" {
+		return value
+	}
+	return ""  // Return empty string if field is nil or not found
+}
+
+// Helper function to safely get a float64 value from packetData (returns 0 if not found)
+func getFieldFloat(packetData map[string]interface{}, field string) float64 {
+    // Attempt to convert the value to a float
+    if value, ok := packetData[field].(string); ok && value != "" {
+        if floatValue, err := strconv.ParseFloat(value, 64); err == nil {
+            return floatValue
+        }
+    }
+    return 0 // Return 0 if value is not found or conversion fails
+}
+
+// Helper function to safely parse any JSON field into a map (returns nil if parsing fails)
+func getFieldJSON(packetData map[string]interface{}, field string) (map[string]interface{}, error) {
+    if value, ok := packetData[field].(string); ok && value != "" {
+        var jsonData map[string]interface{}
+        if err := json.Unmarshal([]byte(value), &jsonData); err != nil {
+            return nil, fmt.Errorf("error unmarshaling field '%s': %v", field, err)
+        }
+        return jsonData, nil
+    }
+    return nil, fmt.Errorf("field '%s' is missing or empty", field)
+}
+
+func formatTimestamp(t time.Time) string {
+    // Return the time in UTC with nanosecond precision in the ISO 8601 format
+    return t.UTC().Format(time.RFC3339Nano) // Format: "2025-04-21T13:49:56.259736Z"
 }
 
 func userStateHandler(w http.ResponseWriter, r *http.Request) {
@@ -343,6 +434,9 @@ func startHTTPServer(port int, mux *http.ServeMux) {
 func setupServer(settings *Settings) {
 	// Create a new ServeMux
 	mux := http.NewServeMux()
+
+	// Define the /summary} route
+	mux.HandleFunc("/summary", summaryHandler)
 
 	// Define the /state/{UserID} route
 	mux.HandleFunc("/state/", userStateHandler)

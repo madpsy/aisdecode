@@ -106,18 +106,35 @@ func main() {
 		log.Printf("Connected to PostgreSQL database: %s", settings.DbName)
 	}
 
-	// Create the messages table with a single JSONB column called 'packet' instead of 'message'
+	// Create the messages table with new user_id and message_id columns
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS messages (
 			id SERIAL PRIMARY KEY,
 			packet JSONB,
 			shard_id INT,
 			timestamp TIMESTAMP,
-			source_ip VARCHAR(45)
+			source_ip VARCHAR(45),
+			user_id INT,
+			message_id INT
 		);
 	`)
 	if err != nil {
 		log.Fatal("Error creating table: ", err)
+	}
+
+	_, err = db.Exec(`
+	    CREATE TABLE IF NOT EXISTS summary (
+	        packet JSONB,
+	        shard_id INT,
+	        timestamp TIMESTAMP,
+	        source_ip VARCHAR(45),
+	        user_id INT,
+	        message_id INT,
+	        PRIMARY KEY (user_id, message_id)
+	    );
+	`)
+	if err != nil {
+	    log.Fatal("Error creating summary table: ", err)
 	}
 
 	// Create indexes if they don't exist
@@ -125,7 +142,6 @@ func main() {
 
 	// Start reading messages from the ingester
 	go handleIngesterMessages(settings, ingesterConn, requestJSON, settings.Debug, db)
-
 
 	// Block until a termination signal is received
 	select {}
@@ -148,7 +164,6 @@ func readSettings(path string) (*Settings, error) {
 }
 
 func storeMessage(db *sql.DB, message Message, settings *Settings) error {
-    // Unmarshal the outer "message" to extract the inner "packet" object
     var outerMap map[string]interface{}
     err := json.Unmarshal(message.Packet, &outerMap)
     if err != nil {
@@ -156,25 +171,62 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
         return err
     }
 
-    // Extract the "packet" field (which is the actual data we need)
     packetData, exists := outerMap["packet"]
     if !exists {
         log.Println("Packet field is missing in the JSON message.")
         return fmt.Errorf("Packet field is missing")
     }
 
-    // Extract the source_ip directly from the message struct (it is outside of the "message" object)
-    sourceIP := message.SourceIP
+    packetMap, ok := packetData.(map[string]interface{})
+    if !ok {
+        log.Println("Packet data is not in the expected format.")
+        return fmt.Errorf("Packet data is not in the expected format")
+    }
 
-    // Marshal the extracted packet data into JSON format to store it in the database
-    packetJSON, err := json.Marshal(packetData)
+    // Check if MessageID is 24 and flatten
+    messageID, messageIDExists := packetMap["MessageID"].(float64)
+    if messageIDExists && messageID == 24 {
+        if reportA, reportAExists := packetMap["ReportA"].(map[string]interface{}); reportAExists {
+            if valid, validExists := reportA["Valid"].(bool); validExists && valid {
+                for key, value := range reportA {
+                    packetMap[key] = value
+                }
+            }
+            delete(packetMap, "ReportA")
+        }
+
+        if reportB, reportBExists := packetMap["ReportB"].(map[string]interface{}); reportBExists {
+            if valid, validExists := reportB["Valid"].(bool); validExists && valid {
+                for key, value := range reportB {
+                    packetMap[key] = value
+                }
+            }
+            delete(packetMap, "ReportB")
+        }
+    }
+
+    userID, userIDExists := packetMap["UserID"].(float64)
+    messageIDExtracted, messageIDExists := packetMap["MessageID"].(float64)
+
+    if !userIDExists || !messageIDExists {
+        log.Println("UserID or MessageID is missing in the packet.")
+        return fmt.Errorf("UserID or MessageID is missing")
+    }
+
+    packetJSON, err := json.Marshal(packetMap)
     if err != nil {
         log.Printf("Error marshalling packet contents: %v", err)
         return err
     }
 
-    // Retry mechanism for database connection
-    err = tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, sourceIP, settings)
+    // Convert userID and messageIDExtracted to int before passing to storeSummary
+    err = storeSummary(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, int(userID), int(messageIDExtracted))
+    if err != nil {
+        log.Printf("Error storing summary: %v", err)
+    }
+
+    // Insert into messages as well (optional)
+    err = tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userID, messageIDExtracted, settings)
     if err != nil {
         log.Printf("Error storing message: %v", err)
     }
@@ -182,13 +234,67 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
     return err
 }
 
+func storeSummary(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID int, messageID int) error {
+    // Special handling for message_id == 24
+    if messageID == 24 {
+        // Fetch the current packet if exists
+        var existingPacketJSON []byte
+        err := db.QueryRow(`
+            SELECT packet FROM summary WHERE user_id = $1 AND message_id = $2
+        `, userID, messageID).Scan(&existingPacketJSON)
 
-func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, settings *Settings) error {
+        // If an existing packet is found, merge it with the new packet
+        if err == nil {
+            // Merge the two JSON objects (existing and new)
+            var existingPacket map[string]interface{}
+            var newPacket map[string]interface{}
+
+            err := json.Unmarshal(existingPacketJSON, &existingPacket)
+            if err != nil {
+                return fmt.Errorf("Error unmarshalling existing packet: %v", err)
+            }
+
+            err = json.Unmarshal(packetJSON, &newPacket)
+            if err != nil {
+                return fmt.Errorf("Error unmarshalling new packet: %v", err)
+            }
+
+            // Merge the packets (flatten and add new data)
+            for key, value := range newPacket {
+                existingPacket[key] = value
+            }
+
+            // Marshal the merged packet back to JSON
+            packetJSON, err = json.Marshal(existingPacket)
+            if err != nil {
+                return fmt.Errorf("Error marshalling merged packet: %v", err)
+            }
+        } else if err != sql.ErrNoRows {
+            return fmt.Errorf("Error querying existing packet: %v", err)
+        }
+    }
+
+    // Insert or update the summary table
+    _, err := db.Exec(`
+        INSERT INTO summary (packet, shard_id, timestamp, source_ip, user_id, message_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (user_id, message_id) 
+        DO UPDATE SET packet = EXCLUDED.packet, shard_id = EXCLUDED.shard_id, timestamp = EXCLUDED.timestamp, source_ip = EXCLUDED.source_ip
+    `, packetJSON, shardID, timestamp, sourceIP, userID, messageID)
+
+    if err != nil {
+        return fmt.Errorf("Error inserting or updating summary table: %v", err)
+    }
+
+    return nil
+}
+
+func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, settings *Settings) error {
     // Try to insert the message into the database
-    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip) 
-             VALUES ($1, $2, $3, $4)`
+    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id) 
+             VALUES ($1, $2, $3, $4, $5, $6)`
 
-    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP)
+    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID)
     if err != nil {
         log.Printf("Error executing query: %v", err)
         // If the error is due to the database connection being lost, attempt to reconnect
@@ -201,7 +307,7 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
             }
 
             // Try inserting the message again after reconnecting
-            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP)
+            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID)
             if err != nil {
                 log.Printf("Error executing query after reconnecting: %v", err)
                 return err
@@ -212,7 +318,6 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
 }
 
 func isDatabaseConnectionError(err error) bool {
-    // You could improve this function by checking the error type, for now just checking for a generic error.
     return err != nil && err.Error() == "pq: connection to server lost"
 }
 
@@ -225,7 +330,6 @@ func reconnectToDatabase(settings *Settings) (*sql.DB, error) {
         return nil, err
     }
 
-    // Check if the connection is alive
     err = db.Ping()
     if err != nil {
         return nil, err
@@ -235,46 +339,40 @@ func reconnectToDatabase(settings *Settings) (*sql.DB, error) {
     return db, nil
 }
 
-// Connect to the ingester (outgoing TCP connection to the ingester)
 func connectToIngester(host string, port int, debug bool) (net.Conn, error) {
-	for {
-		// Real connection to the ingester
-		addr := fmt.Sprintf("%s:%d", host, port)
-		conn, err := net.Dial("tcp", addr)
-		if err != nil {
-			log.Printf("Failed to connect to ingester at %s: %v. Retrying in 5 seconds...", addr, err)
-			time.Sleep(5 * time.Second) // Retry every 5 seconds
-			continue
-		}
+    for {
+        addr := fmt.Sprintf("%s:%d", host, port)
+        conn, err := net.Dial("tcp", addr)
+        if err != nil {
+            log.Printf("Failed to connect to ingester at %s: %v. Retrying in 5 seconds...", addr, err)
+            time.Sleep(5 * time.Second)
+            continue
+        }
 
-		if debug {
-			log.Printf("Successfully connected to ingester at %s", addr)
-		}
+        if debug {
+            log.Printf("Successfully connected to ingester at %s", addr)
+        }
 
-		// Return the connection object to send and receive data
-		return conn, nil
-	}
+        return conn, nil
+    }
 }
 
 func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byte, debug bool, db *sql.DB) {
-    buffer := make([]byte, 0) // Buffer to hold the incoming data
+    buffer := make([]byte, 0)
 
     for {
-        // Read data from the TCP connection into a temporary buffer
         buf := make([]byte, 4096)
         n, err := conn.Read(buf)
 
         if err != nil {
             log.Printf("Error reading from connection: %v", err)
-            conn.Close() // Close the current connection and attempt reconnection
-            conn, err = connectToIngester(settings.IngestHost, settings.IngestPort, debug) // Reconnect
+            conn.Close()
+            conn, err = connectToIngester(settings.IngestHost, settings.IngestPort, debug)
             if err != nil {
                 log.Printf("Failed to reconnect: %v", err)
                 continue
             }
             log.Println("Reconnected to ingester")
-
-            // Resend the initial request to the ingester
             _, err := conn.Write(requestJSON)
             if err != nil {
                 log.Printf("Failed to resend request to ingester: %v", err)
@@ -284,24 +382,19 @@ func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byt
             continue
         }
 
-        // Append the newly read data to the buffer
         buffer = append(buffer, buf[:n]...)
 
-        // Process complete messages from the buffer
         for {
-            idx := bytes.IndexByte(buffer, '\x00') // Look for the null character as the message delimiter
+            idx := bytes.IndexByte(buffer, '\x00')
             if idx == -1 {
-                break // No complete message, wait for more data
+                break
             }
 
-            // Extract the complete message from the buffer
             message := buffer[:idx]
-            buffer = buffer[idx+1:] // Remove the processed message from the buffer
+            buffer = buffer[idx+1:]
 
-            // Now process the complete message
-            err := processMessage(message, db, settings) // Pass settings here
+            err := processMessage(message, db, settings)
             if err != nil {
-                // Log only the failed message with the error
                 log.Printf("Failed to unmarshal message: %v, Raw Message: %s", err, string(message))
             }
         }
@@ -311,15 +404,12 @@ func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byt
 func processMessage(message []byte, db *sql.DB, settings *Settings) error {
     var msg Message
 
-    // Try unmarshalling the message into the Message struct
     err := json.Unmarshal(message, &msg)
     if err != nil {
-        // If unmarshalling fails, return the error so it can be logged
         return err
     }
 
-    // Store the message in the database
-    err = storeMessage(db, msg, settings) // Pass settings here
+    err = storeMessage(db, msg, settings)
     if err != nil {
         log.Printf("Error storing message: %v", err)
     }
@@ -328,65 +418,72 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
 }
 
 func createIndexesIfNotExist(db *sql.DB) {
-    // Create a composite index for shard_id and UserID (extracted from the JSON packet)
     _, err := db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_shard_userid ON messages (
-            shard_id,                    -- Direct column for shard_id
-            (packet->>'UserID')          -- Extract UserID from the "packet" JSON field
-        );
+        CREATE INDEX IF NOT EXISTS idx_user_id ON messages (user_id);
     `)
     if err != nil {
-        log.Printf("Error creating composite index for shard_id and UserID: %v", err)
+        log.Printf("Error creating index for user_id: %v", err)
     }
 
-    // Create a btree index specifically for UserID in the nested "packet"
     _, err = db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_packet_userid ON messages (
-            (packet->>'UserID')  -- Extract UserID from the "packet" JSON field
-        );
+        CREATE INDEX IF NOT EXISTS idx_message_id ON messages (message_id);
     `)
     if err != nil {
-        log.Printf("Error creating index for UserID: %v", err)
+        log.Printf("Error creating index for message_id: %v", err)
     }
 
-    // Create a btree index for shard_id directly in the table (no changes needed here)
     _, err = db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_packet_shard_id ON messages (shard_id);
+        CREATE INDEX IF NOT EXISTS idx_shard_id ON messages (shard_id);
     `)
     if err != nil {
         log.Printf("Error creating index for shard_id: %v", err)
     }
 
-    // Create an index for the source_ip field
     _, err = db.Exec(`
         CREATE INDEX IF NOT EXISTS idx_source_ip ON messages (source_ip);
     `)
     if err != nil {
         log.Printf("Error creating index for source_ip: %v", err)
     }
+    _, err = db.Exec(`
+	CREATE INDEX IF NOT EXISTS idx_user_id_message_id ON summary (user_id, message_id);
+    `)
+    if err != nil {
+	log.Fatal("Error creating index idx_user_id_message_id for summary table: ", err)
+    }
+    _, err = db.Exec(`
+	CREATE INDEX IF NOT EXISTS idx_user_id ON summary (user_id);
+    `)
+    if err != nil {
+	log.Fatal("Error creating index idx_user_id for summary table: ", err)
+    }
+    _, err = db.Exec(`
+	CREATE INDEX IF NOT EXISTS idx_message_id ON summary (message_id);
+    `)
+    if err != nil {
+	log.Fatal("Error creating index idx_message_id for summary table: ", err)
+    }
 }
 
 func startHTTPServer() {
-	if settings == nil {
-		log.Fatal("Settings are not initialized.")
-		return
-	}
+    if settings == nil {
+        log.Fatal("Settings are not initialized.")
+        return
+    }
 
-	http.HandleFunc("/settings", getSettingsHandler)
+    http.HandleFunc("/settings", getSettingsHandler)
 
-	// Start the server
-	address := fmt.Sprintf(":%d", settings.ListenPort)
-	log.Printf("Starting HTTP server on port %d...\n", settings.ListenPort)
-	if err := http.ListenAndServe(address, nil); err != nil {
-		log.Fatalf("Error starting HTTP server: %v\n", err)
-	}
+    address := fmt.Sprintf(":%d", settings.ListenPort)
+    log.Printf("Starting HTTP server on port %d...\n", settings.ListenPort)
+    if err := http.ListenAndServe(address, nil); err != nil {
+        log.Fatalf("Error starting HTTP server: %v\n", err)
+    }
 }
 
-// HTTP handler that returns the contents of settings.json
 func getSettingsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(settings)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error encoding settings: %v", err), http.StatusInternalServerError)
-	}
+    w.Header().Set("Content-Type", "application/json")
+    err := json.NewEncoder(w).Encode(settings)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Error encoding settings: %v", err), http.StatusInternalServerError)
+    }
 }
