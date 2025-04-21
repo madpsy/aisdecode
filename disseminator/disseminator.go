@@ -7,15 +7,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"hash/fnv"
 	"time" // Added the time package
 
 	_ "github.com/lib/pq"
-	"github.com/gorilla/websocket"
+	"github.com/zishang520/socket.io/v2/socket"
+	"github.com/zishang520/engine.io/v2/types"
 )
 
 type Settings struct {
-	IngestHost  string `json:"ingester_host"` 
-	IngestPort  int    `json:"ingester_port"` 
+	IngestHost  string `json:"ingester_host"`
+	IngestPort  int    `json:"ingester_port"`
 	ListenPort  int    `json:"listen_port"`
 	Debug       bool   `json:"debug"`
 	PollInterval int   `json:"poll_interval"`
@@ -38,6 +40,7 @@ type Client struct {
 }
 
 var clientConnections map[string]*ClientConnection
+var streamShards int // Global variable to store the total number of shards
 
 type ClientConnection struct {
 	Db         *sql.DB
@@ -49,45 +52,125 @@ type ClientConnection struct {
 	Shards     []int
 }
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+var ioServer *socket.Server
+
+func shardForUser(userID string) int {
+    h := fnv.New32a()
+    h.Write([]byte(userID))
+    return int(h.Sum32()) % streamShards
 }
 
-func main() {
-	// Load configuration settings
-	settingsFile := "settings.json"
-	settings, err := loadSettings(settingsFile)
-	if err != nil {
-		log.Fatalf("Error loading settings: %v", err)
-	}
+func QueryDatabaseForUser(userID string, query string) (*sql.Rows, error) {
+	shardID := shardForUser(userID)
+	var clientDescription string
+	var clientConnection *ClientConnection // Use ClientConnection here
 
-	// Initialize map to track client database connections
-	clientConnections = make(map[string]*ClientConnection)
-
-	// Set up polling interval
-	pollInterval := time.Duration(settings.PollInterval) * time.Second
-	if pollInterval > 0 {
-		ticker := time.NewTicker(pollInterval)
-		defer ticker.Stop()
-
-		// Poll periodically to check for changes
-		go func() {
-			for {
-				<-ticker.C
-				logWithDebug(settings.Debug, "Polling clients at %v", time.Now())
-				handleClientChanges(settings.IngestHost, settings.IngestPort, settings.Debug)
+	// Iterate over clientConnections to find the ClientConnection for the shard
+	for _, conn := range clientConnections {
+		// Search through shards to find the one that handles the user
+		for _, shard := range conn.Shards {
+			if shard == shardID {
+				clientDescription = conn.DbHost
+				clientConnection = conn
+				break
 			}
-		}()
+		}
+		if clientConnection != nil {
+			break
+		}
 	}
 
-	// Initial fetch and setup
-	handleClientChanges(settings.IngestHost, settings.IngestPort, settings.Debug)
+	// If no matching ClientConnection was found, return an error
+	if clientConnection == nil {
+		return nil, fmt.Errorf("no client found handling shard %d", shardID)
+	}
 
-	// Start WebSocket server on the defined ListenPort
-	go startWebSocketServer(settings.ListenPort)
+	// Perform the query on the database
+	db := clientConnection.Db
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query on database for client %s: %v", clientDescription, err)
+	}
 
-	// Block forever (or handle gracefully shutting down the server if necessary)
-	select {}
+	return rows, nil
+}
+
+func userStateHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract UserID from URL
+	userID := r.URL.Path[len("/state/"):]
+
+	// Prepare the SQL query to get the most recent message for each unique MessageID based on the 'id' column, including 'timestamp'
+	query := fmt.Sprintf(`
+		SELECT packet, timestamp
+		FROM messages
+		WHERE packet->>'UserID' = '%s'
+		AND id IN (
+			SELECT MAX(id)
+			FROM messages
+			WHERE packet->>'UserID' = '%s'
+			GROUP BY packet->>'MessageID'
+		)
+		ORDER BY id DESC;
+	`, userID, userID)
+
+	// Call the QueryDatabaseForUser function
+	rows, err := QueryDatabaseForUser(userID, query)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	// Create a map to hold the merged results
+	mergedResults := make(map[string]interface{})
+
+	// Read the result and merge all packets into the mergedResults map
+	for rows.Next() {
+		var packet string
+		var timestamp string
+		if err := rows.Scan(&packet, &timestamp); err != nil {
+			http.Error(w, fmt.Sprintf("Error scanning result: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Unmarshal the packet into a map
+		var packetData map[string]interface{}
+		if err := json.Unmarshal([]byte(packet), &packetData); err != nil {
+			http.Error(w, fmt.Sprintf("Error unmarshalling packet data: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Ensure MessageID is treated as a string
+		messageID := ""
+		if id, ok := packetData["MessageID"].(string); ok {
+			messageID = id
+		} else if id, ok := packetData["MessageID"].(float64); ok {
+			// If it's a float64, convert it to string
+			messageID = fmt.Sprintf("%v", id)
+		}
+
+		// Remove the 'UserID' field from the packet data
+		delete(packetData, "UserID")
+
+		// Add the 'timestamp' to the packet data
+		packetData["timestamp"] = timestamp
+
+		// Merge the packet data into the mergedResults map
+		if _, exists := mergedResults[messageID]; !exists {
+			mergedResults[messageID] = make(map[string]interface{})
+		}
+
+		// Merge the data into the existing messageID entry
+		for key, value := range packetData {
+			mergedResults[messageID].(map[string]interface{})[key] = value
+		}
+	}
+
+	// Send the response as JSON
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(mergedResults); err != nil {
+		http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // Utility function to handle debug logging
@@ -123,22 +206,31 @@ func getClients(ingesterHost string, ingesterPort int, debug bool) ([]Client, er
 	}
 	defer resp.Body.Close()
 
-	var clients []Client
-	err = json.NewDecoder(resp.Body).Decode(&clients)
+	// Define a new struct to hold the response
+	type ClientResponse struct {
+		Clients        []Client `json:"clients"`
+		ConfiguredShards int     `json:"configured_shards"` // Store the configured_shards
+	}
+
+	var clientResponse ClientResponse
+	err = json.NewDecoder(resp.Body).Decode(&clientResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode client list: %v", err)
 	}
 
+	// Store the configured_shards value in the global streamShards variable
+	streamShards = clientResponse.ConfiguredShards
+
 	// Debug log for each client and its shards
 	if debug {
 		log.Println("[DEBUG] Clients found:")
-		for _, client := range clients {
+		for _, client := range clientResponse.Clients {
 			log.Printf("[DEBUG] Client %s handles shards %v", client.Description, client.Shards)
 		}
 	}
 
-	logWithDebug(debug, "Successfully fetched %d clients", len(clients))
-	return clients, nil
+	logWithDebug(debug, "Successfully fetched %d clients and total configured_shards: %d", len(clientResponse.Clients), streamShards)
+	return clientResponse.Clients, nil
 }
 
 // Handle changes in clients' configuration and database connections
@@ -238,42 +330,70 @@ func connectToDatabase(settings *ClientDatabaseSettings) (*sql.DB, error) {
 	return db, nil
 }
 
-// Start a WebSocket server for listening on the given port
-func startWebSocketServer(port int) {
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Upgrade the HTTP connection to a WebSocket connection
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			log.Printf("Error upgrading HTTP to WebSocket: %v", err)
-			return
-		}
-		defer conn.Close()
+// Start the HTTP server with both Socket.IO and static file serving
+func startHTTPServer(port int, mux *http.ServeMux) {
+	addr := fmt.Sprintf(":%d", port)
+	log.Printf("Starting HTTP server on %s", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		log.Fatalf("Error starting HTTP server: %v", err)
+	}
+}
 
-		log.Println("New WebSocket connection established.")
+// Set up the HTTP server with routes
+func setupServer(settings *Settings) {
+	// Create a new ServeMux
+	mux := http.NewServeMux()
 
-		// Handle incoming WebSocket messages
-		for {
-			messageType, p, err := conn.ReadMessage()
-			if err != nil {
-				log.Printf("Error reading message: %v", err)
-				break
-			}
+	// Define the /state/{UserID} route
+	mux.HandleFunc("/state/", userStateHandler)
 
-			// Log the received message
-			log.Printf("Received WebSocket message: %s", p)
+	// Set up Socket.IO handler
+	engineServer := types.CreateServer(nil)
+	ioServer = socket.NewServer(engineServer, nil)
+	mux.Handle("/socket.io/", engineServer)
 
-			// Optionally, you could send a response to the client
-			if err := conn.WriteMessage(messageType, []byte("Message received")); err != nil {
-				log.Printf("Error writing message: %v", err)
-				break
-			}
-		}
+	// Serve static files (e.g., index.html)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./index.html")
 	})
 
-	// Start the HTTP server to serve WebSocket connections
-	addr := fmt.Sprintf(":%d", port)
-	log.Printf("Starting WebSocket server on %s", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Error starting WebSocket server: %v", err)
+	// Start the HTTP server
+	go startHTTPServer(settings.ListenPort, mux)
+}
+
+func main() {
+	// Load configuration settings
+	settingsFile := "settings.json"
+	settings, err := loadSettings(settingsFile)
+	if err != nil {
+		log.Fatalf("Error loading settings: %v", err)
 	}
+
+	// Initialize map to track client database connections
+	clientConnections = make(map[string]*ClientConnection)
+
+	// Set up polling interval
+	pollInterval := time.Duration(settings.PollInterval) * time.Second
+	if pollInterval > 0 {
+		ticker := time.NewTicker(pollInterval)
+		defer ticker.Stop()
+
+		// Poll periodically to check for changes
+		go func() {
+			for {
+				<-ticker.C
+				logWithDebug(settings.Debug, "Polling clients at %v", time.Now())
+				handleClientChanges(settings.IngestHost, settings.IngestPort, settings.Debug)
+			}
+		}()
+	}
+
+	// Initial fetch and setup
+	handleClientChanges(settings.IngestHost, settings.IngestPort, settings.Debug)
+
+	// Set up the server with HTTP and Socket.IO routes
+	setupServer(settings)
+
+	// Block forever (or handle gracefully shutting down the server if necessary)
+	select {}
 }

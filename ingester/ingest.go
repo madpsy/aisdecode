@@ -431,10 +431,15 @@ func clientsHandler(w http.ResponseWriter, r *http.Request) {
 		c.mu.Unlock()
 	}
 
+	response := map[string]interface{}{
+	    "configured_shards": streamShards,
+	    "clients":            connectedClients,
+	}
+
 	// Set the response content type to JSON
 	w.Header().Set("Content-Type", "application/json")
 	// Return the connected clients as JSON
-	json.NewEncoder(w).Encode(connectedClients)
+	json.NewEncoder(w).Encode(response)
 }
 
 func cleanupDeduplicationState() {
@@ -1156,28 +1161,35 @@ func getShardsMissing() []int {
 	return missing
 }
 
-func getShardsMultiple() map[int][]string {
+func getShardsMultiple() map[int][]map[string]string {
 	clientsMu.Lock()
 	defer clientsMu.Unlock()
-	shardMap := make(map[int][]string)
+	shardMap := make(map[int][]map[string]string)
 
-	// Track shards used by clients
+	// Track shards used by clients (including IP:Port and description)
 	for _, c := range clients {
 		for _, s := range c.shards {
-			shardMap[s] = append(shardMap[s], c.ip)
+			clientAddr := fmt.Sprintf("%s:%d", c.ip, c.port)
+			shardMap[s] = append(shardMap[s], map[string]string{
+				"address":   clientAddr,
+				"description": c.description,
+			})
 		}
 	}
 
-	// Track shards used by UDP destinations (include host + port)
+	// Track shards used by UDP destinations (including host:Port and description)
 	for _, dest := range cfg.Destinations {
 		for _, s := range dest.Shards {
-			udpDest := fmt.Sprintf("%s:%d", dest.Host, dest.Port) // Include host + port
-			shardMap[s] = append(shardMap[s], udpDest)
+			udpDest := fmt.Sprintf("%s:%d", dest.Host, dest.Port)
+			shardMap[s] = append(shardMap[s], map[string]string{
+				"address":   udpDest,
+				"description": dest.Description,
+			})
 		}
 	}
 
 	// Filter out shards that have multiple sources (either clients or multiple UDP destinations)
-	multiple := make(map[int][]string)
+	multiple := make(map[int][]map[string]string)
 	for s, sources := range shardMap {
 		if len(sources) > 1 {
 			multiple[s] = sources
@@ -1185,6 +1197,7 @@ func getShardsMultiple() map[int][]string {
 	}
 	return multiple
 }
+
 
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := int64(math.Round(time.Since(startTime).Seconds()))

@@ -1,0 +1,7 @@
+{
+  "ingester_host": "localhost",
+  "ingester_port": 8080,
+  "listen_port": 5001,
+  "poll_interval": 5,
+  "debug": false
+}

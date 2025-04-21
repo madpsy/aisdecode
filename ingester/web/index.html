@@ -363,9 +363,13 @@ function renderBlockedIps(data) {
         tbody.innerHTML = '';
         (connectedClients || []).forEach(client => {
           const tr = document.createElement('tr');
+    
+          // Combine IP and Port as 'IP:port'
+          const ipWithPort = client.ip + ':' + (client.port || 'N/A'); // Assuming 'port' exists in the data
+
           tr.innerHTML = `
-	    <td>${client.description}</td>
-            <td>${client.ip}</td>
+            <td>${client.description}</td>
+            <td>${ipWithPort}</td>  <!-- Display IP and Port together -->
             <td>${(client.shards || []).join(', ')}</td>
             <td>${formatNumber(client.bytes_sent)}</td>
             <td>${formatNumber(client.messages_sent)}</td>
@@ -397,7 +401,13 @@ function renderBlockedIps(data) {
         Object.entries(shards_multiple).forEach(([shard, clients]) => {
           if (clients.length > 1) {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${shard}</td><td>${clients.join(', ')}</td>`;
+      
+            // Create a string that includes the address and the description in brackets
+            const clientsWithDescriptions = clients.map(client => {
+              return `${client.address} (${client.description})`;  // Include description in brackets after the address
+            }).join(', ');
+
+            tr.innerHTML = `<td>${shard}</td><td>${clientsWithDescriptions}</td>`;
             tbody.appendChild(tr);
           }
         });
@@ -613,7 +623,7 @@ function renderBlockedIps(data) {
       <thead>
         <tr>
 	  <th>Description</th>
-          <th>IP</th>
+          <th>IP & Port</th>
           <th>Shards</th>
           <th>Bytes Sent</th>
           <th>Msgs Sent</th>
