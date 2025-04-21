@@ -149,6 +149,7 @@ type StreamMessage struct {
 type handshakeReq struct {
 	Shards      []int  `json:"shards"`
 	Description string `json:"description"`
+	Port        int    `json:"port"`
 }
 
 // StreamClient holds a connected client's state and send-metrics
@@ -157,6 +158,7 @@ type StreamClient struct {
 	shards        []int
 	description   string
 	ip            string
+	port          int
 	mu            sync.Mutex
 	bytesSent     int64
 	messagesSent  int64
@@ -406,6 +408,33 @@ func cleanupMetrics() {
 			delete(totalSourceTotals, k)
 		}
 	}
+}
+
+func clientsHandler(w http.ResponseWriter, r *http.Request) {
+	// Lock the clients slice to ensure safe access
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+
+	// Prepare a response structure
+	connectedClients := []map[string]interface{}{}
+
+	// Loop through each client and extract their details
+	for _, c := range clients {
+		c.mu.Lock()
+		clientInfo := map[string]interface{}{
+			"ip":          c.ip,
+			"shards":      c.shards,
+			"description": c.description,
+			"port":        c.port,
+		}
+		connectedClients = append(connectedClients, clientInfo)
+		c.mu.Unlock()
+	}
+
+	// Set the response content type to JSON
+	w.Header().Set("Content-Type", "application/json")
+	// Return the connected clients as JSON
+	json.NewEncoder(w).Encode(connectedClients)
 }
 
 func cleanupDeduplicationState() {
@@ -660,6 +689,8 @@ func main() {
 	// Start periodic resets
 	go startMetricsReset()
 
+	http.HandleFunc("/clients", clientsHandler)
+
 	http.Handle("/", http.FileServer(http.Dir(webPath)))
 	http.HandleFunc("/metrics", metricsHandler)
 	http.HandleFunc("/settings", settingsHandler)
@@ -767,6 +798,9 @@ func handleStreamConn(conn net.Conn) {
 			return
 		}
 	}
+
+	port := req.Port
+
 	conn.SetReadDeadline(time.Time{})
 
 	client := &StreamClient{
@@ -774,6 +808,7 @@ func handleStreamConn(conn net.Conn) {
 		shards:        req.Shards,
 		description:   req.Description,
 		ip:            strings.Split(conn.RemoteAddr().String(), ":")[0],
+		port:          req.Port,
 		messageWindow: NewFixedWindowCounter(),
 		bytesWindow:   NewFixedWindowBytesCounter(),
 	}
@@ -781,7 +816,8 @@ func handleStreamConn(conn net.Conn) {
 	clientsMu.Lock()
 	clients = append(clients, client)
 	clientsMu.Unlock()
-	log.Printf("New stream client %s shards=%v description=%q", client.ip, client.shards, client.description)
+	log.Printf("New stream client connected from IP: %s, Shards: %v, Description: %q, Port: %d", 
+		strings.Split(conn.RemoteAddr().String(), ":")[0], req.Shards, req.Description, port)
 
 	go func() {
 		io.Copy(io.Discard, conn)
@@ -837,25 +873,37 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         hashedMsg := fnvHash(rawStr)
 
         // Decode the NMEA sentence
-        decoded, err := nmea.ParseSentence(rawStr)
-        if err != nil || decoded == nil || decoded.Packet == nil {
-            metricsMu.Lock()
-            totalFailures++
-            failureCounter.AddEvent()
-            failureSourceTotals[srcIP]++
-            if failureSourceCounters[srcIP] == nil {
-                failureSourceCounters[srcIP] = NewFixedWindowCounter()
-            }
-            failureSourceCounters[srcIP].AddEvent()
-            metricsMu.Unlock()
-            if debugFlag {
-                log.Printf("[DEBUG] decode failure: %v | raw: %s", err, pkt.raw)
-            }
-            pkt.raw = nil
-            pkt.sourceIP = ""
-            packetPool.Put(pkt)
-            continue
-        }
+	decoded, err := nmea.ParseSentence(rawStr)
+	if err != nil || decoded == nil || decoded.Packet == nil {
+	    // Skip logging if error is nil and decoded packet is nil
+	    if err == nil && decoded == nil {
+	        // Don't log 'decode failure: <nil>' when both err and decoded are nil
+	        pkt.raw = nil
+	        pkt.sourceIP = ""
+	        packetPool.Put(pkt)
+	        continue
+	    }
+
+	    // Log real errors and failures
+	    metricsMu.Lock()
+	    totalFailures++
+	    failureCounter.AddEvent()
+	    failureSourceTotals[srcIP]++
+	    if failureSourceCounters[srcIP] == nil {
+	        failureSourceCounters[srcIP] = NewFixedWindowCounter()
+	    }
+	    failureSourceCounters[srcIP].AddEvent()
+	    metricsMu.Unlock()
+	
+	    if debugFlag {
+	        log.Printf("[DEBUG] decode failure: %v | raw: %s", err, pkt.raw)
+	    }
+	
+	    pkt.raw = nil
+	    pkt.sourceIP = ""
+	    packetPool.Put(pkt)
+	    continue
+	}
 
         hdr := decoded.Packet.GetHeader()
         msgIDCache.RLock()
@@ -1034,8 +1082,19 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 
 	if mqttClient != nil && mqttClient.IsConnected() {
 	    topic := fmt.Sprintf("%s/%d/%s/%s/message", mqttTopic, shardID, userID, msgID)
-	    token := mqttClient.Publish(topic, 0, false, out)
-	    token.Wait()
+    
+	    // Before publishing to MQTT, remove SourceIP if it's included in the message
+	    messageForMQTT := make(map[string]interface{})
+	    json.Unmarshal(out, &messageForMQTT)
+	    delete(messageForMQTT, "source_ip") // Remove the source_ip field from the message
+    
+	    mqttOut, err := json.Marshal(messageForMQTT) // Re-encode without SourceIP
+	    if err != nil {
+	        log.Printf("Error removing SourceIP from MQTT message: %v", err)
+	    } else {
+	        token := mqttClient.Publish(topic, 0, false, mqttOut)
+	        token.Wait()
+	    }
 	}
 	out = append(out, 0)
         clientsMu.Lock()
@@ -1263,6 +1322,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		IP                string `json:"ip"`
 		Shards            []int  `json:"shards"`
 		Description       string `json:"description"`
+		Port              int    `json:"port"`
 		BytesSent         int64  `json:"bytes_sent"`
 		MessagesSent      int64  `json:"messages_sent"`
 		MessagesPerWindow int64  `json:"messages_per_window"`
@@ -1283,6 +1343,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 			IP:                c.ip,
 			Shards:            c.shards,
 			Description:       c.description,
+			Port:              c.port,
 			BytesSent:         c.bytesSent,
 			MessagesSent:      c.messagesSent,
 			MessagesPerWindow: c.messageWindow.Count(),

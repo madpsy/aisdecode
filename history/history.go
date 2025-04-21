@@ -13,8 +13,6 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"github.com/zishang520/engine.io/v2/types"
-	"github.com/zishang520/socket.io/v2/socket"
 )
 
 var buffer []byte
@@ -31,14 +29,17 @@ type Settings struct {
 	ListenPort  int      `json:"listen_port"`
 	Description string   `json:"description"`
 	Shards      []int    `json:"shards"`
-	Debug       bool     `json:"debug"` // New debug setting
+	Debug       bool     `json:"debug"`
 }
+
+var settings *Settings
 
 // Message structure for incoming data from the ingester
 type Message struct {
 	Packet    json.RawMessage `json:"message"`  // Store the entire message object for processing
 	ShardID   int             `json:"shard_id"`
 	Timestamp string          `json:"timestamp"`
+	SourceIP  string          `json:"source_ip"`
 }
 
 func main() {
@@ -50,7 +51,8 @@ func main() {
 	flag.Parse()
 
 	// Read the settings file
-	settings, err := readSettings(*configPath)
+	var err error
+	settings, err = readSettings(*configPath) // Assign directly to global settings variable
 	if err != nil {
 		log.Fatal("Error reading settings: ", err)
 	}
@@ -59,6 +61,9 @@ func main() {
 	if settings.Debug {
 		log.Printf("Debug mode enabled")
 	}
+
+	// Start the HTTP server in a goroutine
+	go startHTTPServer()
 
 	// Connect to the ingester (outgoing TCP connection)
 	ingesterConn, err := connectToIngester(settings.IngestHost, settings.IngestPort, settings.Debug)
@@ -71,6 +76,7 @@ func main() {
 	requestData := map[string]interface{}{
 		"shards":     settings.Shards,
 		"description": settings.Description,
+		"port":        settings.ListenPort,
 	}
 	requestJSON, err := json.Marshal(requestData)
 	if err != nil {
@@ -106,7 +112,8 @@ func main() {
 			id SERIAL PRIMARY KEY,
 			packet JSONB,
 			shard_id INT,
-			timestamp TIMESTAMP
+			timestamp TIMESTAMP,
+			source_ip VARCHAR(45)
 		);
 	`)
 	if err != nil {
@@ -119,55 +126,6 @@ func main() {
 	// Start reading messages from the ingester
 	go handleIngesterMessages(settings, ingesterConn, requestJSON, settings.Debug, db)
 
-	// Create an Engine.IO server and a Socket.IO server on top of it
-	engineServer := types.CreateServer(nil)
-	ioServer := socket.NewServer(engineServer, nil)
-
-	// Handle Socket.IO client connections
-	ioServer.On("connection", func(args ...interface{}) {
-		client := args[0].(*socket.Socket)
-		log.Printf("New Socket.IO client connected: %s", client.Id())
-
-		// Handle the incoming messages from the client (HTTP-based)
-		client.On("message", func(args ...interface{}) {
-			// Handle the HTTP-based message (JSON)
-			data, ok := args[0].(map[string]interface{})
-			if !ok {
-				log.Println("Received data is not in expected format")
-				return
-			}
-
-			if settings.Debug {
-				messageJSON, err := json.Marshal(data)
-				if err == nil {
-					log.Printf("Received message from HTTP client: %s", string(messageJSON))
-				} else {
-					log.Printf("Error marshaling received message: %v", err)
-				}
-			}
-
-			// Further processing or action based on this HTTP message
-			// e.g., store data in DB or send a response
-		})
-
-		// Handle disconnection event
-		client.On("disconnect", func(args ...interface{}) {
-			log.Printf("Socket.IO client disconnected: %s", client.Id())
-		})
-	})
-
-	// Set up HTTP server for Socket.IO and static files
-	mux := http.NewServeMux()
-	mux.Handle("/socket.io/", engineServer)
-
-	// Listen on the provided HTTP port (5000 for Socket.IO)
-	httpAddr := fmt.Sprintf(":%d", 5000)
-	go func() {
-		log.Printf("Serving Socket.IO on http://%s", httpAddr)
-		if err := http.ListenAndServe(httpAddr, mux); err != nil {
-			log.Fatalf("HTTP server failed: %v", err)
-		}
-	}()
 
 	// Block until a termination signal is received
 	select {}
@@ -189,7 +147,7 @@ func readSettings(path string) (*Settings, error) {
 	return &settings, nil
 }
 
-func storeMessage(db *sql.DB, message Message) error {
+func storeMessage(db *sql.DB, message Message, settings *Settings) error {
     // Unmarshal the outer "message" to extract the inner "packet" object
     var outerMap map[string]interface{}
     err := json.Unmarshal(message.Packet, &outerMap)
@@ -205,6 +163,9 @@ func storeMessage(db *sql.DB, message Message) error {
         return fmt.Errorf("Packet field is missing")
     }
 
+    // Extract the source_ip directly from the message struct (it is outside of the "message" object)
+    sourceIP := message.SourceIP
+
     // Marshal the extracted packet data into JSON format to store it in the database
     packetJSON, err := json.Marshal(packetData)
     if err != nil {
@@ -212,20 +173,67 @@ func storeMessage(db *sql.DB, message Message) error {
         return err
     }
 
-    // Insert only the "packet" contents into the database
-    stmt := `INSERT INTO messages (packet, shard_id, timestamp) 
-             VALUES ($1, $2, $3)`
-
-    // Execute the query with the extracted packet JSON, shard_id, and timestamp
-    _, err = db.Exec(stmt, packetJSON, message.ShardID, message.Timestamp)
+    // Retry mechanism for database connection
+    err = tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, sourceIP, settings)
     if err != nil {
-        log.Printf("Error executing query: %v", err)
-        return err
+        log.Printf("Error storing message: %v", err)
     }
 
+    return err
+}
+
+
+func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, settings *Settings) error {
+    // Try to insert the message into the database
+    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip) 
+             VALUES ($1, $2, $3, $4)`
+
+    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP)
+    if err != nil {
+        log.Printf("Error executing query: %v", err)
+        // If the error is due to the database connection being lost, attempt to reconnect
+        if isDatabaseConnectionError(err) {
+            log.Println("Attempting to reconnect to the PostgreSQL database...")
+            db, err = reconnectToDatabase(settings) // Pass settings to reconnectToDatabase
+            if err != nil {
+                log.Printf("Failed to reconnect to the database: %v", err)
+                return err
+            }
+
+            // Try inserting the message again after reconnecting
+            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP)
+            if err != nil {
+                log.Printf("Error executing query after reconnecting: %v", err)
+                return err
+            }
+        }
+    }
     return nil
 }
 
+func isDatabaseConnectionError(err error) bool {
+    // You could improve this function by checking the error type, for now just checking for a generic error.
+    return err != nil && err.Error() == "pq: connection to server lost"
+}
+
+func reconnectToDatabase(settings *Settings) (*sql.DB, error) {
+    connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+        settings.DbHost, settings.DbPort, settings.DbUser, settings.DbPass, settings.DbName)
+    
+    db, err := sql.Open("postgres", connStr)
+    if err != nil {
+        return nil, err
+    }
+
+    // Check if the connection is alive
+    err = db.Ping()
+    if err != nil {
+        return nil, err
+    }
+
+    log.Println("Successfully reconnected to the PostgreSQL database.")
+    return db, nil
+}
 
 // Connect to the ingester (outgoing TCP connection to the ingester)
 func connectToIngester(host string, port int, debug bool) (net.Conn, error) {
@@ -291,7 +299,7 @@ func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byt
             buffer = buffer[idx+1:] // Remove the processed message from the buffer
 
             // Now process the complete message
-            err := processMessage(message, db)
+            err := processMessage(message, db, settings) // Pass settings here
             if err != nil {
                 // Log only the failed message with the error
                 log.Printf("Failed to unmarshal message: %v, Raw Message: %s", err, string(message))
@@ -300,7 +308,7 @@ func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byt
     }
 }
 
-func processMessage(message []byte, db *sql.DB) error {
+func processMessage(message []byte, db *sql.DB, settings *Settings) error {
     var msg Message
 
     // Try unmarshalling the message into the Message struct
@@ -311,7 +319,7 @@ func processMessage(message []byte, db *sql.DB) error {
     }
 
     // Store the message in the database
-    err = storeMessage(db, msg)
+    err = storeMessage(db, msg, settings) // Pass settings here
     if err != nil {
         log.Printf("Error storing message: %v", err)
     }
@@ -348,4 +356,37 @@ func createIndexesIfNotExist(db *sql.DB) {
     if err != nil {
         log.Printf("Error creating index for shard_id: %v", err)
     }
+
+    // Create an index for the source_ip field
+    _, err = db.Exec(`
+        CREATE INDEX IF NOT EXISTS idx_source_ip ON messages (source_ip);
+    `)
+    if err != nil {
+        log.Printf("Error creating index for source_ip: %v", err)
+    }
+}
+
+func startHTTPServer() {
+	if settings == nil {
+		log.Fatal("Settings are not initialized.")
+		return
+	}
+
+	http.HandleFunc("/settings", getSettingsHandler)
+
+	// Start the server
+	address := fmt.Sprintf(":%d", settings.ListenPort)
+	log.Printf("Starting HTTP server on port %d...\n", settings.ListenPort)
+	if err := http.ListenAndServe(address, nil); err != nil {
+		log.Fatalf("Error starting HTTP server: %v\n", err)
+	}
+}
+
+// HTTP handler that returns the contents of settings.json
+func getSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(settings)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error encoding settings: %v", err), http.StatusInternalServerError)
+	}
 }

@@ -3291,7 +3291,7 @@ func main() {
 	defer udpListener.Close()
 
 	go func() {
-	    buf := make([]byte, 1024)
+	    buf := make([]byte, 2048)
   	    for {
 		n, addr, err := udpListener.ReadFrom(buf)
 		if err != nil {
