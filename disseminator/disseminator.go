@@ -14,8 +14,8 @@ import (
 )
 
 type Settings struct {
-	IngestHost  string `json:"ingester_host"`  // Updated to match the key in settings.json
-	IngestPort  int    `json:"ingester_port"`  // Updated to match the key in settings.json
+	IngestHost  string `json:"ingester_host"` 
+	IngestPort  int    `json:"ingester_port"` 
 	ListenPort  int    `json:"listen_port"`
 	Debug       bool   `json:"debug"`
 	PollInterval int   `json:"poll_interval"`
