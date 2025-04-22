@@ -146,12 +146,12 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 
 func summaryHandler(w http.ResponseWriter, r *http.Request) {
     // Extract lat, lon, and radius from query parameters
-    latStr := r.URL.Query().Get("lat")
-    lonStr := r.URL.Query().Get("lon")
+    latStr := r.URL.Query().Get("latitude")
+    lonStr := r.URL.Query().Get("longitude")
     radiusStr := r.URL.Query().Get("radius")
     
     // Extract 'limit' query parameter and parse it (default to 500)
-    limitStr := r.URL.Query().Get("limit")
+    limitStr := r.URL.Query().Get("maxResults")
     limit := 500 // Default limit
     if limitStr != "" {
         parsedLimit, err := strconv.Atoi(limitStr)
@@ -168,7 +168,7 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Extract 'maxage' query parameter and parse it (default to 24 hours)
-    maxAgeStr := r.URL.Query().Get("maxage")
+    maxAgeStr := r.URL.Query().Get("maxAge")
     maxAge := 24 // Default maxage in hours
     if maxAgeStr != "" {
         parsedMaxAge, err := strconv.Atoi(maxAgeStr)
@@ -181,6 +181,18 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
             maxAge = 720
         } else {
             maxAge = parsedMaxAge
+        }
+    }
+
+    // Extract 'minSpeed' query parameter and parse it (optional)
+    minSpeedStr := r.URL.Query().Get("minSpeed")
+    var minSpeed float64
+    if minSpeedStr != "" {
+        var err error
+        minSpeed, err = strconv.ParseFloat(minSpeedStr, 64)
+        if err != nil || minSpeed < 0 {
+            http.Error(w, "Invalid minSpeed value", http.StatusBadRequest)
+            return
         }
     }
 
@@ -254,6 +266,20 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
             WHERE timestamp >= '%s'
         `, currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
         whereAdded = true
+    }
+
+    // If 'minSpeed' is specified, add the filter condition for Speed Over Ground
+    if minSpeedStr != "" {
+        if whereAdded {
+            query += fmt.Sprintf(`
+                AND (packet->>'Sog')::float >= %f
+            `, minSpeed)
+        } else {
+            query += fmt.Sprintf(`
+                WHERE (packet->>'Sog')::float >= %f
+            `, minSpeed)
+            whereAdded = true
+        }
     }
 
     // Add ORDER BY timestamp before LIMIT to ensure correct syntax
@@ -350,8 +376,6 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
     }
 }
-
-
 
 
 // Helper function to safely get a string value from packetData (returns empty string if not found)
@@ -646,7 +670,7 @@ func setupServer(settings *Settings) {
 
 	// Serve static files (e.g., index.html)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./index.html")
+		http.FileServer(http.Dir("web")).ServeHTTP(w, r)
 	})
 
 	// Start the HTTP server

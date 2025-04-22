@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vessel Stats</title>
+    <!-- Chart.js from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Include a date adapter for Chart.js (using date-fns) -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+    <!-- Socket.IO client (assumes the same server is serving it) -->
+    <script src="/socket.io.min.js"></script>
+    <style>
+        body {
+          font-family: Arial, sans-serif;
+          margin: 20px;
+        }
+        /* Vessel info container */
+        #vessel-info {
+          text-align: center;
+          margin-bottom: 20px;
+          line-height: 1.5;
+        }
+        /* Vessel name styling: bold */
+        #vessel-name {
+          font-weight: bold;
+          font-size: 24px;
+        }
+        /* Container for time period dropdown and reset button */
+        #time-period-container {
+          margin-top: 10px;
+          text-align: center;
+        }
+        #reset-button {
+          background-color: yellow;
+          border: none;
+          padding: 5px 10px;
+          margin-left: 10px;
+          cursor: pointer;
+        }
+        /* Chart container styles (allowing full width) */
+        #chart-container, #direction-chart-container {
+          width: 100%;
+          margin: 0 auto 40px;
+        }
+        /* Compass container for side by side compasses */
+        #compass-container {
+          display: flex;
+          justify-content: space-around;
+          align-items: center;
+          margin-bottom: 20px;
+        }
+        #compass-container > div {
+          width: 45%;
+        }
+        /* Current speed display styling */
+        #current-speed-display {
+          text-align: center;
+          font-size: 20px;
+          margin-bottom: 20px;
+          font-weight: bold;
+        }
+        /* Latitude and Longitude display styling (smaller and no comma) */
+        #lat-long-display {
+          text-align: center;
+          font-size: 14px;
+          margin-bottom: 10px;
+          font-weight: bold;
+        }
+	#radarFrame {
+	  overflow: hidden;
+	}
+    </style>
+</head>
+
+<body>
+    <!-- Vessel Details -->
+    <div id="vessel-info">
+        <div id="vessel-name">Loading vessel data...</div>
+        <!-- Combined Connection and Accuracy Status -->
+        <div id="connection-status">
+            Connected:
+            <span id="server-connected-dot" title="Server Connected" style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:5px;"></span> &nbsp;&nbsp; Accuracy:
+            <span id="position-accuracy-dot" title="Position Accuracy" style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:5px;"></span>
+        </div>
+        <div id="status-container">
+            Nav Status: <span id="navigational-status">Loading...</span>
+            <br> Max Draught: <span id="max-draught">Loading...</span>
+            <br> Last Position: <span id="last-message-time">Loading...</span>
+	    <br> Unique Positions: <span id="unique-positions">Loading...</span>
+        </div>
+        <div id="time-period-container">
+            Time Period:
+            <select id="time-period">
+        <option value="1">10 minutes</option>
+        <option value="1" selected>30 minutes</option>
+        <option value="1">1 hour</option>
+        <option value="3">3 hours</option>
+        <option value="6">6 hours</option>
+        <option value="12">12 hours</option>
+        <option value="24">24 hours</option>
+      </select>
+            <button id="reset-button">Reset</button>
+        </div>
+    </div>
+
+    <!-- Current Speed Display -->
+    <div id="current-speed-display">0.00 kn</div>
+
+    <div id="radar-container" style="margin-bottom:0px;">
+      <iframe id="radarFrame" src="" frameborder="0" style="width:100%; height:300px;" scrolling="no"></iframe>
+    </div>
+
+    <!-- Latitude and Longitude Display -->
+    <div id="lat-long-display">--, --</div>
+
+    <!-- Compass Charts for True Heading and Course Over Ground -->
+    <div id="compass-container">
+        <div>
+            <canvas id="trueHeadingCompass"></canvas>
+            <div style="text-align: center; font-weight: bold;" id="trueHeadingLabel">Heading</div>
+        </div>
+        <div>
+            <canvas id="cogCompass"></canvas>
+            <div style="text-align: center; font-weight: bold;" id="cogLabel">Course</div>
+        </div>
+    </div>
+
+    <!-- Speed on Ground Chart (moved below the compasses) -->
+    <div id="chart-container">
+        <canvas id="sogChart"></canvas>
+    </div>
+
+    <!-- Previous Direction Chart (line chart) -->
+    <div id="direction-chart-container">
+        <canvas id="directionChart"></canvas>
+    </div>
+
+    <script>
+        // --- Global arrays to store history of data points ---
+        let allSogData = [];
+        let allDirectionData = [];
+        let lastCog = null;
+        let lastSog = null;
+        let lastTrueHeading = null;
+        let lastMessageTimestamp = Date.now();
+        let messageTimestamps = [];
+        
+        // Mapping for NavigationalStatus
+        const navigationalStatusMapping = {
+          0: "Using Engine",
+          1: "At Anchor",
+          2: "Not Under Command",
+          3: "Restricted Manoeuvrability",
+          4: "Constrained by Draft",
+          5: "Moored",
+          6: "Aground",
+          7: "Engaged in Fishing",
+          8: "Under Way Sailing",
+          15: "Not Defined"
+        };
+
+	Chart.register(ChartZoom);
+	Chart.defaults.elements.point.radius = 1;
+    
+        // --- Helper: Update the Position Accuracy Dot ---
+        function updatePositionAccuracyDot(isAccurate) {
+          const dot = document.getElementById('position-accuracy-dot');
+          if (dot) {
+            dot.style.backgroundColor = isAccurate ? 'green' : 'red';
+          }
+        }
+
+	function computeCircularDifference(trueHeading, cog) {
+	  // Check for a valid trueHeading
+	  if (trueHeading === null || trueHeading === undefined || isNaN(trueHeading)) {
+	    return null; // or return cog, or 0, based on your needs
+	  }
+	  let diff = cog - trueHeading;
+	  // Normalize to the range [-180, 180]
+	  diff = ((diff + 180) % 360) - 180;
+	  // Return the minimal angle as a positive value
+	  return Math.abs(diff);
+	}
+        
+        // --- Helper: Update the Server Connected Dot ---
+        function updateServerConnectedDot(isConnected) {
+          const dot = document.getElementById('server-connected-dot');
+          if (dot) {
+            dot.style.backgroundColor = isConnected ? 'green' : 'red';
+          }
+        }
+    
+        // --- Helper: Update Navigational Status ---
+        function updateNavigationalStatus(statusValue) {
+          let statusText;
+          if (statusValue === null || statusValue === undefined || statusValue === '') {
+            statusText = "N/A";
+          } else {
+            statusText = navigationalStatusMapping[statusValue] || statusValue;
+          }
+          const statusElem = document.getElementById('navigational-status');
+          if (statusElem) {
+            statusElem.textContent = statusText;
+          }
+        }
+    
+        // --- Helper: Filter and update chart data based on selected time period ---
+	function filterChartData() {
+  const periodSelect = document.getElementById('time-period');
+  const selectedValue = periodSelect.value;
+  const selectedText = periodSelect.options[periodSelect.selectedIndex].text;
+  let periodMs = 0;
+
+  if (selectedText === "All") {
+    periodMs = Infinity;
+  } else if (selectedText.indexOf("minute") !== -1) {
+    const minutes = parseFloat(selectedText);
+    periodMs = minutes * 60 * 1000;
+  } else if (selectedText.indexOf("hour") !== -1) {
+    const hours = parseFloat(selectedText);
+    periodMs = hours * 60 * 60 * 1000;
+  } else {
+    periodMs = 60 * 60 * 1000;
+  }
+
+  const threshold = Date.now() - periodMs;
+  
+  // Filter SOG data
+  const filteredSogData = (periodMs === Infinity)
+    ? allSogData
+    : allSogData.filter(item => item.timestamp >= threshold);
+
+  // Update the main speed dataset
+  sogChart.data.labels = filteredSogData.map(item => new Date(item.timestamp));
+  sogChart.data.datasets[0].data = filteredSogData.map(item => item.sog);
+
+  // If there is data, calculate statistics and create constant-line arrays
+ if (filteredSogData.length > 0) {
+  const speeds = filteredSogData.map(item => item.sog);
+  const maxSpeed = parseFloat(Math.max(...speeds).toFixed(1));
+  const minSpeed = parseFloat(Math.min(...speeds).toFixed(1));
+  const avgSpeed = parseFloat((speeds.reduce((sum, val) => sum + val, 0) / speeds.length).toFixed(1));
+  
+  // Build constant arrays matching the number of labels
+  const maxArray = sogChart.data.labels.map(() => maxSpeed);
+  const minArray = sogChart.data.labels.map(() => minSpeed);
+  const avgArray = sogChart.data.labels.map(() => avgSpeed);
+  
+  // If extra datasets haven't been added yet, add them
+  if (sogChart.data.datasets.length < 4) {
+    sogChart.data.datasets.push({
+      label: 'Max',
+      data: maxArray,
+      borderColor: 'red',
+      borderDash: [5, 5],
+      fill: false,
+      pointRadius: 0,
+      tension: 0
+    });
+    sogChart.data.datasets.push({
+      label: 'Min',
+      data: minArray,
+      borderColor: 'green',
+      borderDash: [5, 5],
+      fill: false,
+      pointRadius: 0,
+      tension: 0
+    });
+    sogChart.data.datasets.push({
+      label: 'Average',
+      data: avgArray,
+      borderColor: 'orange',
+      borderDash: [5, 5],
+      fill: false,
+      pointRadius: 0,
+      tension: 0
+    });
+  } else {
+    // Otherwise, update the existing datasets
+    sogChart.data.datasets[1].data = maxArray;
+    sogChart.data.datasets[2].data = minArray;
+    sogChart.data.datasets[3].data = avgArray;
+  }
+} else {
+    // If no data is available, clear the extra datasets if they exist.
+    if (sogChart.data.datasets.length >= 4) {
+      sogChart.data.datasets[1].data = [];
+      sogChart.data.datasets[2].data = [];
+      sogChart.data.datasets[3].data = [];
+    }
+  }
+
+  sogChart.update();
+
+  // Update Direction chart as before.
+const filteredDirectionData = (periodMs === Infinity)
+  ? allDirectionData
+  : allDirectionData.filter(item => item.timestamp >= threshold);
+directionChart.data.labels = filteredDirectionData.map(item => new Date(item.timestamp));
+directionChart.data.datasets[0].data = filteredDirectionData.map(item => item.trueHeading);
+directionChart.data.datasets[1].data = filteredDirectionData.map(item => item.cog);
+
+// NEW: Calculate the difference between COG and True Heading.
+directionChart.data.datasets[2].data = filteredDirectionData.map(item => {
+  return computeCircularDifference(item.trueHeading, item.cog);
+});
+directionChart.update();
+
+  document.getElementById('unique-positions').textContent = filteredSogData.length;
+}
+
+
+        // --- Event listener for time period changes ---
+        document.getElementById('time-period').addEventListener('change', () => {
+          loadHistoryData(); // re-fetch history when the period changes
+        });
+    
+        // --- Helper: Format time difference ---
+        function formatTimeDifference(diffMs) {
+          const diffSec = Math.floor(diffMs / 1000);
+          if (diffSec < 60) {
+            return diffSec + " seconds";
+          } else if (diffSec < 3600) {
+            const diffMin = Math.floor(diffSec / 60);
+            return diffMin + " minutes";
+          } else {
+            const diffHrs = Math.floor(diffSec / 3600);
+            return diffHrs + " hours";
+          }
+        }
+    
+        // Update "Last Message" display every second.
+        setInterval(() => {
+          const now = Date.now();
+          const diffMs = now - lastMessageTimestamp;
+          const formattedTime = formatTimeDifference(diffMs);
+          const messagesLastMinute = messageTimestamps.filter(ts => now - ts <= 60000).length;
+          document.getElementById('last-message-time').textContent =
+            formattedTime + " (" + messagesLastMinute + " per min)";
+        }, 1000);
+    
+        // --- 1. Parse Query Parameters ---
+        function getQueryParams() {
+          const params = {};
+          window.location.search.substring(1).split("&").forEach(pair => {
+            const [key, value] = pair.split("=");
+            if (key) params[decodeURIComponent(key)] = decodeURIComponent(value || '');
+          });
+          return params;
+        }
+        const params = getQueryParams();
+        const userID = params.UserID;
+	document.getElementById('radarFrame').src = "/radar.html?UserID=" + userID;
+        if (!userID) {
+          document.body.innerHTML = "<p>Error: No UserID provided in the URL.</p>";
+          throw new Error("No UserID provided in the URL.");
+        }
+    
+        // --- 2. Set Up the Speed on Ground Chart ---
+        const ctxSog = document.getElementById('sogChart').getContext('2d');
+        const sogData = {
+          labels: [],
+          datasets: [{
+            label: 'Current Speed',
+            data: [],
+            fill: false,
+            borderColor: 'blue',
+            tension: 0.1
+          }]
+        };
+const sogChart = new Chart(ctxSog, {
+  type: 'line',
+  data: sogData,
+  options: {
+    responsive: true,
+    animation: { duration: 0 },
+    scales: {
+      x: {
+        type: 'time',
+        time: {
+          unit: 'second',
+          tooltipFormat: 'HH:mm:ss',
+          displayFormats: { second: 'HH:mm:ss' }
+        }
+      },
+      y: {
+        title: { display: true, text: 'Speed (kn)' }
+      }
+    },
+    plugins: {
+      zoom: {
+	        pan: { enabled: true, mode: 'x' },
+        zoom: {
+          wheel: { enabled: true },
+          drag: { enabled: true, backgroundColor: 'rgba(54, 162, 235, 0.3)' },
+          pinch: { enabled: true },
+          mode: 'x',
+          doubleClickReset: true
+       }
+      }
+    }
+  }
+});
+
+        
+        function addSogDataPoint(timestamp, sogValue) {
+          const currentSogNum = Number(parseFloat(sogValue).toFixed(1));
+          let arrowHtml = '';
+          if (allSogData.length > 0) {
+            const previousSogNum = Number(parseFloat(allSogData[allSogData.length - 1].sog).toFixed(1));
+            if (currentSogNum > previousSogNum) {
+              arrowHtml = ' <span style="color: green;">&#9650;</span>';
+            } else if (currentSogNum < previousSogNum) {
+              arrowHtml = ' <span style="color: red;">&#9660;</span>';
+            } else {
+              arrowHtml = ' <span style="background-color: blue; display:inline-block; width:10px; height:10px; border-radius:50%;"></span>';
+            }
+          } else {
+            arrowHtml = ' <span style="background-color: blue; display:inline-block; width:10px; height:10px; border-radius:50%;"></span>';
+          }
+          allSogData.push({ timestamp: timestamp, sog: currentSogNum });
+          document.getElementById('current-speed-display').innerHTML = "" + currentSogNum.toFixed(1) + " kn" + arrowHtml;
+          filterChartData();
+        }
+        
+        // --- 3. Compass Plugin: Draw cardinal directions and red arrow ---
+        const compassPlugin = {
+          id: 'compassPlugin',
+          afterDraw: (chart) => {
+            const ctx = chart.ctx;
+            const chartArea = chart.chartArea;
+            const centerX = chartArea.left + (chartArea.right - chartArea.left) / 2;
+            const centerY = chartArea.top + (chartArea.bottom - chartArea.top) / 2;
+            const radius = Math.min(chartArea.width, chartArea.height) / 2;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius - 10, 0, 2 * Math.PI);
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+            ctx.save();
+            ctx.font = "14px Arial";
+            ctx.fillStyle = "black";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("N", centerX, centerY - radius + 20);
+            ctx.fillText("E", centerX + radius - 20, centerY);
+            ctx.fillText("S", centerX, centerY + radius - 20);
+            ctx.fillText("W", centerX - radius + 20, centerY);
+            ctx.restore();
+            if (chart.currentDirection !== undefined) {
+              const angle = chart.currentDirection * Math.PI / 180;
+              ctx.save();
+              ctx.translate(centerX, centerY);
+              ctx.rotate(angle);
+              ctx.beginPath();
+              ctx.moveTo(0, 0);
+              ctx.lineTo(0, -radius + 30);
+              ctx.strokeStyle = "red";
+              ctx.lineWidth = 3;
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.moveTo(0, -radius + 30);
+              ctx.lineTo(-5, -radius + 40);
+              ctx.lineTo(5, -radius + 40);
+              ctx.closePath();
+              ctx.fillStyle = "red";
+              ctx.fill();
+              ctx.restore();
+            }
+          }
+        };
+        
+        // --- 4. Set Up the Compass Charts ---
+        const ctxTrueHeading = document.getElementById('trueHeadingCompass').getContext('2d');
+        const trueHeadingCompass = new Chart(ctxTrueHeading, {
+          type: 'doughnut',
+          data: {
+            labels: [],
+            datasets: [{
+              data: [1],
+              backgroundColor: ['transparent'],
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            rotation: 0,
+            circumference: 2 * Math.PI,
+            cutout: '80%',
+            plugins: {
+              legend: { display: false },
+              tooltip: { enabled: false },
+              title: { display: false }
+            }
+          },
+          plugins: [compassPlugin]
+        });
+        
+        const ctxCog = document.getElementById('cogCompass').getContext('2d');
+        const cogCompass = new Chart(ctxCog, {
+          type: 'doughnut',
+          data: {
+            labels: [],
+            datasets: [{
+              data: [1],
+              backgroundColor: ['transparent'],
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            rotation: 0,
+            circumference: 2 * Math.PI,
+            cutout: '80%',
+            plugins: {
+              legend: { display: false },
+              tooltip: { enabled: false },
+              title: { display: false }
+            }
+          },
+          plugins: [compassPlugin]
+        });
+        
+        function updateCompassCharts(trueHeading, cog) {
+          trueHeading = Math.round(trueHeading);
+          cog = Math.round(cog);
+          trueHeadingCompass.currentDirection = trueHeading;
+          document.getElementById('trueHeadingLabel').textContent = "Heading: " + trueHeading + "°";
+          trueHeadingCompass.update();
+          cogCompass.currentDirection = cog;
+          document.getElementById('cogLabel').textContent = "Course: " + cog + "°";
+          cogCompass.update();
+        }
+
+const directionData = {
+  labels: [],
+  datasets: [
+    {
+      label: 'Heading (°)',
+      data: [],
+      fill: false,
+      borderColor: 'red',
+      tension: 0.1
+    },
+    {
+      label: 'Course (°)',
+      data: [],
+      fill: false,
+      borderColor: 'green',
+      tension: 0.1
+    },
+    {
+      label: 'Crab Angle (°)',
+      data: [],
+      fill: false,
+      borderColor: 'blue',
+      tension: 0.1
+    }
+  ]
+};
+
+
+        // --- 5. Set Up the Direction (Line) Chart ---
+        const ctxDirection = document.getElementById('directionChart').getContext('2d');
+const directionChart = new Chart(ctxDirection, {
+  type: 'line',
+  data: directionData,
+  options: {
+    responsive: true,
+    animation: { duration: 0 },
+    scales: {
+      x: {
+        type: 'time',
+        time: {
+          unit: 'second',
+          tooltipFormat: 'HH:mm:ss',
+          displayFormats: { second: 'HH:mm:ss' }
+        }
+      },
+      y: {
+        min: 0,
+        max: 360,
+        title: { display: true, text: 'Degrees' }
+      }
+    },
+    plugins: {
+      zoom: {
+	        pan: { enabled: true, mode: 'x' },
+        zoom: {
+          wheel: { enabled: true },
+          drag: { enabled: true, backgroundColor: 'rgba(54, 162, 235, 0.3)' },
+          pinch: { enabled: true },
+          mode: 'x',
+          doubleClickReset: true
+       }
+      }
+    }
+  }
+});
+
+document.getElementById('sogChart').addEventListener('dblclick', () => {
+  sogChart.resetZoom();
+});
+
+document.getElementById('directionChart').addEventListener('dblclick', () => {
+  directionChart.resetZoom();
+});
+
+	function adjustIframeHeight() {
+	  const iframe = document.getElementById('radarFrame');
+	  iframe.style.height = (window.innerHeight * 0.6) + 'px';
+	}
+        
+        function addDirectionDataPoint(timestamp, trueHeading, cog) {
+          allDirectionData.push({ timestamp: timestamp, trueHeading: trueHeading, cog: cog });
+          filterChartData();
+        }
+        
+        // --- Helper: Update Latitude and Longitude Display ---
+        function updateLatLongDisplay(lat, lon) {
+          const latText = typeof lat === 'number' ? lat.toFixed(5) : lat;
+          const lonText = typeof lon === 'number' ? lon.toFixed(5) : lon;
+          document.getElementById('lat-long-display').textContent = latText + ", " + lonText;
+        }
+        
+        // --- 6. Load Initial State from /state/<UserID> ---
+        function loadInitialState() {
+          fetch('/state/' + userID)
+            .then(response => response.json())
+            .then(vesselState => {
+              if (vesselState && vesselState.Name) {
+                document.getElementById('vessel-name').innerHTML =
+    		    `<a href="/?UserID=${userID}" target="_blank">${vesselState.Name} (${vesselState.CallSign})</a>`;
+                updatePositionAccuracyDot(vesselState.PositionAccuracy);
+                updateNavigationalStatus(vesselState.NavigationalStatus);
+                if (vesselState.Sog !== undefined) {
+                  const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+		  lastMessageTimestamp = ts;
+                  addSogDataPoint(ts, vesselState.Sog);
+                } else {
+		  lastMessageTimestamp = Date.now();
+                  addSogDataPoint(Date.now(), 0);
+                }
+                if (vesselState.Cog !== undefined && vesselState.TrueHeading !== undefined) {
+                  const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+                  addDirectionDataPoint(ts, vesselState.TrueHeading, vesselState.Cog);
+                  updateCompassCharts(vesselState.TrueHeading, vesselState.Cog);
+                } else if (vesselState.Cog !== undefined) {
+                  const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+                  addDirectionDataPoint(ts, 0, vesselState.Cog);
+                  updateCompassCharts(0, vesselState.Cog);
+                } else {
+                  const ts = vesselState.LastUpdated ? new Date(vesselState.LastUpdated).getTime() : Date.now();
+                  addDirectionDataPoint(ts, 0, 0);
+                  updateCompassCharts(0, 0);
+                }
+                if (vesselState.Latitude !== undefined && vesselState.Longitude !== undefined) {
+                  updateLatLongDisplay(vesselState.Latitude, vesselState.Longitude);
+                }
+                if (vesselState.MaximumStaticDraught !== undefined) {
+                  document.getElementById('max-draught').textContent = vesselState.MaximumStaticDraught + " m";
+                } else {
+                  document.getElementById('max-draught').textContent = "N/A";
+                }
+              } else {
+                document.getElementById('vessel-name').textContent = "Vessel not found.";
+                addSogDataPoint(Date.now(), 0);
+                addDirectionDataPoint(Date.now(), 0, 0);
+                updateCompassCharts(0, 0);
+              }
+            })
+            .catch(err => {
+              console.error("Error loading vessel state:", err);
+              document.getElementById('vessel-name').textContent = "Error loading vessel data.";
+              addSogDataPoint(Date.now(), 0);
+              addDirectionDataPoint(Date.now(), 0, 0);
+              updateCompassCharts(0, 0);
+            });
+        }
+        
+        // --- 7. Load Historical Data from /history/<UserID>/<hours> ---
+    function loadHistoryData() {
+      const periodSelect = document.getElementById('time-period');
+      const periodValue = periodSelect.value; // e.g., "1", "3", "9999" for All.
+      fetch('/history/' + userID + '/' + periodValue)
+        .then(response => response.text())
+        .then(csvText => {
+          // Clear existing history arrays.
+          allSogData = [];
+          allDirectionData = [];
+          const lines = csvText.split('\n');
+          lines.forEach(line => {
+            if (!line.trim()) return;
+            // CSV expected format: timestamp,latitude,longitude,sog,cog,trueHeading
+            const parts = line.split(',');
+            if (parts.length >= 6) {
+              const ts = new Date(parts[0]).getTime();
+              // Use null for empty values
+              const sog = parts[3].trim() !== "" ? parseFloat(parts[3]) : null;
+              const cog = parts[4].trim() !== "" ? parseFloat(parts[4]) : null;
+              const trueHeading = parts[5].trim() !== "" ? parseFloat(parts[5]) : null;
+              if (!isNaN(ts)) {
+                allSogData.push({ timestamp: ts, sog: sog });
+                allDirectionData.push({ timestamp: ts, trueHeading: trueHeading, cog: cog });
+              }
+            }
+          });
+          // Update charts with the loaded history.
+          filterChartData();
+        })
+        .catch(err => {
+          console.error("Error loading history data:", err);
+        });
+    }
+    
+    
+        
+        // On page load, load the initial state and historical data.
+        loadInitialState();
+        loadHistoryData();
+        
+        // --- 8. Connect to Socket.IO and Subscribe ---
+        const socket = io();
+        const channel = "ais_data/" + userID;
+        
+        socket.on('connect', function () {
+          socket.emit("subscribe", channel);
+          updateServerConnectedDot(true);
+        });
+        socket.on('disconnect', function () {
+          updateServerConnectedDot(false);
+        });
+        
+        socket.on("ais_data", (message) => {
+          if (typeof message === "string") {
+            try {
+              message = JSON.parse(message);
+            } catch (e) {
+              console.error("Error parsing ais_data message:", e);
+              return;
+            }
+          }
+	  if ((message.type === "PositionReport" || message.type === "StandardClassBPositionReport" || message.type === "StandardSearchAndRescueAircraftReport") && message.data) {
+            if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
+              const ts = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
+              lastMessageTimestamp = ts;
+              messageTimestamps.push(ts);
+              const cog = message.data.Cog !== undefined && message.data.Cog !== null ? message.data.Cog : lastCog;
+              if (cog !== lastCog) {
+                lastCog = cog;
+                addDirectionDataPoint(ts, lastTrueHeading, cog);
+                updateCompassCharts(lastTrueHeading, cog);
+              }
+              const trueHeading = message.data.TrueHeading !== undefined && message.data.TrueHeading !== null ? message.data.TrueHeading : lastTrueHeading;
+              if (trueHeading !== lastTrueHeading) {
+                lastTrueHeading = trueHeading;
+                addDirectionDataPoint(ts, trueHeading, lastCog);
+                updateCompassCharts(trueHeading, lastCog);
+              }
+              const sog = message.data.Sog !== undefined && message.data.Sog !== null ? message.data.Sog : lastSog;
+              if (sog !== lastSog) {
+                lastSog = sog;
+                addSogDataPoint(ts, sog);
+              }
+              if (message.data.PositionAccuracy !== undefined) {
+                updatePositionAccuracyDot(message.data.PositionAccuracy);
+              }
+              if (message.data.NavigationalStatus !== undefined) {
+                updateNavigationalStatus(message.data.NavigationalStatus);
+              }
+              if (message.data.Latitude !== undefined && message.data.Longitude !== undefined) {
+                updateLatLongDisplay(message.data.Latitude, message.data.Longitude);
+              }
+            }
+          }
+        });
+        
+        // --- 9. Reset Button: Clear all charts and re-fetch state & history ---
+        document.getElementById('reset-button').addEventListener('click', () => {
+          allSogData = [];
+          sogChart.data.labels = [];
+          sogChart.data.datasets[0].data = [];
+          sogChart.update();
+          
+          allDirectionData = [];
+          directionChart.data.labels = [];
+          directionChart.data.datasets[0].data = [];
+          directionChart.data.datasets[1].data = [];
+          directionChart.update();
+          
+          trueHeadingCompass.currentDirection = 0;
+          document.getElementById('trueHeadingLabel').textContent = "Heading";
+          trueHeadingCompass.update();
+          
+          cogCompass.currentDirection = 0;
+          document.getElementById('cogLabel').textContent = "Course";
+          cogCompass.update();
+          
+          document.getElementById('current-speed-display').textContent = "0.00 kn";
+          document.getElementById('lat-long-display').textContent = "--, --";
+          
+          loadInitialState();
+          loadHistoryData();
+        });
+        
+        // --- 10. Clean-up on Unload ---
+        window.addEventListener('beforeunload', () => {
+          socket.emit("unsubscribe", channel);
+        });
+        
+        // --- 11. Resize charts on window resize ---
+        window.addEventListener('resize', () => {
+          sogChart.resize();
+          trueHeadingCompass.resize();
+          cogCompass.resize();
+          directionChart.resize();
+        });
+
+	window.addEventListener('resize', adjustIframeHeight);
+	adjustIframeHeight();
+    </script>
+</body>
+
+</html>
