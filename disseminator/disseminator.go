@@ -10,6 +10,7 @@ import (
 	"hash/fnv"
 	"strconv"
 	"time"
+	"strings"
 
 	_ "github.com/lib/pq"
 	"github.com/zishang520/socket.io/v2/socket"
@@ -299,6 +300,89 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
     return summarizedResults, nil
 }
 
+func getHistoryResults(userID string, hours int) ([]map[string]interface{}, error) {
+    // Calculate the timestamp for the time period
+    currentTime := time.Now()
+    pastTime := currentTime.Add(-time.Duration(hours) * time.Hour)
+
+    // SQL query to get the messages for the user in the specified time range with distance filtering
+    query := fmt.Sprintf(`
+        WITH filtered_messages AS (
+            SELECT 
+                timestamp,
+                (packet->>'Longitude')::float AS longitude,
+                (packet->>'Latitude')::float AS latitude,
+                (packet->>'Sog')::float AS sog,
+                (packet->>'Cog')::float AS cog,
+                (packet->>'TrueHeading')::float AS trueHeading
+            FROM messages
+            WHERE user_id = '%s' 
+              AND timestamp >= '%s'
+              AND message_id IN (1, 2, 3, 18, 19)
+        )
+        SELECT 
+            m1.timestamp,
+            m1.latitude,
+            m1.longitude,
+            m1.sog,
+            m1.cog,
+            m1.trueHeading
+        FROM filtered_messages m1
+        WHERE 
+            NOT EXISTS (
+                SELECT 1
+                FROM filtered_messages m2
+                WHERE 
+                    m1.timestamp > m2.timestamp
+                    AND ST_DistanceSphere(
+                        ST_SetSRID(ST_Point(m1.longitude, m1.latitude), 4326), 
+                        ST_SetSRID(ST_Point(m2.longitude, m2.latitude), 4326)
+                    ) < 20
+            )
+        ORDER BY m1.timestamp ASC;
+    `, userID, pastTime.UTC().Format(time.RFC3339))
+
+    // Log the query for debugging purposes
+    log.Printf("Executing query: %s", query)
+
+    // Query the database for the results
+    rows, err := QueryDatabaseForUser(userID, query)
+    if err != nil {
+        return nil, fmt.Errorf("error querying database for user %s: %v", userID, err)
+    }
+    defer rows.Close()
+
+    // Process the query results
+    var results []map[string]interface{}
+    for rows.Next() {
+        var timestamp time.Time
+        var latitude, longitude, sog, cog, trueHeading float64
+
+        // Scan the row for the columns
+        err := rows.Scan(&timestamp, &latitude, &longitude, &sog, &cog, &trueHeading)
+        if err != nil {
+            return nil, fmt.Errorf("error scanning row: %v", err)
+        }
+
+        // Add the valid result to the list
+        results = append(results, map[string]interface{}{
+            "timestamp":   timestamp,
+            "latitude":    latitude,
+            "longitude":   longitude,
+            "sog":         sog,
+            "cog":         cog,
+            "trueHeading": trueHeading,
+        })
+    }
+
+    return results, nil
+}
+
+// Helper function to check if a value is "NULL" (in Go's float64 representation)
+func isNull(value float64) bool {
+    return value == 0.0 // Assuming 0.0 means NULL in your database; adjust if needed
+}
+
 func summaryHandler(w http.ResponseWriter, r *http.Request) {
     // Extract latitude, longitude, and radius from query parameters
     latStr := r.URL.Query().Get("latitude")
@@ -384,6 +468,50 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
     if err := json.NewEncoder(w).Encode(summarizedResults); err != nil {
         http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
     }
+}
+
+func historyHandler(w http.ResponseWriter, r *http.Request) {
+    // Extract user_id and hours from URL path
+    parts := strings.Split(r.URL.Path, "/")
+    if len(parts) != 4 {
+        http.Error(w, "Invalid URL format", http.StatusBadRequest)
+        return
+    }
+
+    userID := parts[2]
+    hoursStr := parts[3]
+    hours, err := strconv.Atoi(hoursStr)
+    if err != nil || hours <= 0 {
+        http.Error(w, "Invalid time period", http.StatusBadRequest)
+        return
+    }
+
+    // Get the history results
+    results, err := getHistoryResults(userID, hours)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Error fetching history: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    // Convert the results to CSV format without column headings
+    var csvData string
+    for _, row := range results {
+        timestamp := row["timestamp"].(time.Time).Format(time.RFC3339)
+        latitude := fmt.Sprintf("%f", row["latitude"].(float64))
+        longitude := fmt.Sprintf("%f", row["longitude"].(float64))
+        sog := fmt.Sprintf("%.2f", row["sog"].(float64)) // Rounded to 2 decimal places
+        cog := fmt.Sprintf("%.2f", row["cog"].(float64)) // Rounded to 2 decimal places
+        trueHeading := fmt.Sprintf("%.2f", row["trueHeading"].(float64)) // Rounded to 2 decimal places
+
+        csvData += fmt.Sprintf("%s,%s,%s,%s,%s,%s\n", timestamp, latitude, longitude, sog, cog, trueHeading)
+    }
+
+    // Set the Content-Type header to "text/csv"
+    w.Header().Set("Content-Type", "text/csv")
+    w.Header().Set("Content-Disposition", "attachment; filename=history.csv")
+
+    // Write the CSV data to the response (no column headings)
+    w.Write([]byte(csvData))
 }
 
 // Helper function to safely get a string value from packetData (returns empty string if not found)
@@ -692,6 +820,8 @@ func setupServer(settings *Settings) {
 
 	// Define the /state/{UserID} route
 	mux.HandleFunc("/state/", userStateHandler)
+
+	mux.HandleFunc("/history/", historyHandler)
 
 	// Set up Socket.IO handler
 	engineServer := types.CreateServer(nil)
