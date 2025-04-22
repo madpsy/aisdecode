@@ -307,39 +307,37 @@ func getHistoryResults(userID string, hours int) ([]map[string]interface{}, erro
 
     // SQL query to get the messages for the user in the specified time range with distance filtering
     query := fmt.Sprintf(`
-        WITH filtered_messages AS (
-            SELECT 
-                timestamp,
-                (packet->>'Longitude')::float AS longitude,
-                (packet->>'Latitude')::float AS latitude,
-                (packet->>'Sog')::float AS sog,
-                (packet->>'Cog')::float AS cog,
-                (packet->>'TrueHeading')::float AS trueHeading
-            FROM messages
-            WHERE user_id = '%s' 
-              AND timestamp >= '%s'
-              AND message_id IN (1, 2, 3, 18, 19)
-        )
-        SELECT 
-            m1.timestamp,
-            m1.latitude,
-            m1.longitude,
-            m1.sog,
-            m1.cog,
-            m1.trueHeading
-        FROM filtered_messages m1
-        WHERE 
-            NOT EXISTS (
-                SELECT 1
-                FROM filtered_messages m2
-                WHERE 
-                    m1.timestamp > m2.timestamp
-                    AND ST_DistanceSphere(
-                        ST_SetSRID(ST_Point(m1.longitude, m1.latitude), 4326), 
-                        ST_SetSRID(ST_Point(m2.longitude, m2.latitude), 4326)
-                    ) < 20
-            )
-        ORDER BY m1.timestamp ASC;
+ WITH filtered_messages AS (
+    SELECT 
+        timestamp,
+        (packet->>'Longitude')::float AS longitude,
+        (packet->>'Latitude')::float AS latitude,
+        (packet->>'Sog')::float AS sog,
+        (packet->>'Cog')::float AS cog,
+        (packet->>'TrueHeading')::float AS trueHeading,
+        ROW_NUMBER() OVER (ORDER BY timestamp) AS row_num
+    FROM messages
+    WHERE user_id = '%s' 
+      AND timestamp >= '%s'
+      AND message_id IN (1, 2, 3, 18, 19)
+)
+SELECT 
+    m1.timestamp,
+    m1.latitude,
+    m1.longitude,
+    m1.sog,
+    m1.cog,
+    m1.trueHeading
+FROM filtered_messages m1
+LEFT JOIN filtered_messages m2
+    ON m1.row_num = m2.row_num + 1
+WHERE 
+    m2.row_num IS NULL
+    OR ST_DistanceSphere(
+        ST_SetSRID(ST_Point(m1.longitude, m1.latitude), 4326), 
+        ST_SetSRID(ST_Point(m2.longitude, m2.latitude), 4326)
+    ) >= 20
+ORDER BY m1.timestamp;
     `, userID, pastTime.UTC().Format(time.RFC3339))
 
     // Log the query for debugging purposes
