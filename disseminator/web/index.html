@@ -2570,7 +2570,7 @@ function applyLogFilters() {
         socket.on('connect', () => {
           document.getElementById('status-dot').style.background = 'green';
           document.getElementById('status-text').textContent = 'Connected';
-	  socket.emit("subscribe", "latest_vessel_summary");
+	  socket.emit("subscribe", "summaryData");
 	  // If a vessel is focused, resubscribe to its channel.
 	  if (focusedVessel) {
 	    subscribeInstantUpdates(focusedVessel);
@@ -2583,7 +2583,7 @@ function applyLogFilters() {
           document.getElementById('status-text').textContent = 'Disconnected';
         });
 
-socket.on("latest_vessel_summary", (data) => {
+socket.on("summaryData", (data) => {
   const ageSlider = document.getElementById('age-slider');
   const maxAgeHours = parseInt(ageSlider.value, 10); // Get max-age from the slider
   const now = Date.now();

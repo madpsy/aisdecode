@@ -16,6 +16,17 @@ import (
 	"github.com/zishang520/engine.io/v2/types"
 )
 
+type FilterParams struct {
+    Latitude    float64
+    Longitude   float64
+    Radius      float64
+    MaxResults  int
+    MaxAge      int
+    MinSpeed    float64
+    UpdatePeriod int
+    LastUpdated time.Time
+}
+
 type Settings struct {
 	IngestHost  string `json:"ingester_host"`
 	IngestPort  int    `json:"ingester_port"`
@@ -54,6 +65,10 @@ type ClientConnection struct {
 }
 
 var ioServer *socket.Server
+var connectedClients = make(map[socket.SocketId]*socket.Socket)
+var clientSummaryFilters = make(map[socket.SocketId]FilterParams)
+
+
 
 func shardForUser(userID string) int {
     h := fnv.New32a()
@@ -144,92 +159,16 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 	return results, nil
 }
 
-func summaryHandler(w http.ResponseWriter, r *http.Request) {
-    // Extract lat, lon, and radius from query parameters
-    latStr := r.URL.Query().Get("latitude")
-    lonStr := r.URL.Query().Get("longitude")
-    radiusStr := r.URL.Query().Get("radius")
-    
-    // Extract 'limit' query parameter and parse it (default to 500)
-    limitStr := r.URL.Query().Get("maxResults")
-    limit := 500 // Default limit
-    if limitStr != "" {
-        parsedLimit, err := strconv.Atoi(limitStr)
-        if err != nil || parsedLimit <= 0 {
-            http.Error(w, "Invalid limit value", http.StatusBadRequest)
-            return
-        }
-        // Ensure the limit does not exceed 500
-        if parsedLimit > 500 {
-            limit = 500
-        } else {
-            limit = parsedLimit
-        }
-    }
-
-    // Extract 'maxage' query parameter and parse it (default to 24 hours)
-    maxAgeStr := r.URL.Query().Get("maxAge")
-    maxAge := 24 // Default maxage in hours
-    if maxAgeStr != "" {
-        parsedMaxAge, err := strconv.Atoi(maxAgeStr)
-        if err != nil || parsedMaxAge <= 0 {
-            http.Error(w, "Invalid maxage value", http.StatusBadRequest)
-            return
-        }
-        // Ensure the maxage does not exceed 720 hours (30 days)
-        if parsedMaxAge > 720 {
-            maxAge = 720
-        } else {
-            maxAge = parsedMaxAge
-        }
-    }
-
-    // Extract 'minSpeed' query parameter and parse it (optional)
-    minSpeedStr := r.URL.Query().Get("minSpeed")
-    var minSpeed float64
-    if minSpeedStr != "" {
-        var err error
-        minSpeed, err = strconv.ParseFloat(minSpeedStr, 64)
-        if err != nil || minSpeed < 0 {
-            http.Error(w, "Invalid minSpeed value", http.StatusBadRequest)
-            return
-        }
-    }
-
-    var lat, lon, radius float64
-    var err error
-
-    // If lat, lon, and radius are provided, parse them
-    if latStr != "" && lonStr != "" && radiusStr != "" {
-        lat, err = strconv.ParseFloat(latStr, 64)
-        if err != nil {
-            http.Error(w, "Invalid latitude", http.StatusBadRequest)
-            return
-        }
-
-        lon, err = strconv.ParseFloat(lonStr, 64)
-        if err != nil {
-            http.Error(w, "Invalid longitude", http.StatusBadRequest)
-            return
-        }
-
-        radius, err = strconv.ParseFloat(radiusStr, 64)
-        if err != nil || radius <= 0 {
-            http.Error(w, "Invalid radius", http.StatusBadRequest)
-            return
-        }
-    }
-
-    // Build the SQL query
+func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64) (map[string]interface{}, error) {
     query := `
         SELECT user_id, packet, timestamp, ais_class, count
         FROM state
     `
     
-    whereAdded := false // Flag to track if WHERE clause is already added
+    whereAdded := false
 
-    // If lat, lon, and radius are specified, add the condition to filter by distance
-    if latStr != "" && lonStr != "" && radiusStr != "" {
+    // If lat, lon, and radius are specified, filter by distance
+    if lat != 0 && lon != 0 && radius != 0 {
         if whereAdded {
             query += fmt.Sprintf(`
                 AND ST_DistanceSphere(
@@ -254,22 +193,24 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // Add a condition to filter results based on the 'timestamp' field and maxage
-    currentTime := time.Now()
-    maxAgeDuration := time.Duration(maxAge) * time.Hour
-    if whereAdded {
-        query += fmt.Sprintf(`
-            AND timestamp >= '%s'
-        `, currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
-    } else {
-        query += fmt.Sprintf(`
-            WHERE timestamp >= '%s'
-        `, currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
-        whereAdded = true
+    // Filter based on maxAge (timestamp) if maxAge is greater than 0
+    if maxAge > 0 {
+        currentTime := time.Now()
+        maxAgeDuration := time.Duration(maxAge) * time.Hour
+        if whereAdded {
+            query += fmt.Sprintf(`
+                AND timestamp >= '%s'
+            `, currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
+        } else {
+            query += fmt.Sprintf(`
+                WHERE timestamp >= '%s'
+            `, currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
+            whereAdded = true
+        }
     }
 
-    // If 'minSpeed' is specified, add the filter condition for Speed Over Ground
-    if minSpeedStr != "" {
+    // Filter based on minSpeed if minSpeed is greater than 0
+    if minSpeed > 0 {
         if whereAdded {
             query += fmt.Sprintf(`
                 AND (packet->>'Sog')::float >= %f
@@ -282,35 +223,29 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // Add ORDER BY timestamp before LIMIT to ensure correct syntax
+    // Finalizing the query
     query += " ORDER BY timestamp ASC"
 
-    // Add a LIMIT clause to the query based on the 'limit' parameter
-    query += fmt.Sprintf(" LIMIT %d", limit)
-
-    // Debugging: Log the full query to check its construction
-    fmt.Println("Final SQL Query:", query)
-
-    // Call the QueryDatabasesForAllShards function to query the database
-    results, err := QueryDatabasesForAllShards(query)
-    if err != nil {
-        http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
-        return
+    // Apply LIMIT only if it's greater than 0
+    if limit > 0 {
+        query += fmt.Sprintf(" LIMIT %d", limit)
     }
 
-    // Create a map to hold the summarized results for each UserID
-    summarizedResults := make(map[string]interface{})
+    // Query the database
+    results, err := QueryDatabasesForAllShards(query)
+    if err != nil {
+        return nil, fmt.Errorf("Error querying database: %v", err)
+    }
 
-    // Iterate over all results from each shard
+    // Process the results and create the summary
+    summarizedResults := make(map[string]interface{})
     for _, shardData := range results {
         for _, row := range shardData {
-            // Extract the UserID and packet data from the row
             userID, ok := row["user_id"]
             if !ok {
                 continue
             }
 
-            // Handle both int and int64 types for user_id
             var userIDStr string
             switch v := userID.(type) {
             case int:
@@ -321,22 +256,17 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
                 continue
             }
 
-            // Extract the packet field, which is a byte array
             packetData, ok := row["packet"].([]byte)
             if !ok {
                 continue
             }
 
-            // Convert the byte slice to a string (assuming UTF-8 encoding)
             packetStr := string(packetData)
-
-            // Unmarshal the packet data into a map
             var packetMap map[string]interface{}
             if err := json.Unmarshal([]byte(packetStr), &packetMap); err != nil {
                 continue
             }
 
-            // Prepare the summary result for this user
             summary := make(map[string]interface{})
             summary["CallSign"] = getFieldString(packetMap, "CallSign")
             summary["Cog"] = getFieldFloat(packetMap, "Cog")
@@ -352,7 +282,6 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
             summary["TrueHeading"] = getFieldFloat(packetMap, "TrueHeading")
             summary["Type"] = getFieldFloat(packetMap, "Type")
 
-            // Add AIS Class and Timestamp
             if aisClass, ok := row["ais_class"].(string); ok {
                 summary["AISClass"] = aisClass
             }
@@ -360,14 +289,95 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
                 summary["LastUpdated"] = timestamp.UTC().Format(time.RFC3339Nano)
             }
 
-            // **Log the count field directly to check its value**
             if count, ok := row["count"].(int64); ok {
                 summary["NumMessages"] = count
             }
 
-            // Add the summary result to the main result map
             summarizedResults[userIDStr] = summary
         }
+    }
+
+    return summarizedResults, nil
+}
+
+func summaryHandler(w http.ResponseWriter, r *http.Request) {
+    // Extract latitude, longitude, and radius from query parameters
+    latStr := r.URL.Query().Get("latitude")
+    lonStr := r.URL.Query().Get("longitude")
+    radiusStr := r.URL.Query().Get("radius")
+    
+    // Default to 500 if 'maxResults' is not specified
+    limitStr := r.URL.Query().Get("maxResults")
+    limit := 500
+    if limitStr != "" {
+        parsedLimit, err := strconv.Atoi(limitStr)
+        if err != nil || parsedLimit <= 0 {
+            http.Error(w, "Invalid limit value", http.StatusBadRequest)
+            return
+        }
+        if parsedLimit > 500 {
+            limit = 500
+        } else {
+            limit = parsedLimit
+        }
+    }
+
+    // Default to 24 hours if 'maxAge' is not specified
+    maxAgeStr := r.URL.Query().Get("maxAge")
+    maxAge := 24
+    if maxAgeStr != "" {
+        parsedMaxAge, err := strconv.Atoi(maxAgeStr)
+        if err != nil || parsedMaxAge <= 0 {
+            http.Error(w, "Invalid maxage value", http.StatusBadRequest)
+            return
+        }
+        if parsedMaxAge > 720 {
+            maxAge = 720
+        } else {
+            maxAge = parsedMaxAge
+        }
+    }
+
+    // Extract 'minSpeed' query parameter (optional)
+    minSpeedStr := r.URL.Query().Get("minSpeed")
+    var minSpeed float64
+    if minSpeedStr != "" {
+        var err error
+        minSpeed, err = strconv.ParseFloat(minSpeedStr, 64)
+        if err != nil || minSpeed < 0 {
+            http.Error(w, "Invalid minSpeed value", http.StatusBadRequest)
+            return
+        }
+    }
+
+    // Parse latitude, longitude, and radius if they are provided
+    var lat, lon, radius float64
+    var err error
+    if latStr != "" && lonStr != "" && radiusStr != "" {
+        lat, err = strconv.ParseFloat(latStr, 64)
+        if err != nil {
+            http.Error(w, "Invalid latitude", http.StatusBadRequest)
+            return
+        }
+
+        lon, err = strconv.ParseFloat(lonStr, 64)
+        if err != nil {
+            http.Error(w, "Invalid longitude", http.StatusBadRequest)
+            return
+        }
+
+        radius, err = strconv.ParseFloat(radiusStr, 64)
+        if err != nil || radius <= 0 {
+            http.Error(w, "Invalid radius", http.StatusBadRequest)
+            return
+        }
+    }
+
+    // Now call the function that generates the summary
+    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
+        return
     }
 
     // Send the summarized results as JSON
@@ -376,7 +386,6 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
     }
 }
-
 
 // Helper function to safely get a string value from packetData (returns empty string if not found)
 func getFieldString(packetData map[string]interface{}, field string) string {
@@ -426,6 +435,28 @@ func getFieldJSON(packetData map[string]interface{}, field string) map[string]in
 func formatTimestamp(t time.Time) string {
     // Return the time in UTC with nanosecond precision in the ISO 8601 format
     return t.UTC().Format(time.RFC3339Nano) // Format: "2025-04-21T13:49:56.259736Z"
+}
+
+func handleSummaryRequest(client *socket.Socket, data map[string]interface{}) {
+    // Extract parameters from the incoming WebSocket message
+    lat, _ := data["latitude"].(float64)
+    lon, _ := data["longitude"].(float64)
+    radius, _ := data["radius"].(float64)
+    limit, _ := data["limit"].(int)
+    maxAge, _ := data["maxAge"].(int)
+    minSpeed, _ := data["minSpeed"].(float64)
+
+    // Get the summary results using the previously defined function
+    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed)
+    if err != nil {
+        log.Printf("Error fetching summary: %v", err)
+        return
+    }
+
+    // Send the summary data back to the client
+    if err := client.Emit("summaryData", summarizedResults); err != nil {
+        log.Printf("Error sending summary data: %v", err)
+    }
 }
 
 func userStateHandler(w http.ResponseWriter, r *http.Request) {
@@ -673,6 +704,89 @@ func setupServer(settings *Settings) {
 		http.FileServer(http.Dir("web")).ServeHTTP(w, r)
 	})
 
+// Inside setupServer function, modify WebSocket handler to unmarshal the raw JSON string
+ioServer.On("connection", func(args ...any) {
+    client := args[0].(*socket.Socket)
+    log.Printf("WebSocket client connected: %s", client.Id())
+    connectedClients[client.Id()] = client
+
+    // Log the event when the client sends 'requestSummary'
+client.On("requestSummary", func(args ...any) {
+    log.Printf("Received 'requestSummary' event from client %s", client.Id())
+
+    if len(args) < 1 {
+        log.Printf("No data received with 'requestSummary' event")
+        return
+    }
+
+    dataStr, ok := args[0].(string)
+    if !ok {
+        log.Printf("Invalid data format for 'requestSummary' event from client %s", client.Id())
+        return
+    }
+
+    var data map[string]interface{}
+    if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
+        log.Printf("Error unmarshalling data from client %s: %v", client.Id(), err)
+        return
+    }
+
+    // Extract all parameters sent by the client
+    lat, _ := data["latitude"].(float64)
+    lon, _ := data["longitude"].(float64)
+    radius, _ := data["radius"].(float64)
+    maxAge, _ := data["maxAge"].(float64)
+    maxResults, _ := data["maxResults"].(float64)
+    minSpeed, _ := data["minSpeed"].(float64)
+    updatePeriod, _ := data["updatePeriod"].(float64)
+
+    // Log the parameters for debugging
+    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, updatePeriod=%d",
+        client.Id(), lat, lon, radius, int(maxResults), int(maxAge), minSpeed, int(updatePeriod))
+
+    // Store the parameters in the clientSummaryFilters map
+    clientSummaryFilters[client.Id()] = FilterParams{
+        Latitude:    lat,
+        Longitude:   lon,
+        Radius:      radius,
+        MaxResults:  int(maxResults),
+        MaxAge:      int(maxAge),
+        MinSpeed:    minSpeed,
+        UpdatePeriod: int(updatePeriod),
+        LastUpdated: time.Now(),
+    }
+
+    // Optionally, you can immediately send the summary after receiving the request
+    summarizedResults, err := getSummaryResults(lat, lon, radius, int(maxResults), int(maxAge), minSpeed)
+    if err != nil {
+        log.Printf("Error fetching summary for client %s: %v", client.Id(), err)
+        return
+    }
+
+    summaryJSON, err := json.Marshal(summarizedResults)
+    if err != nil {
+        log.Printf("Error marshaling summary data for client %s: %v", client.Id(), err)
+        return
+    }
+
+    // Send the summary data to the client immediately
+    if err := client.Emit("summaryData", string(summaryJSON)); err != nil {
+        log.Printf("Error sending summary data to client %s: %v", client.Id(), err)
+    }
+})
+
+
+    // Log client disconnection
+    client.On("disconnect", func(args ...any) {
+	delete(clientSummaryFilters, client.Id())
+        log.Printf("WebSocket client disconnected: %s", client.Id())
+    })
+})
+
+
+
+
+
 	// Start the HTTP server
 	go startHTTPServer(settings.ListenPort, mux)
 }
@@ -709,6 +823,60 @@ func main() {
 
 	// Set up the server with HTTP and Socket.IO routes
 	setupServer(settings)
+
+	go func() {
+	    ticker := time.NewTicker(1 * time.Second) // Check every second
+	    defer ticker.Stop()
+
+	    for {
+	        <-ticker.C
+
+        	// Iterate over each client and check if it's time to send an update
+	        for clientID, settings := range clientSummaryFilters {
+	            // Check if the update period has elapsed
+	            if time.Since(settings.LastUpdated) >= time.Duration(settings.UpdatePeriod)*time.Second {
+	                // Retrieve the client from the connectedClients map using the clientID
+	                client, exists := connectedClients[clientID]
+	                if exists {
+	                    // Use the stored parameters for that client
+	                    summarizedResults, err := getSummaryResults(
+	                        settings.Latitude, settings.Longitude, settings.Radius,
+	                        settings.MaxResults, settings.MaxAge, settings.MinSpeed,
+	                    )
+	                    if err != nil {
+	                        log.Printf("Error fetching summary for client %s: %v", clientID, err)
+	                        continue
+	                    }
+
+	                    summaryJSON, err := json.Marshal(summarizedResults)
+	                    if err != nil {
+	                        log.Printf("Error marshaling summary data for client %s: %v", clientID, err)
+	                        continue
+        	            }
+
+        	            // Send the summary data to the client
+        	            if err := client.Emit("summaryData", string(summaryJSON)); err != nil {
+	                        log.Printf("Error sending summary data to client %s: %v", clientID, err)
+        	            }
+
+        	            // Update the last sent time only after successfully sending the update
+        	            clientSummaryFilters[clientID] = FilterParams{
+        	                Latitude:    settings.Latitude,
+        	                Longitude:   settings.Longitude,
+        	                Radius:      settings.Radius,
+        	                MaxResults:  settings.MaxResults,
+        	                MaxAge:      settings.MaxAge,
+        	                MinSpeed:    settings.MinSpeed,
+        	                UpdatePeriod: settings.UpdatePeriod,
+        	                LastUpdated: time.Now(),  // Update only after sending
+        	            }
+        	        } else {
+        	            log.Printf("Client %s not found", clientID)
+        	        }
+        	    }
+        	}
+	    }
+	}()
 
 	// Block forever (or handle gracefully shutting down the server if necessary)
 	select {}
