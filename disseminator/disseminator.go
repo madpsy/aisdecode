@@ -144,13 +144,126 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 	return results, nil
 }
 
-
 func summaryHandler(w http.ResponseWriter, r *http.Request) {
-    // Modify the SQL query to include the 'count' column
+    // Extract lat, lon, and radius from query parameters
+    latStr := r.URL.Query().Get("lat")
+    lonStr := r.URL.Query().Get("lon")
+    radiusStr := r.URL.Query().Get("radius")
+    
+    // Extract 'limit' query parameter and parse it (default to 500)
+    limitStr := r.URL.Query().Get("limit")
+    limit := 500 // Default limit
+    if limitStr != "" {
+        parsedLimit, err := strconv.Atoi(limitStr)
+        if err != nil || parsedLimit <= 0 {
+            http.Error(w, "Invalid limit value", http.StatusBadRequest)
+            return
+        }
+        // Ensure the limit does not exceed 500
+        if parsedLimit > 500 {
+            limit = 500
+        } else {
+            limit = parsedLimit
+        }
+    }
+
+    // Extract 'maxage' query parameter and parse it (default to 24 hours)
+    maxAgeStr := r.URL.Query().Get("maxage")
+    maxAge := 24 // Default maxage in hours
+    if maxAgeStr != "" {
+        parsedMaxAge, err := strconv.Atoi(maxAgeStr)
+        if err != nil || parsedMaxAge <= 0 {
+            http.Error(w, "Invalid maxage value", http.StatusBadRequest)
+            return
+        }
+        // Ensure the maxage does not exceed 720 hours (30 days)
+        if parsedMaxAge > 720 {
+            maxAge = 720
+        } else {
+            maxAge = parsedMaxAge
+        }
+    }
+
+    var lat, lon, radius float64
+    var err error
+
+    // If lat, lon, and radius are provided, parse them
+    if latStr != "" && lonStr != "" && radiusStr != "" {
+        lat, err = strconv.ParseFloat(latStr, 64)
+        if err != nil {
+            http.Error(w, "Invalid latitude", http.StatusBadRequest)
+            return
+        }
+
+        lon, err = strconv.ParseFloat(lonStr, 64)
+        if err != nil {
+            http.Error(w, "Invalid longitude", http.StatusBadRequest)
+            return
+        }
+
+        radius, err = strconv.ParseFloat(radiusStr, 64)
+        if err != nil || radius <= 0 {
+            http.Error(w, "Invalid radius", http.StatusBadRequest)
+            return
+        }
+    }
+
+    // Build the SQL query
     query := `
         SELECT user_id, packet, timestamp, ais_class, count
-        FROM state;
+        FROM state
     `
+    
+    whereAdded := false // Flag to track if WHERE clause is already added
+
+    // If lat, lon, and radius are specified, add the condition to filter by distance
+    if latStr != "" && lonStr != "" && radiusStr != "" {
+        if whereAdded {
+            query += fmt.Sprintf(`
+                AND ST_DistanceSphere(
+                    ST_SetSRID(ST_Point(
+                        (packet->>'Longitude')::float,
+                        (packet->>'Latitude')::float
+                    ), 4326),
+                    ST_SetSRID(ST_Point(%f, %f), 4326)
+                ) <= %f
+            `, lon, lat, radius)
+        } else {
+            query += fmt.Sprintf(`
+                WHERE ST_DistanceSphere(
+                    ST_SetSRID(ST_Point(
+                        (packet->>'Longitude')::float,
+                        (packet->>'Latitude')::float
+                    ), 4326),
+                    ST_SetSRID(ST_Point(%f, %f), 4326)
+                ) <= %f
+            `, lon, lat, radius)
+            whereAdded = true
+        }
+    }
+
+    // Add a condition to filter results based on the 'timestamp' field and maxage
+    currentTime := time.Now()
+    maxAgeDuration := time.Duration(maxAge) * time.Hour
+    if whereAdded {
+        query += fmt.Sprintf(`
+            AND timestamp >= '%s'
+        `, currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
+    } else {
+        query += fmt.Sprintf(`
+            WHERE timestamp >= '%s'
+        `, currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
+        whereAdded = true
+    }
+
+    // Add ORDER BY timestamp before LIMIT to ensure correct syntax
+    query += " ORDER BY timestamp ASC"
+
+    // Add a LIMIT clause to the query based on the 'limit' parameter
+    query += fmt.Sprintf(" LIMIT %d", limit)
+
+    // Debugging: Log the full query to check its construction
+    fmt.Println("Final SQL Query:", query)
 
     // Call the QueryDatabasesForAllShards function to query the database
     results, err := QueryDatabasesForAllShards(query)
@@ -237,6 +350,7 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
     }
 }
+
 
 
 
