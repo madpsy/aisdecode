@@ -122,19 +122,20 @@ func main() {
 		log.Fatal("Error creating table: ", err)
 	}
 
+	// Create the state table
 	_, err = db.Exec(`
-	    CREATE TABLE IF NOT EXISTS summary (
+	    CREATE TABLE IF NOT EXISTS state (
 	        packet JSONB,
 	        shard_id INT,
 	        timestamp TIMESTAMP,
-	        source_ip VARCHAR(45),
 	        user_id INT,
-	        message_id INT,
-	        PRIMARY KEY (user_id, message_id)
+	        ais_class VARCHAR(4) DEFAULT 'A',
+		count INT DEFAULT 0,
+	        PRIMARY KEY (user_id)
 	    );
 	`)
 	if err != nil {
-	    log.Fatal("Error creating summary table: ", err)
+	    log.Fatal("Error creating state table: ", err)
 	}
 
 	// Create indexes if they don't exist
@@ -197,12 +198,10 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
 
         if reportB, reportBExists := packetMap["ReportB"].(map[string]interface{}); reportBExists {
             if valid, validExists := reportB["Valid"].(bool); validExists && valid {
-                // If "ShipType" exists in ReportB, rename it to "Type"
-                if shipType, shipTypeExists := reportB["ShipType"].(string); shipTypeExists {
-                    reportB["Type"] = shipType
+                if shipType, shipTypeExists := reportB["ShipType"].(float64); shipTypeExists {
+                    reportB["Type"] = int(shipType) // Convert to int if needed
                     delete(reportB, "ShipType")
                 }
-                // Flatten ReportB into the main packet map
                 for key, value := range reportB {
                     packetMap[key] = value
                 }
@@ -225,10 +224,10 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
         return err
     }
 
-    // Convert userID and messageIDExtracted to int before passing to storeSummary
-    err = storeSummary(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, int(userID), int(messageIDExtracted))
+    // Convert userID and messageIDExtracted to int before passing to storeState
+    err = storeState(db, packetJSON, message.ShardID, message.Timestamp, int(userID), messageIDExtracted)
     if err != nil {
-        log.Printf("Error storing summary: %v", err)
+        log.Printf("Error storing state: %v", err)
     }
 
     // Insert into messages as well (optional)
@@ -240,56 +239,92 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
     return err
 }
 
-func storeSummary(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID int, messageID int) error {
-    // Special handling for message_id == 24
-    if messageID == 24 {
-        // Fetch the current packet if exists
-        var existingPacketJSON []byte
-        err := db.QueryRow(`
-            SELECT packet FROM summary WHERE user_id = $1 AND message_id = $2
-        `, userID, messageID).Scan(&existingPacketJSON)
+func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, userID int, messageID float64) error {
+    // Fetch the current packet and ais_class if exists
+    var existingPacketJSON []byte
+    var existingAisClass string
+    var existingCount int
+    err := db.QueryRow(`
+        SELECT packet, ais_class, count FROM state WHERE user_id = $1
+    `, userID).Scan(&existingPacketJSON, &existingAisClass, &existingCount)
 
-        // If an existing packet is found, merge it with the new packet
-        if err == nil {
-            // Merge the two JSON objects (existing and new)
-            var existingPacket map[string]interface{}
-            var newPacket map[string]interface{}
+    // Handle the case where no existing data is found for this user_id
+    if err == sql.ErrNoRows {
+        // No existing data for this user_id, so we'll create a new packet
+        existingPacketJSON = []byte("{}") // Initialize with an empty JSON object
+        existingAisClass = "A" // Default ais_class is 'A'
+        existingCount = 0 // Initialize count to 0
+    } else if err != nil {
+        // If any other error occurred while querying, return the error
+        return fmt.Errorf("Error querying existing packet: %v", err)
+    }
 
-            err := json.Unmarshal(existingPacketJSON, &existingPacket)
-            if err != nil {
-                return fmt.Errorf("Error unmarshalling existing packet: %v", err)
-            }
+    var existingPacket map[string]interface{}
+    var newPacket map[string]interface{}
+    
+    // Unmarshal existing and new packet
+    err = json.Unmarshal(existingPacketJSON, &existingPacket)
+    if err != nil {
+        return fmt.Errorf("Error unmarshalling existing packet: %v", err)
+    }
 
-            err = json.Unmarshal(packetJSON, &newPacket)
-            if err != nil {
-                return fmt.Errorf("Error unmarshalling new packet: %v", err)
-            }
+    err = json.Unmarshal(packetJSON, &newPacket)
+    if err != nil {
+        return fmt.Errorf("Error unmarshalling new packet: %v", err)
+    }
 
-            // Merge the packets (flatten and add new data)
-            for key, value := range newPacket {
-                existingPacket[key] = value
-            }
+    // Merge the new data into the existing packet
+    for key, value := range newPacket {
+        existingPacket[key] = value
+    }
 
-            // Marshal the merged packet back to JSON
-            packetJSON, err = json.Marshal(existingPacket)
-            if err != nil {
-                return fmt.Errorf("Error marshalling merged packet: %v", err)
-            }
-        } else if err != sql.ErrNoRows {
-            return fmt.Errorf("Error querying existing packet: %v", err)
+    // Check the messageID and update ais_class accordingly
+    switch messageID {
+    case 18, 19, 24:
+        if existingAisClass == "A" {
+            existingAisClass = "B"
+        }
+    case 9:
+        if existingAisClass == "A" {
+            existingAisClass = "SAR"
+        }
+    case 21:
+        if existingAisClass == "A" {
+            existingAisClass = "AtoN"
+        }
+    case 4, 20:
+        if existingAisClass == "A" {
+            existingAisClass = "BASE"
         }
     }
 
-    // Insert or update the summary table
-    _, err := db.Exec(`
-        INSERT INTO summary (packet, shard_id, timestamp, source_ip, user_id, message_id)
+    // Remove the MessageID field before inserting
+    delete(existingPacket, "MessageID")
+    
+    // Remove the UserID field from the merged packet
+    delete(existingPacket, "UserID")
+
+    // Marshal the merged packet back to JSON
+    packetJSON, err = json.Marshal(existingPacket)
+    if err != nil {
+        return fmt.Errorf("Error marshalling merged packet: %v", err)
+    }
+
+    // Insert or update the state table with merged packet data
+    _, err = db.Exec(`
+        INSERT INTO state (packet, shard_id, timestamp, user_id, ais_class, count)
         VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (user_id, message_id) 
-        DO UPDATE SET packet = EXCLUDED.packet, shard_id = EXCLUDED.shard_id, timestamp = EXCLUDED.timestamp, source_ip = EXCLUDED.source_ip
-    `, packetJSON, shardID, timestamp, sourceIP, userID, messageID)
+        ON CONFLICT (user_id) 
+        DO UPDATE SET 
+            packet = EXCLUDED.packet, 
+            shard_id = EXCLUDED.shard_id, 
+            timestamp = EXCLUDED.timestamp, 
+            ais_class = EXCLUDED.ais_class,
+            count = state.count + 1 -- Increment the count when the row is updated
+    `, packetJSON, shardID, timestamp, userID, existingAisClass, existingCount)
 
     if err != nil {
-        return fmt.Errorf("Error inserting or updating summary table: %v", err)
+        return fmt.Errorf("Error inserting or updating state table: %v", err)
     }
 
     return nil
@@ -424,50 +459,34 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
 }
 
 func createIndexesIfNotExist(db *sql.DB) {
+    // Creating index for `messages` table
     _, err := db.Exec(`
         CREATE INDEX IF NOT EXISTS idx_user_id ON messages (user_id);
     `)
     if err != nil {
-        log.Printf("Error creating index for user_id: %v", err)
+        log.Printf("Error creating index for user_id in messages table: %v", err)
     }
 
     _, err = db.Exec(`
         CREATE INDEX IF NOT EXISTS idx_message_id ON messages (message_id);
     `)
     if err != nil {
-        log.Printf("Error creating index for message_id: %v", err)
+        log.Printf("Error creating index for message_id in messages table: %v", err)
     }
 
     _, err = db.Exec(`
         CREATE INDEX IF NOT EXISTS idx_shard_id ON messages (shard_id);
     `)
     if err != nil {
-        log.Printf("Error creating index for shard_id: %v", err)
+        log.Printf("Error creating index for shard_id in messages table: %v", err)
     }
 
+    // For `state` table, just an index for `user_id` since `message_id` is no longer necessary
     _, err = db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_source_ip ON messages (source_ip);
+        CREATE INDEX IF NOT EXISTS idx_user_id_state ON state (user_id);
     `)
     if err != nil {
-        log.Printf("Error creating index for source_ip: %v", err)
-    }
-    _, err = db.Exec(`
-	CREATE INDEX IF NOT EXISTS idx_user_id_message_id ON summary (user_id, message_id);
-    `)
-    if err != nil {
-	log.Fatal("Error creating index idx_user_id_message_id for summary table: ", err)
-    }
-    _, err = db.Exec(`
-	CREATE INDEX IF NOT EXISTS idx_user_id ON summary (user_id);
-    `)
-    if err != nil {
-	log.Fatal("Error creating index idx_user_id for summary table: ", err)
-    }
-    _, err = db.Exec(`
-	CREATE INDEX IF NOT EXISTS idx_message_id ON summary (message_id);
-    `)
-    if err != nil {
-	log.Fatal("Error creating index idx_message_id for summary table: ", err)
+        log.Printf("Error creating index for user_id in state table: %v", err)
     }
 }
 

@@ -146,10 +146,10 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 
 
 func summaryHandler(w http.ResponseWriter, r *http.Request) {
-    // Prepare the SQL query to get all UserID entries and their associated packet data
+    // Modify the SQL query to include the 'count' column
     query := `
-        SELECT user_id, message_id, packet
-        FROM summary;
+        SELECT user_id, packet, timestamp, ais_class, count
+        FROM state;
     `
 
     // Call the QueryDatabasesForAllShards function to query the database
@@ -160,10 +160,10 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create a map to hold the summarized results for each UserID
-    summarizedResults := make(map[string]map[string]interface{})
+    summarizedResults := make(map[string]interface{})
 
     // Iterate over all results from each shard
-    for _, shardData := range results { // removed shardHost
+    for _, shardData := range results {
         for _, row := range shardData {
             // Extract the UserID and packet data from the row
             userID, ok := row["user_id"]
@@ -197,32 +197,37 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
                 continue
             }
 
-            // If the UserID doesn't exist in the result map, initialize it
-            if _, exists := summarizedResults[userIDStr]; !exists {
-                summarizedResults[userIDStr] = make(map[string]interface{})
-                // Initialize the "MessageTypes" field as an empty slice for this user
-                summarizedResults[userIDStr]["MessageTypes"] = []int64{}
+            // Prepare the summary result for this user
+            summary := make(map[string]interface{})
+            summary["CallSign"] = getFieldString(packetMap, "CallSign")
+            summary["Cog"] = getFieldFloat(packetMap, "Cog")
+            summary["Destination"] = getFieldString(packetMap, "Destination")
+            summary["Dimension"] = getFieldJSON(packetMap, "Dimension")
+            summary["Latitude"] = getFieldFloat(packetMap, "Latitude")
+            summary["Longitude"] = getFieldFloat(packetMap, "Longitude")
+            summary["MaximumStaticDraught"] = getFieldFloat(packetMap, "MaximumStaticDraught")
+            summary["Name"] = getFieldString(packetMap, "Name")
+            summary["NameExtension"] = getFieldString(packetMap, "NameExtension")
+            summary["NavigationalStatus"] = getFieldFloat(packetMap, "NavigationalStatus")
+            summary["Sog"] = getFieldFloat(packetMap, "Sog")
+            summary["TrueHeading"] = getFieldFloat(packetMap, "TrueHeading")
+            summary["Type"] = getFieldFloat(packetMap, "Type")
+
+            // Add AIS Class and Timestamp
+            if aisClass, ok := row["ais_class"].(string); ok {
+                summary["AISClass"] = aisClass
+            }
+            if timestamp, ok := row["timestamp"].(time.Time); ok {
+                summary["LastUpdated"] = timestamp.UTC().Format(time.RFC3339Nano)
             }
 
-            // Collect the message_id for the "MessageTypes" field (it's int64)
-            messageID, ok := row["message_id"].(int64)
-            if ok {
-                messageTypes := summarizedResults[userIDStr]["MessageTypes"].([]int64)
-                summarizedResults[userIDStr]["MessageTypes"] = append(messageTypes, messageID)
+            // **Log the count field directly to check its value**
+            if count, ok := row["count"].(int64); ok {
+                summary["NumMessages"] = count
             }
 
-            // Define the fields to extract from the packet
-            fields := []string{
-                "CallSign", "Cog", "Destination", "Dimension", "Latitude", "Longitude", 
-                "MaximumStaticDraught", "Name", "NavigationalStatus", "Sog", "TrueHeading", "Type",
-            }
-
-            // For each field, check if it exists in the packet data and add it to the summarized results
-            for _, field := range fields {
-                if value, exists := packetMap[field]; exists {
-                    summarizedResults[userIDStr][field] = value
-                }
-            }
+            // Add the summary result to the main result map
+            summarizedResults[userIDStr] = summary
         }
     }
 
@@ -235,36 +240,49 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
 
 
 
-
 // Helper function to safely get a string value from packetData (returns empty string if not found)
 func getFieldString(packetData map[string]interface{}, field string) string {
-	if value, ok := packetData[field].(string); ok && value != "" {
-		return value
-	}
-	return ""  // Return empty string if field is nil or not found
+    if value, ok := packetData[field].(string); ok && value != "" {
+        return value
+    }
+    return ""  // Return empty string if field is nil or not found
 }
 
 // Helper function to safely get a float64 value from packetData (returns 0 if not found)
 func getFieldFloat(packetData map[string]interface{}, field string) float64 {
-    // Attempt to convert the value to a float
+    // Check if the value is already a float64
+    if value, ok := packetData[field].(float64); ok {
+        return value
+    }
+    // Check if the value is an integer type and convert it to float64
+    if value, ok := packetData[field].(int); ok {
+        return float64(value)
+    }
+    if value, ok := packetData[field].(int64); ok {
+        return float64(value)
+    }
+    // Check if the value is a string that can be parsed into a float
     if value, ok := packetData[field].(string); ok && value != "" {
         if floatValue, err := strconv.ParseFloat(value, 64); err == nil {
             return floatValue
         }
     }
-    return 0 // Return 0 if value is not found or conversion fails
+    return 0 // Return 0 if value is not found or cannot be converted to float
 }
 
 // Helper function to safely parse any JSON field into a map (returns nil if parsing fails)
-func getFieldJSON(packetData map[string]interface{}, field string) (map[string]interface{}, error) {
+func getFieldJSON(packetData map[string]interface{}, field string) map[string]interface{} {
+    if value, ok := packetData[field].(map[string]interface{}); ok {
+        return value  // If the value is already a map, return it directly
+    }
+    // If the value is a string (and not empty), try unmarshalling it
     if value, ok := packetData[field].(string); ok && value != "" {
         var jsonData map[string]interface{}
-        if err := json.Unmarshal([]byte(value), &jsonData); err != nil {
-            return nil, fmt.Errorf("error unmarshaling field '%s': %v", field, err)
+        if err := json.Unmarshal([]byte(value), &jsonData); err == nil {
+            return jsonData
         }
-        return jsonData, nil
     }
-    return nil, fmt.Errorf("field '%s' is missing or empty", field)
+    return nil  // Return nil if the field is missing or cannot be parsed
 }
 
 func formatTimestamp(t time.Time) string {
@@ -273,66 +291,61 @@ func formatTimestamp(t time.Time) string {
 }
 
 func userStateHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract UserID from URL
-	userID := r.URL.Path[len("/state/"):]
+    // Extract UserID from URL
+    userID := r.URL.Path[len("/state/"):]
 
-	// Prepare the SQL query to get the most recent message for each unique MessageID for the specific user
-	// Querying the 'summary' table which contains the latest message of each type for each user.
-	query := fmt.Sprintf(`
-		SELECT message_id, packet, timestamp
-		FROM summary
-		WHERE user_id = '%s'
-		ORDER BY message_id;
-	`, userID)
+    // Modify the SQL query to include the 'count' column
+    query := fmt.Sprintf(`
+        SELECT packet, timestamp, ais_class, count
+        FROM state
+        WHERE user_id = '%s';
+    `, userID)
 
-	// Call the QueryDatabaseForUser function to query the database for the specific user
-	rows, err := QueryDatabaseForUser(userID, query)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
+    // Call the QueryDatabaseForUser function to query the database for the specific user
+    rows, err := QueryDatabaseForUser(userID, query)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
+        return
+    }
+    defer rows.Close()
 
-	// Create a map to hold the merged results
-	mergedResults := make(map[string]interface{})
+    // Create a map to hold the merged results
+    mergedResults := make(map[string]interface{})
 
-	// Read the result and merge all packets into the mergedResults map
-	for rows.Next() {
-		var messageID, packet, timestamp string
-		if err := rows.Scan(&messageID, &packet, &timestamp); err != nil {
-			http.Error(w, fmt.Sprintf("Error scanning result: %v", err), http.StatusInternalServerError)
-			return
-		}
+    // Read the result and add packet data to mergedResults map
+    for rows.Next() {
+        var packet, timestamp, aisClass string
+        var count int
+        if err := rows.Scan(&packet, &timestamp, &aisClass, &count); err != nil {
+            http.Error(w, fmt.Sprintf("Error scanning result: %v", err), http.StatusInternalServerError)
+            return
+        }
 
-		// Unmarshal the packet into a map
-		var packetData map[string]interface{}
-		if err := json.Unmarshal([]byte(packet), &packetData); err != nil {
-			http.Error(w, fmt.Sprintf("Error unmarshalling packet data: %v", err), http.StatusInternalServerError)
-			return
-		}
+        // Unmarshal the packet into a map
+        var packetData map[string]interface{}
+        if err := json.Unmarshal([]byte(packet), &packetData); err != nil {
+            http.Error(w, fmt.Sprintf("Error unmarshalling packet data: %v", err), http.StatusInternalServerError)
+            return
+        }
 
-		// Remove the 'UserID' field from the packet data
-		delete(packetData, "UserID")
+        // Add AISClass to the packet data
+        packetData["AISClass"] = aisClass
 
-		// Add the 'timestamp' to the packet data
-		packetData["timestamp"] = timestamp
+        // Add the 'timestamp' to the packet data as LastUpdated
+        packetData["LastUpdated"] = timestamp
 
-		// Merge the packet data into the mergedResults map under the corresponding messageID
-		if _, exists := mergedResults[messageID]; !exists {
-			mergedResults[messageID] = make(map[string]interface{})
-		}
+        // Add the number of messages sent (NumMessages)
+        packetData["NumMessages"] = count
 
-		// Merge the data into the existing messageID entry
-		for key, value := range packetData {
-			mergedResults[messageID].(map[string]interface{})[key] = value
-		}
-	}
+        // Set the packet data directly as the response
+        mergedResults = packetData
+    }
 
-	// Send the response as JSON
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(mergedResults); err != nil {
-		http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
-	}
+    // Send the response as JSON
+    w.Header().Set("Content-Type", "application/json")
+    if err := json.NewEncoder(w).Encode(mergedResults); err != nil {
+        http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
+    }
 }
 
 // Utility function to handle debug logging
