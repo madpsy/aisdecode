@@ -116,7 +116,6 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 	results := make(map[string][]map[string]interface{})
 
 	for _, conn := range clientConnections {
-		log.Printf("Querying shard %s at %s:%d", conn.DbHost, conn.DbHost, conn.DbPort)
 
 		// Perform the query on the current shard's database
 		db := conn.Db
