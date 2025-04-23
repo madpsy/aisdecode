@@ -25,6 +25,7 @@ type FilterParams struct {
     MaxAge      int
     MinSpeed    float64
     UpdatePeriod int
+    UserID	int64
     LastUpdated time.Time
 }
 
@@ -159,13 +160,19 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 	return results, nil
 }
 
-func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64) (map[string]interface{}, error) {
+func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64) (map[string]interface{}, error) {
     query := `
         SELECT user_id, packet, timestamp, ais_class, count
         FROM state
     `
     
     whereAdded := false
+
+    // If UserID is provided, filter by user_id (UserID)
+    if userid > 0 {
+        query += fmt.Sprintf(" WHERE user_id = %d", userid)
+        whereAdded = true
+    }
 
     // If lat, lon, and radius are specified, filter by distance
     if lat != 0 && lon != 0 && radius != 0 {
@@ -189,36 +196,6 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
                     ST_SetSRID(ST_Point(%f, %f), 4326)
                 ) <= %f
             `, lon, lat, radius)
-            whereAdded = true
-        }
-    }
-
-    // Filter based on maxAge (timestamp) if maxAge is greater than 0
-    if maxAge > 0 {
-        currentTime := time.Now()
-        maxAgeDuration := time.Duration(maxAge) * time.Hour
-        if whereAdded {
-            query += fmt.Sprintf(`
-                AND timestamp >= '%s'
-            `, currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
-        } else {
-            query += fmt.Sprintf(`
-                WHERE timestamp >= '%s'
-            `, currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
-            whereAdded = true
-        }
-    }
-
-    // Filter based on minSpeed if minSpeed is greater than 0
-    if minSpeed > 0 {
-        if whereAdded {
-            query += fmt.Sprintf(`
-                AND (packet->>'Sog')::float >= %f
-            `, minSpeed)
-        } else {
-            query += fmt.Sprintf(`
-                WHERE (packet->>'Sog')::float >= %f
-            `, minSpeed)
             whereAdded = true
         }
     }
@@ -268,6 +245,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
             }
 
             summary := make(map[string]interface{})
+	    summary["UserID"] = getFieldFloat(packetMap, "UserID")
             summary["CallSign"] = getFieldString(packetMap, "CallSign")
             summary["Cog"] = getFieldFloat(packetMap, "Cog")
             summary["Destination"] = getFieldString(packetMap, "Destination")
@@ -307,7 +285,7 @@ func getHistoryResults(userID string, hours int) ([]map[string]interface{}, erro
 
     // SQL query to get the messages for the user in the specified time range with distance filtering
     query := fmt.Sprintf(`
- WITH filtered_messages AS (
+WITH filtered_messages AS (
     SELECT 
         timestamp,
         (packet->>'Longitude')::float AS longitude,
@@ -320,6 +298,19 @@ func getHistoryResults(userID string, hours int) ([]map[string]interface{}, erro
     WHERE user_id = '%s' 
       AND timestamp >= '%s'
       AND message_id IN (1, 2, 3, 18, 19)
+),
+latest_message AS (
+    SELECT 
+        timestamp,
+        (packet->>'Longitude')::float AS longitude,
+        (packet->>'Latitude')::float AS latitude,
+        (packet->>'Sog')::float AS sog,
+        (packet->>'Cog')::float AS cog,
+        (packet->>'TrueHeading')::float AS trueHeading
+    FROM messages
+    WHERE user_id = '%s'
+    ORDER BY timestamp DESC
+    LIMIT 1
 )
 SELECT 
     m1.timestamp,
@@ -336,12 +327,19 @@ WHERE
     OR ST_DistanceSphere(
         ST_SetSRID(ST_Point(m1.longitude, m1.latitude), 4326), 
         ST_SetSRID(ST_Point(m2.longitude, m2.latitude), 4326)
-    ) >= 20
-ORDER BY m1.timestamp;
-    `, userID, pastTime.UTC().Format(time.RFC3339))
-
-    // Log the query for debugging purposes
-    log.Printf("Executing query: %s", query)
+    ) >= 30
+UNION ALL
+SELECT 
+    l.timestamp,
+    l.latitude,
+    l.longitude,
+    l.sog,
+    l.cog,
+    l.trueHeading
+FROM latest_message l
+ORDER BY timestamp
+LIMIT 2000;
+    `, userID, pastTime.UTC().Format(time.RFC3339), userID)
 
     // Query the database for the results
     rows, err := QueryDatabaseForUser(userID, query)
@@ -382,6 +380,9 @@ func isNull(value float64) bool {
 }
 
 func summaryHandler(w http.ResponseWriter, r *http.Request) {
+    // Declare 'err' once at the beginning of the function
+    var err error
+
     // Extract latitude, longitude, and radius from query parameters
     latStr := r.URL.Query().Get("latitude")
     lonStr := r.URL.Query().Get("longitude")
@@ -423,7 +424,6 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
     minSpeedStr := r.URL.Query().Get("minSpeed")
     var minSpeed float64
     if minSpeedStr != "" {
-        var err error
         minSpeed, err = strconv.ParseFloat(minSpeedStr, 64)
         if err != nil || minSpeed < 0 {
             http.Error(w, "Invalid minSpeed value", http.StatusBadRequest)
@@ -431,9 +431,19 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    // Extract 'UserID' query parameter for filtering (optional)
+    useridStr := r.URL.Query().Get("UserID")
+    var userid int64
+    if useridStr != "" {
+        userid, err = strconv.ParseInt(useridStr, 10, 64)
+        if err != nil || userid <= 0 {
+            http.Error(w, "Invalid UserID value", http.StatusBadRequest)
+            return
+        }
+    }
+
     // Parse latitude, longitude, and radius if they are provided
     var lat, lon, radius float64
-    var err error
     if latStr != "" && lonStr != "" && radiusStr != "" {
         lat, err = strconv.ParseFloat(latStr, 64)
         if err != nil {
@@ -454,8 +464,8 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // Now call the function that generates the summary
-    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed)
+    // Now call the function that generates the summary, passing the UserID filter if provided
+    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid)
     if err != nil {
         http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
         return
@@ -468,48 +478,172 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
     }
 }
 
+func searchHandler(w http.ResponseWriter, r *http.Request) {
+    var requestBody struct {
+        Query  string `json:"query"`
+        MaxAge int    `json:"maxAge"`
+    }
+
+    // Decode the incoming JSON body
+    err := json.NewDecoder(r.Body).Decode(&requestBody)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Error parsing JSON: %v", err), http.StatusBadRequest)
+        return
+    }
+
+    // Ensure the query has at least 3 characters
+    if len(requestBody.Query) < 3 {
+        http.Error(w, "Query must be at least 3 characters long", http.StatusBadRequest)
+        return
+    }
+
+    // Limit maxAge to 1 week (168 hours)
+    if requestBody.MaxAge > 168 {
+        requestBody.MaxAge = 168
+    }
+
+    // Construct the SQL query with the filtering based on maxAge and case-insensitive search for "Name"
+    currentTime := time.Now()
+    maxAgeDuration := time.Duration(requestBody.MaxAge) * time.Hour
+    query := fmt.Sprintf(`
+        SELECT packet, timestamp, ais_class, count
+        FROM state
+        WHERE (packet->>'UserID')::text LIKE '%%%s%%'
+        OR (packet->>'ImoNumber')::text LIKE '%%%s%%'
+        OR (packet->>'Name')::text ILIKE '%%%s%%'  -- Using ILIKE for case-insensitive search on "Name"
+        OR (packet->>'CallSign')::text ILIKE '%%%s%%'  -- Using ILIKE for case-insensitive search on "CallSign"
+        AND timestamp >= '%s'
+        ORDER BY timestamp ASC
+        LIMIT 100  -- Limit the number of results to 100
+    `, requestBody.Query, requestBody.Query, requestBody.Query, requestBody.Query,
+        currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
+
+    // Execute the query to fetch the data
+    results, err := QueryDatabasesForAllShards(query)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    // Prepare the response data
+    var response []map[string]interface{}
+    for _, shardData := range results {
+        for _, row := range shardData {
+            packetData, ok := row["packet"].([]byte)
+            if !ok {
+                continue
+            }
+
+            packetStr := string(packetData)
+            var packetMap map[string]interface{}
+            if err := json.Unmarshal([]byte(packetStr), &packetMap); err != nil {
+                continue
+            }
+
+            // Extract relevant fields from the packet
+            summary := make(map[string]interface{})
+            summary["CallSign"] = getFieldString(packetMap, "CallSign")
+            summary["ImoNumber"] = getFieldFloat(packetMap, "ImoNumber")
+            summary["Name"] = getFieldString(packetMap, "Name")
+            summary["NumMessages"] = getFieldInt(row, "count")
+            summary["UserID"] = getFieldFloat(packetMap, "UserID")
+            if timestamp, ok := row["timestamp"].(time.Time); ok {
+                summary["LastUpdated"] = timestamp.UTC().Format(time.RFC3339Nano)
+            }
+
+            response = append(response, summary)
+        }
+    }
+
+    // Send the response as JSON
+    w.Header().Set("Content-Type", "application/json")
+    if err := json.NewEncoder(w).Encode(response); err != nil {
+        http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
+    }
+}
+
 func historyHandler(w http.ResponseWriter, r *http.Request) {
-    // Extract user_id and hours from URL path
+    // Extract user_id from URL path
     parts := strings.Split(r.URL.Path, "/")
-    if len(parts) != 4 {
+    if len(parts) != 3 {
         http.Error(w, "Invalid URL format", http.StatusBadRequest)
         return
     }
 
     userID := parts[2]
-    hoursStr := parts[3]
-    hours, err := strconv.Atoi(hoursStr)
-    if err != nil || hours <= 0 {
-        http.Error(w, "Invalid time period", http.StatusBadRequest)
+
+    // Extract maxAge from query parameters
+    maxAgeStr := r.URL.Query().Get("maxAge")
+    if maxAgeStr == "" {
+        http.Error(w, "Missing maxAge query parameter", http.StatusBadRequest)
         return
     }
 
-    // Get the history results
-    results, err := getHistoryResults(userID, hours)
+    // Convert maxAge from string to integer
+    maxAge, err := strconv.Atoi(maxAgeStr)
+    if err != nil || maxAge <= 0 {
+        http.Error(w, "Invalid maxAge value", http.StatusBadRequest)
+        return
+    }
+
+    // Limit maxAge to 1 week (168 hours)
+    if maxAge > 168 {
+        http.Error(w, "maxAge cannot exceed 168 hours (1 week)", http.StatusBadRequest)
+        return
+    }
+
+    // Get the history results based on maxAge
+    results, err := getHistoryResults(userID, maxAge)
     if err != nil {
         http.Error(w, fmt.Sprintf("Error fetching history: %v", err), http.StatusInternalServerError)
         return
     }
 
-    // Convert the results to CSV format without column headings
-    var csvData string
-    for _, row := range results {
-        timestamp := row["timestamp"].(time.Time).Format(time.RFC3339)
-        latitude := fmt.Sprintf("%f", row["latitude"].(float64))
-        longitude := fmt.Sprintf("%f", row["longitude"].(float64))
-        sog := fmt.Sprintf("%.2f", row["sog"].(float64)) // Rounded to 2 decimal places
-        cog := fmt.Sprintf("%.2f", row["cog"].(float64)) // Rounded to 2 decimal places
-        trueHeading := fmt.Sprintf("%.2f", row["trueHeading"].(float64)) // Rounded to 2 decimal places
+    // Check if the format query parameter is set to "csv"
+    format := r.URL.Query().Get("format")
+    if format == "csv" {
+        // Convert the results to CSV format without column headings
+        var csvData string
+        for _, row := range results {
+            timestamp := row["timestamp"].(time.Time).Format(time.RFC3339)
+            latitude := fmt.Sprintf("%f", row["latitude"].(float64))
+            longitude := fmt.Sprintf("%f", row["longitude"].(float64))
+            sog := fmt.Sprintf("%.2f", row["sog"].(float64)) // Rounded to 2 decimal places
+            cog := fmt.Sprintf("%.2f", row["cog"].(float64)) // Rounded to 2 decimal places
+            trueHeading := fmt.Sprintf("%.2f", row["trueHeading"].(float64)) // Rounded to 2 decimal places
 
-        csvData += fmt.Sprintf("%s,%s,%s,%s,%s,%s\n", timestamp, latitude, longitude, sog, cog, trueHeading)
+            csvData += fmt.Sprintf("%s,%s,%s,%s,%s,%s\n", timestamp, latitude, longitude, sog, cog, trueHeading)
+        }
+
+        // Set the Content-Type header to "text/csv"
+        w.Header().Set("Content-Type", "text/csv")
+        w.Header().Set("Content-Disposition", "attachment; filename=history.csv")
+
+        // Write the CSV data to the response (no column headings)
+        w.Write([]byte(csvData))
+    } else {
+        // Convert the results to JSON format
+        w.Header().Set("Content-Type", "application/json")
+        jsonData, err := json.Marshal(results)
+        if err != nil {
+            http.Error(w, fmt.Sprintf("Error marshaling results to JSON: %v", err), http.StatusInternalServerError)
+            return
+        }
+
+        // Write the JSON data to the response
+        w.Write(jsonData)
     }
+}
 
-    // Set the Content-Type header to "text/csv"
-    w.Header().Set("Content-Type", "text/csv")
-    w.Header().Set("Content-Disposition", "attachment; filename=history.csv")
-
-    // Write the CSV data to the response (no column headings)
-    w.Write([]byte(csvData))
+// Helper function to safely get an integer from the result map
+func getFieldInt(row map[string]interface{}, field string) int {
+    if value, ok := row[field].(int); ok {
+        return value
+    }
+    if value, ok := row[field].(int64); ok {
+        return int(value)
+    }
+    return 0
 }
 
 // Helper function to safely get a string value from packetData (returns empty string if not found)
@@ -563,6 +697,7 @@ func formatTimestamp(t time.Time) string {
 }
 
 func handleSummaryRequest(client *socket.Socket, data map[string]interface{}) {
+
     // Extract parameters from the incoming WebSocket message
     lat, _ := data["latitude"].(float64)
     lon, _ := data["longitude"].(float64)
@@ -570,9 +705,14 @@ func handleSummaryRequest(client *socket.Socket, data map[string]interface{}) {
     limit, _ := data["limit"].(int)
     maxAge, _ := data["maxAge"].(int)
     minSpeed, _ := data["minSpeed"].(float64)
+    userid, _ := data["UserID"].(int64)
 
-    // Get the summary results using the previously defined function
-    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed)
+    // Log the parameters for debugging
+    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d",
+        client.Id(), lat, lon, radius, limit, maxAge, minSpeed, userid)
+
+    // Now call the function that generates the summary
+    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid)
     if err != nil {
         log.Printf("Error fetching summary: %v", err)
         return
@@ -580,7 +720,7 @@ func handleSummaryRequest(client *socket.Socket, data map[string]interface{}) {
 
     // Send the summary data back to the client
     if err := client.Emit("summaryData", summarizedResults); err != nil {
-        log.Printf("Error sending summary data: %v", err)
+        log.Printf("Error sending summary data to client %s: %v", client.Id(), err)
     }
 }
 
@@ -821,6 +961,8 @@ func setupServer(settings *Settings) {
 
 	mux.HandleFunc("/history/", historyHandler)
 
+	mux.HandleFunc("/search", searchHandler)
+
 	// Set up Socket.IO handler
 	engineServer := types.CreateServer(nil)
 	ioServer = socket.NewServer(engineServer, nil)
@@ -866,10 +1008,11 @@ client.On("requestSummary", func(args ...any) {
     maxResults, _ := data["maxResults"].(float64)
     minSpeed, _ := data["minSpeed"].(float64)
     updatePeriod, _ := data["updatePeriod"].(float64)
+    UserID, _ := data["UserID"].(float64)
 
-    // Log the parameters for debugging
-    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, updatePeriod=%d",
-        client.Id(), lat, lon, radius, int(maxResults), int(maxAge), minSpeed, int(updatePeriod))
+    if updatePeriod == 0 {
+        updatePeriod = 5
+    }
 
     // Store the parameters in the clientSummaryFilters map
     clientSummaryFilters[client.Id()] = FilterParams{
@@ -880,11 +1023,12 @@ client.On("requestSummary", func(args ...any) {
         MaxAge:      int(maxAge),
         MinSpeed:    minSpeed,
         UpdatePeriod: int(updatePeriod),
+	UserID:	     int64(UserID),
         LastUpdated: time.Now(),
     }
 
     // Optionally, you can immediately send the summary after receiving the request
-    summarizedResults, err := getSummaryResults(lat, lon, radius, int(maxResults), int(maxAge), minSpeed)
+    summarizedResults, err := getSummaryResults(lat, lon, radius, int(maxResults), int(maxAge), minSpeed, int64(UserID))
     if err != nil {
         log.Printf("Error fetching summary for client %s: %v", client.Id(), err)
         return
@@ -968,7 +1112,7 @@ func main() {
 	                    // Use the stored parameters for that client
 	                    summarizedResults, err := getSummaryResults(
 	                        settings.Latitude, settings.Longitude, settings.Radius,
-	                        settings.MaxResults, settings.MaxAge, settings.MinSpeed,
+	                        settings.MaxResults, settings.MaxAge, settings.MinSpeed, settings.UserID,
 	                    )
 	                    if err != nil {
 	                        log.Printf("Error fetching summary for client %s: %v", clientID, err)
@@ -995,6 +1139,7 @@ func main() {
         	                MaxAge:      settings.MaxAge,
         	                MinSpeed:    settings.MinSpeed,
         	                UpdatePeriod: settings.UpdatePeriod,
+				UserID:	     settings.UserID,
         	                LastUpdated: time.Now(),  // Update only after sending
         	            }
         	        } else {

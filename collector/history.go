@@ -300,9 +300,6 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
 
     // Remove the MessageID field before inserting
     delete(existingPacket, "MessageID")
-    
-    // Remove the UserID field from the merged packet
-    delete(existingPacket, "UserID")
 
     // Marshal the merged packet back to JSON
     packetJSON, err = json.Marshal(existingPacket)
@@ -487,6 +484,18 @@ func createIndexesIfNotExist(db *sql.DB) {
     `)
     if err != nil {
         log.Printf("Error creating index for user_id in state table: %v", err)
+    }
+    _, err = db.Exec(`
+        CREATE INDEX IF NOT EXISTS idx_packet_jsonb_search_fields ON state USING GIN (packet jsonb_ops);
+    `)
+    if err != nil {
+        log.Printf("Error creating index for search_fields in state table: %v", err)
+    }
+    _, err = db.Exec(`
+        CREATE INDEX IF NOT EXISTS idx_messages_geospatial ON messages USING GIST (ST_SetSRID(ST_Point((packet->>'Longitude')::float, (packet->>'Latitude')::float), 4326))
+    `)
+    if err != nil {
+        log.Printf("Error creating index for idx_messages_geospatial in state table: %v", err)
     }
 }
 

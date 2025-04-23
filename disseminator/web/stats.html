@@ -683,11 +683,11 @@ document.getElementById('directionChart').addEventListener('dblclick', () => {
             });
         }
         
-        // --- 7. Load Historical Data from /history/<UserID>/<hours> ---
+        // --- 7. Load Historical Data
     function loadHistoryData() {
       const periodSelect = document.getElementById('time-period');
       const periodValue = periodSelect.value; // e.g., "1", "3", "9999" for All.
-      fetch('/history/' + userID + '/' + periodValue)
+      fetch('/history/' + userID + '?format=csv&maxAge=' + periodValue)
         .then(response => response.text())
         .then(csvText => {
           // Clear existing history arrays.
