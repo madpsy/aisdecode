@@ -12,7 +12,7 @@ import (
 	"time"
 	"strings"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/zishang520/socket.io/v2/socket"
 	"github.com/zishang520/engine.io/v2/types"
 )
@@ -728,14 +728,21 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
     // Extract UserID from URL
     userID := r.URL.Path[len("/state/"):]
 
-    // Modify the SQL query to include the 'count' column
+    // Modify the SQL query to include the 'count' column and fetch unique message_ids using ARRAY_AGG
     query := fmt.Sprintf(`
-        SELECT packet, timestamp, ais_class, count
+        SELECT 
+            state.packet, 
+            state.timestamp, 
+            state.ais_class, 
+            state.count, 
+            ARRAY_AGG(DISTINCT messages.message_id) AS message_types
         FROM state
-        WHERE user_id = '%s';
+        LEFT JOIN messages ON state.user_id = messages.user_id
+        WHERE state.user_id = '%s'
+        GROUP BY state.packet, state.timestamp, state.ais_class, state.count;
     `, userID)
 
-    // Call the QueryDatabaseForUser function to query the database for the specific user
+    // Query the database for the specific user state and message_ids
     rows, err := QueryDatabaseForUser(userID, query)
     if err != nil {
         http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
@@ -747,29 +754,29 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
     mergedResults := make(map[string]interface{})
 
     // Read the result and add packet data to mergedResults map
+    var packetData map[string]interface{}
     for rows.Next() {
         var packet, timestamp, aisClass string
         var count int
-        if err := rows.Scan(&packet, &timestamp, &aisClass, &count); err != nil {
+        var messageTypes pq.StringArray // Use pq.StringArray to handle the ARRAY_AGG type
+
+        // Scan the result into the respective variables
+        if err := rows.Scan(&packet, &timestamp, &aisClass, &count, &messageTypes); err != nil {
             http.Error(w, fmt.Sprintf("Error scanning result: %v", err), http.StatusInternalServerError)
             return
         }
 
         // Unmarshal the packet into a map
-        var packetData map[string]interface{}
         if err := json.Unmarshal([]byte(packet), &packetData); err != nil {
             http.Error(w, fmt.Sprintf("Error unmarshalling packet data: %v", err), http.StatusInternalServerError)
             return
         }
 
-        // Add AISClass to the packet data
+        // Add AISClass, LastUpdated, NumMessages, and MessageTypes to the packet data
         packetData["AISClass"] = aisClass
-
-        // Add the 'timestamp' to the packet data as LastUpdated
         packetData["LastUpdated"] = timestamp
-
-        // Add the number of messages sent (NumMessages)
         packetData["NumMessages"] = count
+        packetData["MessageTypes"] = messageTypes
 
         // Set the packet data directly as the response
         mergedResults = packetData
@@ -781,6 +788,8 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
     }
 }
+
+
 
 // Utility function to handle debug logging
 func logWithDebug(debug bool, format string, args ...interface{}) {

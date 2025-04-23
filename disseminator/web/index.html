@@ -673,7 +673,7 @@ function sendSummaryRequest() {
   
   if (onlyTracked && focusedVessel) {
     const filterParams = {
-    MMSI: parseInt(focusedVessel, 10)  // Convert to integer
+    UserID: parseInt(focusedVessel, 10)  // Convert to integer
   };
     const jsonPayload = JSON.stringify(filterParams);
     console.log("Emitting requestSummary (Only Tracked):", jsonPayload);
@@ -975,7 +975,7 @@ function refreshReceivers() {
           receiverData[id] = {
             Name: receiver.name,
             LastUpdated: receiver.LastUpdated,
-            MMSI: id,
+            UserID: id,
             isReceiver: true,
             // You can store other properties (url, description, etc.) if needed.
             url: receiver.url,

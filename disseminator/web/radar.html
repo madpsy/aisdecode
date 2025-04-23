@@ -623,7 +623,6 @@ function drawRadarGauge() {
         subscribedVessels[mmsi] = false;
       });
       socket.emit("subscribe", mainChannel);
-      socket.emit("subscribe", "latest_vessel_summary");
       updateSubscriptions();
     });
 
@@ -672,7 +671,7 @@ socket.on("ais_data", function(message) {
 });
 
 
-    socket.on("latest_vessel_summary", function(data) {
+    socket.on("summaryData", function(data) {
       if (typeof data === "string") {
         try {
           data = JSON.parse(data);
@@ -705,7 +704,6 @@ socket.on("ais_data", function(message) {
 
     window.addEventListener("beforeunload", function() {
       socket.emit("unsubscribe", mainChannel);
-      socket.emit("unsubscribe", "latest_vessel_summary");
       Object.keys(subscribedVessels).forEach(mmsi => {
         if (subscribedVessels[mmsi]) {
           socket.emit("unsubscribe", "ais_data/" + mmsi);
