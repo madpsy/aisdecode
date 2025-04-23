@@ -1707,8 +1707,8 @@ function createPopupContent(data) {
   addLine(lines, "Last Update", data.lastUpdate ? timeAgo(data.lastUpdate) : null);
   addLine(lines, "MMSI", data.UserID);
 
-  if (data.MID) {
-    const midData = lookupMID(data.MID);
+  if (data.UserID) {
+    const midData = lookupMidByUserID(data.UserID);
     addLine(lines, "Country", midData.country);
   }
 
@@ -1732,21 +1732,23 @@ function createPopupContent(data) {
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
 }
 
+function lookupMidByUserID(userID) {
+  // Extract the first 3 characters to form the MID
+  const mid = String(userID).substring(0, 3);
 
-
-function lookupMID(mid) {
   if (mids.hasOwnProperty(mid)) {
     return {
       shortcode: mids[mid][0] || "Unknown",   // Country short code
-      country: mids[mid][3] || "Unknown" // Country name
+      country:   mids[mid][3] || "Unknown"    // Country name
     };
   }
+
+  // Fallback if MID not found
   return {
     shortcode: "ZZ",
-    country: "Unknown"
+    country:   "Unknown"
   };
 }
-
 
 function buildTooltipLine(...values) {
   return values
@@ -1801,8 +1803,8 @@ function createDetailContent(data) {
   addLine(lines, "MMSI", data.UserID);
   addLine(lines, "AIS Class", data.AISClass);
 
-if (data.MID) {
-  const midData = lookupMID(data.MID);
+if (data.UserID) {
+  const midData = lookupMidByUserID(data.UserID);
   const countryFlag = `
     <div style="display: inline-flex; align-items: center; margin: 0;">
       <span style="line-height: 20px; margin-right: 8px;">Flag:</span>
