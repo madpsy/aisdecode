@@ -200,6 +200,16 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
         }
     }
 
+    if maxAge > 0 {
+        cutoff := time.Now().Add(-time.Duration(maxAge) * time.Hour).UTC().Format(time.RFC3339Nano)
+        if whereAdded {
+            query += fmt.Sprintf(" AND timestamp >= '%s'", cutoff)
+        } else {
+            query += fmt.Sprintf(" WHERE timestamp >= '%s'", cutoff)
+            whereAdded = true
+        }
+    }
+
     // Finalizing the query
     query += " ORDER BY timestamp ASC"
 
