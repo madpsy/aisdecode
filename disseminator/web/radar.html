@@ -33,6 +33,14 @@
     let lastSummaryLon = null;
     let showSeamapOverlay = true;
 
+    function sanitizeTrueHeading(trueHeading) {
+      // Ensure TrueHeading is within the range [0, 360). If not, set it to null.
+      if (trueHeading >= 360 || trueHeading < 0) {
+        return null; // Set to null if the value is out of range
+      }
+      return trueHeading;
+    }
+
     function getTileImage(tileX, tileY, zoom) {
       const key = `${zoom}/${tileX}/${tileY}`;
       if (tileCache[key]) return tileCache[key];
@@ -251,13 +259,18 @@ function updateStats() {
         closestDistance = distanceNM;
 
         // Calculate the absolute bearing (relative to north)
-        let angleRad = Math.atan2(offset.x, offset.y);
-        let angleDeg = angleRad * 180 / Math.PI;
-        if (angleDeg < 0) angleDeg += 360;
+        let angleRad = Math.atan2(offset.x, offset.y); // Angle in radians
+        let angleDeg = angleRad * 180 / Math.PI; // Convert to degrees
+
+        // Normalize angleDeg to [0, 360)
+        if (angleDeg < 0) angleDeg += 360; // If negative, wrap around to positive
 
         // Adjust the angle so it's relative to our current heading.
         let relativeAngle = angleDeg - currentRotation;
-        if (relativeAngle < 0) relativeAngle += 360;
+
+        // Normalize relativeAngle to [0, 360) using modulo operation
+        relativeAngle = (relativeAngle % 360 + 360) % 360; // This ensures the angle stays in [0, 360)
+
         closestVesselAngle = relativeAngle;
 
         // Determine the closest vessel's name or fallback to the identifier.
@@ -282,7 +295,7 @@ function updateStats() {
     } else {
       textColor = "green";
     }
-    
+
     // Use a span with inline styling to display colored text.
     statsDiv.innerHTML = `<span style="color: ${textColor};">
                             <strong>${closestVesselName} ${closestDistance.toFixed(2)} NM / ${closestVesselAngle.toFixed(0)}°</strong>
@@ -292,6 +305,7 @@ function updateStats() {
     statsDiv.innerHTML = `No other vessels in view`;
   }
 }
+
 
     // ------------------------------
     // Draw the Background Map with Dynamic OpenStreetMap & OpenSeaMap Tiles
@@ -458,49 +472,56 @@ function drawRadarGauge() {
   ctx.translate(canvasSize / 2, canvasSize / 2);
   // Rotate relative to smooth rotation instead of immediate heading
   ctx.rotate(-currentRotation * Math.PI / 180);
-  Object.keys(vesselSummaries).forEach(mmsi => {
-    const vessel = vesselSummaries[mmsi];
-    if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
-    const deltaLat = vessel.Latitude - currentVesselLat;
-    const deltaLon = vessel.Longitude - currentVesselLon;
-    const offset = latLonToNM(deltaLat, deltaLon, currentVesselLat);
-    const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
-    if (distanceNM > radarNM) return;
-    const offsetX = offset.x * scaleFactor;
-    const offsetY = -offset.y * scaleFactor;
+Object.keys(vesselSummaries).forEach(mmsi => {
+  const vessel = vesselSummaries[mmsi];
+  if (vessel.Latitude === undefined || vessel.Longitude === undefined) return;
+  const deltaLat = vessel.Latitude - currentVesselLat;
+  const deltaLon = vessel.Longitude - currentVesselLon;
+  const offset = latLonToNM(deltaLat, deltaLon, currentVesselLat);
+  const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
+  if (distanceNM > radarNM) return;
 
-    if (vessel.Heading !== undefined && vessel.Heading !== null) {
-      const length = 14;
-      const width = 10;
-      const vesselRotation = (vessel.Heading * Math.PI / 180);
-      ctx.save();
-      ctx.translate(offsetX, offsetY);
-      ctx.rotate(vesselRotation);
-      ctx.beginPath();
-      ctx.moveTo(0, -length / 2);
-      ctx.lineTo(width / 2, length / 2);
-      ctx.lineTo(-width / 2, length / 2);
-      ctx.closePath();
-      ctx.fillStyle = "red";
-      ctx.fill();
-      ctx.strokeStyle = "black";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.restore();
-    } else {
-      ctx.beginPath();
-      ctx.arc(offsetX, offsetY, 4, 0, 2 * Math.PI);
-      ctx.fillStyle = "red";
-      ctx.fill();
-    }
+  const offsetX = offset.x * scaleFactor;
+  const offsetY = -offset.y * scaleFactor;
+
+  // Sanitize heading (TrueHeading or Cog)
+  const heading = sanitizeTrueHeading(vessel.TrueHeading !== undefined && vessel.TrueHeading !== null
+                                      ? vessel.TrueHeading
+                                      : vessel.Cog);
+
+  if (heading !== null) {
+    const length = 14;
+    const width = 10;
+    const vesselRotation = (heading * Math.PI / 180); // Rotate by sanitized heading
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.rotate(vesselRotation);
+    ctx.beginPath();
+    ctx.moveTo(0, -length / 2);
+    ctx.lineTo(width / 2, length / 2);
+    ctx.lineTo(-width / 2, length / 2);
+    ctx.closePath();
+    ctx.fillStyle = "red";
+    ctx.fill();
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    ctx.beginPath();
+    ctx.arc(offsetX, offsetY, 4, 0, 2 * Math.PI);
+    ctx.fillStyle = "red";
+    ctx.fill();
+  }
+
+  // Additional SOG-based indicator (if available)
   if (vessel.Sog !== undefined && parseFloat(vessel.Sog) > 0.5) {
-    // Adjust the radius as needed, here we use 3 pixels
     ctx.beginPath();
     ctx.arc(offsetX, offsetY, 2, 0, 2 * Math.PI);
     ctx.fillStyle = "green";
     ctx.fill();
   }
-  });
+});
   ctx.restore();
 
   // Draw Vessel Labels (non-rotated)
@@ -639,7 +660,7 @@ socket.on("ais_data", function(message) {
     if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
       // Handle main vessel position
       if (message.data.Latitude !== undefined && message.data.Longitude !== undefined) {
-        const heading = (message.data.TrueHeading !== undefined && message.data.TrueHeading !== null)
+        const heading = sanitizeTrueHeading(message.data.TrueHeading !== undefined && message.data.TrueHeading !== null)
                           ? message.data.TrueHeading
                           : message.data.Cog;
         updateMainVesselPosition(message.data.Latitude, message.data.Longitude, heading);
@@ -671,36 +692,38 @@ socket.on("ais_data", function(message) {
 });
 
 
-    socket.on("summaryData", function(data) {
-      if (typeof data === "string") {
-        try {
-          data = JSON.parse(data);
-        } catch (e) {
-          return;
-        }
-      }
-      if (data.hasOwnProperty(userID)) {
-        const mainData = data[userID];
-        if (mainData.Latitude !== undefined && mainData.Longitude !== undefined) {
-          const heading = (mainData.TrueHeading !== undefined && mainData.TrueHeading !== null)
-                          ? mainData.TrueHeading
-                          : mainData.Cog;
-          updateMainVesselPosition(mainData.Latitude, mainData.Longitude, heading);
-        }
-        delete data[userID];
-      }
-      vesselSummaries = data;
-      Object.keys(vesselSummaries).forEach(key => {
-        let vessel = vesselSummaries[key];
-        if (vessel.TrueHeading !== undefined && vessel.TrueHeading !== null) {
-      	   vessel.Heading = vessel.TrueHeading;
-	} else if (vessel.Cog !== undefined && vessel.Cog !== null) {
-      	   vessel.Heading = vessel.Cog;
-        }
-      });
-      drawRadarGauge();
-      updateSubscriptions();
-    });
+socket.on("summaryData", function(data) {
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch (e) {
+      return;
+    }
+  }
+  if (data.hasOwnProperty(userID)) {
+    const mainData = data[userID];
+    if (mainData.Latitude !== undefined && mainData.Longitude !== undefined) {
+      const heading = (mainData.TrueHeading !== undefined && mainData.TrueHeading !== null)
+                      ? sanitizeTrueHeading(mainData.TrueHeading) // Sanitize TrueHeading here
+                      : mainData.Cog;
+      updateMainVesselPosition(mainData.Latitude, mainData.Longitude, heading);
+    }
+    delete data[userID];
+  }
+  vesselSummaries = data;
+  Object.keys(vesselSummaries).forEach(key => {
+    let vessel = vesselSummaries[key];
+    if (vessel.TrueHeading !== undefined && vessel.TrueHeading !== null) {
+      // Sanitize heading here as well
+      vessel.Heading = sanitizeTrueHeading(vessel.TrueHeading);
+    } else if (vessel.Cog !== undefined && vessel.Cog !== null) {
+      vessel.Heading = sanitizeTrueHeading(vessel.Cog); // Sanitize COG too
+    }
+  });
+  drawRadarGauge();
+  updateSubscriptions();
+});
+
 
     window.addEventListener("beforeunload", function() {
       socket.emit("unsubscribe", mainChannel);
@@ -754,7 +777,7 @@ socket.on("ais_data", function(message) {
     window.addEventListener("resize", resizeCanvas);
 
     window.addEventListener("load", () => {
-      fetch(`/summary?userID=${userID}`)
+      fetch(`/summary?UserID=${userID}`)
         .then(response => {
           if (!response.ok) {
             throw new Error("Network response was not ok");

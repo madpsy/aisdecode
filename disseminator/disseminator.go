@@ -289,26 +289,31 @@ WITH filtered_messages AS (
     SELECT 
         timestamp,
         (packet->>'Longitude')::float AS longitude,
-        (packet->>'Latitude')::float AS latitude,
-        (packet->>'Sog')::float AS sog,
-        (packet->>'Cog')::float AS cog,
+        (packet->>'Latitude')::float  AS latitude,
+        (packet->>'Sog')::float       AS sog,
+        (packet->>'Cog')::float       AS cog,
         (packet->>'TrueHeading')::float AS trueHeading,
         ROW_NUMBER() OVER (ORDER BY timestamp) AS row_num
     FROM messages
-    WHERE user_id = '%s' 
+    WHERE user_id = '%s'
       AND timestamp >= '%s'
-      AND message_id IN (1, 2, 3, 18, 19)
+      AND message_id IN (1,2,3,18,19)
+      AND packet->>'Longitude'  IS NOT NULL
+      AND packet->>'Latitude'   IS NOT NULL
+      -- optionally: AND packet->>'Longitude' <> '' AND packet->>'Latitude' <> ''
 ),
 latest_message AS (
     SELECT 
         timestamp,
         (packet->>'Longitude')::float AS longitude,
-        (packet->>'Latitude')::float AS latitude,
-        (packet->>'Sog')::float AS sog,
-        (packet->>'Cog')::float AS cog,
+        (packet->>'Latitude')::float  AS latitude,
+        (packet->>'Sog')::float       AS sog,
+        (packet->>'Cog')::float       AS cog,
         (packet->>'TrueHeading')::float AS trueHeading
     FROM messages
     WHERE user_id = '%s'
+      AND packet->>'Longitude' IS NOT NULL
+      AND packet->>'Latitude'  IS NOT NULL
     ORDER BY timestamp DESC
     LIMIT 1
 )
@@ -328,7 +333,9 @@ WHERE
         ST_SetSRID(ST_Point(m1.longitude, m1.latitude), 4326), 
         ST_SetSRID(ST_Point(m2.longitude, m2.latitude), 4326)
     ) >= 30
+
 UNION ALL
+
 SELECT 
     l.timestamp,
     l.latitude,
@@ -337,6 +344,7 @@ SELECT
     l.cog,
     l.trueHeading
 FROM latest_message l
+
 ORDER BY timestamp
 LIMIT 2000;
     `, userID, pastTime.UTC().Format(time.RFC3339), userID)

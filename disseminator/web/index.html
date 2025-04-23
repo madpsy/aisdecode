@@ -676,7 +676,7 @@ function sendSummaryRequest() {
     UserID: parseInt(focusedVessel, 10)  // Convert to integer
   };
     const jsonPayload = JSON.stringify(filterParams);
-    console.log("Emitting requestSummary (Only Tracked):", jsonPayload);
+    //console.log("Emitting requestSummary (Only Tracked):", jsonPayload);
     socket.emit("requestSummary", jsonPayload);
     updateOverlay();
     return;
@@ -1738,8 +1738,8 @@ function lookupMidByUserID(userID) {
 
   if (mids.hasOwnProperty(mid)) {
     return {
-      shortcode: mids[mid][0] || "Unknown",   // Country short code
-      country:   mids[mid][3] || "Unknown"    // Country name
+      shortcode: mids[mid][0] || null,   // Country short code
+      country:   mids[mid][3] || null    // Country name
     };
   }
 
@@ -1890,19 +1890,15 @@ if (data.UserID) {
   addLine(lines, "Position Accuracy", data.PositionAccuracy);
 
   if (data.CommunicationState != null) {
-    const comm = decodeCommunicationState(data.CommunicationState);
-    lines.push("Communication State:");
-    lines.push(`- Sync State: ${comm.syncState}`);
-    lines.push(`- Slot Timeout: ${comm.slotTimeout}`);
-    lines.push(`- Slot Offset: ${comm.slotOffset}`);
+    const { syncState, slotTimeout, slotOffset } = decodeCommunicationState(data.CommunicationState);
+    lines.push(`Comms State: ${[syncState, slotTimeout, slotOffset].join(', ')}`);
   }
 
   if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
-    lines.push("Message Types:");
-    data.MessageTypes.forEach(type => {
-      const friendlyName = friendlyMessageTypes[type] || type;
-      lines.push(`- ${friendlyName}`);
-    });
+    // build an array of friendly names
+    const friendlyNames = data.MessageTypes.map(type => friendlyMessageTypes[type] || type);
+    // join them with commas and push one line
+    lines.push(`Message Types: ${friendlyNames.join(', ')}`);
   }
 
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
@@ -2995,7 +2991,8 @@ function focusOnVessel(UserID, initialFocus = true) {
     staticTypeMapping[vessel.Type] || vessel.Type,
     (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
     (vessel.Sog != null ? `${vessel.Sog} kn` : null),
-    (vessel.TrueHeading != null ? `${vessel.TrueHeading}°` : null)
+    (vessel.TrueHeading != null && vessel.TrueHeading < 360 ? `${vessel.TrueHeading}°` : `${vessel.Cog}°`)
+
   );
   const tooltipLines = [`${vessel.Name} (${vessel.CallSign})`];
   if (line1.trim()) tooltipLines.push(line1);
@@ -3353,7 +3350,9 @@ function updateFocussedTooltip() {
       staticTypeMapping[vessel.Type] || vessel.Type,
       (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
       (vessel.Sog != null ? `${vessel.Sog} kn` : null),
-      (vessel.TrueHeading != null ? `${vessel.TrueHeading}°` : null)
+      (vessel.TrueHeading != null && vessel.TrueHeading < 360 ? `${vessel.TrueHeading}°` : `${vessel.Cog}°`)
+
+
     );
 
     const tooltipLines = [`${vessel.Name} (${vessel.CallSign})`];
