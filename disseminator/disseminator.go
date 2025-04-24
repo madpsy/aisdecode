@@ -70,7 +70,8 @@ var ioServer *socket.Server
 var connectedClients = make(map[socket.SocketId]*socket.Socket)
 var clientSummaryFilters = make(map[socket.SocketId]FilterParams)
 
-
+// AIS spec: TrueHeading == 511 means “not available”
+const NoTrueHeading = 511.0
 
 func shardForUser(userID string) int {
     h := fnv.New32a()
@@ -154,7 +155,7 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 		}
 
 		// Log the total number of rows returned for the current shard
-		log.Printf("Shard %s returned %d rows", conn.DbHost, rowCount)
+		// log.Printf("Shard %s returned %d rows", conn.DbHost, rowCount)
 	}
 	// log.Printf("Results collected: %+v", results)
 	return results, nil
@@ -270,12 +271,12 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
             summary["NameExtension"] = getFieldString(packetMap, "NameExtension")
             summary["NavigationalStatus"] = getFieldFloat(packetMap, "NavigationalStatus")
             summary["Sog"] = getFieldFloat(packetMap, "Sog")
-            summary["TrueHeading"] = getFieldFloat(packetMap, "TrueHeading")
             summary["Type"] = getFieldFloat(packetMap, "Type")
 
 	    // pull out the raw floats
-	    lat := getFieldFloat(packetMap, "Latitude")
-	    lon := getFieldFloat(packetMap, "Longitude")
+	    lat         := getFieldFloat(packetMap, "Latitude")
+	    lon         := getFieldFloat(packetMap, "Longitude")
+	    trueheading := getFieldFloat(packetMap, "TrueHeading")
 
 	    // garbage sentinel, skip this row entirely
 	    if lat < -90 || lat > 90 || lon < -180 || lon > 180 {
@@ -285,6 +286,10 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	    // only then insert them into summary
 	    summary["Latitude"]  = lat
 	    summary["Longitude"] = lon
+
+            if trueheading != NoTrueHeading {
+    		summary["TrueHeading"] = trueheading
+	    }
 
             if aisClass, ok := row["ais_class"].(string); ok {
                 summary["AISClass"] = aisClass
@@ -832,6 +837,12 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
             return
         }
 
+    	if _, exists := packetData["TrueHeading"]; exists {
+             if getFieldFloat(packetData, "TrueHeading") == NoTrueHeading {
+        	delete(packetData, "TrueHeading")
+	     }
+	}
+
         // override Name from DB if present
         if dbName.Valid {
             packetData["Name"] = dbName.String
@@ -1059,7 +1070,7 @@ ioServer.On("connection", func(args ...any) {
 
     // Log the event when the client sends 'requestSummary'
 client.On("requestSummary", func(args ...any) {
-    log.Printf("Received 'requestSummary' event from client %s", client.Id())
+    // log.Printf("Received 'requestSummary' event from client %s", client.Id())
 
     if len(args) < 1 {
         log.Printf("No data received with 'requestSummary' event")
