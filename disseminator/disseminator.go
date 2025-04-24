@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"net/http/httputil"
 	"os"
 	"hash/fnv"
 	"strconv"
@@ -36,6 +38,7 @@ type Settings struct {
 	ListenPort  int    `json:"listen_port"`
 	Debug       bool   `json:"debug"`
 	PollInterval int   `json:"poll_interval"`
+	ReceiversBaseURL string `json:"receivers_base_url"`
 }
 
 // This struct will contain the actual client database connection settings
@@ -303,7 +306,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	    trueheading := getFieldFloat(packetMap, "TrueHeading")
 
 	    // garbage sentinel, skip this row entirely
-	    if lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+	    if isNull(lat) || isNull(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
 		continue
 	    }
 
@@ -611,7 +614,7 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    var response []map[string]interface{}
+    response := make([]map[string]interface{}, 0)
     for _, shardData := range results {
         for _, row := range shardData {
             packetData, ok := row["packet"].([]byte)
@@ -626,6 +629,12 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
             name := getFieldString(packetMap, "Name")
             if ext := getFieldString(packetMap, "NameExtension"); ext != "" {
                 name += ext
+            }
+
+            lat := getFieldFloat(packetMap, "Latitude")
+            lon := getFieldFloat(packetMap, "Longitude")
+            if isNull(lat) || isNull(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+                continue
             }
 
             summary := map[string]interface{}{
@@ -1103,6 +1112,18 @@ func startHTTPServer(port int, mux *http.ServeMux) {
 func setupServer(settings *Settings) {
 	// Create a new ServeMux
 	mux := http.NewServeMux()
+
+        receiversTarget, err := url.Parse(settings.ReceiversBaseURL)
+	if err != nil {
+	    log.Fatalf("invalid receivers_url: %v", err)
+	}
+	receiversProxy := httputil.NewSingleHostReverseProxy(receiversTarget)
+	mux.Handle("/receivers", receiversProxy)
+
+
+	//metricsTarget, _ := url.Parse(fmt.Sprintf("http://%s:%d", settings.IngestHost, settings.IngestPort))
+	//metricsProxy := httputil.NewSingleHostReverseProxy(metricsTarget)
+	//mux.Handle("/metrics", metricsProxy)
 
 	// Define the /summary} route
 	mux.HandleFunc("/summary", summaryHandler)

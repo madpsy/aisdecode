@@ -933,7 +933,7 @@ function refreshReceivers() {
 		  receiverMarkers[id].setPopupContent(popupContent);
           } else {
             const marker = L.marker([lat, lng], { icon: createReceiverIcon() }).addTo(map);
-            const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
+            const updatedLocalTime = new Date(receiver.lastupdated).toLocaleString();
             let linksHTML = "";
 	    if (receiver.url && receiver.url.trim() !== "") {
 	      linksHTML += `<a href="${receiver.url}" target="_blank">Website</a>`;
@@ -960,7 +960,7 @@ function refreshReceivers() {
             marker.bindPopup(popupContent, { autoPan: true });
 
             // Bind tooltip showing a label for a receiver.
-            marker.bindTooltip(`Receiver: ${receiver.name}`, {
+            marker.bindTooltip(`${receiver.name} (RX)`, {
               permanent: true,
               interactive: true,
               direction: 'top',

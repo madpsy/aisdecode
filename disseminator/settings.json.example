@@ -4,5 +4,6 @@
   "listen_port": 5001,
   "poll_interval": 5,
   "extra_lookup_table": "vesselfinder",
+  "receivers_base_url": "http://localhost:5123",
   "debug": false
 }
