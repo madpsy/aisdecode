@@ -14,7 +14,7 @@ let sortKey       = 'id';
 let sortDir       = 1; // 1 = ascending, -1 = descending
 
 async function loadReceivers() {
-  const res = await fetch('/receivers');
+  const res = await fetch('/admin/receivers');
   receiversData = await res.json();
   applySortAndFilter();
 }
@@ -79,7 +79,7 @@ function renderList(list) {
     .forEach(b => b.addEventListener('click', e => {
       const id = e.target.dataset.id;
       if (confirm(`Are you sure you want to delete receiver #${id}?`)) {
-        fetch(`/receivers/${id}`, { method: 'DELETE' })
+        fetch(`/admin/receivers/${id}`, { method: 'DELETE' })
           .then(res => {
             if (!res.ok) throw new Error(res.statusText);
             loadReceivers();
@@ -90,7 +90,7 @@ function renderList(list) {
 }
 
 function startEdit(id) {
-  fetch(`/receivers/${id}`)
+  fetch(`/admin/receivers/${id}`)
     .then(r => r.json())
     .then(r => {
       editId = r.id;
@@ -100,7 +100,7 @@ function startEdit(id) {
       document.getElementById('field-description').value = r.description;
       document.getElementById('field-latitude').value    = r.latitude;
       document.getElementById('field-longitude').value   = r.longitude;
-      document.getElementById('field-url').value         = r.url;
+      document.getElementById('field-url').value         = r.url ?? '';
     });
 }
 
@@ -120,8 +120,10 @@ form.onsubmit = async e => {
   };
   const urlVal = document.getElementById('field-url').value.trim();
   if (urlVal) payload.url = urlVal;
-  const method = editId ? 'PUT' : 'POST';
-  const url    = editId ? `/receivers/${editId}` : '/receivers';
+  const method = editId ? 'PUT'  : 'POST';
+  const url    = editId
+                ? `/admin/receivers/${editId}`
+                : '/admin/receivers';
   const res    = await fetch(url, {
     method,
     headers: {'Content-Type': 'application/json'},

@@ -51,11 +51,13 @@ type ReceiverPatch struct {
     URL         *string   `json:"url,omitempty"`
 }
 
-var db *sql.DB
-var settings Settings
+var (
+    db       *sql.DB
+    settings Settings
+)
 
 func main() {
-    // Load settings
+    // Load settings.json
     data, err := ioutil.ReadFile("settings.json")
     if err != nil {
         log.Fatalf("Error reading settings.json: %v", err)
@@ -64,7 +66,7 @@ func main() {
         log.Fatalf("Error parsing settings.json: %v", err)
     }
 
-    // Connect to DB
+    // Connect to Postgres
     connStr := fmt.Sprintf(
         "host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
         settings.DbHost, settings.DbPort, settings.DbUser, settings.DbPass, settings.DbName,
@@ -80,12 +82,24 @@ func main() {
 
     createSchema()
 
-    // API routes
-    http.HandleFunc("/receivers", receiversHandler)
-    http.HandleFunc("/receivers/", receiverHandler)
+    // Public API: only GET /receivers
+    http.HandleFunc("/receivers", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodGet {
+            w.WriteHeader(http.StatusMethodNotAllowed)
+            return
+        }
+        handleListReceivers(w, r)
+    })
 
-    // Serve static frontend under /admin/
-    http.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))))
+    // Admin API: full CRUD under /admin/receivers
+    http.HandleFunc("/admin/receivers", adminReceiversHandler)
+    http.HandleFunc("/admin/receivers/", adminReceiverHandler)
+
+    // Serve static files at /admin/
+    http.Handle(
+       "/admin/",
+       http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))),
+    )
 
     addr := fmt.Sprintf(":%d", settings.ListenPort)
     log.Printf("Server listening on %s", addr)
@@ -111,8 +125,7 @@ func createSchema() {
     if err != nil {
         log.Fatalf("Error creating index: %v", err)
     }
-
-    // Sync sequence in case of any manual upserts
+    // Sync the SERIAL sequence
     _, err = db.Exec(`
         SELECT setval(
           pg_get_serial_sequence('receivers','id'),
@@ -125,7 +138,37 @@ func createSchema() {
     }
 }
 
-func receiversHandler(w http.ResponseWriter, r *http.Request) {
+// --- Public listing only ---
+func handleListReceivers(w http.ResponseWriter, r *http.Request) {
+    rows, err := db.Query(`
+        SELECT id, lastupdated, description, latitude, longitude, name, url
+        FROM receivers ORDER BY id
+    `)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    defer rows.Close()
+
+    var list []Receiver
+    for rows.Next() {
+        var rec Receiver
+        if err := rows.Scan(
+            &rec.ID, &rec.LastUpdated, &rec.Description,
+            &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL,
+        ); err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        list = append(list, rec)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(list)
+}
+
+// --- Admin handlers (full CRUD) ---
+func adminReceiversHandler(w http.ResponseWriter, r *http.Request) {
     switch r.Method {
     case http.MethodGet:
         handleListReceivers(w, r)
@@ -136,13 +179,13 @@ func receiversHandler(w http.ResponseWriter, r *http.Request) {
     }
 }
 
-func receiverHandler(w http.ResponseWriter, r *http.Request) {
+func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
     parts := strings.Split(r.URL.Path, "/")
-    if len(parts) < 3 {
+    if len(parts) < 4 {
         w.WriteHeader(http.StatusBadRequest)
         return
     }
-    id, err := strconv.Atoi(parts[2])
+    id, err := strconv.Atoi(parts[3])
     if err != nil {
         w.WriteHeader(http.StatusBadRequest)
         return
@@ -159,32 +202,6 @@ func receiverHandler(w http.ResponseWriter, r *http.Request) {
     default:
         w.WriteHeader(http.StatusMethodNotAllowed)
     }
-}
-
-func handleListReceivers(w http.ResponseWriter, r *http.Request) {
-    rows, err := db.Query(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url
-        FROM receivers ORDER BY id
-    `)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    defer rows.Close()
-
-    var list []Receiver
-    for rows.Next() {
-        var rec Receiver
-        if err := rows.Scan(&rec.ID, &rec.LastUpdated, &rec.Description,
-            &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL); err != nil {
-            http.Error(w, err.Error(), http.StatusInternalServerError)
-            return
-        }
-        list = append(list, rec)
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(list)
 }
 
 func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
@@ -226,8 +243,10 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
     err := db.QueryRow(`
         SELECT id, lastupdated, description, latitude, longitude, name, url
         FROM receivers WHERE id = $1
-    `, id).Scan(&rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL)
+    `, id).Scan(
+        &rec.ID, &rec.LastUpdated, &rec.Description,
+        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL,
+    )
     if err == sql.ErrNoRows {
         w.WriteHeader(http.StatusNotFound)
         return
@@ -292,8 +311,10 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     err := db.QueryRow(`
         SELECT id, lastupdated, description, latitude, longitude, name, url
         FROM receivers WHERE id = $1
-    `, id).Scan(&rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL)
+    `, id).Scan(
+        &rec.ID, &rec.LastUpdated, &rec.Description,
+        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL,
+    )
     if err == sql.ErrNoRows {
         w.WriteHeader(http.StatusNotFound)
         return
