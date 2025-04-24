@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 	"strings"
+	"sync"
 
 	"github.com/lib/pq"
 	"github.com/zishang520/socket.io/v2/socket"
@@ -54,6 +55,7 @@ type Client struct {
 }
 
 var clientConnections map[string]*ClientConnection
+var clientConnectionsMu sync.RWMutex
 var streamShards int // Global variable to store the total number of shards
 
 type ClientConnection struct {
@@ -68,7 +70,9 @@ type ClientConnection struct {
 
 var ioServer *socket.Server
 var connectedClients = make(map[socket.SocketId]*socket.Socket)
+var connectedClientsMu sync.RWMutex
 var clientSummaryFilters = make(map[socket.SocketId]FilterParams)
+var clientSummaryMu sync.RWMutex
 
 // AIS spec: TrueHeading == 511 means “not available”
 const NoTrueHeading = 511.0
@@ -282,11 +286,16 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
             summary["Destination"] = getFieldString(packetMap, "Destination")
             summary["Dimension"] = getFieldJSON(packetMap, "Dimension")
             summary["MaximumStaticDraught"] = getFieldFloat(packetMap, "MaximumStaticDraught")
-            summary["Name"] = getFieldString(packetMap, "Name")
-            summary["NameExtension"] = getFieldString(packetMap, "NameExtension")
             summary["NavigationalStatus"] = getFieldFloat(packetMap, "NavigationalStatus")
             summary["Sog"] = getFieldFloat(packetMap, "Sog")
             summary["Type"] = getFieldFloat(packetMap, "Type")
+
+    	    name := getFieldString(packetMap, "Name")
+    	    ext  := getFieldString(packetMap, "NameExtension")
+    	    if ext != "" {
+    	        name = name + ext
+    	    }
+    	    summary["Name"] = name
 
 	    // pull out the raw floats
 	    lat         := getFieldFloat(packetMap, "Latitude")
@@ -328,7 +337,6 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
                }
                if nameStr != "" {
                    summary["Name"] = nameStr
-	           delete(summary, "NameExtension")
                }
            }
            // default Name to AISClass + " Class" if empty
@@ -615,10 +623,15 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
                 continue
             }
 
+            name := getFieldString(packetMap, "Name")
+            if ext := getFieldString(packetMap, "NameExtension"); ext != "" {
+                name += ext
+            }
+
             summary := map[string]interface{}{
                 "CallSign":   getFieldString(packetMap, "CallSign"),
                 "ImoNumber":  getFieldFloat(packetMap, "ImoNumber"),
-                "Name":       getFieldString(packetMap, "Name"), // JSON-backed name
+                "Name":       name,
                 "NumMessages": getFieldInt(row, "count"),
                 "UserID":     getFieldFloat(packetMap, "UserID"),
             }
@@ -868,16 +881,30 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
             return
         }
 
+        if ext, ok := packetData["NameExtension"].(string); ok && ext != "" {
+           base := ""
+           if b, ok2 := packetData["Name"].(string); ok2 {
+               base = b
+           }
+           packetData["Name"] = base + ext
+       }
+       delete(packetData, "NameExtension")
+
     	if _, exists := packetData["TrueHeading"]; exists {
              if getFieldFloat(packetData, "TrueHeading") == NoTrueHeading {
         	delete(packetData, "TrueHeading")
 	     }
 	}
 
+        // Add AISClass, LastUpdated, NumMessages, and MessageTypes to the packet data
+        packetData["AISClass"]    = aisClass
+        packetData["LastUpdated"] = timestamp
+        packetData["NumMessages"] = count
+        packetData["MessageTypes"] = messageTypes
+
         // override Name from DB if present
-        if dbName.Valid {
+        if dbName.Valid && dbName.String != "" {
             packetData["Name"] = dbName.String
-	    delete(packetData, "NameExtension")
         }
         // add ImageURL from DB if present
         if dbImageURL.Valid {
@@ -889,11 +916,6 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
                 packetData["Name"] = fmt.Sprintf("%s (%s)", classVal, userID)
             }
         }
-        // Add AISClass, LastUpdated, NumMessages, and MessageTypes to the packet data
-        packetData["AISClass"]    = aisClass
-        packetData["LastUpdated"] = timestamp
-        packetData["NumMessages"] = count
-        packetData["MessageTypes"] = messageTypes
 
         // Set the packet data directly as the response
         mergedResults = packetData
@@ -999,6 +1021,7 @@ func handleClientChanges(ingesterHost string, ingesterPort int, debug bool) {
 				log.Printf("Error connecting to database for client %s: %v", client.Description, err)
 				continue
 			}
+			clientConnectionsMu.Lock()
 			clientConnections[client.Description] = &ClientConnection{
 				Db:         db,
 				DbHost:     clientSettings.DbHost,
@@ -1019,7 +1042,9 @@ func handleClientChanges(ingesterHost string, ingesterPort int, debug bool) {
 			// Client has been removed, disconnect from its database
 			log.Printf("Client %s has been removed, disconnecting.", description)
 			conn.Db.Close()
-			delete(clientConnections, description)
+			clientConnectionsMu.Lock()
+	                delete(clientConnections, description)
+            	        clientConnectionsMu.Unlock()
 		}
 	}
 }
@@ -1104,6 +1129,9 @@ ioServer.On("connection", func(args ...any) {
     client := args[0].(*socket.Socket)
     log.Printf("WebSocket client connected: %s", client.Id())
     connectedClients[client.Id()] = client
+    connectedClientsMu.Lock()
+    connectedClients[client.Id()] = client
+    connectedClientsMu.Unlock()
 
     // Log the event when the client sends 'requestSummary'
 client.On("requestSummary", func(args ...any) {
@@ -1175,7 +1203,13 @@ client.On("requestSummary", func(args ...any) {
 
     // Log client disconnection
     client.On("disconnect", func(args ...any) {
-	delete(clientSummaryFilters, client.Id())
+        clientSummaryMu.Lock()
+        delete(clientSummaryFilters, client.Id())
+        clientSummaryMu.Unlock()
+
+        connectedClientsMu.Lock()
+        delete(connectedClients, client.Id())
+        connectedClientsMu.Unlock()
         log.Printf("WebSocket client disconnected: %s", client.Id())
     })
 })
@@ -1229,11 +1263,21 @@ func main() {
 	        <-ticker.C
 
         	// Iterate over each client and check if it's time to send an update
-	        for clientID, settings := range clientSummaryFilters {
+        	clientSummaryMu.RLock()
+	        snapshot := make(map[socket.SocketId]FilterParams, len(clientSummaryFilters))
+	        for id, params := range clientSummaryFilters {
+	            snapshot[id] = params
+	        }
+	        clientSummaryMu.RUnlock()
+	
+	        for clientID, settings := range snapshot {
+
 	            // Check if the update period has elapsed
 	            if time.Since(settings.LastUpdated) >= time.Duration(settings.UpdatePeriod)*time.Second {
 	                // Retrieve the client from the connectedClients map using the clientID
-	                client, exists := connectedClients[clientID]
+            		connectedClientsMu.RLock()
+		        client, exists := connectedClients[clientID]
+		        connectedClientsMu.RUnlock()
 	                if exists {
 	                    // Use the stored parameters for that client
 	                    summarizedResults, err := getSummaryResults(
@@ -1257,7 +1301,8 @@ func main() {
         	            }
 
         	            // Update the last sent time only after successfully sending the update
-        	            clientSummaryFilters[clientID] = FilterParams{
+        	            clientSummaryMu.Lock()
+			    clientSummaryFilters[clientID] = FilterParams{
         	                Latitude:    settings.Latitude,
         	                Longitude:   settings.Longitude,
         	                Radius:      settings.Radius,
@@ -1268,6 +1313,7 @@ func main() {
 				UserID:	     settings.UserID,
         	                LastUpdated: time.Now(),  // Update only after sending
         	            }
+			    clientSummaryMu.Unlock()
         	        } else {
         	            log.Printf("Client %s not found", clientID)
         	        }

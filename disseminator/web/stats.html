@@ -644,8 +644,17 @@ document.getElementById('directionChart').addEventListener('dblclick', () => {
             .then(response => response.json())
             .then(vesselState => {
               if (vesselState && vesselState.Name) {
-                document.getElementById('vessel-name').innerHTML =
-    		    `<a href="/?UserID=${userID}" target="_blank">${vesselState.Name} (${vesselState.CallSign})</a>`;
+		// build the optional callsign suffix only if it exists
+		const callsignSuffix = vesselState.CallSign 
+		  ? ` (${vesselState.CallSign})` 
+		  : '';
+
+		// then insert name + optional suffix
+		document.getElementById('vessel-name').innerHTML = 
+		  `<a href="/?UserID=${userID}" target="_blank">` +
+		    `${vesselState.Name}${callsignSuffix}` +
+		  `</a>`;
+
                 updatePositionAccuracyDot(vesselState.PositionAccuracy);
                 updateNavigationalStatus(vesselState.NavigationalStatus);
                 if (vesselState.Sog !== undefined) {
