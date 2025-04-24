@@ -654,6 +654,12 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    for _, row := range results {
+        if th, ok := row["trueHeading"].(float64); ok && th == NoTrueHeading {
+            delete(row, "trueHeading")
+        }
+    }
+
     // Check if the format query parameter is set to "csv"
     format := r.URL.Query().Get("format")
     if format == "csv" {
@@ -665,9 +671,13 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
             longitude := fmt.Sprintf("%f", row["longitude"].(float64))
             sog := fmt.Sprintf("%.2f", row["sog"].(float64)) // Rounded to 2 decimal places
             cog := fmt.Sprintf("%.2f", row["cog"].(float64)) // Rounded to 2 decimal places
-            trueHeading := fmt.Sprintf("%.2f", row["trueHeading"].(float64)) // Rounded to 2 decimal places
 
-            csvData += fmt.Sprintf("%s,%s,%s,%s,%s,%s\n", timestamp, latitude, longitude, sog, cog, trueHeading)
+            trueHeadingStr := ""
+            if th, ok := row["trueHeading"].(float64); ok {
+                trueHeadingStr = fmt.Sprintf("%.2f", th)
+            }
+
+            csvData += fmt.Sprintf("%s,%s,%s,%s,%s,%s\n", timestamp, latitude, longitude, sog, cog, trueHeadingStr)
         }
 
         // Set the Content-Type header to "text/csv"

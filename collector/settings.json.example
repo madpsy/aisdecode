@@ -9,5 +9,7 @@
   "listen_port": 5000,
   "description": "Shard 0 collector",
   "shards": [0],
+  "external_lookup": "http://127.0.0.1:5111/lookup",
+  "external_lookup_timeout": 1000,
   "debug": false
 }
