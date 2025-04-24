@@ -216,6 +216,21 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
         }
     }
 
+    if minSpeed > 0 {
+        if whereAdded {
+            query += fmt.Sprintf(
+                " AND (packet->>'Sog')::float >= %f",
+                minSpeed,
+            )
+        } else {
+            query += fmt.Sprintf(
+                " WHERE (packet->>'Sog')::float >= %f",
+                minSpeed,
+            )
+            whereAdded = true
+        }
+    }
+
     // Finalizing the query
     query += " ORDER BY timestamp ASC"
 
