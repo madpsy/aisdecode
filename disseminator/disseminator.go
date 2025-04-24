@@ -316,6 +316,12 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	           delete(summary, "NameExtension")
                }
            }
+           // default Name to AISClass + " Class" if empty
+           if nameVal, ok := summary["Name"].(string); !ok || nameVal == "" {
+               if classVal, ok := summary["AISClass"].(string); ok {
+                   summary["Name"] = fmt.Sprintf("%s (%s)", classVal, userIDStr)
+               }
+           }
            summarizedResults[userIDStr] = summary
         }
     }
@@ -861,6 +867,12 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
         // add ImageURL from DB if present
         if dbImageURL.Valid {
             packetData["ImageURL"] = dbImageURL.String
+        }
+        // default Name to AISClass + " Class" if empty
+        if nm, ok := packetData["Name"].(string); !ok || nm == "" {
+            if classVal, ok := packetData["AISClass"].(string); ok {
+                packetData["Name"] = fmt.Sprintf("%s (%s)", classVal, userID)
+            }
         }
         // Add AISClass, LastUpdated, NumMessages, and MessageTypes to the packet data
         packetData["AISClass"]    = aisClass
