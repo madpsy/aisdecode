@@ -265,8 +265,6 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
             summary["Cog"] = getFieldFloat(packetMap, "Cog")
             summary["Destination"] = getFieldString(packetMap, "Destination")
             summary["Dimension"] = getFieldJSON(packetMap, "Dimension")
-            summary["Latitude"] = getFieldFloat(packetMap, "Latitude")
-            summary["Longitude"] = getFieldFloat(packetMap, "Longitude")
             summary["MaximumStaticDraught"] = getFieldFloat(packetMap, "MaximumStaticDraught")
             summary["Name"] = getFieldString(packetMap, "Name")
             summary["NameExtension"] = getFieldString(packetMap, "NameExtension")
@@ -274,6 +272,19 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
             summary["Sog"] = getFieldFloat(packetMap, "Sog")
             summary["TrueHeading"] = getFieldFloat(packetMap, "TrueHeading")
             summary["Type"] = getFieldFloat(packetMap, "Type")
+
+	    // pull out the raw floats
+	    lat := getFieldFloat(packetMap, "Latitude")
+	    lon := getFieldFloat(packetMap, "Longitude")
+
+	    // garbage sentinel, skip this row entirely
+	    if lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+		continue
+	    }
+
+	    // only then insert them into summary
+	    summary["Latitude"]  = lat
+	    summary["Longitude"] = lon
 
             if aisClass, ok := row["ais_class"].(string); ok {
                 summary["AISClass"] = aisClass
