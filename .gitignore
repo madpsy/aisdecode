@@ -10,3 +10,5 @@ binarydecoder/
 build/
 ingest/settings.json
 history/settings.json
+disseminator/settings.json
+receivers/settings.json

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Receivers Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><h1>Receivers</h1></header>
+  <main>
+    <section id="form-section">
+      <h2 id="form-title">Add New Receiver</h2>
+      <form id="receiver-form">
+        <input type="hidden" id="field-id">
+        <label>
+          Name
+          <input type="text" id="field-name" maxlength="15" required>
+        </label>
+        <label>
+          Description
+          <input type="text" id="field-description" maxlength="30" required>
+        </label>
+        <label>
+          Latitude
+          <input type="number" id="field-latitude" step="any" min="-90" max="90" required>
+        </label>
+        <label>
+          Longitude
+          <input type="number" id="field-longitude" step="any" min="-180" max="180" required>
+        </label>
+        <label>
+          URL
+          <input type="url" id="field-url">
+        </label>
+        <div class="buttons">
+          <button type="submit">Save</button>
+          <button type="button" id="cancel-edit">Cancel</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="search-section">
+      <input
+        type="text"
+        id="search-input"
+        placeholder="🔍 Search by description or name…"
+        autocomplete="off"
+      >
+    </section>
+
+    <section id="list-section">
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" data-key="id">ID</th>
+            <th class="sortable" data-key="lastupdated">Last Updated</th>
+            <th class="sortable" data-key="name">Name</th>
+            <th class="sortable" data-key="description">Description</th>
+            <th class="sortable" data-key="latitude">Lat</th>
+            <th class="sortable" data-key="longitude">Long</th>
+            <th class="sortable" data-key="url">URL</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="receivers-tbody">
+          <!-- rows filled by JS -->
+        </tbody>
+      </table>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
