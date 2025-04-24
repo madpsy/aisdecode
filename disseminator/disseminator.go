@@ -161,10 +161,15 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 }
 
 func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64) (map[string]interface{}, error) {
-    query := `
-        SELECT user_id, packet, timestamp, ais_class, count
-        FROM state
-    `
+   query := `
+       SELECT user_id
+            , packet
+            , timestamp
+            , ais_class
+            , count
+            , name
+       FROM state
+   `
     
     whereAdded := false
 
@@ -281,7 +286,21 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
                 summary["NumMessages"] = count
             }
 
-            summarizedResults[userIDStr] = summary
+           // override Name from DB only if the name column is non-NULL and non-empty
+           if rawNameVal, exists := row["name"]; exists && rawNameVal != nil {
+               var nameStr string
+               switch v := rawNameVal.(type) {
+               case string:
+                   nameStr = v
+               default:
+                   log.Printf("debug: unexpected type for DB name column: %T (value=%#v)", rawNameVal, rawNameVal)
+               }
+               if nameStr != "" {
+                   summary["Name"] = nameStr
+	           delete(summary, "NameExtension")
+               }
+           }
+           summarizedResults[userIDStr] = summary
         }
     }
 
@@ -502,48 +521,51 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
         MaxAge int    `json:"maxAge"`
     }
 
-    // Decode the incoming JSON body
-    err := json.NewDecoder(r.Body).Decode(&requestBody)
-    if err != nil {
+    if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
         http.Error(w, fmt.Sprintf("Error parsing JSON: %v", err), http.StatusBadRequest)
         return
     }
-
-    // Ensure the query has at least 3 characters
     if len(requestBody.Query) < 3 {
         http.Error(w, "Query must be at least 3 characters long", http.StatusBadRequest)
         return
     }
-
-    // Limit maxAge to 1 week (168 hours)
     if requestBody.MaxAge > 168 {
         requestBody.MaxAge = 168
     }
 
-    // Construct the SQL query with the filtering based on maxAge and case-insensitive search for "Name"
+    // compute the cutoff
     currentTime := time.Now()
-    maxAgeDuration := time.Duration(requestBody.MaxAge) * time.Hour
-    query := fmt.Sprintf(`
-        SELECT packet, timestamp, ais_class, count
-        FROM state
-        WHERE (packet->>'UserID')::text LIKE '%%%s%%'
-        OR (packet->>'ImoNumber')::text LIKE '%%%s%%'
-        OR (packet->>'Name')::text ILIKE '%%%s%%'  -- Using ILIKE for case-insensitive search on "Name"
-        OR (packet->>'CallSign')::text ILIKE '%%%s%%'  -- Using ILIKE for case-insensitive search on "CallSign"
-        AND timestamp >= '%s'
-        ORDER BY timestamp ASC
-        LIMIT 100  -- Limit the number of results to 100
-    `, requestBody.Query, requestBody.Query, requestBody.Query, requestBody.Query,
-        currentTime.Add(-maxAgeDuration).UTC().Format(time.RFC3339))
+    cutoff := currentTime.Add(-time.Duration(requestBody.MaxAge) * time.Hour).UTC().Format(time.RFC3339)
 
-    // Execute the query to fetch the data
+    // build the query—note we now SELECT state.name and add an OR on state.name ILIKE
+    query := fmt.Sprintf(`
+        SELECT 
+            packet,
+            timestamp,
+            ais_class,
+            count,
+            name
+        FROM state
+        WHERE
+          (
+            (packet->>'UserID')::text LIKE '%%%[1]s%%'
+            OR (packet->>'ImoNumber')::text LIKE '%%%[1]s%%'
+            OR (packet->>'Name')::text ILIKE '%%%[1]s%%'
+            OR (packet->>'CallSign')::text ILIKE '%%%[1]s%%'
+            OR name ILIKE '%%%[1]s%%'
+          )
+          AND timestamp >= '%[2]s'
+        ORDER BY timestamp ASC
+        LIMIT 100
+    `, requestBody.Query, cutoff)
+
+    // then everything else stays the same...
     results, err := QueryDatabasesForAllShards(query)
     if err != nil {
         http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
         return
     }
 
-    // Prepare the response data
     var response []map[string]interface{}
     for _, shardData := range results {
         for _, row := range shardData {
@@ -551,33 +573,32 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
             if !ok {
                 continue
             }
-
-            packetStr := string(packetData)
             var packetMap map[string]interface{}
-            if err := json.Unmarshal([]byte(packetStr), &packetMap); err != nil {
+            if err := json.Unmarshal(packetData, &packetMap); err != nil {
                 continue
             }
 
-            // Extract relevant fields from the packet
-            summary := make(map[string]interface{})
-            summary["CallSign"] = getFieldString(packetMap, "CallSign")
-            summary["ImoNumber"] = getFieldFloat(packetMap, "ImoNumber")
-            summary["Name"] = getFieldString(packetMap, "Name")
-            summary["NumMessages"] = getFieldInt(row, "count")
-            summary["UserID"] = getFieldFloat(packetMap, "UserID")
-            if timestamp, ok := row["timestamp"].(time.Time); ok {
-                summary["LastUpdated"] = timestamp.UTC().Format(time.RFC3339Nano)
+            summary := map[string]interface{}{
+                "CallSign":   getFieldString(packetMap, "CallSign"),
+                "ImoNumber":  getFieldFloat(packetMap, "ImoNumber"),
+                "Name":       getFieldString(packetMap, "Name"), // JSON-backed name
+                "NumMessages": getFieldInt(row, "count"),
+                "UserID":     getFieldFloat(packetMap, "UserID"),
+            }
+            if ts, ok := row["timestamp"].(time.Time); ok {
+                summary["LastUpdated"] = ts.UTC().Format(time.RFC3339Nano)
+            }
+            // **Override** with the table’s `name` column, if non-null:
+            if tblName, exists := row["name"].(string); exists && tblName != "" {
+                summary["Name"] = tblName
             }
 
             response = append(response, summary)
         }
     }
 
-    // Send the response as JSON
     w.Header().Set("Content-Type", "application/json")
-    if err := json.NewEncoder(w).Encode(response); err != nil {
-        http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
-    }
+    json.NewEncoder(w).Encode(response)
 }
 
 func historyHandler(w http.ResponseWriter, r *http.Request) {
@@ -746,19 +767,27 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
     // Extract UserID from URL
     userID := r.URL.Path[len("/state/"):]
 
-    // Modify the SQL query to include the 'count' column and fetch unique message_ids using ARRAY_AGG
-    query := fmt.Sprintf(`
-        SELECT 
-            state.packet, 
-            state.timestamp, 
-            state.ais_class, 
-            state.count, 
-            ARRAY_AGG(DISTINCT messages.message_id) AS message_types
-        FROM state
-        LEFT JOIN messages ON state.user_id = messages.user_id
-        WHERE state.user_id = '%s'
-        GROUP BY state.packet, state.timestamp, state.ais_class, state.count;
-    `, userID)
+   // Modify the SQL query to include the 'count' column and fetch unique message_ids using ARRAY_AGG
+   query := fmt.Sprintf(`
+       SELECT 
+           state.packet, 
+           state.timestamp, 
+           state.ais_class, 
+           state.count, 
+           state.name,
+           state.image_url,
+           ARRAY_AGG(DISTINCT messages.message_id) AS message_types
+       FROM state
+       LEFT JOIN messages ON state.user_id = messages.user_id
+       WHERE state.user_id = '%s'
+       GROUP BY 
+           state.packet,
+           state.timestamp,
+           state.ais_class,
+           state.count,
+           state.name,
+           state.image_url;
+   `, userID)
 
     // Query the database for the specific user state and message_ids
     rows, err := QueryDatabaseForUser(userID, query)
@@ -774,12 +803,14 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
     // Read the result and add packet data to mergedResults map
     var packetData map[string]interface{}
     for rows.Next() {
-        var packet, timestamp, aisClass string
-        var count int
-        var messageTypes pq.StringArray // Use pq.StringArray to handle the ARRAY_AGG type
+	var packet, timestamp, aisClass string
+	var count int
+	var dbName sql.NullString
+	var dbImageURL sql.NullString
+	var messageTypes pq.StringArray
 
         // Scan the result into the respective variables
-        if err := rows.Scan(&packet, &timestamp, &aisClass, &count, &messageTypes); err != nil {
+        if err := rows.Scan(&packet, &timestamp, &aisClass, &count, &dbName, &dbImageURL, &messageTypes); err != nil {
             http.Error(w, fmt.Sprintf("Error scanning result: %v", err), http.StatusInternalServerError)
             return
         }
@@ -790,8 +821,17 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
             return
         }
 
+        // override Name from DB if present
+        if dbName.Valid {
+            packetData["Name"] = dbName.String
+	    delete(packetData, "NameExtension")
+        }
+        // add ImageURL from DB if present
+        if dbImageURL.Valid {
+            packetData["ImageURL"] = dbImageURL.String
+        }
         // Add AISClass, LastUpdated, NumMessages, and MessageTypes to the packet data
-        packetData["AISClass"] = aisClass
+        packetData["AISClass"]    = aisClass
         packetData["LastUpdated"] = timestamp
         packetData["NumMessages"] = count
         packetData["MessageTypes"] = messageTypes

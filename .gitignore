@@ -5,6 +5,7 @@
 go.mod
 go.sum
 vesselfinder/
+vesselfinder2/
 binarydecoder/
 build/
 ingest/settings.json

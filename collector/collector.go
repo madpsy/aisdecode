@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"net/http"
 	"os"
 	"bytes"
@@ -30,6 +31,8 @@ type Settings struct {
 	Description string   `json:"description"`
 	Shards      []int    `json:"shards"`
 	Debug       bool     `json:"debug"`
+	ExternalLookup        string   `json:"external_lookup"`
+	ExternalLookupTimeout int      `json:"external_lookup_timeout"`
 }
 
 var settings *Settings
@@ -55,6 +58,11 @@ func main() {
 	settings, err = readSettings(*configPath) // Assign directly to global settings variable
 	if err != nil {
 		log.Fatal("Error reading settings: ", err)
+	}
+
+	// Default external lookup timeout to 1000ms if unset
+	if settings.ExternalLookupTimeout == 0 {
+		settings.ExternalLookupTimeout = 1000
 	}
 
 	// Enable debug mode if configured
@@ -116,6 +124,7 @@ func main() {
 			source_ip VARCHAR(45),
 			user_id INT,
 			message_id INT
+			
 		);
 	`)
 	if err != nil {
@@ -131,6 +140,9 @@ func main() {
 	        user_id INT,
 	        ais_class VARCHAR(4) DEFAULT 'A',
 		count INT DEFAULT 0,
+		image_url TEXT,
+	        name TEXT,
+	        ext_lookup_complete  BOOLEAN DEFAULT FALSE,
 	        PRIMARY KEY (user_id)
 	    );
 	`)
@@ -244,18 +256,20 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
     var existingPacketJSON []byte
     var existingAisClass string
     var existingCount int
+    var existingLookupComplete bool
     err := db.QueryRow(`
-        SELECT packet, ais_class, count FROM state WHERE user_id = $1
-    `, userID).Scan(&existingPacketJSON, &existingAisClass, &existingCount)
+        SELECT packet, ais_class, count, ext_lookup_complete
+          FROM state
+         WHERE user_id = $1
+    `, userID).Scan(&existingPacketJSON, &existingAisClass, &existingCount, &existingLookupComplete)
 
-    // Handle the case where no existing data is found for this user_id
+    // If no existing row, first time seeing this user
     if err == sql.ErrNoRows {
-        // No existing data for this user_id, so we'll create a new packet
-        existingPacketJSON = []byte("{}") // Initialize with an empty JSON object
-        existingAisClass = "A" // Default ais_class is 'A'
-        existingCount = 0 // Initialize count to 0
+        existingPacketJSON    = []byte("{}")
+        existingAisClass      = "A"
+        existingCount         = 0
+        existingLookupComplete = false
     } else if err != nil {
-        // If any other error occurred while querying, return the error
         return fmt.Errorf("Error querying existing packet: %v", err)
     }
 
@@ -307,24 +321,84 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
         return fmt.Errorf("Error marshalling merged packet: %v", err)
     }
 
-    // Insert or update the state table with merged packet data
+    // Insert (blank image_url/name, preserve ext_lookup_complete) or update on conflict
     _, err = db.Exec(`
-        INSERT INTO state (packet, shard_id, timestamp, user_id, ais_class, count)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (user_id) 
-        DO UPDATE SET 
-            packet = EXCLUDED.packet, 
-            shard_id = EXCLUDED.shard_id, 
-            timestamp = EXCLUDED.timestamp, 
-            ais_class = EXCLUDED.ais_class,
-            count = state.count + 1 -- Increment the count when the row is updated
-    `, packetJSON, shardID, timestamp, userID, existingAisClass, existingCount)
-
+        INSERT INTO state
+          (packet, shard_id, timestamp, user_id, ais_class, count, image_url, name, ext_lookup_complete)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT (user_id) DO UPDATE SET
+          packet              = EXCLUDED.packet,
+          shard_id            = EXCLUDED.shard_id,
+          timestamp           = EXCLUDED.timestamp,
+          ais_class           = EXCLUDED.ais_class,
+          count               = state.count + 1
+    `, packetJSON, shardID, timestamp, userID, existingAisClass, existingCount, "", "", existingLookupComplete)
     if err != nil {
         return fmt.Errorf("Error inserting or updating state table: %v", err)
     }
 
+    // Schedule async lookup if configured, 9-digit UserID, and lookup not yet complete
+    uidStr := strconv.Itoa(userID)
+    if settings.ExternalLookup != "" && len(uidStr) == 9 && !existingLookupComplete {
+        go externalLookupAndUpdate(db, userID)
+    }
+
     return nil
+}
+
+func externalLookupAndUpdate(db *sql.DB, userID int) {
+    uidStr := strconv.Itoa(userID)
+    timeout := time.Duration(settings.ExternalLookupTimeout) * time.Millisecond
+    client := &http.Client{Timeout: timeout}
+
+    payload, _ := json.Marshal(map[string]string{"UserID": uidStr})
+    resp, err := client.Post(settings.ExternalLookup, "application/json", bytes.NewBuffer(payload))
+    if err != nil {
+        log.Printf("External lookup error for user %d: %v", userID, err)
+        return
+    }
+    defer resp.Body.Close()
+
+    // If 404, mark lookup complete but leave name/image null
+    if resp.StatusCode == http.StatusNotFound {
+        if _, err := db.Exec(
+            "UPDATE state SET ext_lookup_complete=TRUE WHERE user_id=$1", userID,
+        ); err != nil {
+            log.Printf("Error marking lookup complete for user %d: %v", userID, err)
+        }
+        return
+    }
+
+    // Only proceed if 200
+    if resp.StatusCode != http.StatusOK {
+        return
+    }
+
+    var ext struct {
+        ImageURL string `json:"ImageURL"`
+        Name     string `json:"Name"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&ext); err != nil {
+        log.Printf("Error decoding lookup response for user %d: %v", userID, err)
+        return
+    }
+
+    // Prepare nullable values
+    var imgVal, nameVal interface{}
+    if ext.ImageURL != "" {
+        imgVal = ext.ImageURL
+    }
+    if ext.Name != "" {
+        nameVal = ext.Name
+    }
+
+    // Update row with results and mark lookup complete
+    if _, err := db.Exec(
+        "UPDATE state SET image_url=$1, name=$2, ext_lookup_complete=TRUE WHERE user_id=$3",
+        imgVal, nameVal, userID,
+    ); err != nil {
+        log.Printf("Error updating lookup results for user %d: %v", userID, err)
+    }
 }
 
 func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, settings *Settings) error {
@@ -490,6 +564,12 @@ func createIndexesIfNotExist(db *sql.DB) {
     `)
     if err != nil {
         log.Printf("Error creating index for search_fields in state table: %v", err)
+    }
+    _, err = db.Exec(`
+        CREATE INDEX IF NOT EXISTS idx_name_state ON state (name);
+    `)
+    if err != nil {
+        log.Printf("Error creating index for name field in state table: %v", err)
     }
     _, err = db.Exec(`
         CREATE INDEX IF NOT EXISTS idx_messages_geospatial ON messages USING GIST (ST_SetSRID(ST_Point((packet->>'Longitude')::float, (packet->>'Latitude')::float), 4326))
