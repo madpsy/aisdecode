@@ -14,6 +14,7 @@ import (
 	"time"
 	"strings"
 	"sync"
+	"runtime"
 
 	"github.com/lib/pq"
 	"github.com/zishang520/socket.io/v2/socket"
@@ -1001,13 +1002,14 @@ func getClients(ingesterHost string, ingesterPort int, debug bool) ([]Client, er
 
 // Handle changes in clients' configuration and database connections
 func handleClientChanges(ingesterHost string, ingesterPort int, debug bool) {
+	logWithDebug(debug, "[DEBUG] handleClientChanges start")
 	// Fetch client list from ingester
 	clients, err := getClients(ingesterHost, ingesterPort, debug)
 	if err != nil {
 		log.Printf("Error fetching clients: %v", err)
 		return
 	}
-
+	logWithDebug(debug, "Ingester clients: %+v", clients)
 	// Map to track existing clients
 	existingClients := make(map[string]Client)
 
@@ -1040,6 +1042,7 @@ func handleClientChanges(ingesterHost string, ingesterPort int, debug bool) {
 				DbName:     clientSettings.DbName,
 				Shards:     client.Shards,
 			}
+			clientConnectionsMu.Unlock()
 			log.Printf("Successfully connected to database for client %s: %s@%s:%d/%s",
 				client.Description, clientSettings.DbUser, clientSettings.DbHost, clientSettings.DbPort, clientSettings.DbName)
 		}
@@ -1257,17 +1260,25 @@ func main() {
 	// Set up polling interval
 	pollInterval := time.Duration(settings.PollInterval) * time.Second
 	if pollInterval > 0 {
-		ticker := time.NewTicker(pollInterval)
-		defer ticker.Stop()
+	go func() {
+	    ticker := time.NewTicker(pollInterval)
+	    defer ticker.Stop()
 
-		// Poll periodically to check for changes
-		go func() {
-			for {
-				<-ticker.C
-				logWithDebug(settings.Debug, "Polling clients at %v", time.Now())
-				handleClientChanges(settings.IngestHost, settings.IngestPort, settings.Debug)
-			}
-		}()
+	    for {
+        	<-ticker.C
+	        func() {
+	            defer func() {
+	                if r := recover(); r != nil {
+	                    buf := make([]byte, 1<<10)
+	                    n := runtime.Stack(buf, false)
+	                    log.Printf("[ERROR] panic in poller: %v\n%s", r, buf[:n])
+        	        }
+	            }()
+	            logWithDebug(settings.Debug, "Polling clients at %v", time.Now())
+	            handleClientChanges(settings.IngestHost, settings.IngestPort, settings.Debug)
+	        }()
+	    }
+	  }()
 	}
 
 	// Initial fetch and setup

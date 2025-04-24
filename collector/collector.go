@@ -139,7 +139,7 @@ func main() {
 	        timestamp TIMESTAMP,
 	        user_id INT,
 	        ais_class VARCHAR(4) DEFAULT 'A',
-		count INT DEFAULT 0,
+		count INT DEFAULT 1,
 		image_url TEXT,
 	        name TEXT,
 	        ext_lookup_complete  BOOLEAN DEFAULT FALSE,
