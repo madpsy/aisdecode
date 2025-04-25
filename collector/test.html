@@ -8,7 +8,7 @@
   <h1>Live AIS Data for UserID 232006107</h1>
   <div id="log" style="white-space: pre-wrap; font-family: monospace;"></div>
   <script>
-    // 1. Connect to the Socket.IO endpoint on port 4000
+    // 1. Connect to the Socket.IO endpoint on port 5001
     const socket = io("http://localhost:5001", {
       transports: ["websocket"]
     });
@@ -23,9 +23,24 @@
 
     // 3. Listen for incoming AIS data events
     socket.on("ais_data", (packet) => {
+      console.log("Received AIS data packet:", packet); // Debugging: log the entire packet
+     
+      // Access the data inside the 'data' field
+      const data = packet.data;
+      console.log("Extracted data:", data); // Debugging: log just the data field
+
       const log = document.getElementById("log");
       const entry = document.createElement("div");
-      entry.textContent = JSON.stringify(packet, null, 2);
+
+      // Check if the 'data' field is available and then display it
+      if (data) {
+        entry.textContent = JSON.stringify(data, null, 2);
+        console.log("Displaying data:", JSON.stringify(data, null, 2)); // Debugging: log the formatted data to be displayed
+      } else {
+        entry.textContent = "Received data is not in the expected format.";
+        console.error("Error: Received data is not in the expected format.");
+      }
+
       log.appendChild(entry);
       log.appendChild(document.createElement("hr"));
     });

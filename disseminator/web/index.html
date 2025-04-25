@@ -2178,14 +2178,13 @@ function updateFocussedVisibility() {
 
 function subscribeInstantUpdates(UserID) {
   // Build the channel name and subscribe.
-  instantChannel = "ais_data/" + UserID;
-  socket.emit("subscribe", instantChannel);
+  socket.emit("ais_sub/:UserID", UserID);
 
   // Define the generic handler that updates the vessel's data
   // and its marker position on the map.
   instantHandler = function(message) {
     // Parse string messages if needed.
-    if (typeof message === "string") {
+    if (typeof message === "string") {c
       try {
         message = JSON.parse(message);
       } catch (e) {
@@ -2282,7 +2281,7 @@ function subscribeInstantUpdates(UserID) {
 
     function unsubscribeInstantUpdates() {
       if (instantChannel && instantHandler) {
-        socket.emit("unsubscribe", instantChannel);
+        socket.emit("ais_unsub/:userID", UserID);
         socket.off("ais_data", instantHandler);
       }
       instantChannel = null;
@@ -3578,6 +3577,9 @@ map.on("moveend", debouncedSendSummaryRequest);
         function randomColor() {
           return '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
         }
+
+
+
     </script>
 </body>
 

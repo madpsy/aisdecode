@@ -63,7 +63,7 @@ type Client struct {
 var clientConnections map[string]*ClientConnection
 var clientConnectionsMu sync.RWMutex
 var streamShards int // Global variable to store the total number of shards
-
+var clientSubscriptionsMu sync.RWMutex
 type ClientConnection struct {
 	Db         *sql.DB
 	DbHost     string
@@ -101,6 +101,7 @@ func QueryDatabaseForUser(userID string, query string) (*sql.Rows, error) {
 	var clientConnection *ClientConnection // Use ClientConnection here
 
 	// Iterate over clientConnections to find the ClientConnection for the shard
+	clientConnectionsMu.RLock()
 	for _, conn := range clientConnections {
 		// Search through shards to find the one that handles the user
 		for _, shard := range conn.Shards {
@@ -114,7 +115,7 @@ func QueryDatabaseForUser(userID string, query string) (*sql.Rows, error) {
 			break
 		}
 	}
-
+	
 	// If no matching ClientConnection was found, return an error
 	if clientConnection == nil {
 		return nil, fmt.Errorf("no client found handling shard %d", shardID)
