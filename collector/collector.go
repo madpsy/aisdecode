@@ -209,9 +209,9 @@ func setupSocketIOHandlers() {
         connectedClientsMu.Unlock()
 
         sock.On("ais_sub/:userID", func(raw ...any) {
-	    log.Printf("[DEBUG] got ais_sub/:userID → %+v\n", raw)
+	    // log.Printf("[DEBUG] got ais_sub/:userID → %+v\n", raw)
             userID := raw[0].(string)
-	    log.Printf("[DEBUG] socket %s subscribing to user %s", sock.Id(), userID)
+	    // log.Printf("[DEBUG] socket %s subscribing to user %s", sock.Id(), userID)
             clientSubscriptionsMu.Lock()
             if clientSubscriptions[sid] == nil {
                 clientSubscriptions[sid] = make(map[string]struct{})

@@ -747,15 +747,17 @@ function loadHistoryData() {
         const socket = io();
         const channel = "ais_data/" + userID;
         
-        socket.on('connect', function () {
-          socket.emit("subscribe", channel);
-          updateServerConnectedDot(true);
-        });
-        socket.on('disconnect', function () {
-          updateServerConnectedDot(false);
-        });
+	socket.on('connect', () => {
+	  socket.emit('ais_sub/:userID', userID);
+	  updateServerConnectedDot(true);
+	});
+        socket.on('disconnect', () => {
+  	   updateServerConnectedDot(false);
+	   socket.emit('ais_unsub/:userID', userID);
+	});
         
 socket.on("ais_data", (message) => {
+  const msgType = Number(message.type);
   if (typeof message === "string") {
     try {
       message = JSON.parse(message);
@@ -765,7 +767,9 @@ socket.on("ais_data", (message) => {
     }
   }
 
-  if ((message.type === "PositionReport" || message.type === "StandardClassBPositionReport" || message.type === "StandardSearchAndRescueAircraftReport") && message.data) {
+const validPositionTypes = new Set([1,2,3,18,19]);
+
+  if (validPositionTypes.has(msgType) && message.data) {
     if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
       const ts = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
       lastMessageTimestamp = ts;

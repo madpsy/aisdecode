@@ -111,40 +111,62 @@ func anySubscriberExists(userID string) bool {
     return false
 }
 
-func QueryDatabaseForUser(userID string, query string) (*sql.Rows, error) {
-	shardID := shardForUser(userID)
-	var clientDescription string
-	var clientConnection *ClientConnection // Use ClientConnection here
+func (cc *ClientConnection) ensureDB() error {
+    if err := cc.Db.Ping(); err != nil {
+        // try reconnect
+        newDb, err2 := connectToDatabase(&ClientDatabaseSettings{
+            DbHost: cc.DbHost, DbPort: cc.DbPort,
+            DbUser: cc.DbUser, DbPass: cc.DbPass,
+            DbName: cc.DbName,
+        })
+        if err2 != nil {
+            return fmt.Errorf("reconnect failed: %v (ping err: %v)", err2, err)
+        }
+        cc.Db.Close()
+        cc.Db = newDb
+    }
+    return nil
+}
 
-	// Iterate over clientConnections to find the ClientConnection for the shard
-	clientConnectionsMu.RLock()
-	for _, conn := range clientConnections {
-		// Search through shards to find the one that handles the user
-		for _, shard := range conn.Shards {
-			if shard == shardID {
-				clientDescription = conn.DbHost
-				clientConnection = conn
-				break
-			}
-		}
-		if clientConnection != nil {
-			break
-		}
-	}
-	
-	// If no matching ClientConnection was found, return an error
-	if clientConnection == nil {
-		return nil, fmt.Errorf("no client found handling shard %d", shardID)
-	}
+// QueryDatabaseForUser looks up which collector shard handles the given userID,
+// ensures its DB connection is alive, and runs the provided SQL query.
+func QueryDatabaseForUser(userID, query string) (*sql.Rows, error) {
+    shardID := shardForUser(userID)
+    var clientDescription string
 
-	// Perform the query on the database
-	db := clientConnection.Db
-	rows, err := db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query on database for client %s: %v", clientDescription, err)
-	}
+    // Find the ClientConnection for this shard
+    clientConnectionsMu.RLock()
+    var cc *ClientConnection
+    for _, conn := range clientConnections {
+        for _, shard := range conn.Shards {
+            if shard == shardID {
+                clientDescription = conn.DbHost
+                cc = conn
+                break
+            }
+        }
+        if cc != nil {
+            break
+        }
+    }
+    clientConnectionsMu.RUnlock()
 
-	return rows, nil
+    if cc == nil {
+        return nil, fmt.Errorf("no client found handling shard %d", shardID)
+    }
+
+    // Ensure the DB is alive (auto-reconnect if needed)
+    if err := cc.ensureDB(); err != nil {
+        return nil, fmt.Errorf("failed to ensure DB for client %s: %v", clientDescription, err)
+    }
+
+    // Execute the query
+    rows, err := cc.Db.Query(query)
+    if err != nil {
+        return nil, fmt.Errorf("failed to execute query on database for client %s: %v", clientDescription, err)
+    }
+
+    return rows, nil
 }
 
 func formatMsg(parts ...any) string {
@@ -152,51 +174,55 @@ func formatMsg(parts ...any) string {
     return string(b)
 }
 
-// QueryDatabasesForAllShards queries all shard databases with the same query.
+// QueryDatabasesForAllShards queries all shard databases with the same query,
+// and uses ensureDB() to auto-reconnect closed or stale connections.
 func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface{}, error) {
-	results := make(map[string][]map[string]interface{})
+    results := make(map[string][]map[string]interface{})
 
-	for _, conn := range clientConnections {
+    clientConnectionsMu.RLock()
+    conns := make([]*ClientConnection, 0, len(clientConnections))
+    for _, cc := range clientConnections {
+        conns = append(conns, cc)
+    }
+    clientConnectionsMu.RUnlock()
 
-		// Perform the query on the current shard's database
-		db := conn.Db
-		rows, err := db.Query(query)
-		if err != nil {
-			return nil, fmt.Errorf("failed to execute query on database for client %s: %v", conn.DbHost, err)
-		}
-		defer rows.Close()
+    for _, cc := range conns {
+        // Ensure the DB is alive (auto-reconnect if needed)
+        if err := cc.ensureDB(); err != nil {
+            return nil, fmt.Errorf("failed to ensure DB for client %s: %v", cc.DbHost, err)
+        }
 
-		// Log the number of rows returned by the query
-		var rowCount int
-		columns, err := rows.Columns() // Get the column names dynamically
-		if err != nil {
-			return nil, fmt.Errorf("failed to get columns for client %s: %v", conn.DbHost, err)
-		}
+        rows, err := cc.Db.Query(query)
+        if err != nil {
+            return nil, fmt.Errorf("failed to execute query on database for client %s: %v", cc.DbHost, err)
+        }
+        defer rows.Close()
 
-		for rows.Next() {
-			// Create a slice to hold column values dynamically
-			values := make([]interface{}, len(columns))
-			for i := range values {
-				values[i] = new(interface{})
-			}
-			if err := rows.Scan(values...); err != nil {
-				log.Printf("Error scanning result for shard %s: %v", conn.DbHost, err)
-				continue
-			}
-			rowData := make(map[string]interface{})
-			for i, column := range columns {
-				// Store the column value in the rowData map
-				rowData[column] = *(values[i].(*interface{}))
-			}
-			results[conn.DbHost] = append(results[conn.DbHost], rowData)
-			rowCount++
-		}
+        columns, err := rows.Columns()
+        if err != nil {
+            return nil, fmt.Errorf("failed to get columns for client %s: %v", cc.DbHost, err)
+        }
 
-		// Log the total number of rows returned for the current shard
-		// log.Printf("Shard %s returned %d rows", conn.DbHost, rowCount)
-	}
-	// log.Printf("Results collected: %+v", results)
-	return results, nil
+        for rows.Next() {
+            vals := make([]interface{}, len(columns))
+            for i := range vals {
+                vals[i] = new(interface{})
+            }
+            if err := rows.Scan(vals...); err != nil {
+                log.Printf("Error scanning result for shard %s: %v", cc.DbHost, err)
+                continue
+            }
+
+            rowMap := make(map[string]interface{}, len(columns))
+            for i, col := range columns {
+                rowMap[col] = *(vals[i].(*interface{}))
+            }
+
+            results[cc.DbHost] = append(results[cc.DbHost], rowMap)
+        }
+    }
+
+    return results, nil
 }
 
 func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64) (map[string]interface{}, error) {
@@ -498,25 +524,36 @@ func isNull(value float64) bool {
 func (cc *ClientConnection) getWSClient() (*clientSocket.Socket, error) {
     cc.wsClientMu.Lock()
     defer cc.wsClientMu.Unlock()
-    if cc.wsClient != nil {
+
+    // If we already have one, but it's not connected anymore, throw it away
+    if cc.wsClient != nil && cc.wsClient.Connected() {
         return cc.wsClient, nil
     }
+    // (Optionally) clean up old one
+    cc.wsClient = nil
 
-    // use the clientSocket alias, not “socket”
+    // … now dial a fresh one …
     opts := clientSocket.DefaultOptions()
     opts.SetTransports(types.NewSet(transports.Polling, transports.WebSocket))
-
     manager := clientSocket.NewManager(
         fmt.Sprintf("http://%s:%d", cc.WSHost, cc.WSPort),
         opts,
     )
-
-    // grab the “/” (or custom) namespace
     cli := manager.Socket("/", opts)
 
-    // attach basic error handlers if you like:
+    // as soon as we see a disconnect, zero it out so next getWSClient() redials
+    cli.On("disconnect", func(...any) {
+        cc.wsClientMu.Lock()
+        defer cc.wsClientMu.Unlock()
+        cc.wsClient = nil
+    })
+
+    // propagate manager errors, and also clear wsClient on fatal error
     manager.On("error", func(errs ...any) {
         log.Printf("collector WS manager error: %v", errs)
+        cc.wsClientMu.Lock()
+        cc.wsClient = nil
+        cc.wsClientMu.Unlock()
     })
 
     cc.wsClient = cli
@@ -1060,71 +1097,88 @@ func getClients(ingesterHost string, ingesterPort int, debug bool) ([]Client, er
 
 // Handle changes in clients' configuration and database connections
 func handleClientChanges(ingesterHost string, ingesterPort int, debug bool) {
-	logWithDebug(debug, "[DEBUG] handleClientChanges start")
-	// Fetch client list from ingester
-	clients, err := getClients(ingesterHost, ingesterPort, debug)
-	if err != nil {
-		log.Printf("Error fetching clients: %v", err)
-		return
-	}
-	logWithDebug(debug, "Ingester clients: %+v", clients)
-	// Map to track existing clients
-	existingClients := make(map[string]Client)
+    logWithDebug(debug, "[DEBUG] handleClientChanges start")
 
-	// Process each client
-	for _, client := range clients {
-		existingClients[client.Description] = client
+    // 1) Fetch the latest client list
+    clients, err := getClients(ingesterHost, ingesterPort, debug)
+    if err != nil {
+        log.Printf("Error fetching clients: %v", err)
+        return
+    }
 
-		// Check if the client already has an open database connection
-		if _, exists := clientConnections[client.Description]; !exists {
-			// New client or client has lost its connection, so we connect
-			logWithDebug(debug, "New client %s detected, connecting to its database.", client.Description)
-			clientSettings, err := getClientDatabaseSettings(client.Ip, client.Port, debug)
-			if err != nil {
-				log.Printf("Error fetching settings for client %s: %v", client.Description, err)
-				continue
-			}
-			// Connect to the database for the new client
-			db, err := connectToDatabase(clientSettings)
-			if err != nil {
-				log.Printf("Error connecting to database for client %s: %v", client.Description, err)
-				continue
-			}
-			clientConnectionsMu.Lock()
-			wsPort, err := fetchCollectorWSPort(client.Ip, client.Port)
-			if err != nil {
-	                    log.Printf("cannot fetch socketio_listen for %s: %v", client.Ip, err)
-           	     	    continue
+    // Build a lookup of currently active descriptions
+    existing := make(map[string]Client, len(clients))
+    for _, c := range clients {
+        existing[c.Description] = c
+    }
 
-		        }
-                        clientConnections[client.Description] = &ClientConnection{
-				Db:         db,
-				DbHost:     clientSettings.DbHost,
-				DbPort:     clientSettings.DbPort,
-				DbUser:     clientSettings.DbUser,
-				DbPass:     clientSettings.DbPass,
-				DbName:     clientSettings.DbName,
-				Shards:     client.Shards,
-			        WSHost:     client.Ip,
-			        WSPort:     wsPort,
-			}
-			clientConnectionsMu.Unlock()
-			log.Printf("Successfully connected to database for client %s: %s@%s:%d/%s",
-				client.Description, clientSettings.DbUser, clientSettings.DbHost, clientSettings.DbPort, clientSettings.DbName)
-		}
-	}
+    // 2) Remove any clients that have disappeared
+    clientConnectionsMu.Lock()
+    for desc, conn := range clientConnections {
+        if _, stillHere := existing[desc]; !stillHere {
+            // Remove from map before closing DB to avoid races
+            delete(clientConnections, desc)
+            log.Printf("Client %s has been removed, disconnecting.", desc)
 
-	// Handle clients that have been removed (no longer in the list)
-	for description, conn := range clientConnections {
-		if _, exists := existingClients[description]; !exists {
-			// Client has been removed, disconnect from its database
-			log.Printf("Client %s has been removed, disconnecting.", description)
-			conn.Db.Close()
-			clientConnectionsMu.Lock()
-	                delete(clientConnections, description)
-            	        clientConnectionsMu.Unlock()
-		}
-	}
+            // Close the DB in background
+            go func(c *ClientConnection) {
+                c.Db.Close()
+            }(conn)
+        }
+    }
+    clientConnectionsMu.Unlock()
+
+    // 3) Add any new clients (or re-add re-spawned ones)
+    for _, client := range clients {
+        // If it’s already in the map, skip
+        clientConnectionsMu.RLock()
+        _, exists := clientConnections[client.Description]
+        clientConnectionsMu.RUnlock()
+        if exists {
+            continue
+        }
+
+        logWithDebug(debug, "New client %s detected, connecting to its database.", client.Description)
+
+        // Fetch its DB settings and connect
+        settings, err := getClientDatabaseSettings(client.Ip, client.Port, debug)
+        if err != nil {
+            log.Printf("Error fetching settings for client %s: %v", client.Description, err)
+            continue
+        }
+        db, err := connectToDatabase(settings)
+        if err != nil {
+            log.Printf("Error connecting to database for client %s: %v", client.Description, err)
+            continue
+        }
+        wsPort, err := fetchCollectorWSPort(client.Ip, client.Port)
+        if err != nil {
+            log.Printf("cannot fetch socketio_listen for %s: %v", client.Ip, err)
+            db.Close()
+            continue
+        }
+
+        // Store it
+        clientConnectionsMu.Lock()
+        clientConnections[client.Description] = &ClientConnection{
+            Db:       db,
+            DbHost:   settings.DbHost,
+            DbPort:   settings.DbPort,
+            DbUser:   settings.DbUser,
+            DbPass:   settings.DbPass,
+            DbName:   settings.DbName,
+            Shards:   client.Shards,
+            WSHost:   client.Ip,
+            WSPort:   wsPort,
+        }
+        clientConnectionsMu.Unlock()
+
+        log.Printf(
+            "Successfully connected to database for client %s: %s@%s:%d/%s",
+            client.Description,
+            settings.DbUser, settings.DbHost, settings.DbPort, settings.DbName,
+        )
+    }
 }
 
 // fetch WS port from collector’s own /settings
