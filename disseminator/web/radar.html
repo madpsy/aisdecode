@@ -648,8 +648,6 @@ Object.keys(vesselSummaries).forEach(mmsi => {
 
 socket.on("ais_data", function(raw) {
 
-  console.log("⚓️ Raw ais_data payload:", raw);
-
   let message = raw;
   if (typeof raw === "string") {
     try {
@@ -664,37 +662,47 @@ socket.on("ais_data", function(raw) {
   if (message.data) {
     if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
       // Handle main vessel position
+      console.log("🚢 Handling main vessel data");
       if (message.data.Latitude !== undefined && message.data.Longitude !== undefined) {
         const heading = sanitizeTrueHeading(message.data.TrueHeading !== undefined && message.data.TrueHeading !== null)
                           ? message.data.TrueHeading
                           : message.data.Cog;
+        console.log(`🧭 Updating main vessel position: Lat: ${message.data.Latitude}, Lon: ${message.data.Longitude}, Heading: ${heading}`);
         updateMainVesselPosition(message.data.Latitude, message.data.Longitude, heading);
       }
     } else if (message.data.UserID) {
       const mmsi = message.data.UserID.toString();
       vesselSummaries[mmsi] = vesselSummaries[mmsi] || {};
+      console.log(`📍 Updating vessel data for ${mmsi}`);
+
       if (message.data.Latitude !== undefined) {
         vesselSummaries[mmsi].Latitude = message.data.Latitude;
+        console.log(`📍 Updated Latitude for ${mmsi}: ${message.data.Latitude}`);
       }
       if (message.data.Longitude !== undefined) {
         vesselSummaries[mmsi].Longitude = message.data.Longitude;
+        console.log(`📍 Updated Longitude for ${mmsi}: ${message.data.Longitude}`);
       }
       if (message.data.Name !== undefined) {
         vesselSummaries[mmsi].Name = message.data.Name;
+        console.log(`📍 Updated Name for ${mmsi}: ${message.data.Name}`);
       }
       if (message.data.TrueHeading !== undefined && message.data.TrueHeading !== null) {
         vesselSummaries[mmsi].Heading = message.data.TrueHeading;
+        console.log(`📍 Updated Heading for ${mmsi}: ${message.data.TrueHeading}`);
       } else if (message.data.Cog !== undefined && message.data.Cog !== null) {
         vesselSummaries[mmsi].Heading = message.data.Cog;
+        console.log(`📍 Updated Heading (from COG) for ${mmsi}: ${message.data.Cog}`);
       }
-      // Add Sog property if available (adjust property name per your data)
       if (message.data.Sog !== undefined) {
         vesselSummaries[mmsi].Sog = message.data.Sog;
+        console.log(`📍 Updated SOG for ${mmsi}: ${message.data.Sog}`);
       }
       drawRadarGauge();
     }
   }
 });
+
 
 
 socket.on("summaryData", function(data) {

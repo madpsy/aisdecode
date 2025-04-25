@@ -63,7 +63,10 @@ type Client struct {
 var clientConnections map[string]*ClientConnection
 var clientConnectionsMu sync.RWMutex
 var streamShards int // Global variable to store the total number of shards
-var clientSubscriptionsMu sync.RWMutex
+var (
+    clientSubscriptionsMu sync.RWMutex // already exists, use it
+    wsHandlersMu          sync.RWMutex // new
+)
 type ClientConnection struct {
 	Db         *sql.DB
 	DbHost     string
@@ -93,6 +96,19 @@ func shardForUser(userID string) int {
     h := fnv.New32a()
     h.Write([]byte(userID))
     return int(h.Sum32()) % streamShards
+}
+
+// Returns true if at least one connected client still has userID in its set
+func anySubscriberExists(userID string) bool {
+    clientSubscriptionsMu.RLock()
+    defer clientSubscriptionsMu.RUnlock()
+
+    for _, subs := range clientSubscriptions {
+        if _, still := subs[userID]; still {
+            return true
+        }
+    }
+    return false
 }
 
 func QueryDatabaseForUser(userID string, query string) (*sql.Rows, error) {
@@ -1214,107 +1230,22 @@ func setupServer(settings *Settings) {
         connectedClientsMu.Unlock()
 
         // Init this client's subscription set
+        clientSubscriptionsMu.Lock()
         clientSubscriptions[client.Id()] = make(map[string]struct{})
+        clientSubscriptionsMu.Unlock()
 
         // —— ais_sub/:userID ——
         client.On("ais_sub/:userID", func(raw ...any) {
-    // 1) Extract the requested vessel ID from the subscription call
-    userID := raw[0].(string)
-    log.Printf("Client %s subscribes to %s", client.Id(), userID)
-    clientSubscriptions[client.Id()][userID] = struct{}{}
-
-    // 2) Find the collector connection responsible for this shard
-    shard := shardForUser(userID)
-    var cc *ClientConnection
-    clientConnectionsMu.RLock()
-    for _, c := range clientConnections {
-        for _, s := range c.Shards {
-            if s == shard {
-                cc = c
-                break
-            }
-        }
-        if cc != nil {
-            break
-        }
-    }
-    clientConnectionsMu.RUnlock()
-    if cc == nil {
-        log.Printf("No collector for shard %d", shard)
-        return
-    }
-
-    // 3) Dial (or reuse) the collector WebSocket and forward our subscription
-    ws, err := cc.getWSClient()
-    if err != nil {
-        log.Printf("Error dialing collector WS: %v", err)
-        return
-    }
-    ws.Emit("ais_sub/:userID", userID)
-
-    // 4) Register a single ais_data handler on this collector socket
-    if !wsHandlersRegistered[ws] {
-        wsHandlersRegistered[ws] = true
-        ws.On("ais_data", func(msg ...any) {
-            // a) extract the MMSI from the incoming payload
-            var msgUserID string
-            if len(msg) > 0 {
-                if m, ok := msg[0].(map[string]interface{}); ok {
-                    if f, ok2 := m["UserID"].(float64); ok2 {
-                        msgUserID = strconv.FormatInt(int64(f), 10)
-                    } else if s, ok2 := m["UserID"].(string); ok2 {
-                        msgUserID = s
-                    }
-                }
-                if msgUserID == "" {
-                    if s, ok := msg[0].(string); ok {
-                        var m2 map[string]interface{}
-                        if err := json.Unmarshal([]byte(s), &m2); err == nil {
-                            if f, ok2 := m2["UserID"].(float64); ok2 {
-                                msgUserID = strconv.FormatInt(int64(f), 10)
-                            } else if ss, ok2 := m2["UserID"].(string); ok2 {
-                                msgUserID = ss
-                            }
-                        }
-                    }
-                }
-            }
-            if msgUserID == "" {
-                return // cannot route without a UserID
-            }
-
-            // b) wrap the raw AIS payload in a top‐level "data" field
-            var rawPayload any
-            if len(msg) == 1 {
-                rawPayload = msg[0]
-            } else {
-                rawPayload = msg
-            }
-            wrapped := map[string]any{"data": rawPayload}
-
-            // c) forward to each browser client subscribed to this MMSI
-            connectedClientsMu.RLock()
-            for sid, sock := range connectedClients {
-                if subs, exists := clientSubscriptions[sid]; exists {
-                    if _, subscribed := subs[msgUserID]; subscribed {
-                        sock.Emit("ais_data",           wrapped)
-                        sock.Emit(fmt.Sprintf("ais_data/%s", msgUserID), wrapped)
-                    }
-                }
-            }
-            connectedClientsMu.RUnlock()
-        })
-    }
-})
-
-
-        // —— ais_unsub/:userID ——
-        client.On("ais_unsub/:userID", func(raw ...any) {
+            // 1) Extract the requested vessel ID
             userID := raw[0].(string)
-            log.Printf("Client %s unsubscribes from %s", client.Id(), userID)
-            delete(clientSubscriptions[client.Id()], userID)
+            log.Printf("Client %s subscribes to %s", client.Id(), userID)
 
-            // forward unsubscribe
+            // Record the subscription
+            clientSubscriptionsMu.Lock()
+            clientSubscriptions[client.Id()][userID] = struct{}{}
+            clientSubscriptionsMu.Unlock()
+
+            // 2) Find the collector for this shard
             shard := shardForUser(userID)
             var cc *ClientConnection
             clientConnectionsMu.RLock()
@@ -1330,12 +1261,122 @@ func setupServer(settings *Settings) {
                 }
             }
             clientConnectionsMu.RUnlock()
-            if cc != nil {
-                if ws, err := cc.getWSClient(); err == nil {
-                    ws.Emit("ais_unsub/:userID", userID)
+            if cc == nil {
+                log.Printf("No collector for shard %d", shard)
+                return
+            }
+
+            // 3) Dial (or reuse) the collector WebSocket
+            ws, err := cc.getWSClient()
+            if err != nil {
+                log.Printf("Error dialing collector WS: %v", err)
+                return
+            }
+            ws.Emit("ais_sub/:userID", userID)
+
+            // 4) Register ais_data handler exactly once
+            wsHandlersMu.RLock()
+            already := wsHandlersRegistered[ws]
+            wsHandlersMu.RUnlock()
+            if !already {
+                wsHandlersMu.Lock()
+                if !wsHandlersRegistered[ws] {
+                    wsHandlersRegistered[ws] = true
+		    ws.On("ais_data", func(msg ...any) {
+
+		        if len(msg) == 0 {
+		            return
+		        }
+		    
+		        // First argument should be our wrapped payload: map[string]interface{}
+		        wrapper, ok := msg[0].(map[string]interface{})
+		        if !ok {
+		            return
+		        }
+		    
+		        // Drill into the "data" sub-object
+		        dataObj, ok := wrapper["data"].(map[string]interface{})
+		        if !ok {
+		            return
+		        }
+		    
+		        // Now extract UserID from dataObj
+		        var msgUserID string
+		        switch v := dataObj["UserID"].(type) {
+		        case float64:
+		            msgUserID = strconv.FormatInt(int64(v), 10)
+		        case string:
+		            msgUserID = v
+		        default:
+		            return
+		        }
+		    
+		        // Forward to subscribed browser clients
+		        wrapped := wrapper // you can reuse the whole wrapper
+		        connectedClientsMu.RLock()
+		        clientSubscriptionsMu.RLock()
+		        for sid, sock := range connectedClients {
+		            if subs, exists := clientSubscriptions[sid]; exists {
+		                if _, subscribed := subs[msgUserID]; subscribed {
+		                    sock.Emit("ais_data", wrapped)
+		                    sock.Emit(fmt.Sprintf("ais_data/%s", msgUserID), wrapped)
+		                }
+		            }
+		        }
+		        clientSubscriptionsMu.RUnlock()
+		        connectedClientsMu.RUnlock()
+		    })
+
                 }
+                wsHandlersMu.Unlock()
             }
         })
+
+
+        // —— ais_unsub/:userID ——
+        client.On("ais_unsub/:userID", func(raw ...any) {
+	    userID := raw[0].(string)
+	    log.Printf("Client %s unsubscribes from %s", client.Id(), userID)
+
+	    // 1) Remove the subscription for *this* browser client
+	    clientSubscriptionsMu.Lock()
+	    delete(clientSubscriptions[client.Id()], userID)
+	    clientSubscriptionsMu.Unlock()
+
+	    // 2) If anyone else is still interested, don’t send upstream
+	    if anySubscriberExists(userID) {
+	        log.Printf("Still have subscribers for %s; skipping upstream unsubscribe", userID)
+	        return
+	    }
+
+	    // 3) Nobody else wants it—forward the unsubscribe to the collector
+	    shard := shardForUser(userID)
+	    var cc *ClientConnection
+	    clientConnectionsMu.RLock()
+	    for _, c := range clientConnections {
+	        for _, s := range c.Shards {
+	            if s == shard {
+	                cc = c
+	                break
+	            }
+	        }
+	        if cc != nil {
+	            break
+	        }
+	    }
+	    clientConnectionsMu.RUnlock()
+	
+	    if cc != nil {
+	        if ws, err := cc.getWSClient(); err == nil {
+	            log.Printf("Forwarding ais_unsub for %s upstream", userID)
+	            ws.Emit("ais_unsub/:userID", userID)
+	        } else {
+	            log.Printf("Error getting WS client to forward unsubscribe: %v", err)
+	        }
+	    } else {
+	        log.Printf("No collector found for shard %d (user %s)", shard, userID)
+	    }
+	})
 
         // —— requestSummary ——
         client.On("requestSummary", func(args ...any) {
@@ -1392,20 +1433,56 @@ func setupServer(settings *Settings) {
             client.Emit("summaryData", string(bs))
         })
 
-        // —— disconnect cleanup ——
         client.On("disconnect", func(...any) {
-            delete(clientSubscriptions, client.Id())
+	    // 1) Grab the list of this client’s active subscriptions
+	    clientSubscriptionsMu.Lock()
+	    subs := clientSubscriptions[client.Id()]
+	    delete(clientSubscriptions, client.Id())
+	    clientSubscriptionsMu.Unlock()
 
-            clientSummaryMu.Lock()
-            delete(clientSummaryFilters, client.Id())
-            clientSummaryMu.Unlock()
+	    // 2) For each userID this client had, check if anyone else still wants it
+	    for userID := range subs {
+	        if !anySubscriberExists(userID) {
+	            // find the collector for that shard
+	            shard := shardForUser(userID)
+	            var cc *ClientConnection
+	            clientConnectionsMu.RLock()
+	            for _, c := range clientConnections {
+	                for _, s := range c.Shards {
+	                    if s == shard {
+	                        cc = c
+	                        break
+	                    }
+	                }
+	                if cc != nil {
+	                    break
+	                }
+	            }
+	            clientConnectionsMu.RUnlock()
+	
+	            // forward unsubscribe upstream
+	            if cc != nil {
+	                if ws, err := cc.getWSClient(); err == nil {
+	                    log.Printf("Disconnect: forwarding ais_unsub for %s upstream", userID)
+	                    ws.Emit("ais_unsub/:userID", userID)
+	                } else {
+	                    log.Printf("Disconnect: error getting WS client for %s: %v", userID, err)
+	                }
+	            }
+	        }
+	    }
 
-            connectedClientsMu.Lock()
-            delete(connectedClients, client.Id())
-            connectedClientsMu.Unlock()
-
-            log.Printf("WebSocket client disconnected: %s", client.Id())
-        })
+	    // 3) Clean up summary and connectedClients as before
+	    clientSummaryMu.Lock()
+	    delete(clientSummaryFilters, client.Id())
+	    clientSummaryMu.Unlock()
+	
+	    connectedClientsMu.Lock()
+	    delete(connectedClients, client.Id())
+	    connectedClientsMu.Unlock()
+	
+	    log.Printf("WebSocket client disconnected: %s", client.Id())
+	})
     })
 
     // Start HTTP + WS server

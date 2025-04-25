@@ -1475,6 +1475,8 @@ function hydrateTrackHistory(UserID) {
 // Global variable to store current port data
 let currentPorts = [];
 
+let focussedID = null;
+
 // Create a layer group for port markers
 const portLayerGroup = L.layerGroup().addTo(map);
 
@@ -2177,111 +2179,109 @@ function updateFocussedVisibility() {
     }
 
 function subscribeInstantUpdates(UserID) {
-  // Build the channel name and subscribe.
-  socket.emit("ais_sub/:UserID", UserID);
+  focussedID = UserID
+  const channelName = "ais_sub/:userID";   // ✅ must match server
+  socket.emit(channelName, UserID);
+  console.log("[AIS_SUBSCRIBE]", channelName, UserID);
 
-  // Define the generic handler that updates the vessel's data
-  // and its marker position on the map.
-  instantHandler = function(message) {
-    // Parse string messages if needed.
-    if (typeof message === "string") {c
+  // Allowed AIS message types as numbers
+  const allowedTypes = new Set([1,2,3,8,9,18,19]);
+
+  instantHandler = function(rawMessage) {
+    console.log("[AIS_DATA RECEIVED raw]", rawMessage);
+
+    let message = rawMessage;
+    // If you ever get a JSON string, parse it
+    if (typeof rawMessage === "string") {
       try {
-        message = JSON.parse(message);
+        message = JSON.parse(rawMessage);
+        console.log("[AIS_DATA] parsed JSON →", message);
       } catch (e) {
-        console.error("Error parsing message:", e);
+        console.error("[AIS_DATA] JSON.parse failed:", e, rawMessage);
         return;
       }
     }
 
-    // Filter out message types not allowed.
-    if (!allowedMessageTypes[message.type]) {
+    // Ensure `type` is a number
+    const msgType = Number(message.type);
+    if (Number.isNaN(msgType)) {
+      console.warn("[AIS_DATA] bad message.type (not a number):", message.type);
+      return;
+    }
+    console.log("[AIS_DATA] type =", msgType);
+
+    // Filter out unwanted types
+    if (!allowedTypes.has(msgType)) {
+      console.log("[AIS_DATA] filtered out type", msgType);
       return;
     }
 
-    // Update each field present in the incoming message.
-    if (message.data && message.data.UserID) {
-      Object.keys(message.data).forEach(function(field) {
-        vesselData[UserID][field] = message.data[field];
-      });
+    // Ensure we have a data payload
+    if (!message.data || typeof message.data !== "object") {
+      console.warn("[AIS_DATA] missing .data payload:", message);
+      return;
     }
 
+    // Update vesselData
+    if (!vesselData[UserID]) {
+      console.warn("[AIS_DATA] no vesselData entry for", UserID);
+      return;
+    }
+
+    // Copy fields over
+    Object.entries(message.data).forEach(([k,v]) => {
+      vesselData[UserID][k] = v;
+    });
+
+    // Timestamp handling
     if (message.timestamp) {
-      vesselData[UserID].lastUpdate = new Date(message.timestamp).getTime();
+      const ts = new Date(message.timestamp).getTime();
+      vesselData[UserID].lastUpdate = ts;
+      console.log("[AIS_DATA] timestamp =>", message.timestamp);
     }
 
-    // If the message includes valid position data, update marker and track.
-    if (typeof message.data.Latitude === "number" &&
-        typeof message.data.Longitude === "number") {
+    // Position update
+    const lat = message.data.Latitude;
+    const lon = message.data.Longitude;
+    if (typeof lat === "number" && typeof lon === "number") {
+      console.log(`[AIS_DATA] updating position to (${lat}, ${lon})`);
 
-      // Update the marker position and popup content.
+      // Move marker
       if (vesselMarkers[UserID]) {
-        vesselMarkers[UserID].setLatLng([message.data.Latitude, message.data.Longitude]);
-        const popupContent = createPopupContent(vesselData[UserID]);
-        vesselMarkers[UserID].getPopup().setContent(popupContent);
-        
-        // Update the SVG icon rotation if applicable.
-        const heading = (typeof message.data.TrueHeading === "number" && message.data.TrueHeading < 360)
-          ? message.data.TrueHeading
-          : (message.data.Cog != null ? message.data.Cog : 0);
-        const markerElem = vesselMarkers[UserID].getElement() || vesselMarkers[UserID]._icon;
-        if (markerElem) {
-          const svg = markerElem.querySelector('svg');
-          if (svg) {
-            svg.style.transform = `rotate(${heading}deg)`;
-          }
-        }
+        vesselMarkers[UserID].setLatLng([lat, lon]);
+        vesselMarkers[UserID].getPopup().setContent(createPopupContent(vesselData[UserID]));
       }
 
-  if (focusedVessel && UserID !== focusedVessel) {
-    if (vesselTracks[UserID] && map.hasLayer(vesselTracks[UserID])) {
-      map.removeLayer(vesselTracks[UserID]);
-    }
-    // Skip updating history for this vessel.
-    return;
-  }
-      
-      // Append the new position to the vessel's track.
+      // Track history
       vesselData[UserID].track = vesselData[UserID].track || [];
       vesselData[UserID].track.push([
-        message.timestamp,
-        message.data.Latitude,
-        message.data.Longitude,
-        (message.data.Sog != null ? message.data.Sog : null),
-        (message.data.Cog != null ? message.data.Cog : null),
-        (message.data.TrueHeading != null ? message.data.TrueHeading : null)
+        message.timestamp, lat, lon,
+        message.data.Sog ?? null,
+        message.data.Cog ?? null,
+        message.data.TrueHeading ?? null
       ]);
-      
-      // Filter the track based on history slider settings.
-      const filteredTrack = filterTrackPoints(vesselData[UserID].track);
-      
-      // --- Update the vessel track using the speed-based colored polyline ---
-      // Remove any existing track for this vessel.
-      if (vesselTracks[UserID]) {
-        map.removeLayer(vesselTracks[UserID]);
-      }
-      // Create a new colored track using createColoredTrack.
-      vesselTracks[UserID] = createColoredTrack(filteredTrack);
+
+      // Rebuild polyline
+      if (vesselTracks[UserID]) map.removeLayer(vesselTracks[UserID]);
+      vesselTracks[UserID] = createColoredTrack(filterTrackPoints(vesselData[UserID].track));
       map.addLayer(vesselTracks[UserID]);
-      // Reattach event handlers (e.g., for mousemove popups) to the new colored track.
       attachPolylineEvents(vesselTracks[UserID], UserID);
     }
 
-    // Update the vessel detail overlay.
+    // Finally, update overlays/logs
     updateVesselDetailOverlay();
-
-    // Also, add the message to the live logs modal.
     addLiveLogEntry(message);
   };
 
-  // Attach the handler to the socket.
+  // Attach to the socket
   socket.on("ais_data", instantHandler);
 }
 
 
-
     function unsubscribeInstantUpdates() {
-      if (instantChannel && instantHandler) {
-        socket.emit("ais_unsub/:userID", UserID);
+      if (instantHandler) {
+	console.log("ais_unsub/:userID", focussedID);
+        socket.emit("ais_unsub/:userID", focussedID);
         socket.off("ais_data", instantHandler);
       }
       instantChannel = null;

@@ -301,7 +301,6 @@ func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byt
             frame := buffer[:idx]
             buffer = buffer[idx+1:]
             if err := processMessage(frame, db, settings); err != nil {
-                log.Printf("processMessage error: %v", err)
             }
         }
     }
@@ -310,43 +309,65 @@ func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byt
 func processMessage(message []byte, db *sql.DB, settings *Settings) error {
     var msg Message
     if err := json.Unmarshal(message, &msg); err != nil {
+        log.Printf("[DEBUG] failed to unmarshal outer Message: %v", err)
         return err
     }
 
+    // unwrap the inner packet
     var envelope map[string]json.RawMessage
     if err := json.Unmarshal(msg.Packet, &envelope); err != nil {
+        log.Printf("[DEBUG] failed to unmarshal envelope: %v", err)
         return err
     }
     rawInner, ok := envelope["packet"]
     if !ok {
         rawInner = msg.Packet
     }
+    //log.Printf("[DEBUG] rawInner JSON: %s", string(rawInner))
 
+    // persist to DB
     if err := storeMessage(db, msg, settings); err != nil {
-        log.Printf("Error storing message: %v", err)
+        log.Printf("[DEBUG] Error storing message: %v", err)
     }
 
+    // parse into map
     var packet map[string]interface{}
-    if err := json.Unmarshal(rawInner, &packet); err == nil {
-        var uidKey string
-        if v, ok := packet["UserID"].(float64); ok {
-            uidKey = strconv.Itoa(int(v))
-        } else if s, ok := packet["UserID"].(string); ok {
-            uidKey = s
-        } else {
-            return nil
-        }
-
-        userSubscribersMu.RLock()
-        subs := userSubscribers[uidKey]
-        userSubscribersMu.RUnlock()
-        for sid := range subs {
-            if sock, ok := connectedClients[sid]; ok {
-                sock.Emit("ais_data", packet)
-            }
-        }
+    if err := json.Unmarshal(rawInner, &packet); err != nil {
+        log.Printf("[DEBUG] failed to unmarshal inner packet: %v", err)
+        return nil
     }
 
+    // determine user key
+    var uidKey string
+    if v, ok := packet["UserID"].(float64); ok {
+        uidKey = strconv.Itoa(int(v))
+    } else if s, ok := packet["UserID"].(string); ok {
+        uidKey = s
+    } else {
+        log.Printf("[DEBUG] packet missing UserID, skipping emit")
+        return nil
+    }
+
+    // build the payload we want to emit
+    emitPayload := map[string]interface{}{
+        "data":      packet,
+        "type":      packet["MessageID"],
+        "timestamp": msg.Timestamp,
+    }
+    // find subscribers
+    userSubscribersMu.RLock()
+    subs := userSubscribers[uidKey]
+    userSubscribersMu.RUnlock()
+    if len(subs) == 0 {
+        return nil
+    }
+    for sid := range subs {
+        sock, ok := connectedClients[sid]
+        if !ok {
+            continue
+        }
+        sock.Emit("ais_data", emitPayload)
+    }
     return nil
 }
 
@@ -416,13 +437,11 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
     userIDf, userIDExists := packetMap["UserID"].(float64)
     messageIDExtracted, messageIDExists := packetMap["MessageID"].(float64)
     if !userIDExists || !messageIDExists {
-        log.Println("UserID or MessageID is missing in the packet.")
         return fmt.Errorf("UserID or MessageID is missing")
     }
 
     packetJSON, err := json.Marshal(packetMap)
     if err != nil {
-        log.Printf("Error marshalling packet contents: %v", err)
         return err
     }
 
