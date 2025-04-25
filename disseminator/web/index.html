@@ -508,31 +508,28 @@
 	    <input type="checkbox" id="log-filter-all" checked> All
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="PositionReport" checked> Position A
+	    <input type="checkbox" class="log-filter" value="1,2,3" checked> Position A
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="StandardClassBPositionReport" checked> Position B
+	    <input type="checkbox" class="log-filter" value="18,19" checked> Position B
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="ExtendedClassBPositionReport" checked> Extended B
+	    <input type="checkbox" class="log-filter" value="5" checked> Static A
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="ShipStaticData" checked> Static A
+	    <input type="checkbox" class="log-filter" value="24" checked> Static B
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="StaticDataReport" checked> Static B
+	    <input type="checkbox" class="log-filter" value="21" checked> AtoN
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="AidsToNavigationReport" checked> AtoN
+	    <input type="checkbox" class="log-filter" value="4" checked> Base Stn
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="BaseStationReport" checked> Base Stn
+	    <input type="checkbox" class="log-filter" value="17,25,26" checked> Binary
 	  </label>
 	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="BinaryBroadcastMessage" checked> Binary
-	  </label>
-	  <label style="white-space: nowrap;">
-	    <input type="checkbox" class="log-filter" value="StandardSearchAndRescueAircraftReport" checked> SAR
+	    <input type="checkbox" class="log-filter" value="9" checked> SAR
 	  </label>
 	  <input type="text" id="live-log-search" placeholder="Search logs..." style="width:100%; margin-top:5px; padding:3px; font-size:12px;">
 </div>
@@ -560,6 +557,18 @@
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
 	let userLatLng = null;
+
+	let messageTypeNames = {};
+
+	fetch('/message_types.json')
+	  .then(res => {
+	    if (!res.ok) throw new Error(`Failed to load message types: ${res.status}`);
+	    return res.json();
+	  })
+	  .then(json => {
+	    messageTypeNames = json;
+	  })
+	  .catch(err => console.error(err));
 
 	let mids = {};
 	fetch('mids.json')
@@ -1893,12 +1902,13 @@ if (data.UserID) {
     lines.push(`Comms State: ${[syncState, slotTimeout, slotOffset].join(', ')}`);
   }
 
-  if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
-    // build an array of friendly names
-    const friendlyNames = data.MessageTypes.map(type => friendlyMessageTypes[type] || type);
-    // join them with commas and push one line
-    lines.push(`Message Types: ${friendlyNames.join(', ')}`);
-  }
+if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
+  // Wrap each numeric code in a clickable span
+  const codeSpans = data.MessageTypes.map(type =>
+    `<span class="msg-type" data-type="${type}" style="cursor:pointer; text-decoration:underline;">${type}</span>`
+  );
+  lines.push(`Message Types: ${codeSpans.join(', ')}`);
+}
 
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
 }
@@ -2108,15 +2118,29 @@ function isVesselVisibleByAge(vessel) {
   return ageMilliseconds <= maxAgeHours * 3600000; // Convert to milliseconds
 }
 
+	function showFlashMessage(text) {
+	  alert(text);
+	}
 
+	function attachMessageTypeClicks() {
+	  document.querySelectorAll('#detail-content .msg-type').forEach(el => {
+	    el.addEventListener('click', () => {
+	      const code = el.dataset.type;
+	      const desc = messageTypeNames[code] || `Unknown (${code})`;
+	      showFlashMessage(`${code}: ${desc}`, el);
+	    });
+	  });
+	}
 
         // Periodically update the vessel detail overlay.
-        function updateVesselDetailOverlay() {
-          if (!detailsOverlayHidden && focusedVessel && vesselData[focusedVessel]) {
-            const detailContent = createDetailContent(vesselData[focusedVessel]);
-            document.getElementById('detail-content').innerHTML = detailContent;
-          }
-        }
+	function updateVesselDetailOverlay() {
+	  if (!detailsOverlayHidden && focusedVessel && vesselData[focusedVessel]) {
+	    const html = createDetailContent(vesselData[focusedVessel]);
+	    const container = document.getElementById('detail-content');
+	    container.innerHTML = html;
+	    attachMessageTypeClicks();
+	  }
+	}
         setInterval(updateVesselDetailOverlay, 1000);
         setInterval(updateOverlay, 1000);
 
@@ -2168,7 +2192,9 @@ function updateFocussedVisibility() {
       // Wrap the log entry in a container with a data-type attribute.
       let html = `<div class="log-entry" data-type="${msg.type}">`;
       html += `<div class="log-timestamp" style="font-size:10px;color:#888;margin-bottom:2px;">${logTimestamp}</div>`;
-      html += formatLogField("Type", msg.type);
+      const typeNum = String(msg.type);
+      const typeLabel = messageTypeNames[typeNum] || `Unknown (${typeNum})`;
+      html += formatLogField("Message Type", `${typeNum}: ${typeLabel}`);
 
       for (const field in msg.data) {
         html += formatLogField(field, msg.data[field]);
@@ -2318,81 +2344,52 @@ function subscribeInstantUpdates(UserID) {
 
 function applyLogFilters() {
   const logEntries = liveLogsContent.querySelectorAll('.log-entry');
+  const showAll = document.getElementById('log-filter-all').checked;
   const searchQuery = document.getElementById('live-log-search').value.toLowerCase();
-  const showAll = document.getElementById('log-filter-all')?.checked;
 
+  // 1) Build the set of allowed types (unless "All" is checked)
+  let allowedTypes = null;
+  if (!showAll) {
+    allowedTypes = new Set();
+    document.querySelectorAll('.log-filter:checked').forEach(cb => {
+      cb.value.split(',').forEach(code => {
+        allowedTypes.add(code.trim());
+      });
+    });
+  }
+
+  // 2) Iterate each log entry and decide visibility
   logEntries.forEach(entry => {
-    // If "All" is checked, ignore type filtering
-    if (showAll) {
-      if (!searchQuery) {
-        entry.innerHTML = entry.dataset.fullHtml;
-        entry.style.display = '';
-      } else {
-        // Rebuild content based on search query if one exists
-        const msg = entry.originalMessage;
-        const logTimestamp = msg.timestamp
-          ? new Date(msg.timestamp).toLocaleTimeString()
-          : new Date().toLocaleTimeString();
-        let newHtml = `<div class="log-timestamp" style="font-size:10px;color:#888;margin-bottom:2px;">${logTimestamp}</div>`;
-        let fieldMatched = false;
-        for (const field in msg.data) {
-          const value = msg.data[field];
-          if (
-            field.toLowerCase().includes(searchQuery) ||
-            String(value).toLowerCase().includes(searchQuery)
-          ) {
-            newHtml += formatLogField(field, value);
-            fieldMatched = true;
-          }
-        }
-        if (fieldMatched) {
-          entry.innerHTML = newHtml;
-          entry.style.display = '';
-        } else {
-          entry.style.display = 'none';
-        }
-      }
-      return; // Skip further type filtering.
-    }
-
-    // Otherwise, filter by type as before.
     const type = entry.getAttribute('data-type');
-    const matchesType = liveLogFilters[type];
+    let visible = true;
 
-    if (!matchesType) {
-      entry.style.display = 'none';
-      return;
+    // 2a) Type filtering (skip if "All" is checked)
+    if (!showAll && !allowedTypes.has(type)) {
+      visible = false;
     }
 
-    if (!searchQuery) {
-      entry.innerHTML = entry.dataset.fullHtml;
-      entry.style.display = '';
-      return;
-    }
+    // 2b) Text search filtering
+    if (visible && searchQuery) {
+      const msg = entry.originalMessage;  // your stored parsed message
+      let fieldMatched = false;
 
-    // Apply search filtering if a query exists.
-    const msg = entry.originalMessage;
-    const logTimestamp = msg.timestamp
-      ? new Date(msg.timestamp).toLocaleTimeString()
-      : new Date().toLocaleTimeString();
-    let newHtml = `<div class="log-timestamp" style="font-size:10px;color:#888;margin-bottom:2px;">${logTimestamp}</div>`;
-    let fieldMatched = false;
-    for (const field in msg.data) {
-      const value = msg.data[field];
-      if (
-        field.toLowerCase().includes(searchQuery) ||
-        String(value).toLowerCase().includes(searchQuery)
-      ) {
-        newHtml += formatLogField(field, value);
-        fieldMatched = true;
+      // Check every top-level field name and value for the query
+      for (const [key, val] of Object.entries(msg.data)) {
+        if (
+          key.toLowerCase().includes(searchQuery) ||
+          String(val).toLowerCase().includes(searchQuery)
+        ) {
+          fieldMatched = true;
+          break;
+        }
+      }
+      if (!fieldMatched) {
+        visible = false;
       }
     }
-    if (fieldMatched) {
-      entry.innerHTML = newHtml;
-      entry.style.display = '';
-    } else {
-      entry.style.display = 'none';
-    }
+
+    // 3) Apply to the DOM
+    entry.style.display = visible ? '' : 'none';
   });
 }
 
