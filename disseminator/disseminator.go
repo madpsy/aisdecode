@@ -413,104 +413,66 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 }
 
 func getHistoryResults(userID string, hours int) ([]map[string]interface{}, error) {
-    // Calculate the timestamp for the time period
-    currentTime := time.Now()
-    pastTime := currentTime.Add(-time.Duration(hours) * time.Hour)
+    // Calculate cutoff timestamp
+    pastTime := time.Now().
+        Add(-time.Duration(hours) * time.Hour).
+        UTC().
+        Format(time.RFC3339)
 
-    // SQL query to get the messages for the user in the specified time range with distance filtering
+    // Query the materialized view with all six columns
     query := fmt.Sprintf(`
-WITH filtered_messages AS (
-    SELECT 
-        timestamp,
-        (packet->>'Longitude')::float AS longitude,
-        (packet->>'Latitude')::float  AS latitude,
-        (packet->>'Sog')::float       AS sog,
-        (packet->>'Cog')::float       AS cog,
-        (packet->>'TrueHeading')::float AS trueHeading,
-        ROW_NUMBER() OVER (ORDER BY timestamp) AS row_num
-    FROM messages
-    WHERE user_id = '%s'
-      AND timestamp >= '%s'
-      AND message_id IN (1,2,3,18,19)
-      AND packet->>'Longitude'  IS NOT NULL
-      AND packet->>'Latitude'   IS NOT NULL
-      -- optionally: AND packet->>'Longitude' <> '' AND packet->>'Latitude' <> ''
-),
-latest_message AS (
-    SELECT 
-        timestamp,
-        (packet->>'Longitude')::float AS longitude,
-        (packet->>'Latitude')::float  AS latitude,
-        (packet->>'Sog')::float       AS sog,
-        (packet->>'Cog')::float       AS cog,
-        (packet->>'TrueHeading')::float AS trueHeading
-    FROM messages
-    WHERE user_id = '%s'
-      AND packet->>'Longitude' IS NOT NULL
-      AND packet->>'Latitude'  IS NOT NULL
-    ORDER BY timestamp DESC
-    LIMIT 1
-)
-SELECT 
-    m1.timestamp,
-    m1.latitude,
-    m1.longitude,
-    m1.sog,
-    m1.cog,
-    m1.trueHeading
-FROM filtered_messages m1
-LEFT JOIN filtered_messages m2
-    ON m1.row_num = m2.row_num + 1
-WHERE 
-    m2.row_num IS NULL
-    OR ST_DistanceSphere(
-        ST_SetSRID(ST_Point(m1.longitude, m1.latitude), 4326), 
-        ST_SetSRID(ST_Point(m2.longitude, m2.latitude), 4326)
-    ) >= 30
-
-UNION ALL
-
-SELECT 
-    l.timestamp,
-    l.latitude,
-    l.longitude,
-    l.sog,
-    l.cog,
-    l.trueHeading
-FROM latest_message l
-
+SELECT
+    timestamp,
+    lat           AS latitude,
+    lon           AS longitude,
+    sog,
+    cog,
+    trueHeading
+FROM user_history_filtered
+WHERE user_id = '%[1]s'
+  AND timestamp >= '%[2]s'
 ORDER BY timestamp
 LIMIT 2000;
-    `, userID, pastTime.UTC().Format(time.RFC3339), userID)
+`, userID, pastTime)
 
-    // Query the database for the results
     rows, err := QueryDatabaseForUser(userID, query)
     if err != nil {
         return nil, fmt.Errorf("error querying database for user %s: %v", userID, err)
     }
     defer rows.Close()
 
-    // Process the query results
     var results []map[string]interface{}
     for rows.Next() {
         var timestamp time.Time
-        var latitude, longitude, sog, cog, trueHeading float64
+        var latitude, longitude, sog, cog, trueHeading sql.NullFloat64
 
-        // Scan the row for the columns
-        err := rows.Scan(&timestamp, &latitude, &longitude, &sog, &cog, &trueHeading)
-        if err != nil {
+        if err := rows.Scan(
+            &timestamp,
+            &latitude,
+            &longitude,
+            &sog,
+            &cog,
+            &trueHeading,
+        ); err != nil {
             return nil, fmt.Errorf("error scanning row: %v", err)
         }
 
-        // Add the valid result to the list
-        results = append(results, map[string]interface{}{
-            "timestamp":   timestamp,
-            "latitude":    latitude,
-            "longitude":   longitude,
-            "sog":         sog,
-            "cog":         cog,
-            "trueHeading": trueHeading,
-        })
+        row := map[string]interface{}{
+            "timestamp": timestamp,
+            "latitude":  latitude.Float64,
+            "longitude": longitude.Float64,
+        }
+        if sog.Valid {
+            row["sog"] = sog.Float64
+        }
+        if cog.Valid {
+            row["cog"] = cog.Float64
+        }
+        if trueHeading.Valid {
+            row["trueHeading"] = trueHeading.Float64
+        }
+
+        results = append(results, row)
     }
 
     return results, nil
@@ -934,24 +896,26 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
 
    // Modify the SQL query to include the 'count' column and fetch unique message_ids using ARRAY_AGG
    query := fmt.Sprintf(`
-       SELECT 
-           state.packet, 
-           state.timestamp, 
-           state.ais_class, 
-           state.count, 
-           state.name,
-           state.image_url,
-           ARRAY_AGG(DISTINCT messages.message_id) AS message_types
-       FROM state
-       LEFT JOIN messages ON state.user_id = messages.user_id
-       WHERE state.user_id = '%s'
-       GROUP BY 
-           state.packet,
-           state.timestamp,
-           state.ais_class,
-           state.count,
-           state.name,
-           state.image_url;
+WITH msg_types AS (
+  SELECT
+    user_id,
+    ARRAY_AGG(DISTINCT message_id) AS message_types
+  FROM messages
+  WHERE user_id = '%[1]s'
+  GROUP BY user_id
+)
+SELECT
+  s.packet,
+  s.timestamp,
+  s.ais_class,
+  s.count,
+  s.name,
+  s.image_url,
+  mt.message_types
+FROM state AS s
+LEFT JOIN msg_types AS mt
+  ON s.user_id = mt.user_id
+WHERE s.user_id = '%[1]s';
    `, userID)
 
     // Query the database for the specific user state and message_ids

@@ -1,4 +1,69 @@
 // main.go
+// user_history_filtered: materialized view definition & maintenance
+//
+// CREATE MATERIALIZED VIEW user_history_filtered AS
+// WITH base AS (
+//   SELECT
+//     user_id,
+//     timestamp,
+//     (packet->>'Longitude')::double precision AS lon,
+//     (packet->>'Latitude')::double precision  AS lat,
+//     (packet->>'Sog')::double precision       AS sog,
+//     (packet->>'Cog')::double precision       AS cog,
+//     (packet->>'TrueHeading')::double precision AS trueHeading
+//   FROM messages
+//   WHERE message_id = ANY (ARRAY[1,2,3,18,19])
+//     AND packet->>'Longitude' IS NOT NULL
+//     AND packet->>'Latitude'  IS NOT NULL
+// ),
+// ordered AS (
+//   SELECT
+//     user_id,
+//     timestamp,
+//     lon,
+//     lat,
+//     sog,
+//     cog,
+//     trueHeading,
+//     LAG(lon) OVER (PARTITION BY user_id ORDER BY timestamp) AS prev_lon,
+//     LAG(lat) OVER (PARTITION BY user_id ORDER BY timestamp) AS prev_lat
+//   FROM base
+// ),
+// filtered AS (
+//   SELECT
+//     user_id,
+//     timestamp,
+//     lon,
+//     lat,
+//     sog,
+//     cog,
+//     trueHeading
+//   FROM ordered
+//   WHERE prev_lon IS NULL
+//      OR ST_DistanceSphere(
+//           ST_MakePoint(prev_lon, prev_lat),
+//           ST_MakePoint(lon, lat)
+//         ) >= 30
+// )
+// SELECT
+//   user_id,
+//   timestamp,
+//   lon,
+//   lat,
+//   sog,
+//   cog,
+//   trueHeading
+// FROM filtered;
+//
+// -- Index on (user_id, timestamp) for fast lookups and ORDER BY
+// CREATE UNIQUE INDEX idx_uhf_user_ts_unique
+//   ON user_history_filtered(user_id, timestamp);
+// -- CREATE INDEX idx_uhf_user_ts ON user_history_filtered(user_id, timestamp DESC);
+// GRANT SELECT ON user_history_filtered TO new_user;
+//
+// -- To populate/refresh:
+// REFRESH MATERIALIZED VIEW CONCURRENTLY user_history_filtered;
+
 package main
 
 import (
@@ -377,6 +442,9 @@ func createIndexesIfNotExist(db *sql.DB) {
     stmts := []string{
         `CREATE INDEX IF NOT EXISTS idx_user_id ON messages (user_id);`,
         `CREATE INDEX IF NOT EXISTS idx_message_id ON messages (message_id);`,
+	`CREATE INDEX IF NOT EXISTS idx_messages_userid_msgid ON messages(user_id, message_id);`,
+	`CREATE INDEX IF NOT EXISTS idx_messages_userid_msgid_ts ON messages(user_id, message_id, timestamp);`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_uhf_user_ts_unique ON user_history_filtered(user_id, timestamp);`,
         `CREATE INDEX IF NOT EXISTS idx_shard_id ON messages (shard_id);`,
         `CREATE INDEX IF NOT EXISTS idx_user_id_state ON state (user_id);`,
         `CREATE INDEX IF NOT EXISTS idx_packet_jsonb_search_fields ON state USING GIN (packet jsonb_ops);`,
