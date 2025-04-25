@@ -638,24 +638,29 @@ Object.keys(vesselSummaries).forEach(mmsi => {
     }
 
     const socket = io();
-    const mainChannel = "ais_data/" + userID;
     socket.on("connect", function() {
       Object.keys(subscribedVessels).forEach(mmsi => {
         subscribedVessels[mmsi] = false;
       });
-      socket.emit("subscribe", mainChannel);
+      socket.emit("ais_sub/:userID", userID)
       updateSubscriptions();
     });
 
-socket.on("ais_data", function(message) {
-  if (typeof message === "string") {
+socket.on("ais_data", function(raw) {
+
+  console.log("⚓️ Raw ais_data payload:", raw);
+
+  let message = raw;
+  if (typeof raw === "string") {
     try {
-      message = JSON.parse(message);
+      message = JSON.parse(raw);
+      console.log("✅ Parsed ais_data JSON:", message);
     } catch (e) {
-      debugLog("Error parsing ais_data: " + e);
+      console.error("❌ Failed to JSON.parse ais_data:", e, raw);
       return;
     }
   }
+
   if (message.data) {
     if (message.data.UserID && message.data.UserID.toString() === userID.toString()) {
       // Handle main vessel position
@@ -726,11 +731,12 @@ socket.on("summaryData", function(data) {
 
 
     window.addEventListener("beforeunload", function() {
-      socket.emit("unsubscribe", mainChannel);
+      socket.emit("ais_unsub/:userID", userID)
       Object.keys(subscribedVessels).forEach(mmsi => {
-        if (subscribedVessels[mmsi]) {
-          socket.emit("unsubscribe", "ais_data/" + mmsi);
-        }
+        if (subscribedVessels[userID]) {
+	      socket.emit("ais_unsub/:userID", mmsi);
+	      subscribedVessels[mmsi] = false;
+	}
       });
       debugLog("Unsubscribed from channels");
     });
@@ -744,16 +750,15 @@ socket.on("summaryData", function(data) {
         const offset = latLonToNM(deltaLat, deltaLon, currentVesselLat);
         const distanceNM = Math.sqrt(offset.x * offset.x + offset.y * offset.y);
         if (distanceNM <= radarNM) {
-          if (!subscribedVessels[mmsi]) {
-            socket.emit("subscribe", "ais_data/" + mmsi);
-            subscribedVessels[mmsi] = true;
-          }
+	    if (!subscribedVessels[mmsi]) {
+	      socket.emit("ais_sub/:userID", mmsi);
+	      subscribedVessels[mmsi] = true;
+	   }
         } else {
-          if (subscribedVessels[mmsi]) {
-            socket.emit("unsubscribe", "ais_data/" + mmsi);
-            subscribedVessels[mmsi] = false;
-            debugLog(`Unsubscribed from vessel ${mmsi} (out of range)`);
-          }
+	    if (subscribedVessels[mmsi]) {
+	      socket.emit("ais_unsub/:userID", mmsi);
+	      subscribedVessels[mmsi] = false;
+	    }
         }
       });
       Object.keys(subscribedVessels).forEach(mmsi => {

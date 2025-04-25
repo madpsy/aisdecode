@@ -1,185 +1,379 @@
+// main.go
 package main
 
 import (
-	"database/sql"
-	"encoding/json"
-	"flag"
-	"fmt"
-	"log"
-	"net"
-	"strconv"
-	"net/http"
-	"os"
-	"bytes"
-	"time"
+    "bytes"
+    "database/sql"
+    "encoding/json"
+    "flag"
+    "fmt"
+    "log"
+    "net"
+    "net/http"
+    "os"
+    "strconv"
+    "sync"
+    "time"
 
-	_ "github.com/lib/pq"
+    _ "github.com/lib/pq"
+
+    // SOCKET.IO / ENGINE.IO
+    engine "github.com/zishang520/engine.io/v2/engine"
+    socketio "github.com/zishang520/socket.io/v2/socket"
+    "github.com/zishang520/engine.io/v2/types"
 )
 
-var buffer []byte
+// ── SETTINGS ────────────────────────────────────────────────────────────────
 
-// Settings structure based on settings.json
 type Settings struct {
-	IngestPort  int      `json:"ingest_port"`
-	IngestHost  string   `json:"ingest_host"`
-	DbHost      string   `json:"db_host"`
-	DbPort      int      `json:"db_port"`
-	DbUser      string   `json:"db_user"`
-	DbPass      string   `json:"db_pass"`
-	DbName      string   `json:"db_name"`
-	ListenPort  int      `json:"listen_port"`
-	Description string   `json:"description"`
-	Shards      []int    `json:"shards"`
-	Debug       bool     `json:"debug"`
-	ExternalLookup        string   `json:"external_lookup"`
-	ExternalLookupTimeout int      `json:"external_lookup_timeout"`
+    IngestPort            int      `json:"ingest_port"`
+    IngestHost            string   `json:"ingest_host"`
+    DbHost                string   `json:"db_host"`
+    DbPort                int      `json:"db_port"`
+    DbUser                string   `json:"db_user"`
+    DbPass                string   `json:"db_pass"`
+    DbName                string   `json:"db_name"`
+    ListenPort            int      `json:"listen_port"`
+    SocketIOListen        int      `json:"socketio_listen"`
+    Description           string   `json:"description"`
+    Shards                []int    `json:"shards"`
+    Debug                 bool     `json:"debug"`
+    ExternalLookup        string   `json:"external_lookup"`
+    ExternalLookupTimeout int      `json:"external_lookup_timeout"`
 }
 
 var settings *Settings
+var db *sql.DB
 
-// Message structure for incoming data from the ingester
-type Message struct {
-	Packet    json.RawMessage `json:"message"`  // Store the entire message object for processing
-	ShardID   int             `json:"shard_id"`
-	Timestamp string          `json:"timestamp"`
-	SourceIP  string          `json:"source_ip"`
+func readSettings(path string) (*Settings, error) {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil, err
+    }
+    var s Settings
+    if err := json.Unmarshal(data, &s); err != nil {
+        return nil, err
+    }
+    return &s, nil
 }
+
+// ── SOCKET.IO STATE ─────────────────────────────────────────────────────────
+
+var (
+    ioServer              *socketio.Server
+    connectedClients      = make(map[socketio.SocketId]*socketio.Socket)
+    connectedClientsMu    sync.RWMutex
+    userSubscribers       = make(map[string]map[socketio.SocketId]struct{})
+    userSubscribersMu     sync.RWMutex
+    clientSubscriptions   = make(map[socketio.SocketId]map[string]struct{})
+    clientSubscriptionsMu sync.RWMutex
+)
+
+// ── INGESTER MESSAGE STRUCT ───────────────────────────────────────────────────
+
+type Message struct {
+    Packet    json.RawMessage `json:"message"`
+    ShardID   int             `json:"shard_id"`
+    Timestamp string          `json:"timestamp"`
+    SourceIP  string          `json:"source_ip"`
+}
+
+// ── MAIN ─────────────────────────────────────────────────────────────────────
 
 func main() {
-	// Default config file path
-	defaultConfigPath := "./settings.json"
+    cfgPath := flag.String("config", "./settings.json", "Path to settings.json")
+    flag.Parse()
 
-	// Parse the command-line arguments
-	configPath := flag.String("config", defaultConfigPath, "Path to the settings.json file (default is ./settings.json)")
-	flag.Parse()
+    var err error
+    settings, err = readSettings(*cfgPath)
+    if err != nil {
+        log.Fatalf("Error reading settings: %v", err)
+    }
+    if settings.ExternalLookupTimeout == 0 {
+        settings.ExternalLookupTimeout = 1000
+    }
+    if settings.Debug {
+        log.Println("Debug mode enabled")
+    }
 
-	// Read the settings file
-	var err error
-	settings, err = readSettings(*configPath) // Assign directly to global settings variable
-	if err != nil {
-		log.Fatal("Error reading settings: ", err)
-	}
+    go startHTTPServer()
+    go startSocketIOServer()
 
-	// Default external lookup timeout to 1000ms if unset
-	if settings.ExternalLookupTimeout == 0 {
-		settings.ExternalLookupTimeout = 1000
-	}
+    ingConn, err := connectToIngester(settings.IngestHost, settings.IngestPort, settings.Debug)
+    if err != nil {
+        log.Fatalf("Error connecting to ingester: %v", err)
+    }
+    defer ingConn.Close()
 
-	// Enable debug mode if configured
-	if settings.Debug {
-		log.Printf("Debug mode enabled")
-	}
+    connStr := fmt.Sprintf(
+        "host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+        settings.DbHost, settings.DbPort, settings.DbUser, settings.DbPass, settings.DbName,
+    )
+    db, err = sql.Open("postgres", connStr)
+    if err != nil {
+        log.Fatalf("Error connecting to PostgreSQL database: %v", err)
+    }
+    defer db.Close()
+    if settings.Debug {
+        log.Printf("Connected to PostgreSQL database: %s", settings.DbName)
+    }
 
-	// Start the HTTP server in a goroutine
-	go startHTTPServer()
+    _, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS messages (
+            id SERIAL PRIMARY KEY,
+            packet JSONB,
+            shard_id INT,
+            timestamp TIMESTAMP,
+            source_ip VARCHAR(45),
+            user_id INT,
+            message_id INT
+        );
+    `)
+    if err != nil {
+        log.Fatal("Error creating messages table: ", err)
+    }
+    _, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS state (
+            packet JSONB,
+            shard_id INT,
+            timestamp TIMESTAMP,
+            user_id INT PRIMARY KEY,
+            ais_class VARCHAR(4) DEFAULT 'A',
+            count INT DEFAULT 1,
+            image_url TEXT,
+            name TEXT,
+            ext_lookup_complete BOOLEAN DEFAULT FALSE
+        );
+    `)
+    if err != nil {
+        log.Fatal("Error creating state table: ", err)
+    }
+    createIndexesIfNotExist(db)
 
-	// Connect to the ingester (outgoing TCP connection)
-	ingesterConn, err := connectToIngester(settings.IngestHost, settings.IngestPort, settings.Debug)
-	if err != nil {
-		log.Fatal("Error connecting to ingester: ", err)
-	}
-	defer ingesterConn.Close()
+    requestData := map[string]interface{}{
+        "shards":      settings.Shards,
+        "description": settings.Description,
+        "port":        settings.ListenPort,
+    }
+    requestJSON, err := json.Marshal(requestData)
+    if err != nil {
+        log.Fatal("Error marshalling request JSON: ", err)
+    }
+    _, err = ingConn.Write(requestJSON)
+    if err != nil {
+        log.Fatal("Error sending request to ingester: ", err)
+    }
+    log.Printf("Sent request to ingester: %s", string(requestJSON))
 
-	// Construct the initial request to send to the ingester
-	requestData := map[string]interface{}{
-		"shards":     settings.Shards,
-		"description": settings.Description,
-		"port":        settings.ListenPort,
-	}
-	requestJSON, err := json.Marshal(requestData)
-	if err != nil {
-		log.Fatal("Error marshalling request JSON: ", err)
-	}
-
-	// Send the request to the ingester
-	_, err = ingesterConn.Write(requestJSON)
-	if err != nil {
-		log.Fatal("Error sending request to ingester: ", err)
-	}
-	log.Printf("Sent request to ingester: %s", string(requestJSON))
-
-	// PostgreSQL connection string
-	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		settings.DbHost, settings.DbPort, settings.DbUser, settings.DbPass, settings.DbName)
-
-	// Open PostgreSQL database
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		log.Fatal("Error connecting to PostgreSQL database: ", err)
-	}
-	defer db.Close()
-
-	// Log successful database connection
-	if settings.Debug {
-		log.Printf("Connected to PostgreSQL database: %s", settings.DbName)
-	}
-
-	// Create the messages table with new user_id and message_id columns
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS messages (
-			id SERIAL PRIMARY KEY,
-			packet JSONB,
-			shard_id INT,
-			timestamp TIMESTAMP,
-			source_ip VARCHAR(45),
-			user_id INT,
-			message_id INT
-			
-		);
-	`)
-	if err != nil {
-		log.Fatal("Error creating table: ", err)
-	}
-
-	// Create the state table
-	_, err = db.Exec(`
-	    CREATE TABLE IF NOT EXISTS state (
-	        packet JSONB,
-	        shard_id INT,
-	        timestamp TIMESTAMP,
-	        user_id INT,
-	        ais_class VARCHAR(4) DEFAULT 'A',
-		count INT DEFAULT 1,
-		image_url TEXT,
-	        name TEXT,
-	        ext_lookup_complete  BOOLEAN DEFAULT FALSE,
-	        PRIMARY KEY (user_id)
-	    );
-	`)
-	if err != nil {
-	    log.Fatal("Error creating state table: ", err)
-	}
-
-	// Create indexes if they don't exist
-	createIndexesIfNotExist(db)
-
-	// Start reading messages from the ingester
-	go handleIngesterMessages(settings, ingesterConn, requestJSON, settings.Debug, db)
-
-	// Block until a termination signal is received
-	select {}
+    go handleIngesterMessages(settings, ingConn, requestJSON, settings.Debug, db)
+    select {}
 }
 
-// Read the settings from the JSON file
-func readSettings(path string) (*Settings, error) {
-	data, err := os.ReadFile(path) // Replace ioutil with os.ReadFile
-	if err != nil {
-		return nil, err
-	}
+// ── HTTP SERVER ──────────────────────────────────────────────────────────────
 
-	var settings Settings
-	err = json.Unmarshal(data, &settings)
-	if err != nil {
-		return nil, err
-	}
+func startHTTPServer() {
+    http.HandleFunc("/settings", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(settings)
+    })
+    addr := fmt.Sprintf(":%d", settings.ListenPort)
+    log.Printf("HTTP server on %s", addr)
+    log.Fatal(http.ListenAndServe(addr, nil))
+}
 
-	return &settings, nil
+// ── SOCKET.IO SERVER ─────────────────────────────────────────────────────────
+
+func startSocketIOServer() {
+    addr := fmt.Sprintf(":%d", settings.SocketIOListen)
+    log.Printf("Socket.IO on %s", addr)
+
+    mux := http.NewServeMux()
+    eng := types.NewWebServer(nil)
+    engine.Attach(eng, nil) // no ServerOptions
+
+    mux.HandleFunc("/socket.io/", eng.ServeHTTP)
+
+    ioServer = socketio.NewServer(eng, nil)
+    setupSocketIOHandlers()
+
+    log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func setupSocketIOHandlers() {
+    ioServer.On("connection", func(args ...any) {
+        sock := args[0].(*socketio.Socket)
+        sid := sock.Id()
+
+        connectedClientsMu.Lock()
+        connectedClients[sid] = sock
+        connectedClientsMu.Unlock()
+
+        sock.On("ais_sub/:userID", func(raw ...any) {
+	    log.Printf("[DEBUG] got ais_sub/:userID → %+v\n", raw)
+            userID := raw[0].(string)
+	    log.Printf("[DEBUG] socket %s subscribing to user %s", sock.Id(), userID)
+            clientSubscriptionsMu.Lock()
+            if clientSubscriptions[sid] == nil {
+                clientSubscriptions[sid] = make(map[string]struct{})
+            }
+            clientSubscriptions[sid][userID] = struct{}{}
+            clientSubscriptionsMu.Unlock()
+
+            userSubscribersMu.Lock()
+            if userSubscribers[userID] == nil {
+                userSubscribers[userID] = make(map[socketio.SocketId]struct{})
+            }
+            userSubscribers[userID][sid] = struct{}{}
+            userSubscribersMu.Unlock()
+        })
+
+        sock.On("ais_unsub/:userID", func(raw ...any) {
+            userID := raw[0].(string)
+            clientSubscriptionsMu.Lock()
+            delete(clientSubscriptions[sid], userID)
+            clientSubscriptionsMu.Unlock()
+
+            userSubscribersMu.Lock()
+            if subs := userSubscribers[userID]; subs != nil {
+                delete(subs, sid)
+                if len(subs) == 0 {
+                    delete(userSubscribers, userID)
+                }
+            }
+            userSubscribersMu.Unlock()
+        })
+
+        sock.On("disconnect", func(_ ...any) {
+            connectedClientsMu.Lock()
+            delete(connectedClients, sid)
+            connectedClientsMu.Unlock()
+
+            clientSubscriptionsMu.Lock()
+            subs := clientSubscriptions[sid]
+            delete(clientSubscriptions, sid)
+            clientSubscriptionsMu.Unlock()
+
+            userSubscribersMu.Lock()
+            for uid := range subs {
+                if subsMap := userSubscribers[uid]; subsMap != nil {
+                    delete(subsMap, sid)
+                    if len(subsMap) == 0 {
+                        delete(userSubscribers, uid)
+                    }
+                }
+            }
+            userSubscribersMu.Unlock()
+        })
+    })
+}
+
+// ── INGESTER HANDLING ─────────────────────────────────────────────────────────
+
+func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byte, debug bool, db *sql.DB) {
+    buffer := make([]byte, 0)
+    for {
+        buf := make([]byte, 4096)
+        n, err := conn.Read(buf)
+        if err != nil {
+            log.Printf("Error reading from connection: %v", err)
+            conn.Close()
+            conn, err = connectToIngester(settings.IngestHost, settings.IngestPort, debug)
+            if err != nil {
+                log.Printf("Failed to reconnect: %v", err)
+                continue
+            }
+            log.Println("Reconnected to ingester")
+            _, err := conn.Write(requestJSON)
+            if err != nil {
+                log.Printf("Failed to resend request: %v", err)
+                continue
+            }
+            log.Printf("Resent request: %s", string(requestJSON))
+            continue
+        }
+
+        buffer = append(buffer, buf[:n]...)
+        for {
+            idx := bytes.IndexByte(buffer, '\x00')
+            if idx == -1 {
+                break
+            }
+            frame := buffer[:idx]
+            buffer = buffer[idx+1:]
+            if err := processMessage(frame, db, settings); err != nil {
+                log.Printf("processMessage error: %v", err)
+            }
+        }
+    }
+}
+
+func processMessage(message []byte, db *sql.DB, settings *Settings) error {
+    var msg Message
+    if err := json.Unmarshal(message, &msg); err != nil {
+        return err
+    }
+
+    var envelope map[string]json.RawMessage
+    if err := json.Unmarshal(msg.Packet, &envelope); err != nil {
+        return err
+    }
+    rawInner, ok := envelope["packet"]
+    if !ok {
+        rawInner = msg.Packet
+    }
+
+    if err := storeMessage(db, msg, settings); err != nil {
+        log.Printf("Error storing message: %v", err)
+    }
+
+    var packet map[string]interface{}
+    if err := json.Unmarshal(rawInner, &packet); err == nil {
+        var uidKey string
+        if v, ok := packet["UserID"].(float64); ok {
+            uidKey = strconv.Itoa(int(v))
+        } else if s, ok := packet["UserID"].(string); ok {
+            uidKey = s
+        } else {
+            return nil
+        }
+
+        userSubscribersMu.RLock()
+        subs := userSubscribers[uidKey]
+        userSubscribersMu.RUnlock()
+        for sid := range subs {
+            if sock, ok := connectedClients[sid]; ok {
+                sock.Emit("ais_data", packet)
+            }
+        }
+    }
+
+    return nil
+}
+
+// ── DATABASE HELPERS AND ORIGINAL LOGIC ─────────────────────────────────────
+
+func createIndexesIfNotExist(db *sql.DB) {
+    stmts := []string{
+        `CREATE INDEX IF NOT EXISTS idx_user_id ON messages (user_id);`,
+        `CREATE INDEX IF NOT EXISTS idx_message_id ON messages (message_id);`,
+        `CREATE INDEX IF NOT EXISTS idx_shard_id ON messages (shard_id);`,
+        `CREATE INDEX IF NOT EXISTS idx_user_id_state ON state (user_id);`,
+        `CREATE INDEX IF NOT EXISTS idx_packet_jsonb_search_fields ON state USING GIN (packet jsonb_ops);`,
+        `CREATE INDEX IF NOT EXISTS idx_name_state ON state (name);`,
+        `CREATE INDEX IF NOT EXISTS idx_messages_geospatial ON messages USING GIST (
+            ST_SetSRID(ST_Point((packet->>'Longitude')::float, (packet->>'Latitude')::float), 4326)
+        );`,
+    }
+    for _, s := range stmts {
+        if _, err := db.Exec(s); err != nil {
+            log.Printf("Error creating index: %v", err)
+        }
+    }
 }
 
 func storeMessage(db *sql.DB, message Message, settings *Settings) error {
     var outerMap map[string]interface{}
-    err := json.Unmarshal(message.Packet, &outerMap)
-    if err != nil {
+    if err := json.Unmarshal(message.Packet, &outerMap); err != nil {
         log.Printf("Error unmarshalling outer message: %v", err)
         return err
     }
@@ -189,14 +383,12 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
         log.Println("Packet field is missing in the JSON message.")
         return fmt.Errorf("Packet field is missing")
     }
-
     packetMap, ok := packetData.(map[string]interface{})
     if !ok {
         log.Println("Packet data is not in the expected format.")
         return fmt.Errorf("Packet data is not in the expected format")
     }
 
-    // Check if MessageID is 24 and flatten
     messageID, messageIDExists := packetMap["MessageID"].(float64)
     if messageIDExists && messageID == 24 {
         if reportA, reportAExists := packetMap["ReportA"].(map[string]interface{}); reportAExists {
@@ -207,11 +399,10 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
             }
             delete(packetMap, "ReportA")
         }
-
         if reportB, reportBExists := packetMap["ReportB"].(map[string]interface{}); reportBExists {
             if valid, validExists := reportB["Valid"].(bool); validExists && valid {
                 if shipType, shipTypeExists := reportB["ShipType"].(float64); shipTypeExists {
-                    reportB["Type"] = int(shipType) // Convert to int if needed
+                    reportB["Type"] = int(shipType)
                     delete(reportB, "ShipType")
                 }
                 for key, value := range reportB {
@@ -222,9 +413,8 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
         }
     }
 
-    userID, userIDExists := packetMap["UserID"].(float64)
+    userIDf, userIDExists := packetMap["UserID"].(float64)
     messageIDExtracted, messageIDExists := packetMap["MessageID"].(float64)
-
     if !userIDExists || !messageIDExists {
         log.Println("UserID or MessageID is missing in the packet.")
         return fmt.Errorf("UserID or MessageID is missing")
@@ -236,63 +426,48 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
         return err
     }
 
-    // Convert userID and messageIDExtracted to int before passing to storeState
-    err = storeState(db, packetJSON, message.ShardID, message.Timestamp, int(userID), messageIDExtracted)
-    if err != nil {
+    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, int(userIDf), messageIDExtracted); err != nil {
         log.Printf("Error storing state: %v", err)
     }
-
-    // Insert into messages as well (optional)
-    err = tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userID, messageIDExtracted, settings)
-    if err != nil {
+    if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDExtracted, settings); err != nil {
         log.Printf("Error storing message: %v", err)
     }
 
-    return err
+    return nil
 }
 
 func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, userID int, messageID float64) error {
-    // Fetch the current packet and ais_class if exists
     var existingPacketJSON []byte
     var existingAisClass string
     var existingCount int
     var existingLookupComplete bool
     err := db.QueryRow(`
-        SELECT packet, ais_class, count, ext_lookup_complete
-          FROM state
-         WHERE user_id = $1
+        SELECT	packet, ais_class, count, ext_lookup_complete
+          FROM	state
+         WHERE	user_id = $1
     `, userID).Scan(&existingPacketJSON, &existingAisClass, &existingCount, &existingLookupComplete)
 
-    // If no existing row, first time seeing this user
     if err == sql.ErrNoRows {
-        existingPacketJSON    = []byte("{}")
-        existingAisClass      = "A"
-        existingCount         = 0
+        existingPacketJSON = []byte("{}")
+        existingAisClass = "A"
+        existingCount = 0
         existingLookupComplete = false
     } else if err != nil {
         return fmt.Errorf("Error querying existing packet: %v", err)
     }
 
     var existingPacket map[string]interface{}
-    var newPacket map[string]interface{}
-    
-    // Unmarshal existing and new packet
-    err = json.Unmarshal(existingPacketJSON, &existingPacket)
-    if err != nil {
+    if err := json.Unmarshal(existingPacketJSON, &existingPacket); err != nil {
         return fmt.Errorf("Error unmarshalling existing packet: %v", err)
     }
-
-    err = json.Unmarshal(packetJSON, &newPacket)
-    if err != nil {
+    var newPacket map[string]interface{}
+    if err := json.Unmarshal(packetJSON, &newPacket); err != nil {
         return fmt.Errorf("Error unmarshalling new packet: %v", err)
     }
-
-    // Merge the new data into the existing packet
     for key, value := range newPacket {
         existingPacket[key] = value
     }
 
-    // Check the messageID and update ais_class accordingly
     switch messageID {
     case 18, 19, 24:
         if existingAisClass == "A" {
@@ -312,16 +487,12 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
         }
     }
 
-    // Remove the MessageID field before inserting
     delete(existingPacket, "MessageID")
-
-    // Marshal the merged packet back to JSON
     packetJSON, err = json.Marshal(existingPacket)
     if err != nil {
         return fmt.Errorf("Error marshalling merged packet: %v", err)
     }
 
-    // Insert (blank image_url/name, preserve ext_lookup_complete) or update on conflict
     _, err = db.Exec(`
         INSERT INTO state
           (packet, shard_id, timestamp, user_id, ais_class, count, image_url, name, ext_lookup_complete)
@@ -337,12 +508,10 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
         return fmt.Errorf("Error inserting or updating state table: %v", err)
     }
 
-    // Schedule async lookup if configured, 9-digit UserID, and lookup not yet complete
     uidStr := strconv.Itoa(userID)
     if settings.ExternalLookup != "" && len(uidStr) == 9 && !existingLookupComplete {
         go externalLookupAndUpdate(db, userID)
     }
-
     return nil
 }
 
@@ -359,17 +528,12 @@ func externalLookupAndUpdate(db *sql.DB, userID int) {
     }
     defer resp.Body.Close()
 
-    // If 404, mark lookup complete but leave name/image null
     if resp.StatusCode == http.StatusNotFound {
-        if _, err := db.Exec(
-            "UPDATE state SET ext_lookup_complete=TRUE WHERE user_id=$1", userID,
-        ); err != nil {
+        if _, err := db.Exec("UPDATE state SET ext_lookup_complete=TRUE WHERE user_id=$1", userID); err != nil {
             log.Printf("Error marking lookup complete for user %d: %v", userID, err)
         }
         return
     }
-
-    // Only proceed if 200
     if resp.StatusCode != http.StatusOK {
         return
     }
@@ -382,8 +546,6 @@ func externalLookupAndUpdate(db *sql.DB, userID int) {
         log.Printf("Error decoding lookup response for user %d: %v", userID, err)
         return
     }
-
-    // Prepare nullable values
     var imgVal, nameVal interface{}
     if ext.ImageURL != "" {
         imgVal = ext.ImageURL
@@ -391,8 +553,6 @@ func externalLookupAndUpdate(db *sql.DB, userID int) {
     if ext.Name != "" {
         nameVal = ext.Name
     }
-
-    // Update row with results and mark lookup complete
     if _, err := db.Exec(
         "UPDATE state SET image_url=$1, name=$2, ext_lookup_complete=TRUE WHERE user_id=$3",
         imgVal, nameVal, userID,
@@ -402,23 +562,18 @@ func externalLookupAndUpdate(db *sql.DB, userID int) {
 }
 
 func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, settings *Settings) error {
-    // Try to insert the message into the database
     stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id) 
              VALUES ($1, $2, $3, $4, $5, $6)`
-
     _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID)
     if err != nil {
         log.Printf("Error executing query: %v", err)
-        // If the error is due to the database connection being lost, attempt to reconnect
         if isDatabaseConnectionError(err) {
             log.Println("Attempting to reconnect to the PostgreSQL database...")
-            db, err = reconnectToDatabase(settings) // Pass settings to reconnectToDatabase
+            db, err = reconnectToDatabase(settings)
             if err != nil {
                 log.Printf("Failed to reconnect to the database: %v", err)
                 return err
             }
-
-            // Try inserting the message again after reconnecting
             _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID)
             if err != nil {
                 log.Printf("Error executing query after reconnecting: %v", err)
@@ -436,17 +591,13 @@ func isDatabaseConnectionError(err error) bool {
 func reconnectToDatabase(settings *Settings) (*sql.DB, error) {
     connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
         settings.DbHost, settings.DbPort, settings.DbUser, settings.DbPass, settings.DbName)
-    
     db, err := sql.Open("postgres", connStr)
     if err != nil {
         return nil, err
     }
-
-    err = db.Ping()
-    if err != nil {
+    if err := db.Ping(); err != nil {
         return nil, err
     }
-
     log.Println("Successfully reconnected to the PostgreSQL database.")
     return db, nil
 }
@@ -460,144 +611,9 @@ func connectToIngester(host string, port int, debug bool) (net.Conn, error) {
             time.Sleep(5 * time.Second)
             continue
         }
-
         if debug {
             log.Printf("Successfully connected to ingester at %s", addr)
         }
-
         return conn, nil
-    }
-}
-
-func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byte, debug bool, db *sql.DB) {
-    buffer := make([]byte, 0)
-
-    for {
-        buf := make([]byte, 4096)
-        n, err := conn.Read(buf)
-
-        if err != nil {
-            log.Printf("Error reading from connection: %v", err)
-            conn.Close()
-            conn, err = connectToIngester(settings.IngestHost, settings.IngestPort, debug)
-            if err != nil {
-                log.Printf("Failed to reconnect: %v", err)
-                continue
-            }
-            log.Println("Reconnected to ingester")
-            _, err := conn.Write(requestJSON)
-            if err != nil {
-                log.Printf("Failed to resend request to ingester: %v", err)
-                continue
-            }
-            log.Printf("Resent request to ingester: %s", string(requestJSON))
-            continue
-        }
-
-        buffer = append(buffer, buf[:n]...)
-
-        for {
-            idx := bytes.IndexByte(buffer, '\x00')
-            if idx == -1 {
-                break
-            }
-
-            message := buffer[:idx]
-            buffer = buffer[idx+1:]
-
-            err := processMessage(message, db, settings)
-            if err != nil {
-                log.Printf("Failed to unmarshal message: %v, Raw Message: %s", err, string(message))
-            }
-        }
-    }
-}
-
-func processMessage(message []byte, db *sql.DB, settings *Settings) error {
-    var msg Message
-
-    err := json.Unmarshal(message, &msg)
-    if err != nil {
-        return err
-    }
-
-    err = storeMessage(db, msg, settings)
-    if err != nil {
-        log.Printf("Error storing message: %v", err)
-    }
-
-    return err
-}
-
-func createIndexesIfNotExist(db *sql.DB) {
-    // Creating index for `messages` table
-    _, err := db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_user_id ON messages (user_id);
-    `)
-    if err != nil {
-        log.Printf("Error creating index for user_id in messages table: %v", err)
-    }
-
-    _, err = db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_message_id ON messages (message_id);
-    `)
-    if err != nil {
-        log.Printf("Error creating index for message_id in messages table: %v", err)
-    }
-
-    _, err = db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_shard_id ON messages (shard_id);
-    `)
-    if err != nil {
-        log.Printf("Error creating index for shard_id in messages table: %v", err)
-    }
-
-    // For `state` table, just an index for `user_id` since `message_id` is no longer necessary
-    _, err = db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_user_id_state ON state (user_id);
-    `)
-    if err != nil {
-        log.Printf("Error creating index for user_id in state table: %v", err)
-    }
-    _, err = db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_packet_jsonb_search_fields ON state USING GIN (packet jsonb_ops);
-    `)
-    if err != nil {
-        log.Printf("Error creating index for search_fields in state table: %v", err)
-    }
-    _, err = db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_name_state ON state (name);
-    `)
-    if err != nil {
-        log.Printf("Error creating index for name field in state table: %v", err)
-    }
-    _, err = db.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_messages_geospatial ON messages USING GIST (ST_SetSRID(ST_Point((packet->>'Longitude')::float, (packet->>'Latitude')::float), 4326))
-    `)
-    if err != nil {
-        log.Printf("Error creating index for idx_messages_geospatial in state table: %v", err)
-    }
-}
-
-func startHTTPServer() {
-    if settings == nil {
-        log.Fatal("Settings are not initialized.")
-        return
-    }
-
-    http.HandleFunc("/settings", getSettingsHandler)
-
-    address := fmt.Sprintf(":%d", settings.ListenPort)
-    log.Printf("Starting HTTP server on port %d...\n", settings.ListenPort)
-    if err := http.ListenAndServe(address, nil); err != nil {
-        log.Fatalf("Error starting HTTP server: %v\n", err)
-    }
-}
-
-func getSettingsHandler(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    err := json.NewEncoder(w).Encode(settings)
-    if err != nil {
-        http.Error(w, fmt.Sprintf("Error encoding settings: %v", err), http.StatusInternalServerError)
     }
 }

@@ -17,8 +17,10 @@ import (
 	"runtime"
 
 	"github.com/lib/pq"
-	"github.com/zishang520/socket.io/v2/socket"
 	"github.com/zishang520/engine.io/v2/types"
+    	clientSocket "github.com/zishang520/socket.io-client-go/socket"
+	serverSocket "github.com/zishang520/socket.io/v2/socket"
+    	"github.com/zishang520/engine.io-client-go/transports"
 )
 
 type FilterParams struct {
@@ -70,13 +72,19 @@ type ClientConnection struct {
 	DbPass     string
 	DbName     string
 	Shards     []int
+    	WSHost     string
+	WSPort     int
+	wsClient   *clientSocket.Socket
+    	wsClientMu sync.Mutex
 }
 
-var ioServer *socket.Server
-var connectedClients = make(map[socket.SocketId]*socket.Socket)
+var ioServer *serverSocket.Server
+var connectedClients = make(map[serverSocket.SocketId]*serverSocket.Socket)
 var connectedClientsMu sync.RWMutex
-var clientSummaryFilters = make(map[socket.SocketId]FilterParams)
+var clientSummaryFilters = make(map[serverSocket.SocketId]FilterParams)
 var clientSummaryMu sync.RWMutex
+var clientSubscriptions = make(map[serverSocket.SocketId]map[string]struct{})
+var wsHandlersRegistered = make(map[*clientSocket.Socket]bool)
 
 // AIS spec: TrueHeading == 511 means “not available”
 const NoTrueHeading = 511.0
@@ -120,6 +128,11 @@ func QueryDatabaseForUser(userID string, query string) (*sql.Rows, error) {
 	}
 
 	return rows, nil
+}
+
+func formatMsg(parts ...any) string {
+    b, _ := json.Marshal(parts)
+    return string(b)
 }
 
 // QueryDatabasesForAllShards queries all shard databases with the same query.
@@ -465,6 +478,34 @@ func isNull(value float64) bool {
     return value == 0.0 // Assuming 0.0 means NULL in your database; adjust if needed
 }
 
+func (cc *ClientConnection) getWSClient() (*clientSocket.Socket, error) {
+    cc.wsClientMu.Lock()
+    defer cc.wsClientMu.Unlock()
+    if cc.wsClient != nil {
+        return cc.wsClient, nil
+    }
+
+    // use the clientSocket alias, not “socket”
+    opts := clientSocket.DefaultOptions()
+    opts.SetTransports(types.NewSet(transports.Polling, transports.WebSocket))
+
+    manager := clientSocket.NewManager(
+        fmt.Sprintf("http://%s:%d", cc.WSHost, cc.WSPort),
+        opts,
+    )
+
+    // grab the “/” (or custom) namespace
+    cli := manager.Socket("/", opts)
+
+    // attach basic error handlers if you like:
+    manager.On("error", func(errs ...any) {
+        log.Printf("collector WS manager error: %v", errs)
+    })
+
+    cc.wsClient = cli
+    return cli, nil
+}
+
 func summaryHandler(w http.ResponseWriter, r *http.Request) {
     // Declare 'err' once at the beginning of the function
     var err error
@@ -805,7 +846,7 @@ func formatTimestamp(t time.Time) string {
     return t.UTC().Format(time.RFC3339Nano) // Format: "2025-04-21T13:49:56.259736Z"
 }
 
-func handleSummaryRequest(client *socket.Socket, data map[string]interface{}) {
+func handleSummaryRequest(client *serverSocket.Socket, data map[string]interface{}) {
 
     // Extract parameters from the incoming WebSocket message
     lat, _ := data["latitude"].(float64)
@@ -1033,7 +1074,13 @@ func handleClientChanges(ingesterHost string, ingesterPort int, debug bool) {
 				continue
 			}
 			clientConnectionsMu.Lock()
-			clientConnections[client.Description] = &ClientConnection{
+			wsPort, err := fetchCollectorWSPort(client.Ip, client.Port)
+			if err != nil {
+	                    log.Printf("cannot fetch socketio_listen for %s: %v", client.Ip, err)
+           	     	    continue
+
+		        }
+                        clientConnections[client.Description] = &ClientConnection{
 				Db:         db,
 				DbHost:     clientSettings.DbHost,
 				DbPort:     clientSettings.DbPort,
@@ -1041,6 +1088,8 @@ func handleClientChanges(ingesterHost string, ingesterPort int, debug bool) {
 				DbPass:     clientSettings.DbPass,
 				DbName:     clientSettings.DbName,
 				Shards:     client.Shards,
+			        WSHost:     client.Ip,
+			        WSPort:     wsPort,
 			}
 			clientConnectionsMu.Unlock()
 			log.Printf("Successfully connected to database for client %s: %s@%s:%d/%s",
@@ -1059,6 +1108,21 @@ func handleClientChanges(ingesterHost string, ingesterPort int, debug bool) {
             	        clientConnectionsMu.Unlock()
 		}
 	}
+}
+
+// fetch WS port from collector’s own /settings
+func fetchCollectorWSPort(host string, httpPort int) (int, error) {
+    resp, err := http.Get(fmt.Sprintf("http://%s:%d/settings", host, httpPort))
+    if err != nil {
+        return 0, err
+    }
+    defer resp.Body.Close()
+
+    var cfg struct { SocketIOListen int `json:"socketio_listen"` }
+    if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+        return 0, err
+    }
+    return cfg.SocketIOListen, nil
 }
 
 // Fetch client database settings (not global Settings, specific to clients)
@@ -1113,137 +1177,238 @@ func startHTTPServer(port int, mux *http.ServeMux) {
 
 // Set up the HTTP server with routes
 func setupServer(settings *Settings) {
-	// Create a new ServeMux
-	mux := http.NewServeMux()
+    mux := http.NewServeMux()
 
-        receiversTarget, err := url.Parse(settings.ReceiversBaseURL)
-	if err != nil {
-	    log.Fatalf("invalid receivers_url: %v", err)
-	}
-	receiversProxy := httputil.NewSingleHostReverseProxy(receiversTarget)
-	mux.Handle("/receivers", receiversProxy)
-
-
-	//metricsTarget, _ := url.Parse(fmt.Sprintf("http://%s:%d", settings.IngestHost, settings.IngestPort))
-	//metricsProxy := httputil.NewSingleHostReverseProxy(metricsTarget)
-	//mux.Handle("/metrics", metricsProxy)
-
-	// Define the /summary} route
-	mux.HandleFunc("/summary", summaryHandler)
-
-	// Define the /state/{UserID} route
-	mux.HandleFunc("/state/", userStateHandler)
-
-	mux.HandleFunc("/history/", historyHandler)
-
-	mux.HandleFunc("/search", searchHandler)
-
-	// Set up Socket.IO handler
-	engineServer := types.CreateServer(nil)
-	ioServer = socket.NewServer(engineServer, nil)
-	mux.Handle("/socket.io/", engineServer)
-
-	// Serve static files (e.g., index.html)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.FileServer(http.Dir("web")).ServeHTTP(w, r)
-	})
-
-// Inside setupServer function, modify WebSocket handler to unmarshal the raw JSON string
-ioServer.On("connection", func(args ...any) {
-    client := args[0].(*socket.Socket)
-    log.Printf("WebSocket client connected: %s", client.Id())
-    connectedClients[client.Id()] = client
-    connectedClientsMu.Lock()
-    connectedClients[client.Id()] = client
-    connectedClientsMu.Unlock()
-
-    // Log the event when the client sends 'requestSummary'
-client.On("requestSummary", func(args ...any) {
-    // log.Printf("Received 'requestSummary' event from client %s", client.Id())
-
-    if len(args) < 1 {
-        log.Printf("No data received with 'requestSummary' event")
-        return
-    }
-
-    dataStr, ok := args[0].(string)
-    if !ok {
-        log.Printf("Invalid data format for 'requestSummary' event from client %s", client.Id())
-        return
-    }
-
-    var data map[string]interface{}
-    if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
-        log.Printf("Error unmarshalling data from client %s: %v", client.Id(), err)
-        return
-    }
-
-    // Extract all parameters sent by the client
-    lat, _ := data["latitude"].(float64)
-    lon, _ := data["longitude"].(float64)
-    radius, _ := data["radius"].(float64)
-    maxAge, _ := data["maxAge"].(float64)
-    maxResults, _ := data["maxResults"].(float64)
-    minSpeed, _ := data["minSpeed"].(float64)
-    updatePeriod, _ := data["updatePeriod"].(float64)
-    UserID, _ := data["UserID"].(float64)
-
-    if updatePeriod == 0 {
-        updatePeriod = 5
-    }
-
-    // Store the parameters in the clientSummaryFilters map
-    clientSummaryFilters[client.Id()] = FilterParams{
-        Latitude:    lat,
-        Longitude:   lon,
-        Radius:      radius,
-        MaxResults:  int(maxResults),
-        MaxAge:      int(maxAge),
-        MinSpeed:    minSpeed,
-        UpdatePeriod: int(updatePeriod),
-	UserID:	     int64(UserID),
-        LastUpdated: time.Now(),
-    }
-
-    // Optionally, you can immediately send the summary after receiving the request
-    summarizedResults, err := getSummaryResults(lat, lon, radius, int(maxResults), int(maxAge), minSpeed, int64(UserID))
+    // Reverse-proxy for /receivers
+    receiversTarget, err := url.Parse(settings.ReceiversBaseURL)
     if err != nil {
-        log.Printf("Error fetching summary for client %s: %v", client.Id(), err)
-        return
+        log.Fatalf("invalid receivers_base_url: %v", err)
     }
+    mux.Handle("/receivers", httputil.NewSingleHostReverseProxy(receiversTarget))
 
-    summaryJSON, err := json.Marshal(summarizedResults)
-    if err != nil {
-        log.Printf("Error marshaling summary data for client %s: %v", client.Id(), err)
-        return
-    }
+    // HTTP API endpoints
+    mux.HandleFunc("/summary", summaryHandler)
+    mux.HandleFunc("/state/", userStateHandler)
+    mux.HandleFunc("/history/", historyHandler)
+    mux.HandleFunc("/search", searchHandler)
 
-    // Send the summary data to the client immediately
-    if err := client.Emit("summaryData", string(summaryJSON)); err != nil {
-        log.Printf("Error sending summary data to client %s: %v", client.Id(), err)
-    }
-})
-
-
-    // Log client disconnection
-    client.On("disconnect", func(args ...any) {
-        clientSummaryMu.Lock()
-        delete(clientSummaryFilters, client.Id())
-        clientSummaryMu.Unlock()
-
-        connectedClientsMu.Lock()
-        delete(connectedClients, client.Id())
-        connectedClientsMu.Unlock()
-        log.Printf("WebSocket client disconnected: %s", client.Id())
+    // Static files
+    mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        http.FileServer(http.Dir("web")).ServeHTTP(w, r)
     })
+
+    // Socket.IO setup
+    engineServer := types.CreateServer(nil)
+    ioServer = serverSocket.NewServer(engineServer, nil)
+    mux.Handle("/socket.io/", engineServer)
+
+    // On new WebSocket connection
+    ioServer.On("connection", func(args ...any) {
+        client := args[0].(*serverSocket.Socket)
+        log.Printf("WebSocket client connected: %s", client.Id())
+
+        // Track connected client
+        connectedClientsMu.Lock()
+        connectedClients[client.Id()] = client
+        connectedClientsMu.Unlock()
+
+        // Init this client's subscription set
+        clientSubscriptions[client.Id()] = make(map[string]struct{})
+
+        // —— ais_sub/:userID ——
+        client.On("ais_sub/:userID", func(raw ...any) {
+    // 1) Extract the requested vessel ID from the subscription call
+    userID := raw[0].(string)
+    log.Printf("Client %s subscribes to %s", client.Id(), userID)
+    clientSubscriptions[client.Id()][userID] = struct{}{}
+
+    // 2) Find the collector connection responsible for this shard
+    shard := shardForUser(userID)
+    var cc *ClientConnection
+    clientConnectionsMu.RLock()
+    for _, c := range clientConnections {
+        for _, s := range c.Shards {
+            if s == shard {
+                cc = c
+                break
+            }
+        }
+        if cc != nil {
+            break
+        }
+    }
+    clientConnectionsMu.RUnlock()
+    if cc == nil {
+        log.Printf("No collector for shard %d", shard)
+        return
+    }
+
+    // 3) Dial (or reuse) the collector WebSocket and forward our subscription
+    ws, err := cc.getWSClient()
+    if err != nil {
+        log.Printf("Error dialing collector WS: %v", err)
+        return
+    }
+    ws.Emit("ais_sub/:userID", userID)
+
+    // 4) Register a single ais_data handler on this collector socket
+    if !wsHandlersRegistered[ws] {
+        wsHandlersRegistered[ws] = true
+        ws.On("ais_data", func(msg ...any) {
+            // a) extract the MMSI from the incoming payload
+            var msgUserID string
+            if len(msg) > 0 {
+                if m, ok := msg[0].(map[string]interface{}); ok {
+                    if f, ok2 := m["UserID"].(float64); ok2 {
+                        msgUserID = strconv.FormatInt(int64(f), 10)
+                    } else if s, ok2 := m["UserID"].(string); ok2 {
+                        msgUserID = s
+                    }
+                }
+                if msgUserID == "" {
+                    if s, ok := msg[0].(string); ok {
+                        var m2 map[string]interface{}
+                        if err := json.Unmarshal([]byte(s), &m2); err == nil {
+                            if f, ok2 := m2["UserID"].(float64); ok2 {
+                                msgUserID = strconv.FormatInt(int64(f), 10)
+                            } else if ss, ok2 := m2["UserID"].(string); ok2 {
+                                msgUserID = ss
+                            }
+                        }
+                    }
+                }
+            }
+            if msgUserID == "" {
+                return // cannot route without a UserID
+            }
+
+            // b) wrap the raw AIS payload in a top‐level "data" field
+            var rawPayload any
+            if len(msg) == 1 {
+                rawPayload = msg[0]
+            } else {
+                rawPayload = msg
+            }
+            wrapped := map[string]any{"data": rawPayload}
+
+            // c) forward to each browser client subscribed to this MMSI
+            connectedClientsMu.RLock()
+            for sid, sock := range connectedClients {
+                if subs, exists := clientSubscriptions[sid]; exists {
+                    if _, subscribed := subs[msgUserID]; subscribed {
+                        sock.Emit("ais_data",           wrapped)
+                        sock.Emit(fmt.Sprintf("ais_data/%s", msgUserID), wrapped)
+                    }
+                }
+            }
+            connectedClientsMu.RUnlock()
+        })
+    }
 })
 
 
+        // —— ais_unsub/:userID ——
+        client.On("ais_unsub/:userID", func(raw ...any) {
+            userID := raw[0].(string)
+            log.Printf("Client %s unsubscribes from %s", client.Id(), userID)
+            delete(clientSubscriptions[client.Id()], userID)
 
+            // forward unsubscribe
+            shard := shardForUser(userID)
+            var cc *ClientConnection
+            clientConnectionsMu.RLock()
+            for _, c := range clientConnections {
+                for _, s := range c.Shards {
+                    if s == shard {
+                        cc = c
+                        break
+                    }
+                }
+                if cc != nil {
+                    break
+                }
+            }
+            clientConnectionsMu.RUnlock()
+            if cc != nil {
+                if ws, err := cc.getWSClient(); err == nil {
+                    ws.Emit("ais_unsub/:userID", userID)
+                }
+            }
+        })
 
+        // —— requestSummary ——
+        client.On("requestSummary", func(args ...any) {
+            if len(args) < 1 {
+                log.Printf("No data received with 'requestSummary'")
+                return
+            }
+            dataStr, ok := args[0].(string)
+            if !ok {
+                log.Printf("Invalid data format for 'requestSummary'")
+                return
+            }
+            var data map[string]interface{}
+            if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
+                log.Printf("Error unmarshalling data: %v", err)
+                return
+            }
 
-	// Start the HTTP server
-	go startHTTPServer(settings.ListenPort, mux)
+            lat, _ := data["latitude"].(float64)
+            lon, _ := data["longitude"].(float64)
+            radius, _ := data["radius"].(float64)
+            maxResults, _ := data["maxResults"].(float64)
+            maxAge, _ := data["maxAge"].(float64)
+            minSpeed, _ := data["minSpeed"].(float64)
+            updatePeriod, _ := data["updatePeriod"].(float64)
+            userIDf, _ := data["UserID"].(float64)
+            if updatePeriod == 0 {
+                updatePeriod = 5
+            }
+
+            clientSummaryMu.Lock()
+            clientSummaryFilters[client.Id()] = FilterParams{
+                Latitude:     lat,
+                Longitude:    lon,
+                Radius:       radius,
+                MaxResults:   int(maxResults),
+                MaxAge:       int(maxAge),
+                MinSpeed:     minSpeed,
+                UpdatePeriod: int(updatePeriod),
+                UserID:       int64(userIDf),
+                LastUpdated:  time.Now(),
+            }
+            clientSummaryMu.Unlock()
+
+            summarized, err := getSummaryResults(
+                lat, lon, radius,
+                int(maxResults), int(maxAge), minSpeed, int64(userIDf),
+            )
+            if err != nil {
+                log.Printf("Error fetching summary: %v", err)
+                return
+            }
+            bs, _ := json.Marshal(summarized)
+            client.Emit("summaryData", string(bs))
+        })
+
+        // —— disconnect cleanup ——
+        client.On("disconnect", func(...any) {
+            delete(clientSubscriptions, client.Id())
+
+            clientSummaryMu.Lock()
+            delete(clientSummaryFilters, client.Id())
+            clientSummaryMu.Unlock()
+
+            connectedClientsMu.Lock()
+            delete(connectedClients, client.Id())
+            connectedClientsMu.Unlock()
+
+            log.Printf("WebSocket client disconnected: %s", client.Id())
+        })
+    })
+
+    // Start HTTP + WS server
+    go startHTTPServer(settings.ListenPort, mux)
 }
 
 func main() {
@@ -1296,7 +1461,7 @@ func main() {
 
         	// Iterate over each client and check if it's time to send an update
         	clientSummaryMu.RLock()
-	        snapshot := make(map[socket.SocketId]FilterParams, len(clientSummaryFilters))
+	        snapshot := make(map[serverSocket.SocketId]FilterParams, len(clientSummaryFilters))
 	        for id, params := range clientSummaryFilters {
 	            snapshot[id] = params
 	        }

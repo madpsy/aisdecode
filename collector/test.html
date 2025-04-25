@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AIS Data Demo</title>
+  <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+</head>
+<body>
+  <h1>Live AIS Data for UserID 232006107</h1>
+  <div id="log" style="white-space: pre-wrap; font-family: monospace;"></div>
+  <script>
+    // 1. Connect to the Socket.IO endpoint on port 4000
+    const socket = io("http://localhost:5001", {
+      transports: ["websocket"]
+    });
+
+    // 2. When connected, subscribe to our specific vessel
+    const userID = "232006107";
+    socket.on("connect", () => {
+      console.log("Connected with socket ID:", socket.id);
+      socket.emit("ais_sub/:userID", userID);
+      console.log(`Subscribed to AIS updates for vessel ${userID}`);
+    });
+
+    // 3. Listen for incoming AIS data events
+    socket.on("ais_data", (packet) => {
+      const log = document.getElementById("log");
+      const entry = document.createElement("div");
+      entry.textContent = JSON.stringify(packet, null, 2);
+      log.appendChild(entry);
+      log.appendChild(document.createElement("hr"));
+    });
+
+    // 4. (Optional) To unsubscribe later:
+    // socket.emit("ais_unsub/:userID", userID);
+    // socket.disconnect();
+  </script>
+</body>
+</html>
