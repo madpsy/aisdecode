@@ -8,7 +8,7 @@ vesselfinder/
 vesselfinder2/
 binarydecoder/
 build/
-ingest/settings.json
-history/settings.json
+ingester/settings.json
+collector/settings.json
 disseminator/settings.json
 receivers/settings.json
