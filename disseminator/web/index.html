@@ -449,7 +449,7 @@
         <div class="speed-scale-bar"></div>
         <div class="speed-scale-labels">
           <span>0 kn</span>
-          <span>20 kn</span>
+          <span>30 kn</span>
         </div>
       </div>
         <div id="legend-content"></div>
@@ -1315,7 +1315,7 @@ function updateLegend() {
 }
 
 function getColorForSpeed(speed) {
-  const maxSpeed = 20;  // maximum expected speed in knots
+  const maxSpeed = 30;  // maximum expected speed in knots
   // Clamp the speed value between 0 and maxSpeed
   const clampedSpeed = Math.max(0, Math.min(maxSpeed, speed));
   // Compute a ratio (0 = 0 knots, 1 = maxSpeed)
