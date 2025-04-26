@@ -15,7 +15,8 @@ func main() {
     // Command-line flags
     serialPort := flag.String("serial-port", "/dev/ttyUSB0", "Serial port device")
     baud := flag.Int("baud", 38400, "Baud rate")
-    udpAddrs := flag.String("udp", "192.168.1.10:8101,192.168.1.11:8101", "Comma-separated UDP destinations")
+    udpAddrs := flag.String("udp", "127.0.0.1:8101", "Comma-separated UDP destinations")
+    debug := flag.Bool("debug", false, "Enable debug logging of forwarded data")
     flag.Parse()
 
     // Open serial port
@@ -47,6 +48,9 @@ func main() {
     scanner := bufio.NewScanner(port)
     for scanner.Scan() {
         line := scanner.Bytes()
+        if *debug {
+            log.Printf("Forwarding: %s", string(line))
+        }
         for _, conn := range conns {
             sendWithRetry(conn, line)
         }
