@@ -1,6 +1,0 @@
-{
-  "ingester_host": "localhost",
-  "ingester_port": 8080,
-  "listen_port": 5002,
-  "debug": true
-}
