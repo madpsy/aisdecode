@@ -448,7 +448,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
             summary["Cog"] = getFieldFloat(packetMap, "Cog")
             summary["Destination"] = getFieldString(packetMap, "Destination")
             summary["Dimension"] = getFieldJSON(packetMap, "Dimension")
-            summary["MaximumStaticDraught"] = getFieldFloat(packetMap, "MaximumStaticDraught")
+            summary["MaximumStaticDraught"] = getNullableFloat(packetMap, "MaximumStaticDraught")
             summary["NavigationalStatus"] = getNullableFloat(packetMap, "NavigationalStatus")
             summary["Sog"] = getFieldFloat(packetMap, "Sog")
             summary["Type"] = getFieldFloat(packetMap, "Type")

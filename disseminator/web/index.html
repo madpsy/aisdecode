@@ -2634,6 +2634,19 @@ socket.on("summaryData", (data) => {
     vesselData[userid].LastUpdated = vesselState.LastUpdated;
     vesselData[userid].lastUpdate = vesselTimestamp;
 
+    if (!Array.isArray(vesselData[userid].track)) {
+      vesselData[userid].track = [];
+    }
+    // append the new summary point
+    vesselData[userid].track.push([
+      vesselState.LastUpdated,           // ISO timestamp
+      vesselState.Latitude,              // lat
+      vesselState.Longitude,             // lon
+      vesselState.Sog  ?? null,          // speed
+      vesselState.Cog  ?? null,          // course
+      vesselState.TrueHeading ?? null    // heading
+    ]);
+
     const popupContent = createPopupContent(vesselData[userid]);
 
     // Update marker/track if location data exists…
