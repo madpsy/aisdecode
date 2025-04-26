@@ -2206,7 +2206,8 @@ function updateFocussedVisibility() {
 
 function subscribeInstantUpdates(UserID) {
   focussedID = UserID
-  const channelName = "ais_sub/:userID";   // ✅ must match server
+  const channelName = "ais_sub/:userID";
+  instantChannel = channelName;
   socket.emit(channelName, UserID);
   console.log("[AIS_SUBSCRIBE]", channelName, UserID);
 
@@ -2275,6 +2276,7 @@ function subscribeInstantUpdates(UserID) {
       // Move marker
       if (vesselMarkers[UserID]) {
         vesselMarkers[UserID].setLatLng([lat, lon]);
+        vesselMarkers[UserID].setIcon(getVesselIcon(vesselData[UserID]));
         vesselMarkers[UserID].getPopup().setContent(createPopupContent(vesselData[UserID]));
       }
 

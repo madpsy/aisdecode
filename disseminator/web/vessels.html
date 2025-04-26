@@ -38,7 +38,7 @@
         <th>Type</th>
         <th>Max Static Draught</th>
         <th>NumMessages</th>
-        <th>ImoNumber</th>
+        <!-- ImoNumber removed -->
         <th>True Heading</th>
       </tr>
     </thead>
@@ -72,12 +72,14 @@
         let newData = [];
         Object.keys(data).forEach(userID => {
           const item = data[userID];
-          // Look up the country name using the MID field.
-          // We assume that item.MID corresponds to a key in midsMapping.
           let country = '';
-          if(item.MID && midsMapping[item.MID]) {
-            // The country name is the 4th element in the array (index 3)
-            country = midsMapping[item.MID][3] || '';
+          if (item.UserID != null) {
+            const userIdStr = item.UserID.toString();
+            const firstThree = userIdStr.slice(0, 3);
+            const midNum = parseInt(firstThree, 10);
+            if (midsMapping[midNum]) {
+              country = midsMapping[midNum][3] || '';
+            }
           }
           newData.push([
             item.UserID ? `<a href="/?UserID=${item.UserID}" target=_blank>${item.UserID}</a>` : '',
@@ -94,7 +96,7 @@
             item.Type || '',
             item.MaximumStaticDraught || '',
             item.NumMessages || '',
-            item.ImoNumber || '',
+            // ImoNumber removed here
             item.TrueHeading || ''
           ]);
         });
@@ -129,15 +131,15 @@
         { title: "Type" },
         { title: "Max Static Draught" },
         { title: "NumMessages" },
-        { title: "ImoNumber" },
+        // removed ImoNumber column definition
         { title: "True Heading" }
       ]
     });
 
     // Initial data fetch
     updateData();
-    // Poll the source every 10 seconds for updates
-    setInterval(updateData, 10000);
+    // Poll the source every 5 seconds for updates
+    setInterval(updateData, 5000);
   });
 </script>
 </body>

@@ -43,6 +43,7 @@ type Settings struct {
     ExternalLookup        string   `json:"external_lookup"`
     ExternalLookupTimeout int      `json:"external_lookup_timeout"`
     MinimumDistance       float64  `json:"minimum_distance"`
+    TimeFiltersRaw        map[string]string  `json:"time_filters"`  // JSON holds strings ("1h", "30m", …)
 }
 
 var settings *Settings
@@ -67,16 +68,9 @@ var (
     minimumDistance float64                    // in meters, loaded from settings
 )
 
-// ── MESSAGE-4 RATE LIMIT STATE ─────────────────────────────────────────────
 var (
-   lastMsg4Mu    sync.Mutex
-   lastMsg4Times = make(map[int]time.Time)  // userID → time of last MessageID=4
-)
-
-// ── MESSAGE‐5 RATE LIMIT STATE ─────────────────────────────────────────────
-var (
-    lastMsg5Mu    sync.Mutex
-    lastMsg5Times = make(map[int]time.Time)  // userID → time of last MessageID=5
+    lastTimeMu   sync.Mutex
+    lastTimeSeen = make(map[int]map[int]time.Time)
 )
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
@@ -101,6 +95,24 @@ func readSettings(path string) (*Settings, error) {
         return nil, err
     }
     return &s, nil
+}
+
+var timeFilters map[int]time.Duration
+
+func loadTimeFilters(raw map[string]string) (map[int]time.Duration, error) {
+    tf := make(map[int]time.Duration, len(raw))
+    for k, vs := range raw {
+        mid, err := strconv.Atoi(k)
+        if err != nil {
+            return nil, fmt.Errorf("invalid MessageID in time_filters: %q", k)
+        }
+        d, err := time.ParseDuration(vs)
+        if err != nil {
+            return nil, fmt.Errorf("invalid duration for MessageID %d: %v", mid, err)
+        }
+        tf[mid] = d
+    }
+    return tf, nil
 }
 
 // ── SOCKET.IO STATE ─────────────────────────────────────────────────────────
@@ -143,6 +155,11 @@ func main() {
     }
 
     minimumDistance = float64(settings.MinimumDistance)
+
+    timeFilters, err = loadTimeFilters(settings.TimeFiltersRaw)
+    if err != nil {
+        log.Fatalf("Invalid time_filters in settings: %v", err)
+    }
 
     go startHTTPServer()
     go startSocketIOServer()
@@ -423,17 +440,50 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
 
 func createIndexesIfNotExist(db *sql.DB) {
     stmts := []string{
-        `CREATE INDEX IF NOT EXISTS idx_user_id ON messages (user_id);`,
-        `CREATE INDEX IF NOT EXISTS idx_message_id ON messages (message_id);`,
-	`CREATE INDEX IF NOT EXISTS idx_messages_userid_msgid ON messages(user_id, message_id);`,
-	`CREATE INDEX IF NOT EXISTS idx_messages_userid_msgid_ts ON messages(user_id, message_id, timestamp);`,
-        `CREATE INDEX IF NOT EXISTS idx_shard_id ON messages (shard_id);`,
-        `CREATE INDEX IF NOT EXISTS idx_user_id_state ON state (user_id);`,
-        `CREATE INDEX IF NOT EXISTS idx_packet_jsonb_search_fields ON state USING GIN (packet jsonb_ops);`,
-        `CREATE INDEX IF NOT EXISTS idx_name_state ON state (name);`,
-        `CREATE INDEX IF NOT EXISTS idx_messages_geospatial ON messages USING GIST (
-            ST_SetSRID(ST_Point((packet->>'Longitude')::float, (packet->>'Latitude')::float), 4326)
+       // messages table: cover history and state CTE queries
+       `CREATE INDEX IF NOT EXISTS idx_messages_userid_msgid_ts 
+        ON messages(user_id, message_id, timestamp);`,
+
+       // state table: filter by user and time
+       `CREATE INDEX IF NOT EXISTS idx_state_userid_timestamp 
+        ON state(user_id, timestamp);`,
+
+    // state table: filter by time alone
+    `CREATE INDEX IF NOT EXISTS idx_state_timestamp 
+        ON state(timestamp);`,
+
+    // state table: geospatial radius queries
+    `CREATE INDEX IF NOT EXISTS idx_state_geo 
+        ON state 
+        USING GIST (
+            ST_SetSRID(
+                ST_Point(
+                    (packet->>'Longitude')::double precision,
+                    (packet->>'Latitude')::double precision
+                ),
+                4326
+            )
         );`,
+
+    // enable trigram support for fast ILIKE/%...% searches
+    `CREATE EXTENSION IF NOT EXISTS pg_trgm;`,
+
+    // state table: fast ILIKE on JSONB fields and name column
+    `CREATE INDEX IF NOT EXISTS idx_state_name_trgm 
+        ON state 
+        USING GIN ((packet->>'Name') gin_trgm_ops);`,
+
+    `CREATE INDEX IF NOT EXISTS idx_state_callsign_trgm 
+        ON state 
+        USING GIN ((packet->>'CallSign') gin_trgm_ops);`,
+
+    `CREATE INDEX IF NOT EXISTS idx_state_imonumber_trgm 
+        ON state 
+        USING GIN ((packet->>'ImoNumber') gin_trgm_ops);`,
+
+    `CREATE INDEX IF NOT EXISTS idx_state_namecol_trgm 
+        ON state 
+        USING GIN (name gin_trgm_ops);`,
     }
     for _, s := range stmts {
         if _, err := db.Exec(s); err != nil {
@@ -460,8 +510,8 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
         return fmt.Errorf("Packet data is not in the expected format")
     }
 
-    // 2) Handle ReportA/ReportB for MessageID = 24
-    if midRaw, ok := packetMap["MessageID"].(float64); ok && midRaw == 24 {
+    // 2) Flatten ReportA/ReportB for MessageID = 24
+    if midRaw, ok := packetMap["MessageID"].(float64); ok && int(midRaw) == 24 {
         if reportA, exists := packetMap["ReportA"].(map[string]interface{}); exists {
             if valid, vOK := reportA["Valid"].(bool); vOK && valid {
                 for k, v := range reportA {
@@ -486,12 +536,12 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
 
     // 3) Extract UserID & MessageID
     userIDf, uOK := packetMap["UserID"].(float64)
-    messageIDExtracted, mOK := packetMap["MessageID"].(float64)
+    messageIDf, mOK := packetMap["MessageID"].(float64)
     if !uOK || !mOK {
         return fmt.Errorf("UserID or MessageID is missing")
     }
     userID := int(userIDf)
-    mid := int(messageIDExtracted)
+    mid := int(messageIDf)
 
     // 4) Marshal packet for DB
     packetJSON, err := json.Marshal(packetMap)
@@ -499,12 +549,8 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
         return err
     }
 
-    // 5) Movement‐based filtering
+    // 5) Movement-based filtering (unchanged)
     shouldInsert := true
-    var dist float64
-    var seenBefore bool
-    var prev Position
-
     if _, isMovement := movementMsgTypes[mid]; isMovement {
         lat, lok := packetMap["Latitude"].(float64)
         lon, lok2 := packetMap["Longitude"].(float64)
@@ -512,12 +558,12 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
             shouldInsert = false
         } else {
             lastPosMu.Lock()
-            prev, seenBefore = lastPositions[userID]
+            prevPos, seenBefore := lastPositions[userID]
+            var dist float64
             if !seenBefore {
-                dist = 0
                 lastPositions[userID] = Position{Lat: lat, Lon: lon}
             } else {
-                dist = haversine(prev.Lat, prev.Lon, lat, lon)
+                dist = haversine(prevPos.Lat, prevPos.Lon, lat, lon)
                 if dist >= minimumDistance {
                     lastPositions[userID] = Position{Lat: lat, Lon: lon}
                 } else {
@@ -528,67 +574,37 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
         }
     }
 
-    // 5b) Time‐based filtering for MessageID = 4 (max once per hour)
-    if mid == 4 {
+    // 6) Generic time-based filtering
+    if window, ok := timeFilters[mid]; ok {
         t, err := time.Parse(time.RFC3339, message.Timestamp)
-        if err == nil {
-            lastMsg4Mu.Lock()
-            if prevT, seen := lastMsg4Times[userID]; seen && t.Sub(prevT) < time.Hour {
+        if err != nil {
+            log.Printf("Warning: could not parse timestamp for rate-limit on mid=%d: %v", mid, err)
+        } else {
+            lastTimeMu.Lock()
+            // initialize inner map if needed
+            if _, found := lastTimeSeen[mid]; !found {
+                lastTimeSeen[mid] = make(map[int]time.Time)
+            }
+            if prevT, seen := lastTimeSeen[mid][userID]; seen && t.Sub(prevT) < window {
                 shouldInsert = false
             } else {
-                lastMsg4Times[userID] = t
+                lastTimeSeen[mid][userID] = t
             }
-            lastMsg4Mu.Unlock()
-        } else {
-            log.Printf("Warning: could not parse timestamp for rate-limit: %v", err)
+            lastTimeMu.Unlock()
         }
     }
 
-    // 5c) Time‐based filtering for MessageID = 5 (max once per 30 minutes)
-    if mid == 5 {
-        t, err := time.Parse(time.RFC3339, message.Timestamp)
-        if err == nil {
-            lastMsg5Mu.Lock()
-            if prevT, seen := lastMsg5Times[userID]; seen && t.Sub(prevT) < 30*time.Minute {
-                shouldInsert = false
-            } else {
-                lastMsg5Times[userID] = t
-            }
-            lastMsg5Mu.Unlock()
-        } else {
-            log.Printf("Warning: could not parse timestamp for rate‐limit MessageID=5: %v", err)
-        }
-    }
-
-    // 6) Always update the state table
-    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, userID, messageIDExtracted); err != nil {
+    // 7) Always update the state table
+    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, userID, messageIDf); err != nil {
         log.Printf("Error storing state: %v", err)
     }
 
-    // 7) Conditionally insert into messages, with differentiated debug logs
+    // 8) Conditionally insert into messages
     if shouldInsert {
         if settings.Debug {
-            if _, isMovement := movementMsgTypes[mid]; isMovement {
-                if !seenBefore {
-                    log.Printf(
-                        "Seeding initial coords for user %d with msg ID=%d (%.2f meters)",
-                        userID, mid, dist,
-                    )
-                } else {
-                    log.Printf(
-                        "Storing movement msg ID=%d for user %d: moved %.2f meters",
-                        mid, userID, dist,
-                    )
-                }
-            }
-            if mid == 4 {
-                log.Printf("Storing time-limited MessageID=4 for user %d at %s", userID, message.Timestamp)
-            }
+            log.Printf("Storing MessageID=%d for user %d", mid, userID)
         }
-        if err := tryStoreMessage(
-            db, packetJSON, message.ShardID, message.Timestamp,
-            message.SourceIP, userIDf, messageIDExtracted, settings,
-        ); err != nil {
+        if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, settings); err != nil {
             log.Printf("Error storing message: %v", err)
         }
     }

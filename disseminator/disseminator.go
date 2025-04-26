@@ -449,7 +449,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
             summary["Destination"] = getFieldString(packetMap, "Destination")
             summary["Dimension"] = getFieldJSON(packetMap, "Dimension")
             summary["MaximumStaticDraught"] = getFieldFloat(packetMap, "MaximumStaticDraught")
-            summary["NavigationalStatus"] = getFieldFloat(packetMap, "NavigationalStatus")
+            summary["NavigationalStatus"] = getNullableFloat(packetMap, "NavigationalStatus")
             summary["Sog"] = getFieldFloat(packetMap, "Sog")
             summary["Type"] = getFieldFloat(packetMap, "Type")
 
@@ -991,6 +991,18 @@ func getFieldFloat(packetData map[string]interface{}, field string) float64 {
         }
     }
     return 0 // Return 0 if value is not found or cannot be converted to float
+}
+
+func getNullableFloat(packetData map[string]interface{}, field string) interface{} {
+    raw, exists := packetData[field]
+    if !exists {
+        // never saw the key at all → emit JSON null
+        return nil
+    }
+    if s, ok := raw.(string); ok && s == "" {
+        return nil
+    }
+    return getFieldFloat(packetData, field)
 }
 
 // Helper function to safely parse any JSON field into a map (returns nil if parsing fails)

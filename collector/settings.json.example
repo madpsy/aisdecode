@@ -13,5 +13,12 @@
   "external_lookup": "http://127.0.0.1:5111/lookup",
   "external_lookup_timeout": 1000,
   "minimum_distance": 30,
+  "time_filters": {
+    "4":   "1h",
+    "5":   "30m",
+    "20":  "1h",
+    "21":  "30m",
+    "24":  "30m"
+  },
   "debug": false
 }
