@@ -13,41 +13,40 @@ import (
 )
 
 func main() {
-    // Command-line flags
+    // CLI flags
     serialPort := flag.String("serial-port", "/dev/ttyUSB0", "Serial port device")
     baud := flag.Int("baud", 38400, "Baud rate")
     udpAddrs := flag.String("udp", "127.0.0.1:8101", "Comma-separated UDP destinations")
     debug := flag.Bool("debug", false, "Enable debug logging of forwarded data")
     flag.Parse()
 
-    // Open serial port
+    // Open serial
     mode := &serial.Mode{BaudRate: *baud}
     port, err := serial.Open(*serialPort, mode)
     if err != nil {
         log.Fatalf("Failed to open %s: %v", *serialPort, err)
     }
     defer port.Close()
-    log.Printf("Listening on serial %s @ %d baud", *serialPort, *baud)
+    log.Printf("Listening on %s @ %d baud", *serialPort, *baud)
 
-    // Parse UDP destinations
+    // Setup UDP conns
     dests := splitAndTrim(*udpAddrs, ",")
-    conns := make([]*net.UDPConn, 0, len(dests))
-    for _, d := range dests {
-        udpAddr, err := net.ResolveUDPAddr("udp", d)
+    conns := make([]*net.UDPConn, len(dests))
+    for i, d := range dests {
+        addr, err := net.ResolveUDPAddr("udp", d)
         if err != nil {
-            log.Fatalf("Invalid UDP address %q: %v", d, err)
+            log.Fatalf("Invalid UDP addr %q: %v", d, err)
         }
-        conn, err := net.DialUDP("udp", nil, udpAddr)
+        c, err := net.DialUDP("udp", nil, addr)
         if err != nil {
-            log.Fatalf("Failed to dial %s: %v", udpAddr, err)
+            log.Fatalf("Dial %s: %v", addr, err)
         }
-        conns = append(conns, conn)
-        log.Printf("Forwarding to %s", udpAddr)
+        conns[i] = c
+        log.Printf("Forwarding to %s", addr)
     }
 
     reader := bufio.NewReader(port)
     for {
-        // ReadBytes includes the '\n' (and preserves '\r' if present)
         frame, err := reader.ReadBytes('\n')
         if err != nil {
             if err == io.EOF {
@@ -56,36 +55,22 @@ func main() {
             }
             log.Fatalf("Serial read error: %v", err)
         }
-
         if *debug {
-            log.Printf("Forwarding raw frame: %q", frame)
+            log.Printf("Forwarding: %q", frame)
         }
-
-        for _, conn := range conns {
-            sendWithRetry(conn, frame)
-        }
-    }
-}
-
-// sendWithRetry writes data, retrying once on error.
-func sendWithRetry(conn *net.UDPConn, data []byte) {
-    if _, err := conn.Write(data); err != nil {
-        log.Printf("Write error to %s: %v — retrying", conn.RemoteAddr(), err)
-        time.Sleep(100 * time.Millisecond)
-        if _, err2 := conn.Write(data); err2 != nil {
-            log.Printf("Retry failed to %s: %v", conn.RemoteAddr(), err2)
+        for _, c := range conns {
+            c.Write(frame) // no retry
         }
     }
 }
 
-// splitAndTrim splits s by sep and trims whitespace.
+// splitAndTrim splits and trims.
 func splitAndTrim(s, sep string) []string {
     parts := strings.Split(s, sep)
-    out := make([]string, 0, len(parts))
+    out := parts[:0]
     for _, p := range parts {
-        p = strings.TrimSpace(p)
-        if p != "" {
-            out = append(out, p)
+        if t := strings.TrimSpace(p); t != "" {
+            out = append(out, t)
         }
     }
     return out
