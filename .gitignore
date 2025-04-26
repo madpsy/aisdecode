@@ -12,3 +12,4 @@ ingester/settings.json
 collector/settings.json
 disseminator/settings.json
 receivers/settings.json
+mqttproxy/settings.json
