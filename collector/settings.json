@@ -12,5 +12,6 @@
   "shards": [0],
   "external_lookup": "http://127.0.0.1:5111/lookup",
   "external_lookup_timeout": 1000,
+  "minimum_distance": 30,
   "debug": false
 }

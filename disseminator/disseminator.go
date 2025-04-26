@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"encoding/csv"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,13 +16,25 @@ import (
 	"strings"
 	"sync"
 	"runtime"
-
+	"context"
+	
+	"github.com/go-redis/redis/v8"
 	"github.com/lib/pq"
 	"github.com/zishang520/engine.io/v2/types"
     	clientSocket "github.com/zishang520/socket.io-client-go/socket"
 	serverSocket "github.com/zishang520/socket.io/v2/socket"
     	"github.com/zishang520/engine.io-client-go/transports"
 )
+
+type filterKey struct {
+    Latitude   float64 `json:"latitude"`
+    Longitude  float64 `json:"longitude"`
+    Radius     float64 `json:"radius"`
+    MaxResults int     `json:"maxResults"`
+    MaxAge     int     `json:"maxAge"`
+    MinSpeed   float64 `json:"minSpeed"`
+    UserID     int64   `json:"userID"`
+}
 
 type FilterParams struct {
     Latitude    float64
@@ -42,9 +55,11 @@ type Settings struct {
 	Debug       bool   `json:"debug"`
 	PollInterval int   `json:"poll_interval"`
 	ReceiversBaseURL string `json:"receivers_base_url"`
+        RedisHost string `json:"redis_host"`
+        RedisPort int    `json:"redis_port"`
+        CacheTime int    `json:"cache_time"`
 }
 
-// This struct will contain the actual client database connection settings
 type ClientDatabaseSettings struct {
 	DbHost     string `json:"db_host"`
 	DbPort     int    `json:"db_port"`
@@ -60,12 +75,19 @@ type Client struct {
 	Shards      []int    `json:"shards"`
 }
 
+var conf *Settings
+
+var (
+  redisClient *redis.Client
+  redisCtx    = context.Background()
+)
+
 var clientConnections map[string]*ClientConnection
 var clientConnectionsMu sync.RWMutex
 var streamShards int // Global variable to store the total number of shards
 var (
-    clientSubscriptionsMu sync.RWMutex // already exists, use it
-    wsHandlersMu          sync.RWMutex // new
+    clientSubscriptionsMu sync.RWMutex
+    wsHandlersMu          sync.RWMutex
 )
 type ClientConnection struct {
 	Db         *sql.DB
@@ -98,6 +120,55 @@ func shardForUser(userID string) int {
     return int(h.Sum32()) % streamShards
 }
 
+func keyForFilter(p FilterParams) string {
+    k := filterKey{
+        Latitude:   p.Latitude,
+        Longitude:  p.Longitude,
+        Radius:     p.Radius,
+        MaxResults: p.MaxResults,
+        MaxAge:     p.MaxAge,
+        MinSpeed:   p.MinSpeed,
+        UserID:     p.UserID,
+    }
+    raw, _ := json.Marshal(k)
+    h := fnv.New64a()
+    h.Write(raw)
+    return fmt.Sprintf("summary:%x", h.Sum64())
+}
+
+func getSummaryJSON(p FilterParams, ttl int) ([]byte, error) {
+    key := keyForFilter(p)
+
+    // 1) Try to GET the raw JSON from Redis
+    if blob, err := redisClient.Get(redisCtx, key).Bytes(); err == nil {
+        return blob, nil
+    }
+
+    // 2) Cache miss → compute the summary as Go map
+    summary, err := getSummaryResults(
+        p.Latitude, p.Longitude, p.Radius,
+        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID,
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    // 3) Marshal it exactly once
+    blob, err := json.Marshal(summary)
+    if err != nil {
+        return nil, err
+    }
+
+    // 4) Store asynchronously
+    go func() {
+        _ = redisClient.
+            Set(redisCtx, key, blob, time.Duration(ttl)*time.Second).
+            Err()
+    }()
+
+    return blob, nil
+}
+
 // Returns true if at least one connected client still has userID in its set
 func anySubscriberExists(userID string) bool {
     clientSubscriptionsMu.RLock()
@@ -109,6 +180,38 @@ func anySubscriberExists(userID string) bool {
         }
     }
     return false
+}
+
+func getSummaryWithRedisCache(p FilterParams, ttl int) (map[string]interface{}, error) {
+    key := keyForFilter(p)
+
+    // Try GET
+    if blob, err := redisClient.Get(redisCtx, key).Bytes(); err == nil {
+        var cached map[string]interface{}
+        if err := json.Unmarshal(blob, &cached); err == nil {
+            return cached, nil
+        }
+        log.Printf("⚠️ Redis unmarshal failed for %s: %v", key, err)
+    }
+
+    // Miss → compute
+    summary, err := getSummaryResults(
+        p.Latitude, p.Longitude, p.Radius,
+        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID,
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    // Async SET so we don’t block
+    go func() {
+        blob, _ := json.Marshal(summary)
+        if err := redisClient.Set(redisCtx, key, blob, time.Duration(ttl)*time.Second).Err(); err != nil {
+            log.Printf("⚠️ Redis SET failed for %s: %v", key, err)
+        }
+    }()
+
+    return summary, nil
 }
 
 func (cc *ClientConnection) ensureDB() error {
@@ -413,66 +516,113 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 }
 
 func getHistoryResults(userID string, hours int) ([]map[string]interface{}, error) {
-    // Calculate cutoff timestamp
+    // 1) Compute cutoff timestamp
     pastTime := time.Now().
         Add(-time.Duration(hours) * time.Hour).
         UTC().
         Format(time.RFC3339)
 
-    // Query the materialized view with all six columns
-    query := fmt.Sprintf(`
+    // 2) History from messages for selected movement types
+    historyQuery := fmt.Sprintf(`
 SELECT
     timestamp,
-    lat           AS latitude,
-    lon           AS longitude,
-    sog,
-    cog,
-    trueHeading
-FROM user_history_filtered
-WHERE user_id = '%[1]s'
+    (packet->>'Latitude')::double precision AS latitude,
+    (packet->>'Longitude')::double precision AS longitude,
+    (packet->>'Sog')::double precision AS sog,
+    (packet->>'Cog')::double precision AS cog,
+    (packet->>'TrueHeading')::double precision AS trueHeading
+FROM messages
+WHERE user_id   = '%[1]s'
   AND timestamp >= '%[2]s'
+  AND message_id IN (1,2,3,9,18,19)
+  AND packet->>'Latitude'  IS NOT NULL
+  AND packet->>'Longitude' IS NOT NULL
 ORDER BY timestamp
 LIMIT 2000;
 `, userID, pastTime)
 
-    rows, err := QueryDatabaseForUser(userID, query)
+    rows, err := QueryDatabaseForUser(userID, historyQuery)
     if err != nil {
-        return nil, fmt.Errorf("error querying database for user %s: %v", userID, err)
+        return nil, fmt.Errorf("error querying history for user %s: %v", userID, err)
     }
     defer rows.Close()
 
     var results []map[string]interface{}
     for rows.Next() {
-        var timestamp time.Time
-        var latitude, longitude, sog, cog, trueHeading sql.NullFloat64
-
-        if err := rows.Scan(
-            &timestamp,
-            &latitude,
-            &longitude,
-            &sog,
-            &cog,
-            &trueHeading,
-        ); err != nil {
-            return nil, fmt.Errorf("error scanning row: %v", err)
+        var (
+            ts    time.Time
+            lat   sql.NullFloat64
+            lon   sql.NullFloat64
+            sog   sql.NullFloat64
+            cog   sql.NullFloat64
+            th    sql.NullFloat64
+        )
+        if err := rows.Scan(&ts, &lat, &lon, &sog, &cog, &th); err != nil {
+            return nil, fmt.Errorf("error scanning history row: %v", err)
         }
 
-        row := map[string]interface{}{
-            "timestamp": timestamp,
-            "latitude":  latitude.Float64,
-            "longitude": longitude.Float64,
+        entry := map[string]interface{}{
+            "timestamp": ts,
+            "latitude":  lat.Float64,
+            "longitude": lon.Float64,
         }
-        if sog.Valid {
-            row["sog"] = sog.Float64
-        }
-        if cog.Valid {
-            row["cog"] = cog.Float64
-        }
-        if trueHeading.Valid {
-            row["trueHeading"] = trueHeading.Float64
+        if sog.Valid   { entry["sog"] = sog.Float64 }
+        if cog.Valid   { entry["cog"] = cog.Float64 }
+        if th.Valid && th.Float64 != NoTrueHeading {
+            entry["trueHeading"] = th.Float64
         }
 
-        results = append(results, row)
+        results = append(results, entry)
+    }
+
+    // 3) Now fetch the absolute latest from the state table
+    stateQuery := fmt.Sprintf(`
+SELECT
+    timestamp,
+    (packet->>'Latitude')::double precision AS latitude,
+    (packet->>'Longitude')::double precision AS longitude,
+    (packet->>'Sog')::double precision AS sog,
+    (packet->>'Cog')::double precision AS cog,
+    (packet->>'TrueHeading')::double precision AS trueHeading
+FROM state
+WHERE user_id = '%s'
+LIMIT 1;
+`, userID)
+
+    stRows, err := QueryDatabaseForUser(userID, stateQuery)
+    if err != nil {
+        return nil, fmt.Errorf("error querying state for user %s: %v", userID, err)
+    }
+    defer stRows.Close()
+
+    if stRows.Next() {
+        var (
+            ts2  time.Time
+            lat2 sql.NullFloat64
+            lon2 sql.NullFloat64
+            sog2 sql.NullFloat64
+            cog2 sql.NullFloat64
+            th2  sql.NullFloat64
+        )
+        if err := stRows.Scan(&ts2, &lat2, &lon2, &sog2, &cog2, &th2); err != nil {
+            return nil, fmt.Errorf("error scanning state row: %v", err)
+        }
+
+        stateEntry := map[string]interface{}{
+            "timestamp": ts2,
+            "latitude":  lat2.Float64,
+            "longitude": lon2.Float64,
+        }
+        if sog2.Valid   { stateEntry["sog"] = sog2.Float64 }
+        if cog2.Valid   { stateEntry["cog"] = cog2.Float64 }
+        if th2.Valid && th2.Float64 != NoTrueHeading {
+            stateEntry["trueHeading"] = th2.Float64
+        }
+
+        // 4) Avoid duplicate timestamps: append only if it's not already in results
+        if len(results) == 0 || !results[len(results)-1]["timestamp"].(time.Time).Equal(ts2) {
+            results = append(results, stateEntry)
+        }
     }
 
     return results, nil
@@ -522,7 +672,7 @@ func (cc *ClientConnection) getWSClient() (*clientSocket.Socket, error) {
     return cli, nil
 }
 
-func summaryHandler(w http.ResponseWriter, r *http.Request) {
+func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) {
     // Declare 'err' once at the beginning of the function
     var err error
 
@@ -607,18 +757,22 @@ func summaryHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // Now call the function that generates the summary, passing the UserID filter if provided
-    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid)
+    p := FilterParams{
+       Latitude: lat, Longitude: lon,
+       Radius: radius,
+       MaxResults: limit,
+       MaxAge: maxAge,
+       MinSpeed: minSpeed,
+       UserID: userid,
+    }
+    blob, err := getSummaryJSON(p, conf.CacheTime)
     if err != nil {
-        http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
+        http.Error(w, fmt.Sprintf("Error generating summary: %v", err), http.StatusInternalServerError)
         return
     }
 
-    // Send the summarized results as JSON
     w.Header().Set("Content-Type", "application/json")
-    if err := json.NewEncoder(w).Encode(summarizedResults); err != nil {
-        http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
-    }
+    w.Write(blob)
 }
 
 func searchHandler(w http.ResponseWriter, r *http.Request) {
@@ -718,86 +872,83 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(response)
 }
 
+// historyHandler serves vessel history as CSV, safely handling missing fields.
 func historyHandler(w http.ResponseWriter, r *http.Request) {
-    // Extract user_id from URL path
+    // 1) Extract user_id from URL path: expect "/history/{userID}"
     parts := strings.Split(r.URL.Path, "/")
     if len(parts) != 3 {
-        http.Error(w, "Invalid URL format", http.StatusBadRequest)
+        http.Error(w, "Invalid URL format; expected /history/{userID}", http.StatusBadRequest)
         return
     }
-
     userID := parts[2]
 
-    // Extract maxAge from query parameters
+    // 2) Extract and validate maxAge query parameter
     maxAgeStr := r.URL.Query().Get("maxAge")
     if maxAgeStr == "" {
         http.Error(w, "Missing maxAge query parameter", http.StatusBadRequest)
         return
     }
-
-    // Convert maxAge from string to integer
     maxAge, err := strconv.Atoi(maxAgeStr)
     if err != nil || maxAge <= 0 {
         http.Error(w, "Invalid maxAge value", http.StatusBadRequest)
         return
     }
-
-    // Limit maxAge to 1 week (168 hours)
     if maxAge > 168 {
         http.Error(w, "maxAge cannot exceed 168 hours (1 week)", http.StatusBadRequest)
         return
     }
 
-    // Get the history results based on maxAge
+    // 3) Fetch history results
     results, err := getHistoryResults(userID, maxAge)
     if err != nil {
         http.Error(w, fmt.Sprintf("Error fetching history: %v", err), http.StatusInternalServerError)
         return
     }
 
+    // 4) Prepare CSV response headers
+    w.Header().Set("Content-Type", "text/csv")
+    w.Header().Set("Content-Disposition", "attachment; filename=history.csv")
+
+    writer := csv.NewWriter(w)
+    defer writer.Flush()
+
+    // 5) Write rows: timestamp, latitude, longitude, sog, cog, trueHeading
     for _, row := range results {
-        if th, ok := row["trueHeading"].(float64); ok && th == NoTrueHeading {
-            delete(row, "trueHeading")
-        }
-    }
+        record := make([]string, 6)
 
-    // Check if the format query parameter is set to "csv"
-    format := r.URL.Query().Get("format")
-    if format == "csv" {
-        // Convert the results to CSV format without column headings
-        var csvData string
-        for _, row := range results {
-            timestamp := row["timestamp"].(time.Time).Format(time.RFC3339)
-            latitude := fmt.Sprintf("%f", row["latitude"].(float64))
-            longitude := fmt.Sprintf("%f", row["longitude"].(float64))
-            sog := fmt.Sprintf("%.2f", row["sog"].(float64)) // Rounded to 2 decimal places
-            cog := fmt.Sprintf("%.2f", row["cog"].(float64)) // Rounded to 2 decimal places
-
-            trueHeadingStr := ""
-            if th, ok := row["trueHeading"].(float64); ok {
-                trueHeadingStr = fmt.Sprintf("%.2f", th)
-            }
-
-            csvData += fmt.Sprintf("%s,%s,%s,%s,%s,%s\n", timestamp, latitude, longitude, sog, cog, trueHeadingStr)
+        // timestamp
+        if ts, ok := row["timestamp"].(time.Time); ok {
+            record[0] = ts.Format(time.RFC3339)
         }
 
-        // Set the Content-Type header to "text/csv"
-        w.Header().Set("Content-Type", "text/csv")
-        w.Header().Set("Content-Disposition", "attachment; filename=history.csv")
-
-        // Write the CSV data to the response (no column headings)
-        w.Write([]byte(csvData))
-    } else {
-        // Convert the results to JSON format
-        w.Header().Set("Content-Type", "application/json")
-        jsonData, err := json.Marshal(results)
-        if err != nil {
-            http.Error(w, fmt.Sprintf("Error marshaling results to JSON: %v", err), http.StatusInternalServerError)
-            return
+        // latitude
+        if lat, ok := row["latitude"].(float64); ok {
+            record[1] = fmt.Sprintf("%f", lat)
         }
 
-        // Write the JSON data to the response
-        w.Write(jsonData)
+        // longitude
+        if lon, ok := row["longitude"].(float64); ok {
+            record[2] = fmt.Sprintf("%f", lon)
+        }
+
+        // sog
+        if sog, ok := row["sog"].(float64); ok {
+            record[3] = fmt.Sprintf("%.2f", sog)
+        }
+
+        // cog
+        if cog, ok := row["cog"].(float64); ok {
+            record[4] = fmt.Sprintf("%.2f", cog)
+        }
+
+        // trueHeading
+        if th, ok := row["trueHeading"].(float64); ok {
+            record[5] = fmt.Sprintf("%.2f", th)
+        }
+
+        if err := writer.Write(record); err != nil {
+            log.Printf("error writing CSV record for user %s: %v", userID, err)
+        }
     }
 }
 
@@ -1215,14 +1366,16 @@ func setupServer(settings *Settings) {
     mux := http.NewServeMux()
 
     // Reverse-proxy for /receivers
-    receiversTarget, err := url.Parse(settings.ReceiversBaseURL)
+    receiversTarget, err := url.Parse(conf.ReceiversBaseURL)
     if err != nil {
         log.Fatalf("invalid receivers_base_url: %v", err)
     }
     mux.Handle("/receivers", httputil.NewSingleHostReverseProxy(receiversTarget))
 
     // HTTP API endpoints
-    mux.HandleFunc("/summary", summaryHandler)
+    mux.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
+    	summaryHandler(w, r, conf)
+    })
     mux.HandleFunc("/state/", userStateHandler)
     mux.HandleFunc("/history/", historyHandler)
     mux.HandleFunc("/search", searchHandler)
@@ -1397,59 +1550,86 @@ func setupServer(settings *Settings) {
 	})
 
         // —— requestSummary ——
-        client.On("requestSummary", func(args ...any) {
-            if len(args) < 1 {
-                log.Printf("No data received with 'requestSummary'")
-                return
-            }
-            dataStr, ok := args[0].(string)
-            if !ok {
-                log.Printf("Invalid data format for 'requestSummary'")
-                return
-            }
-            var data map[string]interface{}
-            if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
-                log.Printf("Error unmarshalling data: %v", err)
-                return
-            }
+	client.On("requestSummary", func(args ...any) {
+	    if len(args) < 1 {
+	        return
+	    }
 
-            lat, _ := data["latitude"].(float64)
-            lon, _ := data["longitude"].(float64)
-            radius, _ := data["radius"].(float64)
-            maxResults, _ := data["maxResults"].(float64)
-            maxAge, _ := data["maxAge"].(float64)
-            minSpeed, _ := data["minSpeed"].(float64)
-            updatePeriod, _ := data["updatePeriod"].(float64)
-            userIDf, _ := data["UserID"].(float64)
-            if updatePeriod == 0 {
-                updatePeriod = 5
-            }
+	    // 1) Decode payload into a map[string]interface{}
+	    var data map[string]interface{}
+	    switch raw := args[0].(type) {
+	    case string:
+	        if err := json.Unmarshal([]byte(raw), &data); err != nil {
+	            log.Printf("[requestSummary] invalid JSON payload: %v", err)
+	            return
+	        }
+	    case map[string]interface{}:
+	        data = raw
+	    default:
+	        log.Printf("[requestSummary] unsupported payload type %T", raw)
+	        return
+	    }
 
-            clientSummaryMu.Lock()
-            clientSummaryFilters[client.Id()] = FilterParams{
-                Latitude:     lat,
-                Longitude:    lon,
-                Radius:       radius,
-                MaxResults:   int(maxResults),
-                MaxAge:       int(maxAge),
-                MinSpeed:     minSpeed,
-                UpdatePeriod: int(updatePeriod),
-                UserID:       int64(userIDf),
-                LastUpdated:  time.Now(),
-            }
-            clientSummaryMu.Unlock()
+	    // 2) Safely extract each field, with sane defaults
+	    lat, _ := data["latitude"].(float64)
+	    lon, _ := data["longitude"].(float64)
+	    radius, _ := data["radius"].(float64)
+	
+	    maxResults := 0
+	    if v, ok := data["maxResults"].(float64); ok {
+	        maxResults = int(v)
+	    }
+	
+	    maxAge := 0
+	    if v, ok := data["maxAge"].(float64); ok {
+	        maxAge = int(v)
+	    }
+	
+	    minSpeed := 0.0
+	    if v, ok := data["minSpeed"].(float64); ok {
+	        minSpeed = v
+	    }
+	
+	    updatePeriod := 5 // your default
+	    if v, ok := data["updatePeriod"].(float64); ok && int(v) > 0 {
+	        updatePeriod = int(v)
+	    }
+	
+	    userID := int64(0)
+	    if v, ok := data["UserID"].(float64); ok {
+	        userID = int64(v)
+	    }
+	
+	    // 3) Build FilterParams (LastUpdated will gate the next tick)
+	    p := FilterParams{
+	        Latitude:     lat,
+	        Longitude:    lon,
+	        Radius:       radius,
+        	MaxResults:   maxResults,
+	        MaxAge:       maxAge,
+	        MinSpeed:     minSpeed,
+	        UpdatePeriod: updatePeriod,
+	        UserID:       userID,
+	        LastUpdated:  time.Now(),
+	    }
+	
+	    // 4) Stash for the ticker
+	    clientSummaryMu.Lock()
+	    clientSummaryFilters[client.Id()] = p
+	    clientSummaryMu.Unlock()
+	
+	    // 5) Serve immediately via cache/miss, but using raw JSON
+	    blob, err := getSummaryJSON(p, conf.CacheTime)
+	    if err != nil {
+	        log.Printf("[requestSummary] cache error: %v", err)
+	        return
+	    }
 
-            summarized, err := getSummaryResults(
-                lat, lon, radius,
-                int(maxResults), int(maxAge), minSpeed, int64(userIDf),
-            )
-            if err != nil {
-                log.Printf("Error fetching summary: %v", err)
-                return
-            }
-            bs, _ := json.Marshal(summarized)
-            client.Emit("summaryData", string(bs))
-        })
+	    // 6) Send the JSON string back
+	    if err := client.Emit("summaryData", string(blob)); err != nil {
+	        log.Printf("[requestSummary] emit error: %v", err)
+	    }
+	})
 
         client.On("disconnect", func(...any) {
 	    // 1) Grab the list of this client’s active subscriptions
@@ -1504,22 +1684,31 @@ func setupServer(settings *Settings) {
     })
 
     // Start HTTP + WS server
-    go startHTTPServer(settings.ListenPort, mux)
+    go startHTTPServer(conf.ListenPort, mux)
 }
 
 func main() {
 	// Load configuration settings
 	settingsFile := "settings.json"
-	settings, err := loadSettings(settingsFile)
+	var err error
+	conf, err = loadSettings(settingsFile)
 	if err != nil {
 		log.Fatalf("Error loading settings: %v", err)
 	}
+
+
+   	redisClient = redis.NewClient(&redis.Options{
+       		Addr: fmt.Sprintf("%s:%d", conf.RedisHost, conf.RedisPort),
+	})
+   	if err := redisClient.Ping(redisCtx).Err(); err != nil {
+       		log.Printf("⚠️ Redis ping failed: %v. Continuing without cache.", err)
+   	}
 
 	// Initialize map to track client database connections
 	clientConnections = make(map[string]*ClientConnection)
 
 	// Set up polling interval
-	pollInterval := time.Duration(settings.PollInterval) * time.Second
+	pollInterval := time.Duration(conf.PollInterval) * time.Second
 	if pollInterval > 0 {
 	go func() {
 	    ticker := time.NewTicker(pollInterval)
@@ -1535,83 +1724,55 @@ func main() {
 	                    log.Printf("[ERROR] panic in poller: %v\n%s", r, buf[:n])
         	        }
 	            }()
-	            logWithDebug(settings.Debug, "Polling clients at %v", time.Now())
-	            handleClientChanges(settings.IngestHost, settings.IngestPort, settings.Debug)
+	            logWithDebug(conf.Debug, "Polling clients at %v", time.Now())
+	            handleClientChanges(conf.IngestHost, conf.IngestPort, conf.Debug)
 	        }()
 	    }
 	  }()
 	}
 
 	// Initial fetch and setup
-	handleClientChanges(settings.IngestHost, settings.IngestPort, settings.Debug)
+	handleClientChanges(conf.IngestHost, conf.IngestPort, conf.Debug)
 
 	// Set up the server with HTTP and Socket.IO routes
-	setupServer(settings)
+	setupServer(conf)
 
 	go func() {
-	    ticker := time.NewTicker(1 * time.Second) // Check every second
+	    ticker := time.NewTicker(1 * time.Second)
 	    defer ticker.Stop()
 
-	    for {
-	        <-ticker.C
+	    for range ticker.C {
+	        clientSummaryMu.Lock()
+	        for sockID, params := range clientSummaryFilters {
+	            // Only fire when this client’s update period has elapsed
+	            if time.Since(params.LastUpdated) < time.Duration(params.UpdatePeriod)*time.Second {
+	                continue
+	            }
 
-        	// Iterate over each client and check if it's time to send an update
-        	clientSummaryMu.RLock()
-	        snapshot := make(map[serverSocket.SocketId]FilterParams, len(clientSummaryFilters))
-	        for id, params := range clientSummaryFilters {
-	            snapshot[id] = params
+	            // Fetch via Redis cache (or compute & cache on miss)
+	            blob, err := getSummaryJSON(params, conf.CacheTime)
+	            if err != nil {
+	                log.Printf("⚠️ ticker cache error for client %s: %v", sockID, err)
+	                // still update LastUpdated so we don’t spin on errors
+	                params.LastUpdated = time.Now()
+	                clientSummaryFilters[sockID] = params
+	                continue
+	            }
+
+	            // Emit to that client socket
+	            connectedClientsMu.RLock()
+	            sock, ok := connectedClients[sockID]
+	            connectedClientsMu.RUnlock()
+	            if ok {
+			    if err := sock.Emit("summaryData", string(blob)); err != nil {
+		    	        log.Printf("⚠️ ticker emit error to client %s: %v", sockID, err)
+			    }
+		    }
+	            // Update LastUpdated so next fire happens after UpdatePeriod
+	            params.LastUpdated = time.Now()
+	            clientSummaryFilters[sockID] = params
 	        }
-	        clientSummaryMu.RUnlock()
-	
-	        for clientID, settings := range snapshot {
-
-	            // Check if the update period has elapsed
-	            if time.Since(settings.LastUpdated) >= time.Duration(settings.UpdatePeriod)*time.Second {
-	                // Retrieve the client from the connectedClients map using the clientID
-            		connectedClientsMu.RLock()
-		        client, exists := connectedClients[clientID]
-		        connectedClientsMu.RUnlock()
-	                if exists {
-	                    // Use the stored parameters for that client
-	                    summarizedResults, err := getSummaryResults(
-	                        settings.Latitude, settings.Longitude, settings.Radius,
-	                        settings.MaxResults, settings.MaxAge, settings.MinSpeed, settings.UserID,
-	                    )
-	                    if err != nil {
-	                        log.Printf("Error fetching summary for client %s: %v", clientID, err)
-	                        continue
-	                    }
-
-	                    summaryJSON, err := json.Marshal(summarizedResults)
-	                    if err != nil {
-	                        log.Printf("Error marshaling summary data for client %s: %v", clientID, err)
-	                        continue
-        	            }
-
-        	            // Send the summary data to the client
-        	            if err := client.Emit("summaryData", string(summaryJSON)); err != nil {
-	                        log.Printf("Error sending summary data to client %s: %v", clientID, err)
-        	            }
-
-        	            // Update the last sent time only after successfully sending the update
-        	            clientSummaryMu.Lock()
-			    clientSummaryFilters[clientID] = FilterParams{
-        	                Latitude:    settings.Latitude,
-        	                Longitude:   settings.Longitude,
-        	                Radius:      settings.Radius,
-        	                MaxResults:  settings.MaxResults,
-        	                MaxAge:      settings.MaxAge,
-        	                MinSpeed:    settings.MinSpeed,
-        	                UpdatePeriod: settings.UpdatePeriod,
-				UserID:	     settings.UserID,
-        	                LastUpdated: time.Now(),  // Update only after sending
-        	            }
-			    clientSummaryMu.Unlock()
-        	        } else {
-        	            log.Printf("Client %s not found", clientID)
-        	        }
-        	    }
-        	}
+	        clientSummaryMu.Unlock()
 	    }
 	}()
 

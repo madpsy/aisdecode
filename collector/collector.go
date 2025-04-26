@@ -1,68 +1,4 @@
 // main.go
-// user_history_filtered: materialized view definition & maintenance
-//
-// CREATE MATERIALIZED VIEW user_history_filtered AS
-// WITH base AS (
-//   SELECT
-//     user_id,
-//     timestamp,
-//     (packet->>'Longitude')::double precision AS lon,
-//     (packet->>'Latitude')::double precision  AS lat,
-//     (packet->>'Sog')::double precision       AS sog,
-//     (packet->>'Cog')::double precision       AS cog,
-//     (packet->>'TrueHeading')::double precision AS trueHeading
-//   FROM messages
-//   WHERE message_id = ANY (ARRAY[1,2,3,18,19])
-//     AND packet->>'Longitude' IS NOT NULL
-//     AND packet->>'Latitude'  IS NOT NULL
-// ),
-// ordered AS (
-//   SELECT
-//     user_id,
-//     timestamp,
-//     lon,
-//     lat,
-//     sog,
-//     cog,
-//     trueHeading,
-//     LAG(lon) OVER (PARTITION BY user_id ORDER BY timestamp) AS prev_lon,
-//     LAG(lat) OVER (PARTITION BY user_id ORDER BY timestamp) AS prev_lat
-//   FROM base
-// ),
-// filtered AS (
-//   SELECT
-//     user_id,
-//     timestamp,
-//     lon,
-//     lat,
-//     sog,
-//     cog,
-//     trueHeading
-//   FROM ordered
-//   WHERE prev_lon IS NULL
-//      OR ST_DistanceSphere(
-//           ST_MakePoint(prev_lon, prev_lat),
-//           ST_MakePoint(lon, lat)
-//         ) >= 30
-// )
-// SELECT
-//   user_id,
-//   timestamp,
-//   lon,
-//   lat,
-//   sog,
-//   cog,
-//   trueHeading
-// FROM filtered;
-//
-// -- Index on (user_id, timestamp) for fast lookups and ORDER BY
-// CREATE UNIQUE INDEX idx_uhf_user_ts_unique
-//   ON user_history_filtered(user_id, timestamp);
-// -- CREATE INDEX idx_uhf_user_ts ON user_history_filtered(user_id, timestamp DESC);
-// GRANT SELECT ON user_history_filtered TO new_user;
-//
-// -- To populate/refresh:
-// REFRESH MATERIALIZED VIEW CONCURRENTLY user_history_filtered;
 
 package main
 
@@ -79,6 +15,7 @@ import (
     "strconv"
     "sync"
     "time"
+    "math"
 
     _ "github.com/lib/pq"
 
@@ -105,10 +42,54 @@ type Settings struct {
     Debug                 bool     `json:"debug"`
     ExternalLookup        string   `json:"external_lookup"`
     ExternalLookupTimeout int      `json:"external_lookup_timeout"`
+    MinimumDistance       float64  `json:"minimum_distance"`
 }
 
 var settings *Settings
 var db *sql.DB
+
+type Position struct {
+    Lat, Lon float64
+}
+
+var movementMsgTypes = map[int]struct{}{
+    1:  {},
+    2:  {},
+    3:  {},
+    9:  {},
+    18: {},
+    19: {},
+}
+
+var (
+    lastPosMu       sync.Mutex
+    lastPositions   = make(map[int]Position)   // userID → last seen lat/lon
+    minimumDistance float64                    // in meters, loaded from settings
+)
+
+// ── MESSAGE-4 RATE LIMIT STATE ─────────────────────────────────────────────
+var (
+   lastMsg4Mu    sync.Mutex
+   lastMsg4Times = make(map[int]time.Time)  // userID → time of last MessageID=4
+)
+
+// ── MESSAGE‐5 RATE LIMIT STATE ─────────────────────────────────────────────
+var (
+    lastMsg5Mu    sync.Mutex
+    lastMsg5Times = make(map[int]time.Time)  // userID → time of last MessageID=5
+)
+
+func haversine(lat1, lon1, lat2, lon2 float64) float64 {
+    const R = 6371000.0 // earth radius in meters
+    toRad := func(deg float64) float64 { return deg * math.Pi / 180 }
+    φ1, φ2 := toRad(lat1), toRad(lat2)
+    Δφ := toRad(lat2 - lat1)
+    Δλ := toRad(lon2 - lon1)
+    a := math.Sin(Δφ/2)*math.Sin(Δφ/2) +
+         math.Cos(φ1)*math.Cos(φ2)*math.Sin(Δλ/2)*math.Sin(Δλ/2)
+    c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+    return R * c
+}
 
 func readSettings(path string) (*Settings, error) {
     data, err := os.ReadFile(path)
@@ -160,6 +141,8 @@ func main() {
     if settings.Debug {
         log.Println("Debug mode enabled")
     }
+
+    minimumDistance = float64(settings.MinimumDistance)
 
     go startHTTPServer()
     go startSocketIOServer()
@@ -444,7 +427,6 @@ func createIndexesIfNotExist(db *sql.DB) {
         `CREATE INDEX IF NOT EXISTS idx_message_id ON messages (message_id);`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_userid_msgid ON messages(user_id, message_id);`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_userid_msgid_ts ON messages(user_id, message_id, timestamp);`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS idx_uhf_user_ts_unique ON user_history_filtered(user_id, timestamp);`,
         `CREATE INDEX IF NOT EXISTS idx_shard_id ON messages (shard_id);`,
         `CREATE INDEX IF NOT EXISTS idx_user_id_state ON state (user_id);`,
         `CREATE INDEX IF NOT EXISTS idx_packet_jsonb_search_fields ON state USING GIN (packet jsonb_ops);`,
@@ -461,12 +443,12 @@ func createIndexesIfNotExist(db *sql.DB) {
 }
 
 func storeMessage(db *sql.DB, message Message, settings *Settings) error {
+    // 1) Unwrap outer JSON
     var outerMap map[string]interface{}
     if err := json.Unmarshal(message.Packet, &outerMap); err != nil {
         log.Printf("Error unmarshalling outer message: %v", err)
         return err
     }
-
     packetData, exists := outerMap["packet"]
     if !exists {
         log.Println("Packet field is missing in the JSON message.")
@@ -478,46 +460,137 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
         return fmt.Errorf("Packet data is not in the expected format")
     }
 
-    messageID, messageIDExists := packetMap["MessageID"].(float64)
-    if messageIDExists && messageID == 24 {
-        if reportA, reportAExists := packetMap["ReportA"].(map[string]interface{}); reportAExists {
-            if valid, validExists := reportA["Valid"].(bool); validExists && valid {
-                for key, value := range reportA {
-                    packetMap[key] = value
+    // 2) Handle ReportA/ReportB for MessageID = 24
+    if midRaw, ok := packetMap["MessageID"].(float64); ok && midRaw == 24 {
+        if reportA, exists := packetMap["ReportA"].(map[string]interface{}); exists {
+            if valid, vOK := reportA["Valid"].(bool); vOK && valid {
+                for k, v := range reportA {
+                    packetMap[k] = v
                 }
             }
             delete(packetMap, "ReportA")
         }
-        if reportB, reportBExists := packetMap["ReportB"].(map[string]interface{}); reportBExists {
-            if valid, validExists := reportB["Valid"].(bool); validExists && valid {
-                if shipType, shipTypeExists := reportB["ShipType"].(float64); shipTypeExists {
+        if reportB, exists := packetMap["ReportB"].(map[string]interface{}); exists {
+            if valid, vOK := reportB["Valid"].(bool); vOK && valid {
+                if shipType, ok := reportB["ShipType"].(float64); ok {
                     reportB["Type"] = int(shipType)
                     delete(reportB, "ShipType")
                 }
-                for key, value := range reportB {
-                    packetMap[key] = value
+                for k, v := range reportB {
+                    packetMap[k] = v
                 }
             }
             delete(packetMap, "ReportB")
         }
     }
 
-    userIDf, userIDExists := packetMap["UserID"].(float64)
-    messageIDExtracted, messageIDExists := packetMap["MessageID"].(float64)
-    if !userIDExists || !messageIDExists {
+    // 3) Extract UserID & MessageID
+    userIDf, uOK := packetMap["UserID"].(float64)
+    messageIDExtracted, mOK := packetMap["MessageID"].(float64)
+    if !uOK || !mOK {
         return fmt.Errorf("UserID or MessageID is missing")
     }
+    userID := int(userIDf)
+    mid := int(messageIDExtracted)
 
+    // 4) Marshal packet for DB
     packetJSON, err := json.Marshal(packetMap)
     if err != nil {
         return err
     }
 
-    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, int(userIDf), messageIDExtracted); err != nil {
+    // 5) Movement‐based filtering
+    shouldInsert := true
+    var dist float64
+    var seenBefore bool
+    var prev Position
+
+    if _, isMovement := movementMsgTypes[mid]; isMovement {
+        lat, lok := packetMap["Latitude"].(float64)
+        lon, lok2 := packetMap["Longitude"].(float64)
+        if !lok || !lok2 {
+            shouldInsert = false
+        } else {
+            lastPosMu.Lock()
+            prev, seenBefore = lastPositions[userID]
+            if !seenBefore {
+                dist = 0
+                lastPositions[userID] = Position{Lat: lat, Lon: lon}
+            } else {
+                dist = haversine(prev.Lat, prev.Lon, lat, lon)
+                if dist >= minimumDistance {
+                    lastPositions[userID] = Position{Lat: lat, Lon: lon}
+                } else {
+                    shouldInsert = false
+                }
+            }
+            lastPosMu.Unlock()
+        }
+    }
+
+    // 5b) Time‐based filtering for MessageID = 4 (max once per hour)
+    if mid == 4 {
+        t, err := time.Parse(time.RFC3339, message.Timestamp)
+        if err == nil {
+            lastMsg4Mu.Lock()
+            if prevT, seen := lastMsg4Times[userID]; seen && t.Sub(prevT) < time.Hour {
+                shouldInsert = false
+            } else {
+                lastMsg4Times[userID] = t
+            }
+            lastMsg4Mu.Unlock()
+        } else {
+            log.Printf("Warning: could not parse timestamp for rate-limit: %v", err)
+        }
+    }
+
+    // 5c) Time‐based filtering for MessageID = 5 (max once per 30 minutes)
+    if mid == 5 {
+        t, err := time.Parse(time.RFC3339, message.Timestamp)
+        if err == nil {
+            lastMsg5Mu.Lock()
+            if prevT, seen := lastMsg5Times[userID]; seen && t.Sub(prevT) < 30*time.Minute {
+                shouldInsert = false
+            } else {
+                lastMsg5Times[userID] = t
+            }
+            lastMsg5Mu.Unlock()
+        } else {
+            log.Printf("Warning: could not parse timestamp for rate‐limit MessageID=5: %v", err)
+        }
+    }
+
+    // 6) Always update the state table
+    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, userID, messageIDExtracted); err != nil {
         log.Printf("Error storing state: %v", err)
     }
-    if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDExtracted, settings); err != nil {
-        log.Printf("Error storing message: %v", err)
+
+    // 7) Conditionally insert into messages, with differentiated debug logs
+    if shouldInsert {
+        if settings.Debug {
+            if _, isMovement := movementMsgTypes[mid]; isMovement {
+                if !seenBefore {
+                    log.Printf(
+                        "Seeding initial coords for user %d with msg ID=%d (%.2f meters)",
+                        userID, mid, dist,
+                    )
+                } else {
+                    log.Printf(
+                        "Storing movement msg ID=%d for user %d: moved %.2f meters",
+                        mid, userID, dist,
+                    )
+                }
+            }
+            if mid == 4 {
+                log.Printf("Storing time-limited MessageID=4 for user %d at %s", userID, message.Timestamp)
+            }
+        }
+        if err := tryStoreMessage(
+            db, packetJSON, message.ShardID, message.Timestamp,
+            message.SourceIP, userIDf, messageIDExtracted, settings,
+        ); err != nil {
+            log.Printf("Error storing message: %v", err)
+        }
     }
 
     return nil
