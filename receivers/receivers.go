@@ -129,7 +129,7 @@ func createSchema() {
     _, err = db.Exec(`
         SELECT setval(
           pg_get_serial_sequence('receivers','id'),
-          COALESCE(MAX(id), 0),
+          COALESCE(MAX(id), 1),
           true
         ) FROM receivers;
     `)
