@@ -3,6 +3,7 @@ package main
 import (
     "bufio"
     "flag"
+    "io"
     "log"
     "net"
     "strings"
@@ -44,19 +45,25 @@ func main() {
         log.Printf("Forwarding to %s", udpAddr)
     }
 
-    // Read lines from serial and forward
-    scanner := bufio.NewScanner(port)
-    for scanner.Scan() {
-        line := scanner.Bytes()
+    reader := bufio.NewReader(port)
+    for {
+        // ReadBytes includes the '\n' (and preserves '\r' if present)
+        frame, err := reader.ReadBytes('\n')
+        if err != nil {
+            if err == io.EOF {
+                time.Sleep(10 * time.Millisecond)
+                continue
+            }
+            log.Fatalf("Serial read error: %v", err)
+        }
+
         if *debug {
-            log.Printf("Forwarding: %s", string(line))
+            log.Printf("Forwarding raw frame: %q", frame)
         }
+
         for _, conn := range conns {
-            sendWithRetry(conn, line)
+            sendWithRetry(conn, frame)
         }
-    }
-    if err := scanner.Err(); err != nil {
-        log.Printf("Serial read error: %v", err)
     }
 }
 
