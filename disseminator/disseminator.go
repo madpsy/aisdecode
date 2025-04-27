@@ -1502,7 +1502,7 @@ func setupServer(settings *Settings) {
 		            if subs, exists := clientSubscriptions[sid]; exists {
 		                if _, subscribed := subs[msgUserID]; subscribed {
 		                    sock.Emit("ais_data", wrapped)
-		                    sock.Emit(fmt.Sprintf("ais_data/%s", msgUserID), wrapped)
+		                    //sock.Emit(fmt.Sprintf("ais_data/%s", msgUserID), wrapped)
 		                }
 		            }
 		        }
