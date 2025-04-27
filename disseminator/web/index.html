@@ -2306,6 +2306,29 @@ function renderLogMessageNode(msg) {
   entry.className = 'log-entry';
   entry.dataset.type = msg.type;
 
+  // Helper to render a field, recursing into nested objects
+  function renderField(container, key, val, indent = 0) {
+    if (val !== null && typeof val === 'object') {
+      // Render the key
+      const label = document.createElement('div');
+      label.className = 'log-field';
+      label.style.paddingLeft = `${15 * indent}px`;
+      label.textContent = `${key}:`;
+      container.appendChild(label);
+      // Recurse for each sub-property
+      for (const [subKey, subVal] of Object.entries(val)) {
+        renderField(container, subKey, subVal, indent + 1);
+      }
+    } else {
+      // Primitive value: render on one line
+      const row = document.createElement('div');
+      row.className = 'log-field';
+      row.style.paddingLeft = `${15 * indent}px`;
+      row.textContent = `${key}: ${val}`;
+      container.appendChild(row);
+    }
+  }
+
   // Timestamp
   const tsDiv = document.createElement('div');
   tsDiv.className = 'log-timestamp';
@@ -2316,38 +2339,18 @@ function renderLogMessageNode(msg) {
   entry.appendChild(tsDiv);
 
   // Message Type
-  const typeNum = String(msg.type);
+  const typeNum   = String(msg.type);
   const typeLabel = messageTypeNames[typeNum] || `Unknown (${typeNum})`;
-  const mt = document.createElement('div');
-  mt.className = 'log-field';
-  mt.textContent = `Message Type: ${typeNum}: ${typeLabel}`;
-  entry.appendChild(mt);
+  renderField(entry, 'Message Type', `${typeNum}: ${typeLabel}`, 0);
 
-  // Other data fields
+  // Other data fields (handles nested objects)
   for (const [field, val] of Object.entries(msg.data)) {
-    const fld = document.createElement('div');
-    fld.className = 'log-field';
-    fld.style.paddingLeft = '15px';
-    fld.textContent = `${field}: ${val}`;
-    entry.appendChild(fld);
+    renderField(entry, field, val, 0);
   }
 
-  // Raw Sentence (label + content on its own line)
+  // Raw Sentence (label + content block)
   if (msg.raw_sentence) {
-    // Label
-    const rsLabel = document.createElement('div');
-    rsLabel.className = 'log-field';
-    rsLabel.style.paddingLeft = '15px';
-    rsLabel.textContent = 'Raw Sentence:';
-    entry.appendChild(rsLabel);
-
-    // Content
-    const preRaw = document.createElement('pre');
-    preRaw.style.margin = '0 0 4px 15px';
-    const codeRaw = document.createElement('code');
-    codeRaw.textContent = msg.raw_sentence;
-    preRaw.appendChild(codeRaw);
-    entry.appendChild(preRaw);
+    renderField(entry, 'Raw Sentence', msg.raw_sentence, 0);
   }
 
   return entry;
