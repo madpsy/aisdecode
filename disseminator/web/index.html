@@ -2346,54 +2346,33 @@ function subscribeInstantUpdates(UserID) {
 
 function applyLogFilters() {
   const logEntries = liveLogsContent.querySelectorAll('.log-entry');
-  const showAll = document.getElementById('log-filter-all').checked;
-  const searchQuery = document.getElementById('live-log-search').value.toLowerCase();
+  const searchQuery = document.getElementById('live-log-search')
+                          .value.toLowerCase().trim();
 
-  // 1) Build the set of allowed types (unless "All" is checked)
-  let allowedTypes = null;
-  if (!showAll) {
-    allowedTypes = new Set();
-    document.querySelectorAll('.log-filter:checked').forEach(cb => {
-      cb.value.split(',').forEach(code => {
-        allowedTypes.add(code.trim());
-      });
-    });
-  }
-
-  // 2) Iterate each log entry and decide visibility
   logEntries.forEach(entry => {
-    const type = entry.getAttribute('data-type');
-    let visible = true;
+    // Find all of the individual field divs inside this entry.
+    const fieldDivs = entry.querySelectorAll('div[style*="padding-left"], .log-timestamp, .log-field');
+    let anyVisible = false;
 
-    // 2a) Type filtering (skip if "All" is checked)
-    if (!showAll && !allowedTypes.has(type)) {
-      visible = false;
-    }
-
-    // 2b) Text search filtering
-    if (visible && searchQuery) {
-      const msg = entry.originalMessage;  // your stored parsed message
-      let fieldMatched = false;
-
-      // Check every top-level field name and value for the query
-      for (const [key, val] of Object.entries(msg.data)) {
-        if (
-          key.toLowerCase().includes(searchQuery) ||
-          String(val).toLowerCase().includes(searchQuery)
-        ) {
-          fieldMatched = true;
-          break;
-        }
+    fieldDivs.forEach(div => {
+      // Check both the field name (<span class="log-field">) and its text
+      const text = div.textContent.toLowerCase();
+      if (!searchQuery || text.includes(searchQuery)) {
+        div.style.display = '';   // show matching or if no filter
+        anyVisible = true;
+      } else {
+        div.style.display = 'none';
       }
-      if (!fieldMatched) {
-        visible = false;
-      }
-    }
+    });
 
-    // 3) Apply to the DOM
-    entry.style.display = visible ? '' : 'none';
+    // If nothing inside matched, you can either:
+    //  a) hide the entire entry, or
+    //  b) leave it but show a “no match” placeholder.
+    // Here we’ll hide the entry only if nothing matched:
+    entry.style.display = anyVisible ? '' : 'none';
   });
 }
+
 
 	document.getElementById('log-filter-all').addEventListener('change', applyLogFilters);
 
