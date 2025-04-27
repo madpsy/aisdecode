@@ -2333,11 +2333,11 @@ function renderLogMessageNode(msg) {
   }
 
   // Raw Sentence
-  if (msg.RawSentence) {
+  if (msg.raw_sentence) {
     const rs = document.createElement('div');
     rs.className = 'log-field';
     rs.style.paddingLeft = '15px';
-    rs.textContent = `Raw Sentence: ${msg.RawSentence}`;
+    rs.textContent = `Raw Sentence: ${msg.raw_sentence}`;
     entry.appendChild(rs);
   }
 
