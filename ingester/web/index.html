@@ -348,8 +348,9 @@ function renderBlockedIps(data) {
         const tbody = document.getElementById(tableId).querySelector('tbody');
         tbody.innerHTML = '';
         (list || []).slice(0, 25).forEach(u => {
-          const perMsg = Object.entries(u.per_message_id || {})
-                            .map(([mid, c]) => `${mid}:${c}`).join(', ');
+              const perMsg = Object.entries(u.per_message_id || {})
+                      .map(([mid, c]) => `${mid}:${formatNumber(c)}`)
+                      .join(', ');
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td>${u.user_id}</td>
