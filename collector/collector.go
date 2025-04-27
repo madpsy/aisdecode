@@ -626,7 +626,7 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
     if err == sql.ErrNoRows {
         existingPacketJSON = []byte("{}")
         existingAisClass = "A"
-        existingCount = 0
+        existingCount = 1
         existingLookupComplete = false
     } else if err != nil {
         return fmt.Errorf("Error querying existing packet: %v", err)
