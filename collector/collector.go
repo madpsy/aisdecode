@@ -130,7 +130,7 @@ var (
 // ── INGESTER MESSAGE STRUCT ───────────────────────────────────────────────────
 
 type Message struct {
-    Packet      json.RawMessage `json:"message"`
+    Packet      json.RawMessage `json:"packet"`
     ShardID     int             `json:"shard_id"`
     Timestamp   string          `json:"timestamp"`
     SourceIP    string          `json:"source_ip"`
