@@ -2470,6 +2470,7 @@ function subscribeInstantUpdates(UserID) {
 function addLiveLogEntry(message) {
   // Remove placeholder if present
   const placeholder = liveLogsContent.querySelector('.placeholder');
+  node.originalMessage = message;
   if (placeholder) {
     placeholder.remove();
   }
