@@ -419,6 +419,7 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
         "data":      packet,
         "type":      packet["MessageID"],
         "timestamp": msg.Timestamp,
+	"raw_sentence": msg.RawSentence,
     }
 
     // 7) Emit to any subscribers
