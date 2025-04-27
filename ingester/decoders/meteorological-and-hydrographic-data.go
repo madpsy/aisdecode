@@ -14,31 +14,11 @@ func init() {
 }
 
 // ----------------------------------------------------------------------------
-// bit‐helpers
-// ----------------------------------------------------------------------------
-
-func getUint(bits []byte, off, length int) int {
-    v := 0
-    for i := 0; i < length; i++ {
-        v = (v<<1 | int(bits[off+i]))
-    }
-    return v
-}
-
-func getSint(bits []byte, off, length int) int {
-    v := getUint(bits, off, length)
-    if v&(1<<(length-1)) != 0 {
-        v -= 1 << length
-    }
-    return v
-}
-
-// ----------------------------------------------------------------------------
 // decodeASM8
 // ----------------------------------------------------------------------------
 
 func decodeASM8(packet map[string]interface{}) (map[string]interface{}, error) {
-    // 1) Base64 decode into a 344-byte bit‐array (0/1 per byte)
+    // 1) Base64 decode into a 344-byte bit‐array
     rawB64, ok := packet["BinaryData"].(string)
     if !ok {
         return nil, fmt.Errorf("ASM8: missing BinaryData")
@@ -49,27 +29,27 @@ func decodeASM8(packet map[string]interface{}) (map[string]interface{}, error) {
     }
     bits := raw
 
-    // 2) Offsets after stripping the 18-bit header (Spare+DAC+FI)
+    // 2) Field offsets after stripping 18-bit header (Spare+DAC+FI)
     O := map[string][2]int{
         "longitude":  {0, 25},   "latitude":   {25, 24},
         "pos_acc":    {49, 1},   "utc_day":    {50, 5},
         "utc_hour":   {55, 5},   "utc_min":    {60, 6},
         "wind_spd":   {66, 7},   "wind_gust":  {73, 7},
         "wind_dir":   {80, 9},   "gust_dir":   {89, 9},
-        "air_temp":   {98, 11},  "rel_hum":    {109,7},
-        "dew_pt":     {116,10},  "air_pres":   {126,9},
-        "pres_tend":  {135,2},   "visibility": {137,8},
-        "water_lvl":  {145,12},  "lvl_trend":  {157,2},
-        "cur1_spd":   {159,8},   "cur1_dir":   {167,9},
-        "cur2_spd":   {176,8},   "cur2_dir":   {184,9},
-        "cur2_lvl":   {193,5},   "cur3_spd":   {198,8},
-        "cur3_dir":   {206,9},   "cur3_lvl":   {215,5},
-        "wave_h":     {220,8},   "wave_p":     {228,6},
-        "wave_d":     {234,9},   "swell_h":    {243,8},
-        "swell_p":    {251,6},   "swell_d":    {257,9},
-        "sea_state":  {266,4},   "water_temp": {270,10},
-        "precip":     {280,3},   "salinity":   {283,9},
-        "ice_ind":    {292,2},
+        "air_temp":   {98, 11},  "rel_hum":    {109, 7},
+        "dew_pt":     {116, 10}, "air_pres":   {126, 9},
+        "pres_tend":  {135, 2},  "visibility": {137, 8},
+        "water_lvl":  {145, 12}, "lvl_trend":  {157, 2},
+        "cur1_spd":   {159, 8},  "cur1_dir":   {167, 9},
+        "cur2_spd":   {176, 8},  "cur2_dir":   {184, 9},
+        "cur2_lvl":   {193, 5},  "cur3_spd":   {198, 8},
+        "cur3_dir":   {206, 9},  "cur3_lvl":   {215, 5},
+        "wave_h":     {220, 8},  "wave_p":     {228, 6},
+        "wave_d":     {234, 9},  "swell_h":    {243, 8},
+        "swell_p":    {251, 6},  "swell_d":    {257, 9},
+        "sea_state":  {266, 4},  "water_temp": {270, 10},
+        "precip":     {280, 3},  "salinity":   {283, 9},
+        "ice_ind":    {292, 2},
     }
 
     out := make(map[string]interface{})
@@ -77,26 +57,28 @@ func decodeASM8(packet map[string]interface{}) (map[string]interface{}, error) {
     // ── Position & UTC ──────────────────────────────────────────────────────
 
     lon := getSint(bits, O["longitude"][0], O["longitude"][1])
-    lat := getSint(bits, O["latitude"][0],  O["latitude"][1])
+    lat := getSint(bits, O["latitude"][0], O["latitude"][1])
+    // no‐value constants from spec
     if lon != 0x6791AC0 && lat != 0x3412140 {
         out["longitude_deg"] = float64(lon) / 60000.0
-        out["latitude_deg"]  = float64(lat) / 60000.0
+        out["latitude_deg"] = float64(lat) / 60000.0
     }
-    // Position accuracy: 0=high, 1=low
+
     pa := getUint(bits, O["pos_acc"][0], O["pos_acc"][1])
     out["pos_accuracy_high"] = (pa == 0)
 
-    day := getUint(bits, O["utc_day"][0],  O["utc_day"][1])
-    hr  := getUint(bits, O["utc_hour"][0], O["utc_hour"][1])
-    mn  := getUint(bits, O["utc_min"][0],  O["utc_min"][1])
+    day := getUint(bits, O["utc_day"][0], O["utc_day"][1])
+    hr := getUint(bits, O["utc_hour"][0], O["utc_hour"][1])
+    mn := getUint(bits, O["utc_min"][0], O["utc_min"][1])
     if day >= 1 && day <= 31 && hr < 24 && mn < 60 {
-        out["utc_day"]  = day
+        out["utc_day"] = day
         out["utc_time"] = fmt.Sprintf("%02d:%02d", hr, mn)
     }
 
     // ── Meteorological ─────────────────────────────────────────────────────
 
-    if ws := getUint(bits, O["wind_spd"][0],  O["wind_spd"][1]); ws != 127 {
+    // Wind speed & gust
+    if ws := getUint(bits, O["wind_spd"][0], O["wind_spd"][1]); ws != 127 {
         if ws == 126 {
             out["wind_speed_kn"] = ">=126"
         } else {
@@ -110,24 +92,26 @@ func decodeASM8(packet map[string]interface{}) (map[string]interface{}, error) {
             out["wind_gust_kn"] = wg
         }
     }
-    if wd := getUint(bits, O["wind_dir"][0],  O["wind_dir"][1]); wd != 360 {
+    if wd := getUint(bits, O["wind_dir"][0], O["wind_dir"][1]); wd != 360 {
         out["wind_dir_deg"] = wd
     }
     if gd := getUint(bits, O["gust_dir"][0], O["gust_dir"][1]); gd != 360 {
         out["gust_dir_deg"] = gd
     }
 
-    if at := getSint(bits, O["air_temp"][0],    O["air_temp"][1]); at != 2047 {
+    // Air temperature, humidity, dew point
+    if at := getSint(bits, O["air_temp"][0], O["air_temp"][1]); at != 2047 {
         out["air_temp_C"] = float64(at) / 10.0
     }
-    if rh := getUint(bits, O["rel_hum"][0],    O["rel_hum"][1]); rh <= 100 {
+    if rh := getUint(bits, O["rel_hum"][0], O["rel_hum"][1]); rh <= 100 {
         out["rel_hum_pct"] = rh
     }
-    if dp := getSint(bits, O["dew_pt"][0],     O["dew_pt"][1]); dp != 1023 {
+    if dp := getSint(bits, O["dew_pt"][0], O["dew_pt"][1]); dp != 1023 {
         out["dew_point_C"] = float64(dp) / 10.0
     }
 
-    if ap := getUint(bits, O["air_pres"][0],  O["air_pres"][1]); ap != 511 {
+    // Air pressure
+    if ap := getUint(bits, O["air_pres"][0], O["air_pres"][1]); ap != 511 {
         switch ap {
         case 0:
             out["air_pres_hPa"] = "<=799"
@@ -138,12 +122,13 @@ func decodeASM8(packet map[string]interface{}) (map[string]interface{}, error) {
         }
     }
 
+    // Pressure tendency
     if pt := getUint(bits, O["pres_tend"][0], O["pres_tend"][1]); pt <= 2 {
-        out["pres_tendency"] = []string{
-            "steady", "decreasing", "increasing",
-        }[pt]
+        tendencies := []string{"steady", "decreasing", "increasing"}
+        out["pres_tendency"] = tendencies[pt]
     }
 
+    // Visibility (nautical miles)
     if vis := getUint(bits, O["visibility"][0], O["visibility"][1]); vis != 127 {
         if vis == 127 {
             out["visibility_NM"] = ">=12.7"
@@ -154,13 +139,14 @@ func decodeASM8(packet map[string]interface{}) (map[string]interface{}, error) {
 
     // ── Hydrographic ────────────────────────────────────────────────────────
 
-    if wl := getSint(bits, O["water_lvl"][0],   O["water_lvl"][1]); wl != 4095 {
+    // Water level
+    if wl := getSint(bits, O["water_lvl"][0], O["water_lvl"][1]); wl != 4095 {
         out["water_level_m"] = float64(wl)/100.0 - 10.0
     }
-    if lt := getUint(bits, O["lvl_trend"][0],  O["lvl_trend"][1]); lt <= 2 {
-        out["level_trend"] = []string{
-            "steady", "rising", "falling",
-        }[lt]
+    // Water level trend
+    if lt := getUint(bits, O["lvl_trend"][0], O["lvl_trend"][1]); lt <= 2 {
+        trends := []string{"steady", "rising", "falling"}
+        out["level_trend"] = trends[lt]
     }
 
     // Currents 1–3
@@ -185,24 +171,24 @@ func decodeASM8(packet map[string]interface{}) (map[string]interface{}, error) {
     // ── Waves & Swell ───────────────────────────────────────────────────────
 
     // Waves
-    if wh := getUint(bits, O["wave_h"][0],   O["wave_h"][1]); wh != 255 {
+    if wh := getUint(bits, O["wave_h"][0], O["wave_h"][1]); wh != 255 {
         out["wave_height_m"] = float64(wh) / 10.0
     }
-    if wp := getUint(bits, O["wave_p"][0],   O["wave_p"][1]); wp != 63 {
+    if wp := getUint(bits, O["wave_p"][0], O["wave_p"][1]); wp != 63 {
         out["wave_period_s"] = wp
     }
-    if wd2 := getUint(bits, O["wave_d"][0],   O["wave_d"][1]); wd2 != 360 {
+    if wd2 := getUint(bits, O["wave_d"][0], O["wave_d"][1]); wd2 != 360 {
         out["wave_dir_deg"] = wd2
     }
 
     // Swell
-    if sh := getUint(bits, O["swell_h"][0],  O["swell_h"][1]); sh != 255 {
+    if sh := getUint(bits, O["swell_h"][0], O["swell_h"][1]); sh != 255 {
         out["swell_height_m"] = float64(sh) / 10.0
     }
-    if sp2 := getUint(bits, O["swell_p"][0],  O["swell_p"][1]); sp2 != 63 {
+    if sp2 := getUint(bits, O["swell_p"][0], O["swell_p"][1]); sp2 != 63 {
         out["swell_period_s"] = sp2
     }
-    if sd := getUint(bits, O["swell_d"][0],   O["swell_d"][1]); sd != 360 {
+    if sd := getUint(bits, O["swell_d"][0], O["swell_d"][1]); sd != 360 {
         out["swell_dir_deg"] = sd
     }
 
@@ -253,10 +239,8 @@ func decodeASM8(packet map[string]interface{}) (map[string]interface{}, error) {
         out["water_temp_C"] = float64(wt) / 10.0
     }
     if pr := getUint(bits, O["precip"][0], O["precip"][1]); pr >= 1 && pr <= 6 {
-        out["precipitation"] = []string{
-            "", "rain", "thunderstorm", "ice",
-            "snow", "hail", "mixed",
-        }[pr]
+        precips := []string{"", "rain", "thunderstorm", "ice", "snow", "hail", "mixed"}
+        out["precipitation"] = precips[pr]
     }
     if sa := getUint(bits, O["salinity"][0], O["salinity"][1]); sa != 511 {
         out["salinity_ppt"] = float64(sa) / 10.0
