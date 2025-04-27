@@ -1826,7 +1826,11 @@ function createPopupContent(data) {
     addLine(lines, "Altitude", `${data.Altitude} m`);
   } 
   if (data.Type !== undefined) {
-    const typeDescription = staticTypeMapping[data.Type] || data.Type;
+    // choose AtoN mapping if this is an aid-to-navigation station
+    const mapping = (data.AISClass === "AtoN")
+      ? staticAtoNTypeMapping
+      : staticTypeMapping;
+    const typeDescription = mapping[data.Type] || data.Type;
     addLine(lines, "Type", typeDescription);
   }
 
@@ -3188,13 +3192,20 @@ function focusOnVessel(UserID, initialFocus = true) {
       ? (navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus)
       : null
   );
+  // Tooltip “Type” for live-updates: branch on AtoN
+  const utMapping = (vessel.AISClass === "AtoN")
+    ? staticAtoNTypeMapping
+   : staticTypeMapping;
+  const utTypeText = utMapping[vessel.Type] || vessel.Type;
   const line2 = buildTooltipLine(
-    staticTypeMapping[vessel.Type] || vessel.Type,
+    utTypeText,
     (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
-    (vessel.Sog != null ? `${vessel.Sog} kn` : null),
-    (vessel.TrueHeading != null && vessel.TrueHeading < 360 ? `${vessel.TrueHeading}°` : `${vessel.Cog}°`)
+    (vessel.Sog != null                     ? `${vessel.Sog} kn`                  : null),
+    (vessel.TrueHeading != null && vessel.TrueHeading < 360
+      ? `${vessel.TrueHeading}°`
+      : `${vessel.Cog}°`)
+ );
 
-  );
   const tooltipLines = [`${vessel.Name}${vessel.CallSign ? ` (${vessel.CallSign})` : ''}`];
 
   if (line1.trim()) tooltipLines.push(line1);
@@ -3548,14 +3559,19 @@ function updateFocussedTooltip() {
         ? (navigationalStatusMapping[vessel.NavigationalStatus] || vessel.NavigationalStatus)
         : null
     );
-    const line2 = buildTooltipLine(
-      staticTypeMapping[vessel.Type] || vessel.Type,
-      (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
-      (vessel.Sog != null ? `${vessel.Sog} kn` : null),
-      (vessel.TrueHeading != null && vessel.TrueHeading < 360 ? `${vessel.TrueHeading}°` : `${vessel.Cog}°`)
-
-
-    );
+   // Tooltip “Type” field: use AtoN mapping when appropriate
+   const ttMapping = (vessel.AISClass === "AtoN")
+     ? staticAtoNTypeMapping
+     : staticTypeMapping;
+   const ttTypeText = ttMapping[vessel.Type] || vessel.Type;
+   const line2 = buildTooltipLine(
+     ttTypeText,
+     (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
+     (vessel.Sog != null                     ? `${vessel.Sog} kn`                  : null),
+     (vessel.TrueHeading != null && vessel.TrueHeading < 360
+       ? `${vessel.TrueHeading}°`
+       : `${vessel.Cog}°`)
+   );
 
     const tooltipLines = [`${vessel.Name}${vessel.CallSign ? ` (${vessel.CallSign})` : ''}`];
     if (line1.trim()) tooltipLines.push(line1);
