@@ -684,77 +684,75 @@ func (cc *ClientConnection) getWSClient() (*clientSocket.Socket, error) {
 func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
     q := r.URL.Query()
 
-    // 1) UserID is required
-    userID := q.Get("UserID")
-    if userID == "" {
-        http.Error(w, "Missing UserID parameter", http.StatusBadRequest)
+    // 1) Parse & validate UserID
+    userIDStr := q.Get("UserID")
+    userID, err := strconv.ParseInt(userIDStr, 10, 64)
+    if err != nil || userID <= 0 {
+        http.Error(w, "Invalid or missing UserID", http.StatusBadRequest)
         return
     }
 
-    // 2) Optional MessageID
-    msgIDStr := q.Get("MessageID")
-    var msgFilter string
-    if msgIDStr != "" {
-        // validate it's an integer
-        if _, err := strconv.Atoi(msgIDStr); err != nil {
+    // 2) Parse & validate optional MessageID
+    msgFilter := ""
+    if msgIDStr := q.Get("MessageID"); msgIDStr != "" {
+        msgID, err := strconv.ParseInt(msgIDStr, 10, 64)
+        if err != nil || msgID < 0 {
             http.Error(w, "Invalid MessageID", http.StatusBadRequest)
             return
         }
-        msgFilter = fmt.Sprintf(" AND message_id = %s", msgIDStr)
+        msgFilter = fmt.Sprintf(" AND message_id = %d", msgID)
     }
 
-    // 3) Build SQL: pick the latest packet for this user (and message_id if given)
+    // 3) Build a DISTINCT‐ON query so we get at most one row per message_id
+    //    (if msgFilter is non‐empty it still works, but only for that one ID)
     query := fmt.Sprintf(`
-        SELECT packet, timestamp, message_id
-        FROM messages
-        WHERE user_id = '%s'%s
-        ORDER BY timestamp DESC
-        LIMIT 1;
+        SELECT DISTINCT ON (message_id)
+               message_id,
+               packet,
+               timestamp
+          FROM messages
+         WHERE user_id = %d%s
+         ORDER BY message_id, timestamp DESC;
     `, userID, msgFilter)
 
-    // 4) Execute on the correct shard
-    rows, err := QueryDatabaseForUser(userID, query)
+    // 4) Run it on the correct shard
+    rows, err := QueryDatabaseForUser(strconv.FormatInt(userID, 10), query)
     if err != nil {
         http.Error(w, fmt.Sprintf("DB error: %v", err), http.StatusInternalServerError)
         return
     }
     defer rows.Close()
 
-    // 5) If no rows, return 404 with an empty array
-    if !rows.Next() {
+    // 5) Collect results into a slice
+    type entry struct {
+        MessageID int             `json:"MessageID"`
+        Timestamp string          `json:"Timestamp"`
+        Packet    json.RawMessage `json:"Packet"`
+    }
+    var results []entry
+
+    for rows.Next() {
+        var e entry
+        var ts time.Time
+        if err := rows.Scan(&e.MessageID, &e.Packet, &ts); err != nil {
+            http.Error(w, fmt.Sprintf("Scan error: %v", err), http.StatusInternalServerError)
+            return
+        }
+        e.Timestamp = ts.UTC().Format(time.RFC3339Nano)
+        results = append(results, e)
+    }
+
+    // 6) If nothing found, 404 + empty array
+    if len(results) == 0 {
         w.Header().Set("Content-Type", "application/json")
         w.WriteHeader(http.StatusNotFound)
         w.Write([]byte("[]"))
         return
     }
 
-    // 6) Scan and unmarshal packet JSON
-    var (
-        rawPacket []byte
-        ts         time.Time
-        messageID  int
-    )
-    if err := rows.Scan(&rawPacket, &ts, &messageID); err != nil {
-        http.Error(w, fmt.Sprintf("Scan error: %v", err), http.StatusInternalServerError)
-        return
-    }
-    var pkt map[string]interface{}
-    if err := json.Unmarshal(rawPacket, &pkt); err != nil {
-        http.Error(w, fmt.Sprintf("Invalid packet JSON: %v", err), http.StatusInternalServerError)
-        return
-    }
-
-    // 7) Build response object
-    resp := map[string]interface{}{
-        "UserID":     userID,
-        "MessageID":  messageID,
-        "Timestamp":  ts.UTC().Format(time.RFC3339Nano),
-        "Packet":     pkt,
-    }
-
-    // 8) Send as JSON
+    // 7) Otherwise, JSON‐encode the slice
     w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(resp)
+    json.NewEncoder(w).Encode(results)
 }
 
 func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) {
