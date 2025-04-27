@@ -2925,16 +2925,41 @@ function focusOnVessel(UserID, initialFocus = true) {
   }
   
   // Update subscriptions if focusing on a new vessel
+
   if (focusedVessel !== UserID) {
     clearLiveLogs();
-    if (instantChannel) {
-      unsubscribeInstantUpdates();
-    }
+    unsubscribeInstantUpdates();
     subscribeInstantUpdates(UserID);
     hydrateTrackHistory(UserID);
+
+    // Reset previous vessel icon to semi-transparent fill
+    if (focusedVessel && vesselMarkers[focusedVessel]) {
+      const prevState = vesselData[focusedVessel];
+      const prevHeading = (typeof prevState.TrueHeading === 'number' && prevState.TrueHeading < 360)
+        ? prevState.TrueHeading
+        : (typeof prevState.Cog === 'number' && prevState.Cog >= 0 && prevState.Cog < 360)
+          ? prevState.Cog
+          : 0;
+      vesselMarkers[focusedVessel].setIcon(
+        createBoatIcon(prevState.Type, prevHeading /* fillOpacity defaults to 0.4 */)
+      );
+    }
+
+    // Apply full-opacity fill to the new focused vessel
+    const newState = vesselData[UserID];
+    const newHeading = (typeof newState.TrueHeading === 'number' && newState.TrueHeading < 360)
+      ? newState.TrueHeading
+      : (typeof newState.Cog === 'number' && newState.Cog >= 0 && newState.Cog < 360)
+        ? newState.Cog
+        : 0;
+    if (vesselMarkers[UserID]) {
+      vesselMarkers[UserID].setIcon(
+        createBoatIcon(newState.Type, newHeading, 1.0)
+      );
+    }
   }
   
-  // (Optional) Reset tooltip for the previously focused vessel if needed
+
   if (focusedVessel && focusedVessel !== UserID) {
     const prevMarker = vesselMarkers[focusedVessel];
     if (prevMarker) {
