@@ -353,6 +353,42 @@
 .speed-scale-labels span {
 }
 
+#latest-message-overlay {
+  position: absolute;
+  top: 50px;
+  right: 50px;
+  width: 300px;
+  max-height: 400px;
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  padding: 10px;
+  z-index: 2000;
+  display: none;            /* hidden by default */
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  font-family: monospace;
+  font-size: 13px;
+}
+.latest-message-overlay .lm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.latest-message-overlay .lm-close {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+}
+.latest-message-overlay pre {
+  background: #f7f7f7;
+  padding: 5px;
+  border-radius: 3px;
+  overflow-x: auto;
+}
+
     </style>
 </head>
 
