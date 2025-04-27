@@ -2470,20 +2470,19 @@ function subscribeInstantUpdates(UserID) {
 function addLiveLogEntry(message) {
   // Remove placeholder if present
   const placeholder = liveLogsContent.querySelector('.placeholder');
-  node.originalMessage = message;
-  if (placeholder) {
-    placeholder.remove();
-  }
+  if (placeholder) placeholder.remove();
 
+  // Declare node first
+  let node;
   // Render the log entry node
-  const node = renderLogMessageNode(message);
-  // Save original message on the node for later filtering
+  node = renderLogMessageNode(message);
+  // Save original message on the node for filtering
   node.originalMessage = message;
-  
+
   // Prepend to the live logs container
   liveLogsContent.insertBefore(node, liveLogsContent.firstChild);
 
-  // Apply existing filters immediately
+  // Apply filters immediately
   applyLogFilters();
 
   // Limit total entries
@@ -2491,6 +2490,7 @@ function addLiveLogEntry(message) {
     liveLogsContent.removeChild(liveLogsContent.lastChild);
   }
 }
+
 
 
 
