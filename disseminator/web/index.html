@@ -240,7 +240,7 @@
           border-bottom: none;
         }
         .log-field {
-          font-weight: bold;
+          font-weight: normal;
         }
         #stats-button {
           position: absolute;
@@ -2332,13 +2332,22 @@ function renderLogMessageNode(msg) {
     entry.appendChild(fld);
   }
 
-  // Raw Sentence
+  // Raw Sentence (label + content on its own line)
   if (msg.raw_sentence) {
-    const rs = document.createElement('div');
-    rs.className = 'log-field';
-    rs.style.paddingLeft = '15px';
-    rs.textContent = `Raw Sentence: ${msg.raw_sentence}`;
-    entry.appendChild(rs);
+    // Label
+    const rsLabel = document.createElement('div');
+    rsLabel.className = 'log-field';
+    rsLabel.style.paddingLeft = '15px';
+    rsLabel.textContent = 'Raw Sentence:';
+    entry.appendChild(rsLabel);
+
+    // Content
+    const preRaw = document.createElement('pre');
+    preRaw.style.margin = '0 0 4px 15px';
+    const codeRaw = document.createElement('code');
+    codeRaw.textContent = msg.raw_sentence;
+    preRaw.appendChild(codeRaw);
+    entry.appendChild(preRaw);
   }
 
   return entry;
