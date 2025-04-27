@@ -2212,7 +2212,7 @@ function subscribeInstantUpdates(UserID) {
   console.log("[AIS_SUBSCRIBE]", channelName, UserID);
 
   // Allowed AIS message types as numbers
-  const allowedTypes = new Set([1,2,3,8,9,18,19]);
+  //const allowedTypes = new Set([1,2,3,8,9,18,19]);
 
   instantHandler = function(rawMessage) {
     console.log("[AIS_DATA RECEIVED raw]", rawMessage);
@@ -2238,10 +2238,10 @@ function subscribeInstantUpdates(UserID) {
     console.log("[AIS_DATA] type =", msgType);
 
     // Filter out unwanted types
-    if (!allowedTypes.has(msgType)) {
-      console.log("[AIS_DATA] filtered out type", msgType);
-      return;
-    }
+    //if (!allowedTypes.has(msgType)) {
+    //  console.log("[AIS_DATA] filtered out type", msgType);
+    //  return;
+    //}
 
     // Ensure we have a data payload
     if (!message.data || typeof message.data !== "object") {
