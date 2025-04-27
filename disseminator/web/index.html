@@ -2301,7 +2301,9 @@ function subscribeInstantUpdates(UserID) {
       // Rebuild polyline
       if (vesselTracks[UserID]) map.removeLayer(vesselTracks[UserID]);
       vesselTracks[UserID] = createColoredTrack(filterTrackPoints(vesselData[UserID].track));
-      map.addLayer(vesselTracks[UserID]);
+      if (document.getElementById('show-paths').checked) {
+          map.addLayer(vesselTracks[UserID]);
+      }
       attachPolylineEvents(vesselTracks[UserID], UserID);
     }
 
@@ -2719,8 +2721,10 @@ socket.on("summaryData", (data) => {
 	  map.removeLayer(vesselTracks[userid]);
 	}
 	vesselTracks[userid] = createColoredTrack(filteredTrack);
-	map.addLayer(vesselTracks[userid]);
-	attachPolylineEvents(vesselTracks[userid], userid);
+        if (document.getElementById('show-paths').checked) {
+	    map.addLayer(vesselTracks[userid]);
+	    attachPolylineEvents(vesselTracks[userid], userid);
+        }
       } else {
         // For a focused vessel, skip location updates—only update its popup.
         if (vesselMarkers[userid]) {
@@ -3479,10 +3483,11 @@ for (let UserID in vesselData) {
       map.removeLayer(vesselTracks[UserID]);
     }
     // Create a new colored track layer using createColoredTrack
-    vesselTracks[UserID] = createColoredTrack(filteredTrack);
-    map.addLayer(vesselTracks[UserID]);
-    // Attach any necessary event handlers to the new layer.
-    attachPolylineEvents(vesselTracks[UserID], UserID);
+    if (document.getElementById('show-paths').checked) {
+         vesselTracks[UserID] = createColoredTrack(filteredTrack);
+         map.addLayer(vesselTracks[UserID]);
+         attachPolylineEvents(vesselTracks[UserID], UserID);
+    }
   }
 }
 
