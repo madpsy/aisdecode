@@ -130,7 +130,7 @@ var (
 // ── INGESTER MESSAGE STRUCT ───────────────────────────────────────────────────
 
 type Message struct {
-    Packet      json.RawMessage `json:"packet"`
+    Packet      json.RawMessage `json:"message"`
     ShardID     int             `json:"shard_id"`
     Timestamp   string          `json:"timestamp"`
     SourceIP    string          `json:"source_ip"`
@@ -386,9 +386,15 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
         log.Printf("[DEBUG] Error storing message: %v", err)
     }
 
-    // 3) Unwrap the inner packet JSON for downstream logic
-    //    `msg.Packet` already contains the raw JSON of the "packet" field.
-    rawInner := msg.Packet
+    // 3) Unwrap the inner envelope to get at the real packet object
+    var inner struct {
+        Packet json.RawMessage `json:"packet"`
+    }
+    if err := json.Unmarshal(msg.Packet, &inner); err != nil {
+        log.Printf("[DEBUG] failed to unmarshal inner wrapper: %v", err)
+        return nil
+    }
+    rawInner := inner.Packet
 
     // 4) Parse packet into a map
     var packet map[string]interface{}
@@ -419,11 +425,9 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
     userSubscribersMu.RLock()
     subs := userSubscribers[uidKey]
     userSubscribersMu.RUnlock()
-    if len(subs) > 0 {
-        for sid := range subs {
-            if sock, ok := connectedClients[sid]; ok {
-                sock.Emit("ais_data", emitPayload)
-            }
+    for sid := range subs {
+        if sock, ok := connectedClients[sid]; ok {
+            sock.Emit("ais_data", emitPayload)
         }
     }
 
