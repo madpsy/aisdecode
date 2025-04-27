@@ -28,6 +28,8 @@ import (
 	ais "github.com/BertoldVdb/go-ais"
 	"github.com/BertoldVdb/go-ais/aisnmea"
 	"github.com/eclipse/paho.mqtt.golang"
+        _   "github.com/madpsy/aisdecode/ingester/decoders"
+        decoders "github.com/madpsy/aisdecode/ingester/decoders"
 )
 
 var cfg Config
@@ -972,8 +974,10 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         rawBytes, srcIP := pkt.raw, pkt.sourceIP
         rawStr := *(*string)(unsafe.Pointer(&rawBytes))
 
-	complete, joined := addFragment(rawStr)
+        // ── Fragment reassembly ────────────────────────────────────────────────
+        complete, joined := addFragment(rawStr)
 
+        // ── Blocked IP ─────────────────────────────────────────────────────────
         if _, blocked := blockedIPs[srcIP]; blocked {
             metricsMu.Lock()
             if blockedIPCounters[srcIP] == nil {
@@ -981,87 +985,114 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
             }
             blockedIPCounters[srcIP].AddEvent()
             metricsMu.Unlock()
+
             pkt.raw = nil
             pkt.sourceIP = ""
             packetPool.Put(pkt)
             continue
         }
 
+        // ── Inbound metrics ────────────────────────────────────────────────────
         metricsMu.Lock()
         totalMessages++
         totalCounter.AddEvent()
-        totalSourceTotals[pkt.sourceIP]++
-        bytesReceivedTotals[pkt.sourceIP] += int64(len(pkt.raw))
+        totalSourceTotals[srcIP]++
+        bytesReceivedTotals[srcIP] += int64(len(pkt.raw))
         totalBytesReceived += int64(len(pkt.raw))
         totalSourceCounters.AddEvent()
         metricsMu.Unlock()
 
         bytesReceivedWindow.Add(int64(len(pkt.raw)))
 
-        // Use FNV-1a hash of the raw message for deduplication
+        // ── Deduplication hash ─────────────────────────────────────────────────
         hashedMsg := fnvHash(rawStr)
 
-        // Decode the NMEA sentence
-	decoded, err := nmea.ParseSentence(rawStr)
-	if err != nil || decoded == nil || decoded.Packet == nil {
-	    // Skip logging if error is nil and decoded packet is nil
-	    if err == nil && decoded == nil {
-	        // Don't log 'decode failure: <nil>' when both err and decoded are nil
-	        pkt.raw = nil
-	        pkt.sourceIP = ""
-	        packetPool.Put(pkt)
-	        continue
-	    }
+        // ── NMEA parse ─────────────────────────────────────────────────────────
+        decoded, err := nmea.ParseSentence(rawStr)
+        if err != nil || decoded == nil || decoded.Packet == nil {
+            if err == nil && decoded == nil {
+                // both nil → silently drop
+                pkt.raw = nil
+                pkt.sourceIP = ""
+                packetPool.Put(pkt)
+                continue
+            }
+            // real error
+            metricsMu.Lock()
+            totalFailures++
+            failureCounter.AddEvent()
+            failureSourceTotals[srcIP]++
+            if failureSourceCounters[srcIP] == nil {
+                failureSourceCounters[srcIP] = NewFixedWindowCounter()
+            }
+            failureSourceCounters[srcIP].AddEvent()
+            metricsMu.Unlock()
 
-	    // Log real errors and failures
-	    metricsMu.Lock()
-	    totalFailures++
-	    failureCounter.AddEvent()
-	    failureSourceTotals[srcIP]++
-	    if failureSourceCounters[srcIP] == nil {
-	        failureSourceCounters[srcIP] = NewFixedWindowCounter()
-	    }
-	    failureSourceCounters[srcIP].AddEvent()
-	    metricsMu.Unlock()
+            if failedDecodeLogger != nil {
+                failedDecodeLogger.Printf("decode failure: %v | raw: %s\n", err, rawStr)
+            }
+            if debugFlag {
+                log.Printf("[DEBUG] decode failure: %v | raw: %s", err, rawStr)
+            }
 
-	    if failedDecodeLogger != nil {
-	        failedDecodeLogger.Printf("decode failure: %v | raw: %s\n", err, rawStr)
-	    }
+            pkt.raw = nil
+            pkt.sourceIP = ""
+            packetPool.Put(pkt)
+            continue
+        }
 
-	    if debugFlag {
-	        log.Printf("[DEBUG] decode failure: %v | raw: %s", err, rawStr)
-	    }
-	
-	    pkt.raw = nil
-	    pkt.sourceIP = ""
-	    packetPool.Put(pkt)
-	    continue
-	}
-
+        // ── Extract header & prepare for plugin ─────────────────────────────────
         hdr := decoded.Packet.GetHeader()
+
+        // Re-marshal the packet into a map so we can inject DecodedBinary
+        rawJSON, _ := json.Marshal(decoded.Packet)
+        var pktMap map[string]interface{}
+        _ = json.Unmarshal(rawJSON, &pktMap)
+
+        // MessageID always comes from the header
+        mid := int(hdr.MessageID)
+
+        // DAC/FI live under the nested "ApplicationID" JSON object
+        var dac, fi int
+        if app, ok := pktMap["ApplicationID"].(map[string]interface{}); ok {
+            if d, ok := app["DesignatedAreaCode"].(float64); ok {
+                dac = int(d)
+            }
+            if f, ok := app["FunctionIdentifier"].(float64); ok {
+                fi = int(f)
+            }
+        }
+
+       if decoderFn, found := decoders.Get(mid, dac, fi); found {
+           if meta, err := decoderFn(pktMap); err != nil {
+               log.Printf("plugin %d/%d/%d decode error: %v", mid, dac, fi, err)
+           } else {
+               pktMap["DecodedBinary"] = meta
+           }
+       }
+
+        // ── Cache msgID/userID as strings ──────────────────────────────────────
         msgIDCache.RLock()
-        mid, ok := msgIDCache.m[hdr.MessageID]
+        midKey, ok := msgIDCache.m[hdr.MessageID]
         msgIDCache.RUnlock()
         if !ok {
-            mid = strconv.Itoa(int(hdr.MessageID))
+            midKey = strconv.Itoa(int(hdr.MessageID))
             msgIDCache.Lock()
-            msgIDCache.m[hdr.MessageID] = mid
+            msgIDCache.m[hdr.MessageID] = midKey
             msgIDCache.Unlock()
         }
-
         userIDCache.RLock()
-        uid, ok := userIDCache.m[hdr.UserID]
+        uidKey, ok := userIDCache.m[hdr.UserID]
         userIDCache.RUnlock()
         if !ok {
-            uid = strconv.FormatUint(uint64(hdr.UserID), 10)
+            uidKey = strconv.FormatUint(uint64(hdr.UserID), 10)
             userIDCache.Lock()
-            userIDCache.m[hdr.UserID] = uid
+            userIDCache.m[hdr.UserID] = uidKey
             userIDCache.Unlock()
         }
+        msgID, userID := midKey, uidKey
 
-        msgID, userID := mid, uid
-
-        // Deduplication check based on FNV-1a hash
+        // ── Deduplication window ───────────────────────────────────────────────
         if dedupWindow > 0 {
             dedupMu.Lock()
             now := time.Now()
@@ -1085,13 +1116,17 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
                 }
                 dedupPerUserMessageIDCount[userID][msgID]++
                 metricsMu.Unlock()
+
+                pkt.raw = nil
+                pkt.sourceIP = ""
+                packetPool.Put(pkt)
                 continue
             }
             lastDedup[hashedMsg] = now
             dedupMu.Unlock()
         }
 
-        // Downsample logic
+        // ── Downsample logic ────────────────────────────────────────────────────
         if downsampleWindow > 0 && downsampleTypes[msgID] {
             now := time.Now()
             downMu.Lock()
@@ -1118,15 +1153,18 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
                 }
                 downsampledPerUserMessageIDCount[userID][msgID]++
                 metricsMu.Unlock()
+
+                pkt.raw = nil
+                pkt.sourceIP = ""
+                packetPool.Put(pkt)
                 continue
             }
             lastForward[msgID][userID] = now
             downMu.Unlock()
         }
 
-        // Now send the raw message to all matching destinations based on shardID
-        // Determine which shard the current packet belongs to (using existing logic)
-        shardID := shardForUser(userID) // Sharding logic for this message
+        // ── Shard & forward raw UDP ────────────────────────────────────────────
+        shardID := shardForUser(userID)
         metricsMu.Lock()
         messagesPerShard[shardID]++
         if userIDsPerShard[shardID] == nil {
@@ -1135,30 +1173,28 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         userIDsPerShard[shardID][userID] = struct{}{}
         metricsMu.Unlock()
 
-        // Forward the raw message to the appropriate destinations based on shard ID
         for _, dest := range cfg.Destinations {
-            for _, destShard := range dest.Shards {
-                if destShard == shardID { // If this shard matches, forward the message
-                    udpAddr := fmt.Sprintf("%s:%d", dest.Host, dest.Port)
-                    udpConn, err := net.Dial("udp", udpAddr)
+            for _, s := range dest.Shards {
+                if s == shardID {
+                    addr := fmt.Sprintf("%s:%d", dest.Host, dest.Port)
+                    conn, err := net.Dial("udp", addr)
                     if err != nil {
-                        log.Printf("Failed to connect to %s: %v", udpAddr, err)
+                        log.Printf("Failed to dial %s: %v", addr, err)
                         continue
                     }
-                    _, err = udpConn.Write(pkt.raw) // Send only the raw message
-                    if err != nil {
-                        log.Printf("Failed to send UDP packet to %s: %v", udpAddr, err)
+                    if _, err := conn.Write(pkt.raw); err != nil {
+                        log.Printf("UDP write to %s error: %v", addr, err)
                     }
-                    udpConn.Close()
-		    udpDestStr := fmt.Sprintf("%s:%d", dest.Host, dest.Port)
-		    udpDestinationMetrics[udpDestStr].MessagesSent++
-		    udpDestinationMetrics[udpDestStr].BytesSent += int64(len(pkt.raw))
-                    break // After sending to one destination, no need to send further
+                    conn.Close()
+                    key := fmt.Sprintf("%s:%d", dest.Host, dest.Port)
+                    udpDestinationMetrics[key].MessagesSent++
+                    udpDestinationMetrics[key].BytesSent += int64(len(pkt.raw))
+                    break
                 }
             }
         }
 
-        // Update metrics
+        // ── Post-forward metrics ───────────────────────────────────────────────
         metricsMu.Lock()
         if perUserMessageIDCount[userID] == nil {
             perUserMessageIDCount[userID] = map[string]int64{}
@@ -1183,68 +1219,69 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         bytesForwardedWindow.Add(int64(len(pkt.raw)))
         metricsMu.Unlock()
 
-        // Split the raw NMEA sentence by commas and extract the channel (5th field)
-        fields := strings.Split(rawStr, ",")
+        // ── Build & send StreamMessage ────────────────────────────────────────
+        parts := strings.Split(rawStr, ",")
         channel := "Unknown"
-        if len(fields) > 5 {
-            channel = string(fields[4][0])
+        if len(parts) > 5 {
+            channel = string(parts[4][0])
+        }
+
+        // choose payload
+        var packetPayload interface{}
+        if pktMap != nil {
+            packetPayload = pktMap
+        } else {
+            packetPayload = decoded.Packet
+        }
+
+        rawToSend := rawStr
+        if complete && joined != "" {
+            rawToSend = joined
+        }
+
+        streamObj := StreamMessage{
+            Message: map[string]interface{}{
+                "packet":  packetPayload,
+                "channel": channel,
+            },
+            Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
+            ShardID:     shardID,
+            RawSentence: rawToSend,
+        }
+        if includeSource {
+            streamObj.SourceIP = srcIP
         }
 
         buf := jsonBufPool.Get().(*bytes.Buffer)
         buf.Reset()
-
-        // only emit the joined raw when we've seen all fragments
-        rawToSend := rawStr
-        if complete && joined != "" {
-          rawToSend = joined
-        }
-        streamObj := StreamMessage{
-           Message:     decoded.Packet,
-           Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
-           ShardID:     shardID,
-           RawSentence: rawToSend,
-        }
-
-        if includeSource { // Check if -include-source is true
-            streamObj.SourceIP = srcIP
-        }
-
-        // Add the channel field
-        streamObj.Message = map[string]interface{}{
-            "packet": decoded.Packet,
-            "channel": channel,
-        }
-
         json.NewEncoder(buf).Encode(streamObj)
         out := buf.Bytes()
         jsonBufPool.Put(buf)
 
-	if mqttClient != nil && mqttClient.IsConnected() {
-	    topic := fmt.Sprintf("%s/%d/%s/%s/message", mqttTopic, shardID, userID, msgID)
-    
-	    // Before publishing to MQTT, remove SourceIP if it's included in the message
-	    messageForMQTT := make(map[string]interface{})
-	    json.Unmarshal(out, &messageForMQTT)
-	    delete(messageForMQTT, "source_ip") // Remove the source_ip field from the message
-    
-	    mqttOut, err := json.Marshal(messageForMQTT) // Re-encode without SourceIP
-	    if err != nil {
-	        log.Printf("Error removing SourceIP from MQTT message: %v", err)
-	    } else {
-	        token := mqttClient.Publish(topic, 0, false, mqttOut)
-	        token.Wait()
-	    }
-	}
-	out = append(out, 0)
+        // ── MQTT ───────────────────────────────────────────────────────────────
+        if mqttClient != nil && mqttClient.IsConnected() {
+            topic := fmt.Sprintf("%s/%d/%s/%s/message", mqttTopic, shardID, userID, msgID)
+            var mqttMap map[string]interface{}
+            if err := json.Unmarshal(out, &mqttMap); err == nil {
+                delete(mqttMap, "source_ip")
+                if mqttBuf, err := json.Marshal(mqttMap); err == nil {
+                    token := mqttClient.Publish(topic, 0, false, mqttBuf)
+                    token.Wait()
+                }
+            }
+        }
+
+        // ── TCP stream to clients ─────────────────────────────────────────────
+        out = append(out, 0)
         clientsMu.Lock()
         for _, c := range clients {
-            for _, sub := range c.shards {
-                if sub == shardID {
+            for _, s := range c.shards {
+                if s == shardID {
                     c.mu.Lock()
-                    n, err := c.conn.Write(append(out))
+                    n, err := c.conn.Write(out)
                     if err == nil {
-                        c.bytesSent += int64(n)
                         c.messagesSent++
+                        c.bytesSent += int64(n)
                         c.messageWindow.AddEvent()
                         c.bytesWindow.Add(int64(n))
                     }
@@ -1253,14 +1290,16 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
             }
         }
         clientsMu.Unlock()
-        originalBuf := pkt.raw[:cap(pkt.raw)]
-        bufPool.Put(originalBuf)
 
+        // ── Cleanup ────────────────────────────────────────────────────────────
+        original := pkt.raw[:cap(pkt.raw)]
+        bufPool.Put(original)
         pkt.raw = nil
         pkt.sourceIP = ""
         packetPool.Put(pkt)
     }
 }
+
 
 func getTotalClients() int {
 	clientsMu.Lock()

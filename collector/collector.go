@@ -23,9 +23,6 @@ import (
     engine "github.com/zishang520/engine.io/v2/engine"
     socketio "github.com/zishang520/socket.io/v2/socket"
     "github.com/zishang520/engine.io/v2/types"
-
-    _ "decoders"
-    "decoders/registry"
 )
 
 // ── SETTINGS ────────────────────────────────────────────────────────────────
@@ -377,14 +374,19 @@ func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byt
 }
 
 func processMessage(message []byte, db *sql.DB, settings *Settings) error {
-    // 1) Unmarshal outer envelope
+    // 1) Unmarshal the entire incoming JSON (including RawSentence)
     var msg Message
     if err := json.Unmarshal(message, &msg); err != nil {
         log.Printf("[DEBUG] failed to unmarshal outer Message: %v", err)
         return err
     }
 
-    // 2) Unwrap inner packet
+    // 2) Persist to DB (includes msg.RawSentence)
+    if err := storeMessage(db, msg, settings, msg.RawSentence); err != nil {
+        log.Printf("[DEBUG] Error storing message: %v", err)
+    }
+
+    // 3) Unwrap the inner envelope to get at the real packet object
     var inner struct {
         Packet json.RawMessage `json:"packet"`
     }
@@ -392,67 +394,35 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
         log.Printf("[DEBUG] failed to unmarshal inner wrapper: %v", err)
         return nil
     }
+    rawInner := inner.Packet
 
-    // 3) Parse packet into a map[string]interface{}
-    var packetMap map[string]interface{}
-    if err := json.Unmarshal(inner.Packet, &packetMap); err != nil {
+    // 4) Parse packet into a map
+    var packet map[string]interface{}
+    if err := json.Unmarshal(rawInner, &packet); err != nil {
         log.Printf("[DEBUG] failed to unmarshal inner packet: %v", err)
         return nil
     }
 
-    // 4) Try to decode with any registered addon
-    //    extract MessageID
-    midF, ok := packetMap["MessageID"].(float64)
-    if ok {
-        mid := int(midF)
-        // extract DAC & FI
-        if app, hasApp := packetMap["ApplicationID"].(map[string]interface{}); hasApp {
-            dacF, ok1 := app["DesignatedAreaCode"].(float64)
-            fiF,  ok2 := app["FunctionIdentifier"].(float64)
-            if ok1 && ok2 {
-                dac, fi := int(dacF), int(fiF)
-                if decoder, found := registry.Get(mid, dac, fi); found {
-                    if decodedMap, err := decoder(packetMap); err != nil {
-                        log.Printf("[DEBUG] decoding error for %d/%d/%d: %v", mid, dac, fi, err)
-                    } else {
-                        // attach to packet before storage/emit
-                        packetMap["DecodedBinary"] = decodedMap
-                    }
-                }
-            }
-        }
-    }
-
-    // 5) Re-marshal enriched packet for DB/storage
-    enrichedJSON, err := json.Marshal(packetMap)
-    if err != nil {
-        log.Printf("[DEBUG] failed to re-marshal enriched packet: %v", err)
-        return nil
-    }
-
-    // 6) Persist into messages & state tables
-    if err := storeMessage(db, msg, settings, msg.RawSentence, enrichedJSON); err != nil {
-        log.Printf("[DEBUG] Error storing message: %v", err)
-    }
-
-    // 7) Build payload for Socket.IO emit (include decoded data)
+    // 5) Determine user key
     var uidKey string
-    if v, ok := packetMap["UserID"].(float64); ok {
+    if v, ok := packet["UserID"].(float64); ok {
         uidKey = strconv.Itoa(int(v))
-    } else if s, ok := packetMap["UserID"].(string); ok {
+    } else if s, ok := packet["UserID"].(string); ok {
         uidKey = s
     } else {
+        log.Printf("[DEBUG] packet missing UserID, skipping emit")
         return nil
     }
 
+    // 6) Build payload for Socket.IO emit
     emitPayload := map[string]interface{}{
-        "data":         packetMap,          // now includes DecodedBinary if available
-        "type":         packetMap["MessageID"],
-        "timestamp":    msg.Timestamp,
-        "raw_sentence": msg.RawSentence,
+        "data":      packet,
+        "type":      packet["MessageID"],
+        "timestamp": msg.Timestamp,
+	"raw_sentence": msg.RawSentence,
     }
 
-    // 8) Emit to subscribers
+    // 7) Emit to any subscribers
     userSubscribersMu.RLock()
     subs := userSubscribers[uidKey]
     userSubscribersMu.RUnlock()
