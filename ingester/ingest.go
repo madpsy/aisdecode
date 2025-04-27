@@ -38,6 +38,8 @@ var (
 
 var cfgDir string
 
+var failedDecodeLogger *log.Logger
+
 // how many events we keep per “keyed” counter
 const maxPerKeyEvents = 10000
 // how many events we keep in the global ring buffers
@@ -202,6 +204,7 @@ type Config struct {
     MQTTTopic              string   `json:"mqtt_topic"`
     DownsampleMessageTypes []string `json:"downsample_message_types"`
     BlockedIPs 		   []string `json:"blocked_ips"`
+    FailedDecodeLog        string   `json:"failed_decode_log"`
 }
 
 var (
@@ -225,6 +228,27 @@ var (
     windowSize  	  int
     blockedIPs 		  map[string]struct{}
 )
+
+
+func initDecodeLogger() error {
+    if cfg.FailedDecodeLog == "" {
+        return nil
+    }
+
+    var path string
+    if filepath.IsAbs(cfg.FailedDecodeLog) {
+        path = cfg.FailedDecodeLog
+    } else {
+        path = filepath.Join(cfgDir, cfg.FailedDecodeLog)
+    }
+
+    f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+    if err != nil {
+        return fmt.Errorf("opening failed_decode_log %q: %w", path, err)
+    }
+    failedDecodeLogger = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
+    return nil
+}
 
 func settingsHandler(w http.ResponseWriter, r *http.Request) {
     cfgPath := filepath.Join(cfgDir, "settings.json")
@@ -284,6 +308,10 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
         blockedIPs = make(map[string]struct{})
         for _, ip := range cfg.BlockedIPs {
             blockedIPs[ip] = struct{}{}
+        }
+
+        if err := initDecodeLogger(); err != nil {
+          log.Printf("warning: could not open failed_decode_log after settings update: %v", err)
         }
 
         // Success, no content to return
@@ -563,6 +591,10 @@ func main() {
     }
     if err := json.Unmarshal(data, &cfg); err != nil {
         log.Fatalf("Invalid JSON in %q: %v", cfgPath, err)
+    }
+
+    if err := initDecodeLogger(); err != nil {
+        log.Printf("warning: could not open failed_decode_log: %v", err)
     }
 
     blockedIPs = make(map[string]struct{})
@@ -899,9 +931,13 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 	    }
 	    failureSourceCounters[srcIP].AddEvent()
 	    metricsMu.Unlock()
-	
+
+	    if failedDecodeLogger != nil {
+	        failedDecodeLogger.Printf("decode failure: %v | raw: %s\n", err, rawStr)
+	    }
+
 	    if debugFlag {
-	        log.Printf("[DEBUG] decode failure: %v | raw: %s", err, pkt.raw)
+	        log.Printf("[DEBUG] decode failure: %v | raw: %s", err, rawStr)
 	    }
 	
 	    pkt.raw = nil

@@ -24,6 +24,7 @@
   "mqtt_tls": false,
   "mqtt_auth": "mosquitto:xxxxxxx",
   "mqtt_topic": "AIS",
+  "failed_decode_log": "/tmp/failed_decodes.log",
   "downsample_message_types": [
     "1",
     "2",

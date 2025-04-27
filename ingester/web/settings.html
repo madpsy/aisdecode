@@ -236,6 +236,10 @@
         <input type="text" id="mqtt_topic" />
       </div>
       <div class="form-group">
+        <label for="failed_decode_log">Failed-decode Log File</label>
+        <input type="text" id="failed_decode_log" placeholder="e.g. /tmp/failed_decodes.log" />
+      </div>
+      <div class="form-group">
         <button type="button" id="downsampleMessagesButton" class="button">Downsampled Messages</button>
       </div>
       <div id="downsampleModal" class="modal" style="display: none;">
@@ -530,6 +534,7 @@ form.addEventListener('submit', async e => {
     mqtt_tls:                document.getElementById('mqtt_tls').checked,
     mqtt_auth:               document.getElementById('mqtt_auth').value,
     mqtt_topic:              document.getElementById('mqtt_topic').value,
+    failed_decode_log: document.getElementById('failed_decode_log').value || "",
     downsample_message_types: downsampledMessages,
     blocked_ips:             blockedIps  // Add the blocked_ips to the payload
   };
