@@ -2301,26 +2301,48 @@ function updateFocussedVisibility() {
           return html;
         }
 
-        // Updated renderLogMessage function that uses the recursive formatter.
-    function renderLogMessage(msg) {
-      const logTimestamp = msg.timestamp
-        ? new Date(msg.timestamp).toLocaleTimeString()
-        : new Date().toLocaleTimeString();
+function renderLogMessageNode(msg) {
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.dataset.type = msg.type;
 
-      // Wrap the log entry in a container with a data-type attribute.
-      let html = `<div class="log-entry" data-type="${msg.type}">`;
-      html += `<div class="log-timestamp" style="font-size:10px;color:#888;margin-bottom:2px;">${logTimestamp}</div>`;
-      const typeNum = String(msg.type);
-      const typeLabel = messageTypeNames[typeNum] || `Unknown (${typeNum})`;
-      html += formatLogField("Message Type", `${typeNum}: ${typeLabel}`);
+  // Timestamp
+  const tsDiv = document.createElement('div');
+  tsDiv.className = 'log-timestamp';
+  tsDiv.style.cssText = 'font-size:10px;color:#888;margin-bottom:2px;';
+  tsDiv.textContent = msg.timestamp
+    ? new Date(msg.timestamp).toLocaleTimeString()
+    : new Date().toLocaleTimeString();
+  entry.appendChild(tsDiv);
 
-      for (const field in msg.data) {
-        html += formatLogField(field, msg.data[field]);
-      }
+  // Message Type
+  const typeNum = String(msg.type);
+  const typeLabel = messageTypeNames[typeNum] || `Unknown (${typeNum})`;
+  const mt = document.createElement('div');
+  mt.className = 'log-field';
+  mt.textContent = `Message Type: ${typeNum}: ${typeLabel}`;
+  entry.appendChild(mt);
 
-      html += '</div>';
-      return html;
-    }
+  // Other data fields
+  for (const [field, val] of Object.entries(msg.data)) {
+    const fld = document.createElement('div');
+    fld.className = 'log-field';
+    fld.style.paddingLeft = '15px';
+    fld.textContent = `${field}: ${val}`;
+    entry.appendChild(fld);
+  }
+
+  // Raw Sentence
+  if (msg.RawSentence) {
+    const rs = document.createElement('div');
+    rs.className = 'log-field';
+    rs.style.paddingLeft = '15px';
+    rs.textContent = `Raw Sentence: ${msg.RawSentence}`;
+    entry.appendChild(rs);
+  }
+
+  return entry;
+}
 
 function subscribeInstantUpdates(UserID) {
   focussedID = UserID
@@ -2436,32 +2458,30 @@ function subscribeInstantUpdates(UserID) {
       instantHandler = null;
     }
 
-    function addLiveLogEntry(message) {
-      // Remove the placeholder if it exists.
-      const placeholder = liveLogsContent.querySelector('.placeholder');
-      if (placeholder) {
-        placeholder.remove();
-      }
+function addLiveLogEntry(message) {
+  // Remove placeholder if present
+  const placeholder = liveLogsContent.querySelector('.placeholder');
+  if (placeholder) {
+    placeholder.remove();
+  }
 
-      // Render the log entry.
-      const logHTML = renderLogMessage(message);
-      liveLogsContent.insertAdjacentHTML('afterbegin', logHTML);
+  // Render the log entry node
+  const node = renderLogMessageNode(message);
+  // Save original message on the node for later filtering
+  node.originalMessage = message;
+  
+  // Prepend to the live logs container
+  liveLogsContent.insertBefore(node, liveLogsContent.firstChild);
 
-      // Get the newly added entry (assumed to be the first child).
-      const newEntry = liveLogsContent.firstElementChild;
-      // Save the original message object on the entry.
-      newEntry.originalMessage = message;
-      // Also save the full HTML so we can revert if no search is active.
-      newEntry.dataset.fullHtml = newEntry.innerHTML;
+  // Apply existing filters immediately
+  applyLogFilters();
 
-      // Apply filters immediately.
-      applyLogFilters();
+  // Limit total entries
+  while (liveLogsContent.childElementCount > maxLogMessages) {
+    liveLogsContent.removeChild(liveLogsContent.lastChild);
+  }
+}
 
-      // Limit the total number of log entries.
-      while (liveLogsContent.childElementCount > maxLogMessages) {
-        liveLogsContent.removeChild(liveLogsContent.lastChild);
-      }
-    }
 
 
 function applyLogFilters() {
