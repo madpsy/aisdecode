@@ -132,6 +132,89 @@ func (c *FixedWindowBytesCounter) Reset() {
 	c.mu.Unlock()
 }
 
+type fragmentEntry struct {
+    parts    []string    // slot 0 == fragment #1, etc
+    received int         // how many slots filled
+    firstSeen time.Time  // when we saw fragment #1
+    ts        time.Time  // last‐touched timestamp
+}
+
+var (
+    fragmentBufMu sync.Mutex
+    fragmentBuf   = make(map[string]*fragmentEntry)
+)
+
+// addFragment returns (complete, joined):
+//   complete==false: still waiting  
+//   complete==true && joined==raw: single‐part  
+//   complete==true && joined!=""  : all parts assembled
+func addFragment(raw string) (bool, string) {
+    raw = strings.TrimSpace(raw)
+    f := strings.Split(raw, ",")
+    if len(f) < 6 {
+        return true, raw
+    }
+    talker := f[0]
+    total, err1 := strconv.Atoi(f[1])
+    part,  err2 := strconv.Atoi(f[2])
+    seqID := f[3]
+    channel := f[4]
+    if err1 != nil || err2 != nil || total <= 1 {
+        return true, raw
+    }
+
+    key := fmt.Sprintf("%s|%s|%s", talker, seqID, channel)
+
+    fragmentBufMu.Lock()
+    defer fragmentBufMu.Unlock()
+
+    e, ok := fragmentBuf[key]
+    if !ok {
+        now := time.Now()
+        e = &fragmentEntry{
+            parts:     make([]string, total),
+            firstSeen: now,
+            ts:        now,
+        }
+        fragmentBuf[key] = e
+        if debugFlag {
+            log.Printf("[DEBUG] started assembling %d-part message %q", total, key)
+        }
+    }
+    if e.parts[part-1] == "" {
+        e.parts[part-1] = raw
+        e.received++
+	e.ts = time.Now()
+	if debugFlag && e.received == 1 {
+	    log.Printf("[DEBUG] received fragment %d/%d for %q", part, total, key)
+	}
+    }
+    e.ts = time.Now()
+
+    if e.received == total {
+	if debugFlag {
+	    dur := time.Since(e.firstSeen)
+	    log.Printf("[DEBUG] assembled %d/%d fragments for %q in %v", total, total, key, dur)
+	}
+        joined := strings.Join(e.parts, "\r\n")
+        delete(fragmentBuf, key)
+        return true, joined
+    }
+    return false, ""
+}
+
+// cleanupFragments drops any incomplete groups older than ttl
+func cleanupFragments(ttl time.Duration) {
+    fragmentBufMu.Lock()
+    defer fragmentBufMu.Unlock()
+    now := time.Now()
+    for k, e := range fragmentBuf {
+        if now.Sub(e.ts) > ttl {
+            delete(fragmentBuf, k)
+        }
+    }
+}
+
 // UDPPacket holds raw data and source IP
 type UDPPacket struct {
 	raw      []byte
@@ -709,6 +792,16 @@ func main() {
 	        log.Println("Deduplication is disabled because window is set to 0")
 	    }
 	}()
+ 
+        // periodically prune stale fragment buffers
+        go func() {
+           ttl := 250 * time.Millisecond
+           ticker := time.NewTicker(ttl)
+           defer ticker.Stop()
+           for range ticker.C {
+              cleanupFragments(ttl)
+           }
+        }()
 
 	// determine window size in seconds (not used for bytes counters)
 	windowSize = int(metricWindowSize.Seconds())
@@ -878,6 +971,8 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
     for pkt := range ch {
         rawBytes, srcIP := pkt.raw, pkt.sourceIP
         rawStr := *(*string)(unsafe.Pointer(&rawBytes))
+
+	complete, joined := addFragment(rawStr)
 
         if _, blocked := blockedIPs[srcIP]; blocked {
             metricsMu.Lock()
@@ -1097,11 +1192,17 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 
         buf := jsonBufPool.Get().(*bytes.Buffer)
         buf.Reset()
+
+        // only emit the joined raw when we've seen all fragments
+        rawToSend := rawStr
+        if complete && joined != "" {
+          rawToSend = joined
+        }
         streamObj := StreamMessage{
-            Message:     decoded.Packet,
-            Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
-            ShardID:     shardID, // Send the shard ID for transparency
-            RawSentence: rawStr,
+           Message:     decoded.Packet,
+           Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
+           ShardID:     shardID,
+           RawSentence: rawToSend,
         }
 
         if includeSource { // Check if -include-source is true
