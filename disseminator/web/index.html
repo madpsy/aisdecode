@@ -1018,17 +1018,21 @@ function getColorForVesselTypeConsistent(type) {
 // Create a custom boat icon using your existing SVG, but with the stroke and fill set to the vessel type's color.
 function createBoatIcon(type, heading = 0) {
   const color = getColorForVesselTypeConsistent(type);
-  const svgHtml = `<svg width="20" height="50" viewBox="0 0 20 50" style="transform: rotate(${heading}deg); transform-origin: center;">
-    <path d="M5 45 L15 45 L15 30 Q10 5,5 30 Z" stroke="${color}" fill="${color}" stroke-width="2" />
-  </svg>`;
-  return L.divIcon({
-    html: svgHtml,
-    className: 'boat-icon',
-    iconSize: [20, 50],
-    iconAnchor: [10, 25],
-    popupAnchor: [0, -25]
-  });
+  const svgHtml = `
+    <svg width="20" height="50" viewBox="0 0 20 50"
+         style="transform: rotate(${heading}deg); transform-origin: center;">
+      <path
+        d="M5 45 L15 45 L15 30 Q10 5,5 30 Z"
+        stroke="${color}"
+        stroke-width="2"
+        fill="${color}"
+        fill-opacity="0.4"
+      />
+    </svg>
+  `;
+  return L.divIcon({ html: svgHtml, className: 'boat-icon', iconSize:[20,50], iconAnchor:[10,25], popupAnchor:[0,-25] });
 }
+
 
 function getCustomIcon(vesselState, iconUrl) {
   // Determine the heading as before
