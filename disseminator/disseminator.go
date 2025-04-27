@@ -703,7 +703,7 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
         msgFilter = fmt.Sprintf(" AND message_id = %d", msgID)
     }
 
-    // 3) Build a DISTINCT‐ON query so we get at most one row per message_id
+    // 3) Build DISTINCT‐ON query
     query := fmt.Sprintf(`
         SELECT DISTINCT ON (message_id)
                message_id,
@@ -728,7 +728,7 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
         MessageID   int             `json:"MessageID"`
         Timestamp   string          `json:"Timestamp"`
         Packet      json.RawMessage `json:"Packet"`
-        RawSentence string          `json:"RawSentence,omitempty"`
+        RawSentence *string         `json:"RawSentence"`
     }
     var results []entry
 
@@ -742,10 +742,12 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
             http.Error(w, fmt.Sprintf("Scan error: %v", err), http.StatusInternalServerError)
             return
         }
-        // Only set RawSentence if it's non-null
+
+        // If raw_sent is non-null, take its address; otherwise leave e.RawSentence nil
         if rawSent.Valid {
-            e.RawSentence = rawSent.String
+            e.RawSentence = &rawSent.String
         }
+
         e.Timestamp = ts.UTC().Format(time.RFC3339Nano)
         results = append(results, e)
     }
@@ -758,11 +760,10 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 7) Otherwise, JSON‐encode the slice
+    // 7) JSON‐encode the slice
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(results)
 }
-
 
 func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) {
     // Declare 'err' once at the beginning of the function
