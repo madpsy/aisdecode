@@ -2495,39 +2495,51 @@ function addLiveLogEntry(message) {
 
 
 function applyLogFilters() {
-  const logEntries = liveLogsContent.querySelectorAll('.log-entry');
-  const searchQuery = document.getElementById('live-log-search')
-                          .value.toLowerCase().trim();
+  const entries     = liveLogsContent.querySelectorAll('.log-entry');
+  const query       = document.getElementById('live-log-search').value.toLowerCase().trim();
+  const showAll     = document.getElementById('log-filter-all').checked;
+  // Build a set of allowed types if not showing all
+  let allowedTypes = null;
+  if (!showAll) {
+    allowedTypes = new Set();
+    document.querySelectorAll('.log-filter:checked').forEach(cb => {
+      cb.value.split(',').forEach(code => allowedTypes.add(code.trim()));
+    });
+  }
 
-  logEntries.forEach(entry => {
-    // Grab the timestamp line (always show)
-    const timestampDiv = entry.querySelector('.log-timestamp');
-    if (timestampDiv) {
-      timestampDiv.style.display = '';
+  entries.forEach(entry => {
+    const msgType = entry.dataset.type;
+    // 1) Filter by message type checkboxes
+    if (!showAll && !allowedTypes.has(msgType)) {
+      entry.style.display = 'none';
+      return;
     }
 
-    // Grab all the field containers (recursive data fields & the Message Type line)
-    const fieldDivs = Array.from(entry.children).filter(el =>
-      el !== timestampDiv && el.classList.contains('log-field') || !el.classList.contains('log-timestamp')
-    );
+    // 2) Text‐search filter: always keep timestamp
+    const timestamp = entry.querySelector('.log-timestamp');
+    if (timestamp) timestamp.style.display = '';
 
+    // Check each .log-field (label + content)
     let anyMatch = false;
-
-    fieldDivs.forEach(div => {
-      const text = div.textContent.toLowerCase();
-      if (!searchQuery || text.includes(searchQuery)) {
-        div.style.display = '';
-        anyMatch = true;
+    entry.querySelectorAll('.log-field').forEach(fieldDiv => {
+      const text = fieldDiv.textContent.toLowerCase();
+      if (!query || text.includes(query)) {
+        fieldDiv.style.display = '';
+        anyMatch = anyMatch || Boolean(query); // if query empty, we'll keep them all anyway
       } else {
-        div.style.display = 'none';
+        fieldDiv.style.display = 'none';
       }
     });
 
-    // If there’s no search or at least one match, show the entry; else hide it.
-    // We keep the entry visible if there’s a timestamp (always) and ANY matching field.
-    entry.style.display = anyMatch || !searchQuery ? '' : 'none';
+    // If there's a search query and no fields matched, hide the whole entry
+    if (query && !anyMatch) {
+      entry.style.display = 'none';
+    } else {
+      entry.style.display = '';
+    }
   });
 }
+
 
 	document.getElementById('log-filter-all').addEventListener('change', applyLogFilters);
 
