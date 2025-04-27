@@ -130,10 +130,11 @@ var (
 // ── INGESTER MESSAGE STRUCT ───────────────────────────────────────────────────
 
 type Message struct {
-    Packet    json.RawMessage `json:"message"`
-    ShardID   int             `json:"shard_id"`
-    Timestamp string          `json:"timestamp"`
-    SourceIP  string          `json:"source_ip"`
+    Packet      json.RawMessage `json:"message"`
+    ShardID     int             `json:"shard_id"`
+    Timestamp   string          `json:"timestamp"`
+    SourceIP    string          `json:"source_ip"`
+    RawSentence string          `json:"raw_sentence"`
 }
 
 // ── MAIN ─────────────────────────────────────────────────────────────────────
@@ -373,48 +374,30 @@ func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byt
 }
 
 func processMessage(message []byte, db *sql.DB, settings *Settings) error {
-    // Unmarshal the outer wrapper
+    // 1) Unmarshal the entire incoming JSON (including RawSentence)
     var msg Message
     if err := json.Unmarshal(message, &msg); err != nil {
         log.Printf("[DEBUG] failed to unmarshal outer Message: %v", err)
         return err
     }
 
-    // Unpack the envelope
-    var envelope map[string]json.RawMessage
-    if err := json.Unmarshal(msg.Packet, &envelope); err != nil {
-        log.Printf("[DEBUG] failed to unmarshal envelope: %v", err)
-        return err
-    }
-
-    // Extract raw_sentence if present
-    var rawSentence string
-    if rs, ok := envelope["raw_sentence"]; ok {
-        if err := json.Unmarshal(rs, &rawSentence); err != nil {
-            log.Printf("[DEBUG] could not parse raw_sentence: %v", err)
-        }
-    }
-
-    // Persist to DB (includes rawSentence)
-    if err := storeMessage(db, msg, settings, rawSentence); err != nil {
+    // 2) Persist to DB (includes msg.RawSentence)
+    if err := storeMessage(db, msg, settings, msg.RawSentence); err != nil {
         log.Printf("[DEBUG] Error storing message: %v", err)
     }
 
-    // Unwrap the inner packet JSON for downstream logic
-    var envelopeFields map[string]json.RawMessage = envelope
-    rawInner, ok := envelopeFields["packet"]
-    if !ok {
-        rawInner = msg.Packet
-    }
+    // 3) Unwrap the inner packet JSON for downstream logic
+    //    `msg.Packet` already contains the raw JSON of the "packet" field.
+    rawInner := msg.Packet
 
-    // Parse packet into a map
+    // 4) Parse packet into a map
     var packet map[string]interface{}
     if err := json.Unmarshal(rawInner, &packet); err != nil {
         log.Printf("[DEBUG] failed to unmarshal inner packet: %v", err)
         return nil
     }
 
-    // Determine user key
+    // 5) Determine user key
     var uidKey string
     if v, ok := packet["UserID"].(float64); ok {
         uidKey = strconv.Itoa(int(v))
@@ -425,23 +408,22 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
         return nil
     }
 
-    // Build payload
+    // 6) Build payload for Socket.IO emit
     emitPayload := map[string]interface{}{
         "data":      packet,
         "type":      packet["MessageID"],
         "timestamp": msg.Timestamp,
     }
 
-    // Emit to any subscribers
+    // 7) Emit to any subscribers
     userSubscribersMu.RLock()
     subs := userSubscribers[uidKey]
     userSubscribersMu.RUnlock()
-    if len(subs) == 0 {
-        return nil
-    }
-    for sid := range subs {
-        if sock, ok := connectedClients[sid]; ok {
-            sock.Emit("ais_data", emitPayload)
+    if len(subs) > 0 {
+        for sid := range subs {
+            if sock, ok := connectedClients[sid]; ok {
+                sock.Emit("ais_data", emitPayload)
+            }
         }
     }
 
