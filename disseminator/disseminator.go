@@ -85,10 +85,18 @@ var (
 var clientConnections map[string]*ClientConnection
 var clientConnectionsMu sync.RWMutex
 var streamShards int // Global variable to store the total number of shards
+
 var (
     clientSubscriptionsMu sync.RWMutex
     wsHandlersMu          sync.RWMutex
 )
+
+var (
+    lastReqMu   sync.Mutex
+    lastReqTime = make(map[serverSocket.SocketId]time.Time)
+    minInterval = 250 * time.Millisecond
+)
+
 type ClientConnection struct {
 	Db         *sql.DB
 	DbHost     string
@@ -1566,6 +1574,16 @@ func setupServer(settings *Settings) {
 	    if len(args) < 1 {
 	        return
 	    }
+
+    	    now := time.Now()
+    	    lastReqMu.Lock()
+            if t, seen := lastReqTime[client.Id()]; seen && now.Sub(t) < minInterval {
+               // too soon — just ignore
+               lastReqMu.Unlock()
+               return
+            }
+            lastReqTime[client.Id()] = now
+            lastReqMu.Unlock()
 
 	    // 1) Decode payload into a map[string]interface{}
 	    var data map[string]interface{}
