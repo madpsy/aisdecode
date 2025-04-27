@@ -781,20 +781,17 @@ func main() {
 
 	// Main packet loop
 	for {
-		buf := bufPool.Get().([]byte)
-		n, addr, err := pc.ReadFrom(buf)
-		if err != nil {
-			log.Printf("UDP read error: %v", err)
-			continue
-		}
-		rawBytes := buf[:n]
-		bufPool.Put(buf)
-		pkt := packetPool.Get().(*UDPPacket)
-		pkt.raw = rawBytes
-		pkt.sourceIP = strings.Split(addr.String(), ":")[0]
-
-		bytesReceivedWindow.Add(int64(n))
-		packetChan <- pkt
+		  buf := bufPool.Get().([]byte)
+		  n, addr, err := pc.ReadFrom(buf)
+		  if err != nil {
+		    log.Printf("UDP read error: %v", err)
+		    continue
+		  }
+		  pkt := packetPool.Get().(*UDPPacket)
+		  // Give worker the full buffer and the length it needs
+		  pkt.raw = buf[:n]
+		  pkt.sourceIP = strings.Split(addr.String(), ":")[0]
+		  packetChan <- pkt
 	}
 
 	defer func() {
@@ -1155,6 +1152,8 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
             }
         }
         clientsMu.Unlock()
+        originalBuf := pkt.raw[:cap(pkt.raw)]
+        bufPool.Put(originalBuf)
 
         pkt.raw = nil
         pkt.sourceIP = ""
