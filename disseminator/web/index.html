@@ -2168,49 +2168,50 @@ function attachMessageTypeClicks() {
     el.addEventListener('click', async (e) => {
       e.stopPropagation();
 
-      // Identify current focused vessel
-      const userID = focusedVessel;
+      const userID    = focusedVessel;
       const messageID = el.dataset.type;
 
       try {
-        // Fetch the latest message from server
         const resp = await fetch(
           `/latestmessage?UserID=${userID}&MessageID=${messageID}`
         );
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const [msg] = await resp.json();
 
-        // Convert timestamp to local string
+        // Convert timestamp to local string (no prefix)
         const localTs = new Date(msg.Timestamp).toLocaleString();
+
+        // Friendly message type text
+        const typeCode = msg.MessageID;            // this is the numeric MessageID
+        const rawType  = messageID;                // the code you clicked
+        const friendly = messageTypeNames[rawType] || `Unknown (${rawType})`;
 
         // Prepare JSON and raw sentence
         const packetJson = JSON.stringify(msg.Packet, null, 2);
-        const raw = msg.RawSentence;
+        const raw        = msg.RawSentence;
 
         // Build overlay HTML
         const overlayHtml = `
           <div class="latest-message-overlay">
             <div class="lm-header">
-              <strong>Message ${msg.MessageID}</strong>
+              <strong>Message ${rawType}: ${friendly}</strong>
               <button class="lm-close">✕</button>
             </div>
-            <div><em>Timestamp:</em> ${localTs}</div>
+            <div>${localTs}</div>
             <pre><code>${packetJson}</code></pre>
             <pre><code>${raw}</code></pre>
           </div>
         `;
 
-        // Create or update overlay container
         let lm = document.getElementById('latest-message-overlay');
         if (!lm) {
           lm = document.createElement('div');
           lm.id = 'latest-message-overlay';
           document.body.appendChild(lm);
         }
-        lm.innerHTML = overlayHtml;
+        lm.innerHTML   = overlayHtml;
         lm.style.display = 'block';
 
-        // Close button handler
         lm.querySelector('.lm-close').onclick = () => {
           lm.style.display = 'none';
         };
@@ -2222,6 +2223,7 @@ function attachMessageTypeClicks() {
     });
   });
 }
+
 
 
         // Periodically update the vessel detail overlay.
