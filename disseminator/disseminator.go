@@ -680,6 +680,83 @@ func (cc *ClientConnection) getWSClient() (*clientSocket.Socket, error) {
     return cli, nil
 }
 
+// latestMessageHandler serves /latestmessage?UserID=123[&MessageID=9]
+func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
+    q := r.URL.Query()
+
+    // 1) UserID is required
+    userID := q.Get("UserID")
+    if userID == "" {
+        http.Error(w, "Missing UserID parameter", http.StatusBadRequest)
+        return
+    }
+
+    // 2) Optional MessageID
+    msgIDStr := q.Get("MessageID")
+    var msgFilter string
+    if msgIDStr != "" {
+        // validate it's an integer
+        if _, err := strconv.Atoi(msgIDStr); err != nil {
+            http.Error(w, "Invalid MessageID", http.StatusBadRequest)
+            return
+        }
+        msgFilter = fmt.Sprintf(" AND message_id = %s", msgIDStr)
+    }
+
+    // 3) Build SQL: pick the latest packet for this user (and message_id if given)
+    query := fmt.Sprintf(`
+        SELECT packet, timestamp, message_id
+        FROM messages
+        WHERE user_id = '%s'%s
+        ORDER BY timestamp DESC
+        LIMIT 1;
+    `, userID, msgFilter)
+
+    // 4) Execute on the correct shard
+    rows, err := QueryDatabaseForUser(userID, query)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("DB error: %v", err), http.StatusInternalServerError)
+        return
+    }
+    defer rows.Close()
+
+    // 5) If no rows, return 404 with an empty array
+    if !rows.Next() {
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusNotFound)
+        w.Write([]byte("[]"))
+        return
+    }
+
+    // 6) Scan and unmarshal packet JSON
+    var (
+        rawPacket []byte
+        ts         time.Time
+        messageID  int
+    )
+    if err := rows.Scan(&rawPacket, &ts, &messageID); err != nil {
+        http.Error(w, fmt.Sprintf("Scan error: %v", err), http.StatusInternalServerError)
+        return
+    }
+    var pkt map[string]interface{}
+    if err := json.Unmarshal(rawPacket, &pkt); err != nil {
+        http.Error(w, fmt.Sprintf("Invalid packet JSON: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    // 7) Build response object
+    resp := map[string]interface{}{
+        "UserID":     userID,
+        "MessageID":  messageID,
+        "Timestamp":  ts.UTC().Format(time.RFC3339Nano),
+        "Packet":     pkt,
+    }
+
+    // 8) Send as JSON
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(resp)
+}
+
 func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) {
     // Declare 'err' once at the beginning of the function
     var err error
@@ -1399,6 +1476,7 @@ func setupServer(settings *Settings) {
     mux.HandleFunc("/state/", userStateHandler)
     mux.HandleFunc("/history/", historyHandler)
     mux.HandleFunc("/search", searchHandler)
+    mux.HandleFunc("/latestmessage", latestMessageHandler)
 
     // Static files
     mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
