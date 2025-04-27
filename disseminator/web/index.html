@@ -389,6 +389,23 @@
   overflow-x: auto;
 }
 
+#latest-message-overlay .lm-header {
+  display: flex;
+  justify-content: space-between;  /* push items to ends */
+  align-items: center;
+  margin-bottom: 8px;
+  position: relative;              /* ensure children are positioned relative to this */
+}
+
+#latest-message-overlay .lm-close {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+}
+
     </style>
 </head>
 
@@ -2168,9 +2185,9 @@ function attachMessageTypeClicks() {
     el.addEventListener('click', async (e) => {
       e.stopPropagation();
 
-      const userID    = focusedVessel;
-      const rawType   = el.dataset.type;
-      const friendly  = messageTypeNames[rawType] || `Unknown (${rawType})`;
+      const userID   = focusedVessel;
+      const rawType  = el.dataset.type;
+      const friendly = messageTypeNames[rawType] || `Unknown (${rawType})`;
 
       try {
         const resp = await fetch(`/latestmessage?UserID=${userID}&MessageID=${rawType}`);
@@ -2178,7 +2195,7 @@ function attachMessageTypeClicks() {
         const [msg] = await resp.json();
 
         // Convert timestamp
-        const localTs = new Date(msg.Timestamp).toLocaleString();
+        const localTs    = new Date(msg.Timestamp).toLocaleString();
         const packetJson = JSON.stringify(msg.Packet, null, 2);
 
         // Create or get overlay container
@@ -2188,18 +2205,22 @@ function attachMessageTypeClicks() {
           lm.id = 'latest-message-overlay';
           document.body.appendChild(lm);
         }
-        // Clear previous contents
-        lm.innerHTML = '';
+        lm.innerHTML    = '';
         lm.style.display = 'block';
 
-        // Header
+        // Header (flex layout for left/right)
         const header = document.createElement('div');
         header.className = 'lm-header';
+        header.style.display        = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems     = 'center';
         header.innerHTML = `<strong>Message ${rawType}: ${friendly}</strong>`;
+
         const closeBtn = document.createElement('button');
         closeBtn.className = 'lm-close';
         closeBtn.textContent = '✕';
         closeBtn.onclick = () => { lm.style.display = 'none'; };
+
         header.appendChild(closeBtn);
         lm.appendChild(header);
 
