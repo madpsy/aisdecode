@@ -704,11 +704,11 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // 3) Build a DISTINCT‐ON query so we get at most one row per message_id
-    //    (if msgFilter is non‐empty it still works, but only for that one ID)
     query := fmt.Sprintf(`
         SELECT DISTINCT ON (message_id)
                message_id,
                packet,
+               raw_sentence,
                timestamp
           FROM messages
          WHERE user_id = %d%s
@@ -725,18 +725,26 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
 
     // 5) Collect results into a slice
     type entry struct {
-        MessageID int             `json:"MessageID"`
-        Timestamp string          `json:"Timestamp"`
-        Packet    json.RawMessage `json:"Packet"`
+        MessageID   int             `json:"MessageID"`
+        Timestamp   string          `json:"Timestamp"`
+        Packet      json.RawMessage `json:"Packet"`
+        RawSentence string          `json:"RawSentence,omitempty"`
     }
     var results []entry
 
     for rows.Next() {
-        var e entry
-        var ts time.Time
-        if err := rows.Scan(&e.MessageID, &e.Packet, &ts); err != nil {
+        var (
+            e       entry
+            ts      time.Time
+            rawSent sql.NullString
+        )
+        if err := rows.Scan(&e.MessageID, &e.Packet, &rawSent, &ts); err != nil {
             http.Error(w, fmt.Sprintf("Scan error: %v", err), http.StatusInternalServerError)
             return
+        }
+        // Only set RawSentence if it's non-null
+        if rawSent.Valid {
+            e.RawSentence = rawSent.String
         }
         e.Timestamp = ts.UTC().Format(time.RFC3339Nano)
         results = append(results, e)
@@ -754,6 +762,7 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(results)
 }
+
 
 func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) {
     // Declare 'err' once at the beginning of the function
