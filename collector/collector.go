@@ -191,7 +191,8 @@ func main() {
             timestamp TIMESTAMP,
             source_ip VARCHAR(45),
             user_id INT,
-            message_id INT
+            message_id INT,
+	    raw_sentence TEXT
         );
     `)
     if err != nil {
@@ -372,37 +373,48 @@ func handleIngesterMessages(settings *Settings, conn net.Conn, requestJSON []byt
 }
 
 func processMessage(message []byte, db *sql.DB, settings *Settings) error {
+    // Unmarshal the outer wrapper
     var msg Message
     if err := json.Unmarshal(message, &msg); err != nil {
         log.Printf("[DEBUG] failed to unmarshal outer Message: %v", err)
         return err
     }
 
-    // unwrap the inner packet
+    // Unpack the envelope
     var envelope map[string]json.RawMessage
     if err := json.Unmarshal(msg.Packet, &envelope); err != nil {
         log.Printf("[DEBUG] failed to unmarshal envelope: %v", err)
         return err
     }
-    rawInner, ok := envelope["packet"]
-    if !ok {
-        rawInner = msg.Packet
-    }
-    //log.Printf("[DEBUG] rawInner JSON: %s", string(rawInner))
 
-    // persist to DB
-    if err := storeMessage(db, msg, settings); err != nil {
+    // Extract raw_sentence if present
+    var rawSentence string
+    if rs, ok := envelope["raw_sentence"]; ok {
+        if err := json.Unmarshal(rs, &rawSentence); err != nil {
+            log.Printf("[DEBUG] could not parse raw_sentence: %v", err)
+        }
+    }
+
+    // Persist to DB (includes rawSentence)
+    if err := storeMessage(db, msg, settings, rawSentence); err != nil {
         log.Printf("[DEBUG] Error storing message: %v", err)
     }
 
-    // parse into map
+    // Unwrap the inner packet JSON for downstream logic
+    var envelopeFields map[string]json.RawMessage = envelope
+    rawInner, ok := envelopeFields["packet"]
+    if !ok {
+        rawInner = msg.Packet
+    }
+
+    // Parse packet into a map
     var packet map[string]interface{}
     if err := json.Unmarshal(rawInner, &packet); err != nil {
         log.Printf("[DEBUG] failed to unmarshal inner packet: %v", err)
         return nil
     }
 
-    // determine user key
+    // Determine user key
     var uidKey string
     if v, ok := packet["UserID"].(float64); ok {
         uidKey = strconv.Itoa(int(v))
@@ -413,13 +425,14 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
         return nil
     }
 
-    // build the payload we want to emit
+    // Build payload
     emitPayload := map[string]interface{}{
         "data":      packet,
         "type":      packet["MessageID"],
         "timestamp": msg.Timestamp,
     }
-    // find subscribers
+
+    // Emit to any subscribers
     userSubscribersMu.RLock()
     subs := userSubscribers[uidKey]
     userSubscribersMu.RUnlock()
@@ -427,12 +440,11 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
         return nil
     }
     for sid := range subs {
-        sock, ok := connectedClients[sid]
-        if !ok {
-            continue
+        if sock, ok := connectedClients[sid]; ok {
+            sock.Emit("ais_data", emitPayload)
         }
-        sock.Emit("ais_data", emitPayload)
     }
+
     return nil
 }
 
@@ -492,7 +504,7 @@ func createIndexesIfNotExist(db *sql.DB) {
     }
 }
 
-func storeMessage(db *sql.DB, message Message, settings *Settings) error {
+func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence string) error {
     // 1) Unwrap outer JSON
     var outerMap map[string]interface{}
     if err := json.Unmarshal(message.Packet, &outerMap); err != nil {
@@ -604,7 +616,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings) error {
         if settings.Debug {
             log.Printf("Storing MessageID=%d for user %d", mid, userID)
         }
-        if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, settings); err != nil {
+        if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, settings); err != nil {
             log.Printf("Error storing message: %v", err)
         }
     }
@@ -737,10 +749,10 @@ func externalLookupAndUpdate(db *sql.DB, userID int) {
     }
 }
 
-func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, settings *Settings) error {
-    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id) 
-             VALUES ($1, $2, $3, $4, $5, $6)`
-    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID)
+func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, rawSentence string, settings *Settings) error {
+    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`
+    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence)
     if err != nil {
         log.Printf("Error executing query: %v", err)
         if isDatabaseConnectionError(err) {
@@ -750,7 +762,7 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
                 log.Printf("Failed to reconnect to the database: %v", err)
                 return err
             }
-            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID)
+            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence)
             if err != nil {
                 log.Printf("Error executing query after reconnecting: %v", err)
                 return err
