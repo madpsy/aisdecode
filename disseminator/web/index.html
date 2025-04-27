@@ -2169,52 +2169,58 @@ function attachMessageTypeClicks() {
       e.stopPropagation();
 
       const userID    = focusedVessel;
-      const messageID = el.dataset.type;
+      const rawType   = el.dataset.type;
+      const friendly  = messageTypeNames[rawType] || `Unknown (${rawType})`;
 
       try {
-        const resp = await fetch(
-          `/latestmessage?UserID=${userID}&MessageID=${messageID}`
-        );
+        const resp = await fetch(`/latestmessage?UserID=${userID}&MessageID=${rawType}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const [msg] = await resp.json();
 
-        // Convert timestamp to local string (no prefix)
+        // Convert timestamp
         const localTs = new Date(msg.Timestamp).toLocaleString();
-
-        // Friendly message type text
-        const typeCode = msg.MessageID;            // this is the numeric MessageID
-        const rawType  = messageID;                // the code you clicked
-        const friendly = messageTypeNames[rawType] || `Unknown (${rawType})`;
-
-        // Prepare JSON and raw sentence
         const packetJson = JSON.stringify(msg.Packet, null, 2);
-        const raw        = msg.RawSentence;
 
-        // Build overlay HTML
-        const overlayHtml = `
-          <div class="latest-message-overlay">
-            <div class="lm-header">
-              <strong>Type ${rawType}: ${friendly}</strong>
-              <button class="lm-close">✕</button>
-            </div>
-            <div>${localTs}</div>
-            <pre><code>${packetJson}</code></pre>
-            <pre><code>${raw}</code></pre>
-          </div>
-        `;
-
+        // Create or get overlay container
         let lm = document.getElementById('latest-message-overlay');
         if (!lm) {
           lm = document.createElement('div');
           lm.id = 'latest-message-overlay';
           document.body.appendChild(lm);
         }
-        lm.innerHTML   = overlayHtml;
+        // Clear previous contents
+        lm.innerHTML = '';
         lm.style.display = 'block';
 
-        lm.querySelector('.lm-close').onclick = () => {
-          lm.style.display = 'none';
-        };
+        // Header
+        const header = document.createElement('div');
+        header.className = 'lm-header';
+        header.innerHTML = `<strong>Message ${rawType}: ${friendly}</strong>`;
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'lm-close';
+        closeBtn.textContent = '✕';
+        closeBtn.onclick = () => { lm.style.display = 'none'; };
+        header.appendChild(closeBtn);
+        lm.appendChild(header);
+
+        // Timestamp
+        const tsDiv = document.createElement('div');
+        tsDiv.textContent = localTs;
+        lm.appendChild(tsDiv);
+
+        // Packet JSON block
+        const prePkt = document.createElement('pre');
+        const codePkt = document.createElement('code');
+        codePkt.textContent = packetJson;
+        prePkt.appendChild(codePkt);
+        lm.appendChild(prePkt);
+
+        // Raw AIS sentence block
+        const preRaw = document.createElement('pre');
+        const codeRaw = document.createElement('code');
+        codeRaw.textContent = msg.RawSentence;
+        preRaw.appendChild(codeRaw);
+        lm.appendChild(preRaw);
 
       } catch (err) {
         console.error('Failed to load latest message:', err);
