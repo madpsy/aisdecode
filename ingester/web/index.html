@@ -348,13 +348,13 @@ function renderBlockedIps(data) {
         const tbody = document.getElementById(tableId).querySelector('tbody');
         tbody.innerHTML = '';
         (list || []).slice(0, 25).forEach(u => {
-              const perMsg = Object.entries(u.per_message_id || {})
+     		const perMsg = Object.entries(u.per_message_id || {})
                       .map(([mid, c]) => `${mid}:${formatNumber(c)}`)
                       .join(', ');
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td>${u.user_id}</td>
-            <td>${u.count}</td>
+            <td>${formatNumber(u.count)}</td>
             <td>${perMsg}</td>`;
           tbody.appendChild(tr);
         });
