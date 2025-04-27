@@ -2350,29 +2350,34 @@ function applyLogFilters() {
                           .value.toLowerCase().trim();
 
   logEntries.forEach(entry => {
-    // Find all of the individual field divs inside this entry.
-    const fieldDivs = entry.querySelectorAll('div[style*="padding-left"], .log-timestamp, .log-field');
-    let anyVisible = false;
+    // Grab the timestamp line (always show)
+    const timestampDiv = entry.querySelector('.log-timestamp');
+    if (timestampDiv) {
+      timestampDiv.style.display = '';
+    }
+
+    // Grab all the field containers (recursive data fields & the Message Type line)
+    const fieldDivs = Array.from(entry.children).filter(el =>
+      el !== timestampDiv && el.classList.contains('log-field') || !el.classList.contains('log-timestamp')
+    );
+
+    let anyMatch = false;
 
     fieldDivs.forEach(div => {
-      // Check both the field name (<span class="log-field">) and its text
       const text = div.textContent.toLowerCase();
       if (!searchQuery || text.includes(searchQuery)) {
-        div.style.display = '';   // show matching or if no filter
-        anyVisible = true;
+        div.style.display = '';
+        anyMatch = true;
       } else {
         div.style.display = 'none';
       }
     });
 
-    // If nothing inside matched, you can either:
-    //  a) hide the entire entry, or
-    //  b) leave it but show a “no match” placeholder.
-    // Here we’ll hide the entry only if nothing matched:
-    entry.style.display = anyVisible ? '' : 'none';
+    // If there’s no search or at least one match, show the entry; else hide it.
+    // We keep the entry visible if there’s a timestamp (always) and ANY matching field.
+    entry.style.display = anyMatch || !searchQuery ? '' : 'none';
   });
 }
-
 
 	document.getElementById('log-filter-all').addEventListener('change', applyLogFilters);
 
