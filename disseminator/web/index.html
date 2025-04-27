@@ -2898,7 +2898,9 @@ function getNearestTrackPoint(e, track) {
 // Focus on a particular vessel.
 function focusOnVessel(UserID, initialFocus = true) {
   // Unfocus previously focused vessel
-  document.getElementById('show-paths').checked = true;
+  if (initialFocus) {
+	document.getElementById('show-paths').checked = true;
+  }
   if (focusedVessel && focusedVessel !== UserID) {
     const prevMarker = vesselMarkers[focusedVessel];
     if (prevMarker) {
