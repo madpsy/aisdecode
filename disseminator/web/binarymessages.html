@@ -155,7 +155,7 @@
 
   async function initHistory(initialMsg, userID, asm) {
     const url = `https://ais.oarc.uk/latestmessages?UserID=${userID}`
-      + `&MessageID=${initialMsg.MessageID}&limit=10`;
+      + `&MessageID=${initialMsg.MessageID}&limit=100`;
     let arr = [];
     try {
       const r = await fetch(url);
