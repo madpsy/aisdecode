@@ -680,8 +680,8 @@ func (cc *ClientConnection) getWSClient() (*clientSocket.Socket, error) {
     return cli, nil
 }
 
-// latestMessageHandler serves /latestmessage?UserID=123[&MessageID=9]
-func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
+// latestMessagesHandler serves /latestmessages?UserID=123[&MessageID=9]
+func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
     q := r.URL.Query()
 
     // 1) Parse & validate UserID
@@ -703,7 +703,23 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
         msgFilter = fmt.Sprintf(" AND message_id = %d", msgID)
     }
 
-    // 3) Build DISTINCT‐ON query
+    // 3) Parse the optional 'limit' query parameter
+    limit := 1 // Default limit
+    if limitStr := q.Get("limit"); limitStr != "" {
+        parsedLimit, err := strconv.Atoi(limitStr)
+        if err != nil || parsedLimit <= 0 {
+            http.Error(w, "Invalid limit value", http.StatusBadRequest)
+            return
+        }
+        // Cap the limit at 100
+        if parsedLimit > 100 {
+            limit = 100
+        } else {
+            limit = parsedLimit
+        }
+    }
+
+    // 4) Build DISTINCT‐ON query with the specified limit
     query := fmt.Sprintf(`
         SELECT DISTINCT ON (message_id)
                message_id,
@@ -712,10 +728,11 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
                timestamp
           FROM messages
          WHERE user_id = %d%s
-         ORDER BY message_id, timestamp DESC;
-    `, userID, msgFilter)
+         ORDER BY message_id, timestamp DESC
+         LIMIT %d;
+    `, userID, msgFilter, limit)
 
-    // 4) Run it on the correct shard
+    // 5) Run it on the correct shard
     rows, err := QueryDatabaseForUser(strconv.FormatInt(userID, 10), query)
     if err != nil {
         http.Error(w, fmt.Sprintf("DB error: %v", err), http.StatusInternalServerError)
@@ -723,7 +740,7 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
     }
     defer rows.Close()
 
-    // 5) Collect results into a slice
+    // 6) Collect results into a slice
     type entry struct {
         MessageID   int             `json:"MessageID"`
         Timestamp   string          `json:"Timestamp"`
@@ -752,7 +769,7 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
         results = append(results, e)
     }
 
-    // 6) If nothing found, 404 + empty array
+    // 7) If nothing found, 404 + empty array
     if len(results) == 0 {
         w.Header().Set("Content-Type", "application/json")
         w.WriteHeader(http.StatusNotFound)
@@ -760,7 +777,7 @@ func latestMessageHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 7) JSON‐encode the slice
+    // 8) JSON‐encode the slice
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(results)
 }
@@ -1484,7 +1501,7 @@ func setupServer(settings *Settings) {
     mux.HandleFunc("/state/", userStateHandler)
     mux.HandleFunc("/history/", historyHandler)
     mux.HandleFunc("/search", searchHandler)
-    mux.HandleFunc("/latestmessage", latestMessageHandler)
+    mux.HandleFunc("/latestmessages", latestMessagesHandler)
 
     // Static files
     mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
