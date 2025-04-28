@@ -18,7 +18,7 @@ func init() {
 // ----------------------------------------------------------------------------
 
 func decode_8_1_31(packet map[string]interface{}) (map[string]interface{}, error) {
-    // 1) Base64 decode into a 344-byte bit‐array
+    // 1) Base64 decode into raw bytes
     rawB64, ok := packet["BinaryData"].(string)
     if !ok {
         return nil, fmt.Errorf("decode_8_1_31: missing BinaryData")
@@ -27,9 +27,11 @@ func decode_8_1_31(packet map[string]interface{}) (map[string]interface{}, error
     if err != nil {
         return nil, fmt.Errorf("decode_8_1_31: base64 decode: %v", err)
     }
-    bits := unpackBytesToBits(raw)
 
-    // 2) Field offsets after stripping 18-bit header (Spare+DAC+FI)
+    // 2) Unpack bytes into bits (1 bit per element)
+    bits := raw
+
+    // 3) Field offsets after stripping 18-bit header (Spare+DAC+FI)
     O := map[string][2]int{
         "longitude":  {0, 25},   "latitude":   {25, 24},
         "pos_acc":    {49, 1},   "utc_day":    {50, 5},

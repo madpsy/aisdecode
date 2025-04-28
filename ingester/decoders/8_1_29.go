@@ -28,7 +28,7 @@ func decode_8_1_29(packet map[string]interface{}) (map[string]interface{}, error
     if err != nil {
         return nil, fmt.Errorf("decode_8_1_29: base64 decode: %v", err)
     }
-    bits := unpackBytesToBits(raw)
+    bits := raw
 
     // 2) Field offsets (after stripping 18-bit header)
     //                                    offset, length
