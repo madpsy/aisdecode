@@ -34,14 +34,11 @@
 <div id="output">Loading messages…</div>
 
 <script>
-  // util to read numeric UserID
   function getUserID() {
     const p = new URLSearchParams(window.location.search);
     const v = p.get('UserID');
     return v && /^\d+$/.test(v) ? v : null;
   }
-
-  // flatten nested object into { "a.b": val }
   function flattenObject(obj, parentKey = '', res = {}) {
     for (const [k, v] of Object.entries(obj)) {
       const nk = parentKey ? `${parentKey}.${k}` : k;
@@ -53,20 +50,15 @@
     }
     return res;
   }
-
-  // round numbers to up to 4 decimals
   function formatValue(val) {
     if (typeof val === 'number' && isFinite(val)) {
       return parseFloat(val.toFixed(4)).toString();
     }
     return String(val);
   }
-
-  // replace _ and . with space
   function humanizeField(field) {
     return field.replace(/[_\.]/g, ' ');
   }
-
   function makeTableHTML(data) {
     return `
       <table>
@@ -86,19 +78,18 @@
     const userID = getUserID();
     const titleEl = document.getElementById('main-title');
     const output = document.getElementById('output');
-
     if (!userID) {
       titleEl.textContent = 'Error';
       output.innerHTML = '<div class="error">Invalid or missing numeric UserID parameter.</div>';
       return;
     }
 
-    // 1) vessel summary
+    // 1) summary
     let summary;
     try {
-      const resp = await fetch(`https://ais.oarc.uk/summary?UserID=${userID}`);
-      if (!resp.ok) throw '';
-      summary = await resp.json();
+      const r = await fetch(`https://ais.oarc.uk/summary?UserID=${userID}`);
+      if (!r.ok) throw '';
+      summary = await r.json();
     } catch {
       titleEl.textContent = 'Error';
       output.innerHTML = '<div class="error">Failed to load summary</div>';
@@ -119,7 +110,7 @@
       return;
     }
 
-    // 3) initial /latestmessages (no limit)
+    // 3) all messages
     let allMsgs;
     try {
       const r = await fetch(`https://ais.oarc.uk/latestmessages?UserID=${userID}`);
@@ -130,23 +121,18 @@
       return;
     }
 
-    // filter those with DecodedBinary
     const decoded = allMsgs.filter(m => m.Packet?.DecodedBinary);
-    if (decoded.length === 0) {
+    if (!decoded.length) {
       output.innerHTML = '<div>No decoded-binary messages available.</div>';
       return;
     }
     output.innerHTML = '';
 
-    // For each message type, fetch bulk history
+    // fetch histories and render
     await Promise.all(decoded.map(msg => initHistory(msg, userID, asm)));
   }
 
-  // for one message type, fetch up to 10 messages and render block
   async function initHistory(initialMsg, userID, asm) {
-    const dac = initialMsg.Packet.ApplicationID.DesignatedAreaCode;
-    const fi = initialMsg.Packet.ApplicationID.FunctionIdentifier;
-    // bulk fetch newest 10 of this type
     const url = `https://ais.oarc.uk/latestmessages?UserID=${userID}`
       + `&MessageID=${initialMsg.MessageID}&limit=10`;
     let arr = [];
@@ -154,27 +140,24 @@
       const r = await fetch(url);
       if (r.ok) arr = await r.json();
     } catch {}
-    // filter decoded and sort descending by Timestamp
     const history = arr
       .filter(m => m.Packet?.DecodedBinary)
-      .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+      .sort((a,b)=> new Date(b.Timestamp)-new Date(a.Timestamp));
     if (!history.length) history.push(initialMsg);
-
-    renderBlock(history, asm, userID);
+    renderBlock(history, asm);
   }
 
-  function renderBlock(history, asm, userID) {
-    let idx = 0;  // current index in history[]
+  function renderBlock(history, asm) {
+    let idx = 0;
 
-    // create container
     const container = document.createElement('div');
     container.className = 'message';
 
     // title
     const msg0 = history[0];
-    const dac0 = msg0.Packet.ApplicationID.DesignatedAreaCode;
-    const fi0 = msg0.Packet.ApplicationID.FunctionIdentifier;
-    const title = asm[msg0.MessageID]?.[dac0]?.[fi0]?.Title || 'Unknown message type';
+    const dac = msg0.Packet.ApplicationID.DesignatedAreaCode;
+    const fi = msg0.Packet.ApplicationID.FunctionIdentifier;
+    const title = asm[msg0.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
     const h = document.createElement('div');
     h.className = 'title';
     h.textContent = title;
@@ -190,17 +173,15 @@
     nav.append(btnNewer, btnOlder);
     container.appendChild(nav);
 
-    // timestamp
+    // ts & table
     const tsDiv = document.createElement('div');
     tsDiv.className = 'ts';
     container.appendChild(tsDiv);
-
-    // table
     const tableContainer = document.createElement('div');
     tableContainer.className = 'table-container';
     container.appendChild(tableContainer);
 
-    // update UI based on idx
+    // refresh function
     function refresh() {
       const m = history[idx];
       tsDiv.textContent = new Date(m.Timestamp).toLocaleString();
@@ -209,15 +190,11 @@
       btnOlder.disabled = (idx === history.length - 1);
     }
 
-    // hooks
-    btnNewer.addEventListener('click', () => {
-      if (idx > 0) idx--, refresh();
-    });
-    btnOlder.addEventListener('click', () => {
-      if (idx < history.length - 1) idx++, refresh();
-    });
+    // events
+    btnNewer.addEventListener('click', ()=>{ if(idx>0){ idx--; refresh(); } });
+    btnOlder.addEventListener('click', ()=>{ if(idx<history.length-1){ idx++; refresh(); } });
 
-    // initial paint
+    // initial draw (calls refresh, greying out buttons appropriately)
     refresh();
     document.getElementById('output').appendChild(container);
   }
