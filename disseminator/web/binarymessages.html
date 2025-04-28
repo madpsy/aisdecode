@@ -124,7 +124,7 @@
     // Fetch asm.json
     let asm;
     try {
-      const r = await fetch('asm.json');
+      const r = await fetch('/asm.json');
       if (!r.ok) throw '';
       asm = await r.json();
     } catch {

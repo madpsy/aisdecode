@@ -1252,6 +1252,16 @@ function updateVesselDetailHeader(UserID) {
   headerHtml += `</h4>`;
   textContainer.innerHTML = headerHtml;
 
+
+  // --- now restore the image logic ---
+  const imageContainer = document.getElementById('vessel-header-image');
+  if (vesselData[UserID].ImageURL) {
+    // only reload if the URL changed (optional optimization)
+    loadVesselImage(vesselData[UserID].ImageURL, imageContainer);
+  } else {
+    imageContainer.innerHTML = '';
+  }
+
   // Attach copy-link behavior
   const copyLinkEl = document.getElementById('copy-link');
   if (copyLinkEl) {
