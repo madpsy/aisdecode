@@ -693,7 +693,6 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // 2) Parse & validate optional MessageID
-    msgFilter := ""
     messageID := int64(0) // Default to 0 (no filter on message_id)
     if msgIDStr := q.Get("MessageID"); msgIDStr != "" {
         msgID, err := strconv.ParseInt(msgIDStr, 10, 64)
@@ -702,7 +701,6 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             return
         }
         messageID = msgID
-        msgFilter = fmt.Sprintf(" AND message_id = %d", messageID)
     }
 
     // 3) Parse the optional 'limit' query parameter
