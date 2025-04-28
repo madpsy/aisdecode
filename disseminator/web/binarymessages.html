@@ -34,7 +34,6 @@
 <div id="output">Loading messages…</div>
 
 <script>
-  // Helpers from before...
   function getUserID() {
     const p = new URLSearchParams(window.location.search);
     const v = p.get('UserID');
@@ -60,14 +59,16 @@
   function humanizeField(field) {
     return field.replace(/[_\.]/g, ' ');
   }
-  function makeTable(data) {
-    const rows = Object.entries(data)
-      .map(([f, val]) => `<tr><td>${humanizeField(f)}</td><td>${formatValue(val)}</td></tr>`)
-      .join('');
-    return `<table>
-      <thead><tr><th>Field</th><th>Value</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+  function makeTableHTML(data) {
+    return `
+      <table>
+        <thead><tr><th>Field</th><th>Value</th></tr></thead>
+        <tbody>
+          ${Object.entries(data).map(([f, v]) =>
+            `<tr><td>${humanizeField(f)}</td><td>${formatValue(v)}</td></tr>`
+          ).join('')}
+        </tbody>
+      </table>`;
   }
 
   async function main() {
@@ -116,7 +117,6 @@
       return;
     }
 
-    // filter for decoded
     const decoded = messages.filter(m => m.Packet?.DecodedBinary);
     if (!decoded.length) {
       output.innerHTML = '<div>No decoded-binary messages available.</div>';
@@ -124,7 +124,6 @@
     }
     output.innerHTML = '';
 
-    // render each block
     decoded.forEach(msg => renderMessage(msg, userID, asm));
   }
 
@@ -132,86 +131,85 @@
     const container = document.createElement('div');
     container.className = 'message';
 
-    // title
+    // Title
     const dac = msg.Packet.ApplicationID.DesignatedAreaCode;
     const fi = msg.Packet.ApplicationID.FunctionIdentifier;
-    const title = asm[msg.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
-    container.innerHTML += `<div class="title">${title}</div>`;
+    const msgTitle = asm[msg.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
+    const h = document.createElement('div');
+    h.className = 'title';
+    h.textContent = msgTitle;
+    container.appendChild(h);
 
-    // nav buttons
+    // Nav
     const nav = document.createElement('div');
     nav.className = 'nav';
-    const btnPrev = document.createElement('button');
-    btnPrev.textContent = '◀️';
-    const btnNext = document.createElement('button');
-    btnNext.textContent = '▶️';
-    nav.append(btnPrev, btnNext);
-    container.append(nav);
+    const btnNewer = document.createElement('button');
+    btnNewer.textContent = '◀️';
+    const btnOlder = document.createElement('button');
+    btnOlder.textContent = '▶️';
+    nav.appendChild(btnNewer);
+    nav.appendChild(btnOlder);
+    container.appendChild(nav);
 
-    // timestamp
-    const local = new Date(msg.Timestamp).toLocaleString();
-    container.innerHTML += `<div class="ts">${local}</div>`;
+    // Timestamp
+    const tsDiv = document.createElement('div');
+    tsDiv.className = 'ts';
+    tsDiv.textContent = new Date(msg.Timestamp).toLocaleString();
+    container.appendChild(tsDiv);
 
-    // table
-    const flat = flattenObject(msg.Packet.DecodedBinary);
-    const tbl = document.createElement('div');
-    tbl.className = 'table-container';
-    tbl.innerHTML = makeTable(flat);
-    container.append(tbl);
+    // Table container
+    const tableContainer = document.createElement('div');
+    tableContainer.className = 'table-container';
+    tableContainer.innerHTML = makeTableHTML(flattenObject(msg.Packet.DecodedBinary));
+    container.appendChild(tableContainer);
 
-    // state
-    let history = [ msg ];      // newest at index 0
-    let idx = 0;                // current position
+    // Paging state
+    let history = [ msg ];
+    let idx = 0;
+    btnNewer.disabled = true;
 
-    // button logic
-    btnPrev.disabled = true;    // at newest
-    btnNext.disabled = false;
-
-    btnPrev.onclick = () => {
+    btnNewer.addEventListener('click', () => {
       if (idx > 0) {
         idx--;
-        updateDisplay();
+        refresh();
       }
-    };
-    btnNext.onclick = async () => {
-      // if we already fetched older enough
+    });
+
+    btnOlder.addEventListener('click', async () => {
+      // next in history?
       if (idx < history.length - 1) {
         idx++;
-        updateDisplay();
+        refresh();
         return;
       }
-      // fetch next batch older than current
-      const currentID = history[idx].MessageID;
-      const resp = await fetch(`https://ais.oarc.uk/latestmessages?UserID=${userID}&MessageID=${currentID}&limit=10`);
+      // fetch older batch
+      const curID = history[idx].MessageID;
+      const resp = await fetch(
+        `https://ais.oarc.uk/latestmessages?UserID=${userID}&MessageID=${curID}&limit=10`
+      );
       if (!resp.ok) return;
       const arr = await resp.json();
-      // filter decoded only
-      const older = arr.filter(m => m.Packet?.DecodedBinary);
-      // find first one strictly older than current
-      const nextMsg = older.find(m => new Date(m.Timestamp) < new Date(history[idx].Timestamp));
-      if (nextMsg) {
-        history.push(nextMsg);
-        idx++;
-        updateDisplay();
-      } else {
-        btnNext.disabled = true;
+      const older = arr.filter(m => m.Packet?.DecodedBinary)
+                       .filter(m => new Date(m.Timestamp) < new Date(history[idx].Timestamp));
+      if (!older.length) {
+        btnOlder.disabled = true;
+        return;
       }
-    };
+      history.push(older[0]);
+      idx++;
+      refresh();
+    });
 
-    function updateDisplay() {
+    function refresh() {
       const m = history[idx];
-      // timestamp
-      container.querySelector('.ts').textContent = new Date(m.Timestamp).toLocaleString();
-      // table
-      const newFlat = flattenObject(m.Packet.DecodedBinary);
-      tbl.innerHTML = makeTable(newFlat);
-      // buttons
-      btnPrev.disabled = (idx === 0);
-      // if we've already fetched 10 and at end, disable next
-      btnNext.disabled = history.length >= 10 && idx === history.length - 1;
+      tsDiv.textContent = new Date(m.Timestamp).toLocaleString();
+      tableContainer.innerHTML = makeTableHTML(flattenObject(m.Packet.DecodedBinary));
+      btnNewer.disabled = (idx === 0);
+      // disable older if we've got 10 and at end
+      btnOlder.disabled = history.length >= 10 && idx === history.length - 1;
     }
 
-    document.getElementById('output').append(container);
+    document.getElementById('output').appendChild(container);
   }
 
   main();
