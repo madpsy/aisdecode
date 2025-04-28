@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AIS Latest Messages Viewer</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; }
+    .error { color: red; font-weight: bold; }
+    .message { margin-bottom: 1.5rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
+    .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem; }
+    pre { background: #f6f8fa; padding: 0.5rem; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+
+<h1>AIS Latest Messages</h1>
+<div id="output">Loading…</div>
+
+<script>
+// Utility: get numeric UserID from query string
+function getUserID() {
+  const params = new URLSearchParams(window.location.search);
+  const uid = params.get('UserID');
+  return uid && /^\d+$/.test(uid) ? uid : null;
+}
+
+// Utility: pretty-print JSON with indentation
+function prettyJSON(obj) {
+  return JSON.stringify(obj, null, 2);
+}
+
+async function main() {
+  const output = document.getElementById('output');
+  const userID = getUserID();
+  if (!userID) {
+    output.innerHTML = '<div class="error">Invalid or missing numeric UserID parameter.</div>';
+    return;
+  }
+
+  // 1) Fetch asm.json
+  let asm;
+  try {
+    const asmResp = await fetch('asm.json');
+    if (!asmResp.ok) throw new Error(`HTTP ${asmResp.status}`);
+    asm = await asmResp.json();
+  } catch (err) {
+    output.innerHTML = `<div class="error">Failed to load asm.json: ${err.message}</div>`;
+    return;
+  }
+
+  // 2) Fetch latestmessages
+  const url = `https://ais.oarc.uk/latestmessages?UserID=${userID}`;
+  let resp;
+  try {
+    resp = await fetch(url);
+  } catch (err) {
+    output.innerHTML = `<div class="error">Fetch error: ${err.message}</div>`;
+    return;
+  }
+
+  if (resp.status !== 200) {
+    output.innerHTML = '<div class="error">Vessel Not Found</div>';
+    return;
+  }
+
+  let data;
+  try {
+    data = await resp.json();
+  } catch (err) {
+    output.innerHTML = `<div class="error">Invalid JSON response.</div>`;
+    return;
+  }
+
+  // Filter messages with DecodedBinary
+  const withDecoded = data.filter(msg => msg.Packet && msg.Packet.DecodedBinary);
+  if (withDecoded.length === 0) {
+    output.innerHTML = '<div>No messages with DecodedBinary found for this vessel.</div>';
+    return;
+  }
+
+  // Clear loading text
+  output.innerHTML = '';
+
+  // Render each message
+  withDecoded.forEach(msg => {
+    const { MessageID, Packet } = msg;
+    const { ApplicationID, DecodedBinary } = Packet;
+    const dac = String(ApplicationID.DesignatedAreaCode);
+    const fi = String(ApplicationID.FunctionIdentifier);
+
+    // Lookup Title
+    let title = 'Unknown message type';
+    if (asm[ String(MessageID) ]?.[ dac ]?.[ fi ]?.Title) {
+      title = asm[String(MessageID)][dac][fi].Title;
+    }
+
+    const container = document.createElement('div');
+    container.className = 'message';
+    container.innerHTML = `
+      <div class="title">MessageID ${MessageID} – ${title}</div>
+      <pre>${prettyJSON(DecodedBinary)}</pre>
+    `;
+    output.appendChild(container);
+  });
+}
+
+main();
+</script>
+
+</body>
+</html>
