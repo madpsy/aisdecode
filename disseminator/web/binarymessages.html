@@ -9,12 +9,12 @@
     .message { position: relative; margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
     .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
     .ts { font-size: 0.9rem; color: #555; margin-bottom: 0.8rem; }
-    .nav { position: absolute; top: 1rem; right: 1rem; }
+    .nav { position: absolute; top: 1rem; right: 1rem; display: flex; align-items: center; }
     .nav button {
       background: none;
       border: none;
       font-size: 1.2rem;
-      margin-left: 0.5rem;
+      margin: 0 0.3rem;
       cursor: pointer;
       transition: opacity 0.2s;
     }
@@ -22,6 +22,12 @@
       color: #bbb;
       cursor: default;
       opacity: 0.4;
+    }
+    .nav .counter {
+      font-size: 0.9rem;
+      color: #333;
+      min-width: 3em;
+      text-align: center;
     }
     .table-container { overflow-x: auto; }
     table {
@@ -50,6 +56,7 @@
     const v = p.get('UserID');
     return v && /^\d+$/.test(v) ? v : null;
   }
+
   function flattenObject(obj, parentKey = '', res = {}) {
     for (const [k, v] of Object.entries(obj)) {
       const nk = parentKey ? `${parentKey}.${k}` : k;
@@ -61,15 +68,18 @@
     }
     return res;
   }
+
   function formatValue(val) {
     if (typeof val === 'number' && isFinite(val)) {
       return parseFloat(val.toFixed(4)).toString();
     }
     return String(val);
   }
+
   function humanizeField(field) {
     return field.replace(/[_\.]/g, ' ');
   }
+
   function makeTableHTML(data) {
     return `
       <table>
@@ -95,7 +105,7 @@
       return;
     }
 
-    // summary
+    // Fetch vessel summary
     let summary;
     try {
       const r = await fetch(`https://ais.oarc.uk/summary?UserID=${userID}`);
@@ -110,7 +120,7 @@
     const name = info.Name?.trim() ? info.Name : userID;
     titleEl.textContent = `Latest Messages for ${name}`;
 
-    // asm
+    // Fetch asm.json
     let asm;
     try {
       const r = await fetch('asm.json');
@@ -121,7 +131,7 @@
       return;
     }
 
-    // messages
+    // Fetch all messages
     let allMsgs;
     try {
       const r = await fetch(`https://ais.oarc.uk/latestmessages?UserID=${userID}`);
@@ -139,10 +149,12 @@
     }
     output.innerHTML = '';
 
+    // Initialize history and render for each message type
     await Promise.all(decoded.map(msg => initHistory(msg, userID, asm)));
   }
 
   async function initHistory(initialMsg, userID, asm) {
+    // Bulk fetch up to 10 messages of this type
     const url = `https://ais.oarc.uk/latestmessages?UserID=${userID}`
       + `&MessageID=${initialMsg.MessageID}&limit=10`;
     let arr = [];
@@ -152,8 +164,9 @@
     } catch {}
     const history = arr
       .filter(m => m.Packet?.DecodedBinary)
-      .sort((a,b)=>new Date(b.Timestamp)-new Date(a.Timestamp));
+      .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
     if (!history.length) history.push(initialMsg);
+
     renderBlock(history, asm);
   }
 
@@ -163,30 +176,34 @@
     const container = document.createElement('div');
     container.className = 'message';
 
-    // title
+    // Title
     const msg0 = history[0];
     const dac = msg0.Packet.ApplicationID.DesignatedAreaCode;
     const fi = msg0.Packet.ApplicationID.FunctionIdentifier;
     const title = asm[msg0.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
-    const h = document.createElement('div');
-    h.className = 'title';
-    h.textContent = title;
-    container.appendChild(h);
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'title';
+    titleDiv.textContent = title;
+    container.appendChild(titleDiv);
 
-    // nav
+    // Nav (arrows + counter)
     const nav = document.createElement('div');
     nav.className = 'nav';
     const btnNewer = document.createElement('button');
     btnNewer.textContent = '◀️';
+    const counter = document.createElement('div');
+    counter.className = 'counter';
     const btnOlder = document.createElement('button');
     btnOlder.textContent = '▶️';
-    nav.append(btnNewer, btnOlder);
+    nav.append(btnNewer, counter, btnOlder);
     container.appendChild(nav);
 
-    // ts & table
+    // Timestamp
     const tsDiv = document.createElement('div');
     tsDiv.className = 'ts';
     container.appendChild(tsDiv);
+
+    // Table container
     const tableContainer = document.createElement('div');
     tableContainer.className = 'table-container';
     container.appendChild(tableContainer);
@@ -197,12 +214,23 @@
       tableContainer.innerHTML = makeTableHTML(flattenObject(m.Packet.DecodedBinary));
       btnNewer.disabled = (idx === 0);
       btnOlder.disabled = (idx === history.length - 1);
+      counter.textContent = `${idx + 1} of ${history.length}`;
     }
 
-    btnNewer.addEventListener('click', ()=>{ if(idx>0){ idx--; refresh(); } });
-    btnOlder.addEventListener('click', ()=>{ if(idx<history.length-1){ idx++; refresh(); } });
+    btnNewer.addEventListener('click', () => {
+      if (idx > 0) {
+        idx--;
+        refresh();
+      }
+    });
+    btnOlder.addEventListener('click', () => {
+      if (idx < history.length - 1) {
+        idx++;
+        refresh();
+      }
+    });
 
-    // initial draw
+    // Initial draw
     refresh();
     document.getElementById('output').appendChild(container);
   }
