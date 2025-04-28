@@ -10,7 +10,7 @@
     .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
     .ts { font-size: 0.9rem; color: #555; margin-bottom: 0.8rem; }
     table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; }
-    th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
+    th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }
     th { background: #f0f0f0; }
   </style>
 </head>
@@ -76,8 +76,10 @@ async function main() {
     return;
   }
 
-  const info = summary[userID];
-  titleEl.textContent = `Latest Messages for ${info.Name || 'Unknown Vessel'}`;
+  const info = summary[userID] || {};
+  // Use Name if present, otherwise fallback to UserID
+  const vesselName = info.Name && info.Name.trim() ? info.Name : userID;
+  titleEl.textContent = `Latest Messages for ${vesselName}`;
 
   // Fetch asm.json
   let asm;
@@ -133,10 +135,11 @@ async function main() {
     h.textContent = title;
     wrapper.appendChild(h);
 
-    // Per-message Timestamp
+    // Per-message Timestamp converted to local
+    const localTs = new Date(Timestamp).toLocaleString();
     const ts = document.createElement('div');
     ts.className = 'ts';
-    ts.textContent = `Timestamp: ${Timestamp}`;
+    ts.textContent = `Timestamp: ${localTs}`;
     wrapper.appendChild(ts);
 
     // Flatten + table
