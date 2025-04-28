@@ -12,9 +12,9 @@
     .table-container { overflow-x: auto; }
     table {
       border-collapse: collapse;
-      table-layout: auto; /* let columns size to content */
+      table-layout: auto;
       margin-top: 0.5rem;
-      white-space: nowrap; /* prevent wrapping inside cells */
+      white-space: nowrap;
     }
     th, td {
       border: 1px solid #ccc;
@@ -51,16 +51,28 @@ function flattenObject(obj, parentKey = '', res = {}) {
   return res;
 }
 
+// Format values: numbers to max 4 decimals
+function formatValue(val) {
+  if (typeof val === 'number' && isFinite(val)) {
+    // round to 4 decimal places, trim trailing zeros
+    return parseFloat(val.toFixed(4)).toString();
+  }
+  return String(val);
+}
+
 // Build a two-column table from flat data
 function makeTable(data) {
+  const rows = Object.entries(data)
+    .map(([f, val]) => {
+      const display = formatValue(val);
+      return `<tr><td>${f}</td><td>${display}</td></tr>`;
+    })
+    .join('');
+
   const tbl = document.createElement('table');
   tbl.innerHTML = `
     <thead><tr><th>Field</th><th>Value</th></tr></thead>
-    <tbody>
-      ${Object.entries(data)
-        .map(([f, val]) => `<tr><td>${f}</td><td>${val}</td></tr>`)
-        .join('')}
-    </tbody>`;
+    <tbody>${rows}</tbody>`;
   return tbl;
 }
 
@@ -130,7 +142,6 @@ async function main() {
     const dac = String(ApplicationID.DesignatedAreaCode);
     const fi = String(ApplicationID.FunctionIdentifier);
 
-    // Lookup Title
     let title = 'Unknown message type';
     if (asm[String(MessageID)]?.[dac]?.[fi]?.Title) {
       title = asm[String(MessageID)][dac][fi].Title;
@@ -139,20 +150,17 @@ async function main() {
     const wrapper = document.createElement('div');
     wrapper.className = 'message';
 
-    // Title only description
     const h = document.createElement('div');
     h.className = 'title';
     h.textContent = title;
     wrapper.appendChild(h);
 
-    // Per-message Timestamp converted to local
     const localTs = new Date(Timestamp).toLocaleString();
     const ts = document.createElement('div');
     ts.className = 'ts';
     ts.textContent = `Timestamp: ${localTs}`;
     wrapper.appendChild(ts);
 
-    // Flatten + table inside a scrollable container
     const flat = flattenObject(DecodedBinary);
     const tableContainer = document.createElement('div');
     tableContainer.className = 'table-container';
