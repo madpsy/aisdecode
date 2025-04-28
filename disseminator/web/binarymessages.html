@@ -54,18 +54,23 @@ function flattenObject(obj, parentKey = '', res = {}) {
 // Format values: numbers to max 4 decimals
 function formatValue(val) {
   if (typeof val === 'number' && isFinite(val)) {
-    // round to 4 decimal places, trim trailing zeros
     return parseFloat(val.toFixed(4)).toString();
   }
   return String(val);
+}
+
+// Humanize field name: replace underscores and dots with spaces
+function humanizeField(field) {
+  return field.replace(/[_\.]/g, ' ');
 }
 
 // Build a two-column table from flat data
 function makeTable(data) {
   const rows = Object.entries(data)
     .map(([f, val]) => {
-      const display = formatValue(val);
-      return `<tr><td>${f}</td><td>${display}</td></tr>`;
+      const displayField = humanizeField(f);
+      const displayVal = formatValue(val);
+      return `<tr><td>${displayField}</td><td>${displayVal}</td></tr>`;
     })
     .join('');
 
