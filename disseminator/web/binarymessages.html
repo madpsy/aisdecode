@@ -139,7 +139,7 @@ async function main() {
     const localTs = new Date(Timestamp).toLocaleString();
     const ts = document.createElement('div');
     ts.className = 'ts';
-    ts.textContent = `Timestamp: ${localTs}`;
+    ts.textContent = `${localTs}`;
     wrapper.appendChild(ts);
 
     // Flatten + table
