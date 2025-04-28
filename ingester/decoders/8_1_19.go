@@ -19,7 +19,7 @@ func init() {
 // ----------------------------------------------------------------------------
 
 func decode_8_1_19(packet map[string]interface{}) (map[string]interface{}, error) {
-    // 1) Base64 → raw bytes
+    // 1) Base64 → bits (assumes the first 18 bits header has been stripped)
     rawB64, ok := packet["BinaryData"].(string)
     if !ok {
         return nil, fmt.Errorf("decode_8_1_19: missing BinaryData")
@@ -28,17 +28,12 @@ func decode_8_1_19(packet map[string]interface{}) (map[string]interface{}, error
     if err != nil {
         return nil, fmt.Errorf("decode_8_1_19: base64 decode: %v", err)
     }
+    bits := raw
 
-    // 2) Strip the full 56-bit AIS header (7 bytes)
-    if len(raw) < 7 {
-        return nil, fmt.Errorf("decode_8_1_19: packet too short, need ≥7 bytes, got %d", len(raw))
-    }
-    bits := raw[7:]
-
-    // 3) Define all field offsets (startBit, bitLength)
+    // 2) Field offsets (after stripping 18-bit header)
     O := map[string][2]int{
-        "linkage_id":      {0,   10},
-        "name":            {10,  120},
+        "linkage_id":      {0,  10},
+        "name":            {10, 120},
         "longitude":       {130, 25},
         "latitude":        {155, 24},
         "status":          {179, 2},
@@ -46,21 +41,6 @@ func decode_8_1_19(packet map[string]interface{}) (map[string]interface{}, error
         "utc_hour":        {186, 5},
         "utc_min":         {191, 6},
         "expected_signal": {197, 5},
-    }
-
-    // 4) Compute required bits and guard against OOB
-    maxBit := 0
-    for _, v := range O {
-        end := v[0] + v[1]
-        if end > maxBit {
-            maxBit = end
-        }
-    }
-    if len(bits)*8 < maxBit {
-        return nil, fmt.Errorf(
-            "decode_8_1_19: insufficient data: need %d bits but only have %d",
-            maxBit, len(bits)*8,
-        )
     }
 
     out := make(map[string]interface{})
@@ -74,10 +54,13 @@ func decode_8_1_19(packet map[string]interface{}) (map[string]interface{}, error
     var rawName [20]rune
     for i := 0; i < 20; i++ {
         code := getUint(bits, O["name"][0]+i*6, 6)
+        var ch rune
         if code < 32 {
-            code += 64
+            ch = rune(code + 64)
+        } else {
+            ch = rune(code)
         }
-        rawName[i] = rune(code)
+        rawName[i] = ch
     }
     name := strings.TrimRight(string(rawName[:]), "@")
     if name != "" {
