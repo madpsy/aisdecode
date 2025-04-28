@@ -10,13 +10,18 @@
     .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
     .ts { font-size: 0.9rem; color: #555; margin-bottom: 0.8rem; }
     .table-container { overflow-x: auto; }
-    table { 
-      border-collapse: collapse; 
-      width: 100%; 
-      min-width: 600px;      /* ensure columns don’t shrink too far */
-      margin-top: 0.5rem; 
+    table {
+      border-collapse: collapse;
+      table-layout: auto; /* let columns size to content */
+      margin-top: 0.5rem;
+      white-space: nowrap; /* prevent wrapping inside cells */
     }
-    th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 0.4rem 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
     th { background: #f0f0f0; }
   </style>
 </head>
