@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AIS Latest Messages Viewer</title>
   <style>
     body { font-family: sans-serif; margin: 2rem; }
@@ -108,7 +109,7 @@
     // Fetch vessel summary
     let summary;
     try {
-      const r = await fetch(`https://ais.oarc.uk/summary?UserID=${userID}`);
+      const r = await fetch(`/summary?UserID=${userID}`);
       if (!r.ok) throw '';
       summary = await r.json();
     } catch {
@@ -134,7 +135,7 @@
     // Fetch all messages
     let allMsgs;
     try {
-      const r = await fetch(`https://ais.oarc.uk/latestmessages?UserID=${userID}`);
+      const r = await fetch(`/latestmessages?UserID=${userID}`);
       if (r.status !== 200) throw '';
       allMsgs = await r.json();
     } catch {
@@ -154,7 +155,7 @@
   }
 
   async function initHistory(initialMsg, userID, asm) {
-    const url = `https://ais.oarc.uk/latestmessages?UserID=${userID}`
+    const url = `/latestmessages?UserID=${userID}`
       + `&MessageID=${initialMsg.MessageID}&limit=100`;
     let arr = [];
     try {
