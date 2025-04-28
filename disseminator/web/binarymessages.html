@@ -160,10 +160,11 @@ async function main() {
     h.textContent = title;
     wrapper.appendChild(h);
 
+    // Display only the timestamp value
     const localTs = new Date(Timestamp).toLocaleString();
     const ts = document.createElement('div');
     ts.className = 'ts';
-    ts.textContent = `${localTs}`;
+    ts.textContent = localTs;
     wrapper.appendChild(ts);
 
     const flat = flattenObject(DecodedBinary);
