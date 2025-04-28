@@ -10,8 +10,19 @@
     .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
     .ts { font-size: 0.9rem; color: #555; margin-bottom: 0.8rem; }
     .nav { position: absolute; top: 1rem; right: 1rem; }
-    .nav button { background: none; border: none; font-size: 1.2rem; margin-left: 0.5rem; cursor: pointer; }
-    .nav button:disabled { color: #bbb; cursor: default; }
+    .nav button {
+      background: none;
+      border: none;
+      font-size: 1.2rem;
+      margin-left: 0.5rem;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .nav button:disabled {
+      color: #bbb;
+      cursor: default;
+      opacity: 0.4;
+    }
     .table-container { overflow-x: auto; }
     table {
       border-collapse: collapse;
@@ -84,7 +95,7 @@
       return;
     }
 
-    // 1) summary
+    // summary
     let summary;
     try {
       const r = await fetch(`https://ais.oarc.uk/summary?UserID=${userID}`);
@@ -99,7 +110,7 @@
     const name = info.Name?.trim() ? info.Name : userID;
     titleEl.textContent = `Latest Messages for ${name}`;
 
-    // 2) asm.json
+    // asm
     let asm;
     try {
       const r = await fetch('asm.json');
@@ -110,7 +121,7 @@
       return;
     }
 
-    // 3) all messages
+    // messages
     let allMsgs;
     try {
       const r = await fetch(`https://ais.oarc.uk/latestmessages?UserID=${userID}`);
@@ -128,7 +139,6 @@
     }
     output.innerHTML = '';
 
-    // fetch histories and render
     await Promise.all(decoded.map(msg => initHistory(msg, userID, asm)));
   }
 
@@ -142,7 +152,7 @@
     } catch {}
     const history = arr
       .filter(m => m.Packet?.DecodedBinary)
-      .sort((a,b)=> new Date(b.Timestamp)-new Date(a.Timestamp));
+      .sort((a,b)=>new Date(b.Timestamp)-new Date(a.Timestamp));
     if (!history.length) history.push(initialMsg);
     renderBlock(history, asm);
   }
@@ -181,7 +191,6 @@
     tableContainer.className = 'table-container';
     container.appendChild(tableContainer);
 
-    // refresh function
     function refresh() {
       const m = history[idx];
       tsDiv.textContent = new Date(m.Timestamp).toLocaleString();
@@ -190,11 +199,10 @@
       btnOlder.disabled = (idx === history.length - 1);
     }
 
-    // events
     btnNewer.addEventListener('click', ()=>{ if(idx>0){ idx--; refresh(); } });
     btnOlder.addEventListener('click', ()=>{ if(idx<history.length-1){ idx++; refresh(); } });
 
-    // initial draw (calls refresh, greying out buttons appropriately)
+    // initial draw
     refresh();
     document.getElementById('output').appendChild(container);
   }
