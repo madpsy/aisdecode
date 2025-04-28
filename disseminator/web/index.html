@@ -2234,7 +2234,7 @@ function attachMessageTypeClicks() {
       const friendly = messageTypeNames[rawType] || `Unknown (${rawType})`;
 
       try {
-        const resp = await fetch(`/latestmessage?UserID=${userID}&MessageID=${rawType}`);
+        const resp = await fetch(`/latestmessages?UserID=${userID}&MessageID=${rawType}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const [msg] = await resp.json();
 
