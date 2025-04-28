@@ -7,7 +7,8 @@
     body { font-family: sans-serif; margin: 2rem; }
     .error { color: red; font-weight: bold; }
     .message { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
-    .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem; }
+    .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
+    .ts { font-size: 0.9rem; color: #555; margin-bottom: 0.8rem; }
     table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; }
     th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
     th { background: #f0f0f0; }
@@ -15,104 +16,104 @@
 </head>
 <body>
 
-<h1>AIS Latest Messages</h1>
-<div id="output">Loading…</div>
+<h1 id="main-title">Loading vessel…</h1>
+<div id="output">Loading messages…</div>
 
 <script>
 // Utility: get numeric UserID from query string
 function getUserID() {
-  const params = new URLSearchParams(window.location.search);
-  const uid = params.get('UserID');
-  return uid && /^\d+$/.test(uid) ? uid : null;
+  const p = new URLSearchParams(window.location.search);
+  const v = p.get('UserID');
+  return v && /^\d+$/.test(v) ? v : null;
 }
 
-// Recursively flatten an object, prefixing nested keys with parentKey + '.'
-function flattenObject(obj, parentKey = '', result = {}) {
-  for (const [key, value] of Object.entries(obj)) {
-    const newKey = parentKey ? `${parentKey}.${key}` : key;
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      flattenObject(value, newKey, result);
+// Flatten nested object
+function flattenObject(obj, parentKey = '', res = {}) {
+  for (const [k, v] of Object.entries(obj)) {
+    const nk = parentKey ? `${parentKey}.${k}` : k;
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      flattenObject(v, nk, res);
     } else {
-      result[newKey] = value;
+      res[nk] = v;
     }
   }
-  return result;
+  return res;
 }
 
-// Given a flat object, return an HTML table element
-function makeTable(flatData) {
-  const table = document.createElement('table');
-  const thead = document.createElement('thead');
-  thead.innerHTML = `<tr><th>Field</th><th>Value</th></tr>`;
-  table.appendChild(thead);
-
-  const tbody = document.createElement('tbody');
-  for (const [field, val] of Object.entries(flatData)) {
-    const tr = document.createElement('tr');
-    const tdKey = document.createElement('td');
-    tdKey.textContent = field;
-    const tdVal = document.createElement('td');
-    tdVal.textContent = String(val);
-    tr.appendChild(tdKey);
-    tr.appendChild(tdVal);
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  return table;
+// Build a two-column table from flat data
+function makeTable(data) {
+  const tbl = document.createElement('table');
+  tbl.innerHTML = `
+    <thead><tr><th>Field</th><th>Value</th></tr></thead>
+    <tbody>
+      ${Object.entries(data)
+        .map(([f, val]) => `<tr><td>${f}</td><td>${val}</td></tr>`)
+        .join('')}
+    </tbody>`;
+  return tbl;
 }
 
 async function main() {
-  const output = document.getElementById('output');
   const userID = getUserID();
+  const titleEl = document.getElementById('main-title');
+  const output = document.getElementById('output');
+
   if (!userID) {
+    titleEl.textContent = 'Error';
     output.innerHTML = '<div class="error">Invalid or missing numeric UserID parameter.</div>';
     return;
   }
 
+  // Fetch vessel summary
+  let summary;
+  try {
+    const resp = await fetch(`https://ais.oarc.uk/summary?UserID=${userID}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    summary = await resp.json();
+  } catch (err) {
+    titleEl.textContent = 'Error';
+    output.innerHTML = `<div class="error">Failed to load summary: ${err.message}</div>`;
+    return;
+  }
+
+  const info = summary[userID];
+  titleEl.textContent = `Latest Messages for ${info.Name || 'Unknown Vessel'}`;
+
   // Fetch asm.json
   let asm;
   try {
-    const asmResp = await fetch('asm.json');
-    if (!asmResp.ok) throw new Error(`HTTP ${asmResp.status}`);
-    asm = await asmResp.json();
+    const r = await fetch('asm.json');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    asm = await r.json();
   } catch (err) {
     output.innerHTML = `<div class="error">Failed to load asm.json: ${err.message}</div>`;
     return;
   }
 
-  // Fetch latestmessages
-  const url = `https://ais.oarc.uk/latestmessages?UserID=${userID}`;
-  let resp;
+  // Fetch latest messages
+  let data;
   try {
-    resp = await fetch(url);
+    const r2 = await fetch(`https://ais.oarc.uk/latestmessages?UserID=${userID}`);
+    if (r2.status !== 200) {
+      output.innerHTML = '<div class="error">Vessel Not Found</div>';
+      return;
+    }
+    data = await r2.json();
   } catch (err) {
     output.innerHTML = `<div class="error">Fetch error: ${err.message}</div>`;
     return;
   }
-  if (resp.status !== 200) {
-    output.innerHTML = '<div class="error">Vessel Not Found</div>';
+
+  // Filter & render
+  const msgs = data.filter(m => m.Packet && m.Packet.DecodedBinary);
+  if (!msgs.length) {
+    output.innerHTML = '<div>No decoded-binary messages available.</div>';
     return;
   }
+  output.innerHTML = '';
 
-  let data;
-  try {
-    data = await resp.json();
-  } catch (err) {
-    output.innerHTML = `<div class="error">Invalid JSON response.</div>`;
-    return;
-  }
-
-  // Only messages with DecodedBinary
-  const withDecoded = data.filter(msg => msg.Packet && msg.Packet.DecodedBinary);
-  if (withDecoded.length === 0) {
-    output.innerHTML = '<div>No messages with DecodedBinary found.</div>';
-    return;
-  }
-  output.innerHTML = ''; // clear
-
-  // Render each
-  withDecoded.forEach(msg => {
-    const { MessageID, Packet } = msg;
+  msgs.forEach(msg => {
+    const { MessageID, Timestamp, Packet } = msg;
     const { ApplicationID, DecodedBinary } = Packet;
     const dac = String(ApplicationID.DesignatedAreaCode);
     const fi = String(ApplicationID.FunctionIdentifier);
@@ -123,19 +124,26 @@ async function main() {
       title = asm[String(MessageID)][dac][fi].Title;
     }
 
-    const container = document.createElement('div');
-    container.className = 'message';
-    const header = document.createElement('div');
-    header.className = 'title';
-    header.textContent = `MessageID ${MessageID} — ${title}`;
-    container.appendChild(header);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message';
 
-    // Flatten and build table
+    // Title only description
+    const h = document.createElement('div');
+    h.className = 'title';
+    h.textContent = title;
+    wrapper.appendChild(h);
+
+    // Per-message Timestamp
+    const ts = document.createElement('div');
+    ts.className = 'ts';
+    ts.textContent = `Timestamp: ${Timestamp}`;
+    wrapper.appendChild(ts);
+
+    // Flatten + table
     const flat = flattenObject(DecodedBinary);
-    const table = makeTable(flat);
-    container.appendChild(table);
+    wrapper.appendChild(makeTable(flat));
 
-    output.appendChild(container);
+    output.appendChild(wrapper);
   });
 }
 
