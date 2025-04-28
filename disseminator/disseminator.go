@@ -680,7 +680,7 @@ func (cc *ClientConnection) getWSClient() (*clientSocket.Socket, error) {
     return cli, nil
 }
 
-// latestMessagesHandler serves /latestmessages?UserID=123[&MessageID=9]
+// latestMessagesHandler serves /latestmessages?UserID=992351516[&MessageID=8&limit=10]
 func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
     q := r.URL.Query()
 
@@ -694,13 +694,15 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
     // 2) Parse & validate optional MessageID
     msgFilter := ""
+    messageID := int64(0) // Default to 0 (no filter on message_id)
     if msgIDStr := q.Get("MessageID"); msgIDStr != "" {
         msgID, err := strconv.ParseInt(msgIDStr, 10, 64)
         if err != nil || msgID < 0 {
             http.Error(w, "Invalid MessageID", http.StatusBadRequest)
             return
         }
-        msgFilter = fmt.Sprintf(" AND message_id = %d", msgID)
+        messageID = msgID
+        msgFilter = fmt.Sprintf(" AND message_id = %d", messageID)
     }
 
     // 3) Parse the optional 'limit' query parameter
@@ -719,20 +721,38 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // 4) Build DISTINCT‐ON query with the specified limit
-    query := fmt.Sprintf(`
-        SELECT DISTINCT ON (message_id)
-               message_id,
-               packet,
-               raw_sentence,
-               timestamp
-          FROM messages
-         WHERE user_id = %d%s
-         ORDER BY message_id, timestamp DESC
-         LIMIT %d;
-    `, userID, msgFilter, limit)
+    // 4) Build the query based on the presence of MessageID
+    var query string
+    if messageID == 0 {
+        // No MessageID provided, get latest for each message type
+        query = fmt.Sprintf(`
+            SELECT DISTINCT ON (message_id)
+                   message_id,
+                   packet,
+                   raw_sentence,
+                   timestamp
+              FROM messages
+             WHERE user_id = %d
+          ORDER BY message_id, timestamp DESC;
+        `, userID)
+    } else {
+        // MessageID provided, get up to 'limit' for that message type
+        query = fmt.Sprintf(`
+            SELECT message_id,
+                   packet,
+                   raw_sentence,
+                   timestamp
+              FROM messages
+             WHERE user_id = %d AND message_id = %d
+          ORDER BY timestamp DESC
+             LIMIT %d;
+        `, userID, messageID, limit)
+    }
 
-    // 5) Run it on the correct shard
+    // Log the query for debugging
+    log.Printf("SQL Query: %s", query)
+
+    // 5) Run the query
     rows, err := QueryDatabaseForUser(strconv.FormatInt(userID, 10), query)
     if err != nil {
         http.Error(w, fmt.Sprintf("DB error: %v", err), http.StatusInternalServerError)
