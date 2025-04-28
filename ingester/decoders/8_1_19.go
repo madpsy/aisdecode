@@ -11,24 +11,24 @@ import (
 // ----------------------------------------------------------------------------
 
 func init() {
-    RegisterDecoder(8, 1, 19, decodeASM819)
+    RegisterDecoder(8, 1, 19, decode_8_1_19)
 }
 
 // ----------------------------------------------------------------------------
-// decodeASM819
+// decode_8_1_19
 // ----------------------------------------------------------------------------
 
-func decodeASM819(packet map[string]interface{}) (map[string]interface{}, error) {
+func decode_8_1_19(packet map[string]interface{}) (map[string]interface{}, error) {
     // 1) Base64 → bits (assumes the first 18 bits header has been stripped)
     rawB64, ok := packet["BinaryData"].(string)
     if !ok {
-        return nil, fmt.Errorf("ASM19: missing BinaryData")
+        return nil, fmt.Errorf("decode_8_1_19: missing BinaryData")
     }
     raw, err := base64.StdEncoding.DecodeString(rawB64)
     if err != nil {
-        return nil, fmt.Errorf("ASM19: base64 decode: %v", err)
+        return nil, fmt.Errorf("decode_8_1_19: base64 decode: %v", err)
     }
-    bits := raw
+    bits := unpackBytesToBits(raw)
 
     // 2) Field offsets (after stripping 18-bit header)
     O := map[string][2]int{

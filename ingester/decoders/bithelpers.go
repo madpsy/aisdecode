@@ -17,3 +17,14 @@ func getSint(bits []byte, off, length int) int {
     }
     return v
 }
+
+// unpackBytesToBits expands each byte of raw into 8 bits (MSB first).
+func unpackBytesToBits(raw []byte) []byte {
+    bits := make([]byte, len(raw)*8)
+    for i, b := range raw {
+        for j := 0; j < 8; j++ {
+            bits[i*8 + j] = (b >> (7 - j)) & 1
+        }
+    }
+    return bits
+}
