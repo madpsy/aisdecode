@@ -1229,32 +1229,56 @@ function loadVesselImage(url, container) {
 function updateVesselDetailHeader(UserID) {
   const textContainer = document.getElementById('vessel-header-text');
 
-  // Base header: Name, Lookup, Link
+  // Build header HTML: Name, Lookup, Link
   let headerHtml = `
-    <h4>
-      <font size="3">${vesselData[UserID].Name}</font><br>
-      <a href="https://www.vesselfinder.com/vessels/details/${vesselData[UserID].UserID}" target="_blank">Lookup</a>
+    <h4 style="margin:0;padding:0;">
+      <span style="font-size:1.2em;">${vesselData[UserID].Name}</span><br>
+      <a href="https://www.vesselfinder.com/vessels/details/${vesselData[UserID].UserID}"
+         target="_blank">Lookup</a>
       |
       <span id="copy-link" style="cursor:pointer; color:blue;">Link</span>
   `;
 
-  // Add Messages link if DecodedBinary exists
+  // Add Messages popup link if DecodedBinary exists
   if (vesselData[UserID].DecodedBinary) {
     headerHtml += `
       |
-      <a href="/binarymessages.html?UserID=${UserID}"
-         target="_blank"
-         id="show-binary-messages"
-         style="cursor:pointer; color:blue;">
+      <span id="show-binary-messages" style="cursor:pointer; color:blue;">
         Messages
-      </a>
+      </span>
     `;
   }
 
   headerHtml += `</h4>`;
-
   textContainer.innerHTML = headerHtml;
+
+  // Attach copy-link behavior
+  const copyLinkEl = document.getElementById('copy-link');
+  if (copyLinkEl) {
+    copyLinkEl.onclick = (e) => {
+      e.stopPropagation();
+      const currentUrl = `${window.location.origin}${window.location.pathname}?UserID=${UserID}`;
+      navigator.clipboard.writeText(currentUrl).then(() => {
+        copyLinkEl.textContent = 'Link Copied';
+        setTimeout(() => { copyLinkEl.textContent = 'Link'; }, 2000);
+      });
+    };
+  }
+
+  // Attach Messages popup behavior
+  const msgBtn = document.getElementById('show-binary-messages');
+  if (msgBtn) {
+    msgBtn.onclick = (e) => {
+      e.stopPropagation();
+      window.open(
+        `/binarymessages.html?UserID=${UserID}`,
+        '_blank',
+        'width=400,height=600'
+      );
+    };
+  }
 }
+
 
 function updateLatLongDisplay() {
   const latlongDisplay = document.getElementById('latlong-display');
