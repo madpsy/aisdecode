@@ -6,10 +6,10 @@
   <style>
     body { font-family: sans-serif; margin: 2rem; }
     .error { color: red; font-weight: bold; }
-    .message { position: relative; margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
+    .message { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
     .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
-    .ts { font-size: 0.9rem; color: #555; margin-bottom: 0.8rem; }
-    .nav { position: absolute; top: 1rem; right: 1rem; display: flex; align-items: center; }
+    .ts { font-size: 0.9rem; color: #555; margin-bottom: 0.3rem; }
+    .nav { display: flex; align-items: center; margin-bottom: 0.8rem; }
     .nav button {
       background: none;
       border: none;
@@ -154,7 +154,6 @@
   }
 
   async function initHistory(initialMsg, userID, asm) {
-    // Bulk fetch up to 10 messages of this type
     const url = `https://ais.oarc.uk/latestmessages?UserID=${userID}`
       + `&MessageID=${initialMsg.MessageID}&limit=10`;
     let arr = [];
@@ -186,7 +185,12 @@
     titleDiv.textContent = title;
     container.appendChild(titleDiv);
 
-    // Nav (arrows + counter)
+    // Timestamp
+    const tsDiv = document.createElement('div');
+    tsDiv.className = 'ts';
+    container.appendChild(tsDiv);
+
+    // Nav (arrows + counter) under timestamp
     const nav = document.createElement('div');
     nav.className = 'nav';
     const btnNewer = document.createElement('button');
@@ -197,11 +201,6 @@
     btnOlder.textContent = '▶️';
     nav.append(btnNewer, counter, btnOlder);
     container.appendChild(nav);
-
-    // Timestamp
-    const tsDiv = document.createElement('div');
-    tsDiv.className = 'ts';
-    container.appendChild(tsDiv);
 
     // Table container
     const tableContainer = document.createElement('div');
