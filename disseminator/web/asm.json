@@ -1,0 +1,29 @@
+{
+  "6": {
+    "1": {
+      "0": {
+        "Title": "Text using 6-bit ASCII"
+      }
+    }
+  },
+  "8": {
+    "1": {
+      "29": {
+        "Title": "Text description"
+      },
+      "19": {
+        "Title": "Marine traffic signal"
+      },
+      "31": {
+        "Title": "Meteorological and Hydrographic data"
+      }
+    }
+  },
+  "6": {
+    "235": {
+      "10": {
+        "Title": "Aids to Navigation monitoring data"
+      }
+    }
+  }
+}
