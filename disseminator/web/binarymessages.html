@@ -34,15 +34,18 @@
 <div id="output">Loading messages…</div>
 
 <script>
+  // util to read numeric UserID
   function getUserID() {
     const p = new URLSearchParams(window.location.search);
     const v = p.get('UserID');
     return v && /^\d+$/.test(v) ? v : null;
   }
+
+  // flatten nested object into { "a.b": val }
   function flattenObject(obj, parentKey = '', res = {}) {
     for (const [k, v] of Object.entries(obj)) {
       const nk = parentKey ? `${parentKey}.${k}` : k;
-      if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      if (v != null && typeof v === 'object' && !Array.isArray(v)) {
         flattenObject(v, nk, res);
       } else {
         res[nk] = v;
@@ -50,22 +53,30 @@
     }
     return res;
   }
+
+  // round numbers to up to 4 decimals
   function formatValue(val) {
     if (typeof val === 'number' && isFinite(val)) {
       return parseFloat(val.toFixed(4)).toString();
     }
     return String(val);
   }
+
+  // replace _ and . with space
   function humanizeField(field) {
     return field.replace(/[_\.]/g, ' ');
   }
+
   function makeTableHTML(data) {
     return `
       <table>
         <thead><tr><th>Field</th><th>Value</th></tr></thead>
         <tbody>
           ${Object.entries(data).map(([f, v]) =>
-            `<tr><td>${humanizeField(f)}</td><td>${formatValue(v)}</td></tr>`
+            `<tr>
+               <td>${humanizeField(f)}</td>
+               <td>${formatValue(v)}</td>
+             </tr>`
           ).join('')}
         </tbody>
       </table>`;
@@ -75,140 +86,139 @@
     const userID = getUserID();
     const titleEl = document.getElementById('main-title');
     const output = document.getElementById('output');
+
     if (!userID) {
       titleEl.textContent = 'Error';
       output.innerHTML = '<div class="error">Invalid or missing numeric UserID parameter.</div>';
       return;
     }
 
-    // 1) summary
+    // 1) vessel summary
     let summary;
     try {
-      const r = await fetch(`https://ais.oarc.uk/summary?UserID=${userID}`);
-      if (!r.ok) throw '';
-      summary = await r.json();
+      const resp = await fetch(`https://ais.oarc.uk/summary?UserID=${userID}`);
+      if (!resp.ok) throw '';
+      summary = await resp.json();
     } catch {
       titleEl.textContent = 'Error';
       output.innerHTML = '<div class="error">Failed to load summary</div>';
       return;
     }
     const info = summary[userID] || {};
-    const vesselName = info.Name?.trim() ? info.Name : userID;
-    titleEl.textContent = `Latest Messages for ${vesselName}`;
+    const name = info.Name?.trim() ? info.Name : userID;
+    titleEl.textContent = `Latest Messages for ${name}`;
 
     // 2) asm.json
     let asm;
     try {
-      const r = await fetch('asm.json'); if (!r.ok) throw '';
+      const r = await fetch('asm.json');
+      if (!r.ok) throw '';
       asm = await r.json();
     } catch {
       output.innerHTML = '<div class="error">Failed to load asm.json</div>';
       return;
     }
 
-    // 3) initial messages
-    let messages;
+    // 3) initial /latestmessages (no limit)
+    let allMsgs;
     try {
       const r = await fetch(`https://ais.oarc.uk/latestmessages?UserID=${userID}`);
       if (r.status !== 200) throw '';
-      messages = await r.json();
+      allMsgs = await r.json();
     } catch {
       output.innerHTML = '<div class="error">Vessel Not Found</div>';
       return;
     }
 
-    const decoded = messages.filter(m => m.Packet?.DecodedBinary);
-    if (!decoded.length) {
+    // filter those with DecodedBinary
+    const decoded = allMsgs.filter(m => m.Packet?.DecodedBinary);
+    if (decoded.length === 0) {
       output.innerHTML = '<div>No decoded-binary messages available.</div>';
       return;
     }
     output.innerHTML = '';
 
-    decoded.forEach(msg => renderMessage(msg, userID, asm));
+    // For each message type, fetch bulk history
+    await Promise.all(decoded.map(msg => initHistory(msg, userID, asm)));
   }
 
-  function renderMessage(msg, userID, asm) {
+  // for one message type, fetch up to 10 messages and render block
+  async function initHistory(initialMsg, userID, asm) {
+    const dac = initialMsg.Packet.ApplicationID.DesignatedAreaCode;
+    const fi = initialMsg.Packet.ApplicationID.FunctionIdentifier;
+    // bulk fetch newest 10 of this type
+    const url = `https://ais.oarc.uk/latestmessages?UserID=${userID}`
+      + `&MessageID=${initialMsg.MessageID}&limit=10`;
+    let arr = [];
+    try {
+      const r = await fetch(url);
+      if (r.ok) arr = await r.json();
+    } catch {}
+    // filter decoded and sort descending by Timestamp
+    const history = arr
+      .filter(m => m.Packet?.DecodedBinary)
+      .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+    if (!history.length) history.push(initialMsg);
+
+    renderBlock(history, asm, userID);
+  }
+
+  function renderBlock(history, asm, userID) {
+    let idx = 0;  // current index in history[]
+
+    // create container
     const container = document.createElement('div');
     container.className = 'message';
 
-    // Title
-    const dac = msg.Packet.ApplicationID.DesignatedAreaCode;
-    const fi = msg.Packet.ApplicationID.FunctionIdentifier;
-    const msgTitle = asm[msg.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
+    // title
+    const msg0 = history[0];
+    const dac0 = msg0.Packet.ApplicationID.DesignatedAreaCode;
+    const fi0 = msg0.Packet.ApplicationID.FunctionIdentifier;
+    const title = asm[msg0.MessageID]?.[dac0]?.[fi0]?.Title || 'Unknown message type';
     const h = document.createElement('div');
     h.className = 'title';
-    h.textContent = msgTitle;
+    h.textContent = title;
     container.appendChild(h);
 
-    // Nav
+    // nav
     const nav = document.createElement('div');
     nav.className = 'nav';
     const btnNewer = document.createElement('button');
     btnNewer.textContent = '◀️';
     const btnOlder = document.createElement('button');
     btnOlder.textContent = '▶️';
-    nav.appendChild(btnNewer);
-    nav.appendChild(btnOlder);
+    nav.append(btnNewer, btnOlder);
     container.appendChild(nav);
 
-    // Timestamp
+    // timestamp
     const tsDiv = document.createElement('div');
     tsDiv.className = 'ts';
-    tsDiv.textContent = new Date(msg.Timestamp).toLocaleString();
     container.appendChild(tsDiv);
 
-    // Table container
+    // table
     const tableContainer = document.createElement('div');
     tableContainer.className = 'table-container';
-    tableContainer.innerHTML = makeTableHTML(flattenObject(msg.Packet.DecodedBinary));
     container.appendChild(tableContainer);
 
-    // Paging state
-    let history = [ msg ];
-    let idx = 0;
-    btnNewer.disabled = true;
-
-    btnNewer.addEventListener('click', () => {
-      if (idx > 0) {
-        idx--;
-        refresh();
-      }
-    });
-
-    btnOlder.addEventListener('click', async () => {
-      // next in history?
-      if (idx < history.length - 1) {
-        idx++;
-        refresh();
-        return;
-      }
-      // fetch older batch
-      const curID = history[idx].MessageID;
-      const resp = await fetch(
-        `https://ais.oarc.uk/latestmessages?UserID=${userID}&MessageID=${curID}&limit=10`
-      );
-      if (!resp.ok) return;
-      const arr = await resp.json();
-      const older = arr.filter(m => m.Packet?.DecodedBinary)
-                       .filter(m => new Date(m.Timestamp) < new Date(history[idx].Timestamp));
-      if (!older.length) {
-        btnOlder.disabled = true;
-        return;
-      }
-      history.push(older[0]);
-      idx++;
-      refresh();
-    });
-
+    // update UI based on idx
     function refresh() {
       const m = history[idx];
       tsDiv.textContent = new Date(m.Timestamp).toLocaleString();
       tableContainer.innerHTML = makeTableHTML(flattenObject(m.Packet.DecodedBinary));
       btnNewer.disabled = (idx === 0);
-      // disable older if we've got 10 and at end
-      btnOlder.disabled = history.length >= 10 && idx === history.length - 1;
+      btnOlder.disabled = (idx === history.length - 1);
     }
 
+    // hooks
+    btnNewer.addEventListener('click', () => {
+      if (idx > 0) idx--, refresh();
+    });
+    btnOlder.addEventListener('click', () => {
+      if (idx < history.length - 1) idx++, refresh();
+    });
+
+    // initial paint
+    refresh();
     document.getElementById('output').appendChild(container);
   }
 
