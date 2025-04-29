@@ -548,22 +548,6 @@ function renderBlockedIps(data) {
     </table>
   </section>
 
-<section>
-  <h3>By Source (last <span class="window-size"></span>s)</h3>
-  <table id="window_by_source">
-    <thead>
-      <tr>
-        <th>Source IP</th>
-        <th>Msgs</th>
-        <th>Bytes</th>
-        <th>Fails</th>
-        <th>Unique MMSI</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-</section>
-
   <section>
     <h3>Failures by Source IP (Top 25)</h3>
     <table id="failures_by_source">
@@ -735,6 +719,22 @@ function renderBlockedIps(data) {
       <tbody></tbody>
     </table>
   </section>
+
+<section>
+  <h3>By Source (last <span class="window-size"></span>s)</h3>
+  <table id="window_by_source">
+    <thead>
+      <tr>
+        <th>Source IP</th>
+        <th>Msgs</th>
+        <th>Bytes</th>
+        <th>Fails</th>
+        <th>Unique MMSI</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</section>
 
   <!-- Settings Modal Overlay -->
   <div id="settingsModal" class="modal">

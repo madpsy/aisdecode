@@ -631,12 +631,12 @@ func startMetricsReset() {
         // 1) Snapshot & reset under a single metricsMu lock
         metricsMu.Lock()
         // — snapshot the globals —
-        previousPeriodMetrics.windowMsgs          = totalCounter.Count()
-        previousPeriodMetrics.windowFailures      = failureCounter.Count()
-        previousPeriodMetrics.windowDownsampled   = downsampledCounter.Count()
-        previousPeriodMetrics.windowDedup         = dedupCounter.Count()
-        previousPeriodMetrics.windowForwarded     = forwardedCounter.Count()
-        previousPeriodMetrics.windowBytesReceived = bytesReceivedWindow.Sum()
+        previousPeriodMetrics.windowMsgs           = totalCounter.Count()
+        previousPeriodMetrics.windowFailures       = failureCounter.Count()
+        previousPeriodMetrics.windowDownsampled    = downsampledCounter.Count()
+        previousPeriodMetrics.windowDedup          = dedupCounter.Count()
+        previousPeriodMetrics.windowForwarded      = forwardedCounter.Count()
+        previousPeriodMetrics.windowBytesReceived  = bytesReceivedWindow.Sum()
         previousPeriodMetrics.windowBytesForwarded = bytesForwardedWindow.Sum()
 
         // — snapshot per-source into prevWindowBySource —
@@ -646,19 +646,27 @@ func startMetricsReset() {
         prevWindowBySource.Uids  = make(map[string]int64, len(usersWindowBySource))
 
         for src, ctr := range msgWindowBySource {
-            prevWindowBySource.Msgs[src] = ctr.Count()
+            if cnt := ctr.Count(); cnt > 0 {
+                prevWindowBySource.Msgs[src] = cnt
+            }
             ctr.Reset()
         }
         for src, bctr := range bytesWindowBySource {
-            prevWindowBySource.Bytes[src] = bctr.Sum()
+            if sum := bctr.Sum(); sum > 0 {
+                prevWindowBySource.Bytes[src] = sum
+            }
             bctr.Reset()
         }
         for src, fctr := range failWindowBySource {
-            prevWindowBySource.Fails[src] = fctr.Count()
+            if fails := fctr.Count(); fails > 0 {
+                prevWindowBySource.Fails[src] = fails
+            }
             fctr.Reset()
         }
         for src, uset := range usersWindowBySource {
-            prevWindowBySource.Uids[src] = int64(len(uset))
+            if u := int64(len(uset)); u > 0 {
+                prevWindowBySource.Uids[src] = u
+            }
         }
         // clear the set of per-source UIDs
         usersWindowBySource = make(map[string]map[string]struct{})
@@ -1145,6 +1153,14 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
             userIDCache.Unlock()
         }
         msgID, userID := midKey, uidKey
+
+        // ── Track unique users in the rolling‐window per source ────────────────
+        metricsMu.Lock()
+        if usersWindowBySource[srcIP] == nil {
+            usersWindowBySource[srcIP] = make(map[string]struct{})
+        }
+        usersWindowBySource[srcIP][userID] = struct{}{}
+        metricsMu.Unlock()
 
         // ── Track unique users per source IP ────────────────────────────────
         metricsMu.Lock()
