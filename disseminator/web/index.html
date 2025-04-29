@@ -483,10 +483,6 @@
     Map Overlay
   </label>
   <label>
-    <input type="checkbox" id="show-ports">
-    Show Ports
-  </label>
-  <label>
     <input type="checkbox" id="show-paths">
     History
   </label>
@@ -1658,62 +1654,6 @@ function addPortMarkers(ports) {
 }
 
 let debounceTimeout;
-
-function fetchPorts() {
-  const center = map.getCenter();
-  const zoom = map.getZoom();
-
-  if (zoom < 8) {
-    portLayerGroup.clearLayers();
-    currentPorts = [];
-    return; 
-  }
-
-  if (zoom >= 8) {
-    // Adjust the radius based on zoom level (higher zoom = smaller radius)
-    let radius;
-
-    if (zoom >= 8) {
-      radius = 100000;  // 100 km
-    } else {
-      radius = 200000; // 200 km 
-    }
-
-    // Prepare the POST request payload
-    const requestPayload = {
-      action: "within_radius",
-      latitude: center.lat,
-      longitude: center.lng,
-      radius: radius
-    };
-
-    // Call the /ports endpoint
-    fetch('/ports', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestPayload)
-    })
-    .then(response => response.json())
-    .then(ports => {
-      if (Array.isArray(ports) && ports.length > 0) {
-        // Add port markers to the map only if there are valid ports data
-        addPortMarkers(ports);
-      } else {
-        console.log('No ports data to display');
-      }
-    })
-    .catch(error => {
-      console.error('Error fetching ports:', error);
-    });
-  }
-}
-
-function removePortMarkers() {
-  portLayerGroup.clearLayers();
-  currentPorts = [];
-}
 
 function selectVesselById(UserID) {
   // Check if a marker already exists for the vessel.
@@ -3763,26 +3703,6 @@ document.getElementById("age-slider").addEventListener("input", () => {
     sendSummaryRequest();
     updateOverlay();  // Update the vessel overlay count
   }, 500);  // Adjust the debounce delay as needed.
-});
-
-map.on('moveend', function() {
-  if (document.getElementById('show-ports').checked) {
-	  clearTimeout(debounceTimeout);
-	  debounceTimeout = setTimeout(() => {
-	    fetchPorts();
-	  }, 500);  // Wait for 500ms after the map view has stopped changing
-  }
-});
-if (document.getElementById('show-ports').checked) {
-  fetchPorts();
-}
-
-document.getElementById('show-ports').addEventListener('change', function() {
-  if (this.checked) {
-    fetchPorts(); // Load and display the ports
-  } else {
-    removePortMarkers(); // Hide all port markers
-  }
 });
 
 map.on('zoomend', function() {
