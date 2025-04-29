@@ -1973,7 +1973,6 @@ if (data.UserID) {
   }
 
   addLine(lines, "Rate Of Turn", (data.RateOfTurn != null ? `${data.RateOfTurn}°/min` : null));
-  addLine(lines, "Position Accuracy", data.PositionAccuracy);
 
 if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
   // Wrap each numeric code in a clickable span
