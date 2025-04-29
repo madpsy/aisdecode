@@ -9,7 +9,6 @@ import (
 // ----------------------------------------------------------------------------
 // Register this decoder for MessageID=8, DAC=1, FI=29
 // ----------------------------------------------------------------------------
-
 func init() {
     RegisterDecoder(8, 1, 29, decode_8_1_29)
 }
@@ -19,9 +18,11 @@ func init() {
 // ----------------------------------------------------------------------------
 // decode_8_1_29 (using SafeGetUint)
 // ----------------------------------------------------------------------------
-
+// Assumes the first 56 bits (Message ID, repeat indicator, source MMSI,
+// sequence no., destination MMSI, retransmit flag, spare) have already
+// been stripped off.
 func decode_8_1_29(packet map[string]interface{}) (map[string]interface{}, error) {
-    // 1) Base64 → bits (assumes the first 56-bit header has been stripped)
+    // 1) Base64 → bits (each byte is one bit: 0 or 1)
     rawB64, ok := packet["BinaryData"].(string)
     if !ok {
         return nil, fmt.Errorf("decode_8_1_29: missing BinaryData")
@@ -32,57 +33,23 @@ func decode_8_1_29(packet map[string]interface{}) (map[string]interface{}, error
     }
     bits := raw
 
-    // 2) Field offsets (after stripping 18-bit header)
-    //                                    offset, length
+    // 2) Field offsets within the *payload* (bit 0 is the first bit after those 56 header bits):
     O := map[string][2]int{
-        "seq_num":    {0, 2},   // Sequence Number
-        "dest_id":    {2, 30},  // Destination MMSI
-        "retransmit": {32, 1},  // Retransmit Flag
-        // spare bit at 33
-        "linkage_id": {34, 10}, // Message Linkage ID
-        // text starts at bit 44, runs to end
+        "linkage_id": {0, 10}, // 10-bit Message Linkage ID
+        // text payload begins at bit 10
     }
 
     out := make(map[string]interface{})
 
-    // — Sequence Number —
-    sn, err := SafeGetUint(bits, O["seq_num"][0], O["seq_num"][1])
-    if err != nil {
-        return nil, fmt.Errorf("decode_8_1_29: seq_num: %v", err)
-    }
-    if sn <= 3 {
-        out["sequence_number"] = sn
-    }
-
-    // — Destination MMSI —
-    dest, err := SafeGetUint(bits, O["dest_id"][0], O["dest_id"][1])
-    if err != nil {
-        return nil, fmt.Errorf("decode_8_1_29: dest_id: %v", err)
-    }
-    if dest != 0 {
-        out["destination_mmsi"] = dest
-    }
-
-    // — Retransmit Flag —
-    rt, err := SafeGetUint(bits, O["retransmit"][0], O["retransmit"][1])
-    if err != nil {
-        return nil, fmt.Errorf("decode_8_1_29: retransmit: %v", err)
-    }
-    if rt <= 1 {
-        out["retransmit"] = (rt == 1)
-    }
-
-    // — Message Linkage ID —
-    ml, err := SafeGetUint(bits, O["linkage_id"][0], O["linkage_id"][1])
-    if err != nil {
+    // — Message Linkage ID (10 bits) —
+    if ml, err := SafeGetUint(bits, O["linkage_id"][0], O["linkage_id"][1]); err != nil {
         return nil, fmt.Errorf("decode_8_1_29: linkage_id: %v", err)
-    }
-    if ml != 0 {
+    } else if ml != 0 {
         out["message_linkage_id"] = ml
     }
 
     // — Text String (6-bit ASCII) —
-    const textOffset = 44
+    const textOffset = 10
     nBits := len(bits) - textOffset
     if nBits > 0 {
         nChars := nBits / 6
@@ -95,14 +62,15 @@ func decode_8_1_29(packet map[string]interface{}) (map[string]interface{}, error
             }
             var ch rune
             if code < 32 {
+                // 0–31 → '@' + code
                 ch = rune(code + 64)
             } else {
                 ch = rune(code)
             }
             runes = append(runes, ch)
         }
-        text := strings.TrimRight(string(runes), "@")
-        if text != "" {
+        // Trim any trailing '@' padding
+        if text := strings.TrimRight(string(runes), "@"); text != "" {
             out["text"] = text
         }
     }
