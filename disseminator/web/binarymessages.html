@@ -62,7 +62,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
   <!-- Zoom & Pan plugin for Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 </head>
 <body>
 
@@ -70,8 +70,10 @@
   <div id="output">Loading messages…</div>
 
   <script>
-    // Register the zoom plugin
+    // 1) register the zoom plugin
     Chart.register(ChartZoom);
+    // 2) make points small by default
+    Chart.defaults.elements.point.radius = 1;
 
     function getUserID() {
       const p = new URLSearchParams(window.location.search);
@@ -192,6 +194,7 @@
       const container = document.createElement('div');
       container.className = 'message';
 
+      // title + nav + table (unchanged) …
       const msg0 = history[0];
       const dac = msg0.Packet.ApplicationID.DesignatedAreaCode;
       const fi  = msg0.Packet.ApplicationID.FunctionIdentifier;
@@ -234,6 +237,7 @@
       btnOlder.onclick = () => { if (idx < history.length - 1) { idx++; refresh(); } };
       refresh();
 
+      // chart container + canvas
       const chartWrapper = document.createElement('div');
       chartWrapper.className = 'chart-container';
       const canvas = document.createElement('canvas');
@@ -244,7 +248,6 @@
       const times = history.map(m => new Date(m.Timestamp));
       const fields = Object.keys(records[0]).filter(f => typeof records[0][f] === 'number');
       const visible = new Set(fields.sort(() => Math.random() - .5).slice(0, 3));
-
       const datasets = fields.map(field => ({
         label: humanizeField(field),
         data: times.map((t, i) => ({ x: t, y: records[i][field] })),
@@ -252,14 +255,11 @@
         hidden: !visible.has(field)
       }));
 
-      // Create the zoomable/pannable chart with click-to-reset
-      new Chart(canvas.getContext('2d'), {
+      // 3) instantiate chart with the working zoom config:
+      const chart = new Chart(canvas.getContext('2d'), {
         type: 'line',
         data: { datasets },
         options: {
-          elements: {
-            point: { radius: 1, hoverRadius: 2 }
-          },
           maintainAspectRatio: false,
           scales: {
             x: {
@@ -282,17 +282,19 @@
               intersect: false
             },
             zoom: {
-              zoom: {
-                drag: true,
-                mode: 'x'
-              },
               pan: {
                 enabled: true,
                 mode: 'x'
               },
-              limits: {
-                x: { min: 'original', max: 'original' },
-                y: { min: 'original', max: 'original' }
+              zoom: {
+                wheel: { enabled: true },
+                drag: {
+                  enabled: true,
+                  backgroundColor: 'rgba(54, 162, 235, 0.3)'
+                },
+                pinch: { enabled: true },
+                mode: 'x',
+                doubleClickReset: true
               }
             }
           },
@@ -301,11 +303,12 @@
             axis: 'x',
             intersect: false
           },
-          // Single-click resets zoom
-          onClick: (_, __, chart) => {
-            chart.resetZoom();
-          }
         }
+      });
+
+      // 4) add dblclick listener to reset zoom
+      canvas.addEventListener('dblclick', () => {
+        chart.resetZoom();
       });
 
       document.getElementById('output').appendChild(container);
