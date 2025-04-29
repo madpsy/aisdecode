@@ -1961,7 +1961,6 @@ if (data.UserID) {
   }
 
   addLine(lines, "Maximum Draught", (data.MaximumStaticDraught != null ? `${data.MaximumStaticDraught} m` : null));
-  addLine(lines, "Position Msg ID", data.MessageID);
 
   if (data.Latitude != null && data.Longitude != null) {
     addLine(lines, "Latitude", data.Latitude.toFixed(5));
