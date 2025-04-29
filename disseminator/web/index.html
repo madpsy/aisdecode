@@ -1973,13 +1973,7 @@ if (data.UserID) {
   }
 
   addLine(lines, "Rate Of Turn", (data.RateOfTurn != null ? `${data.RateOfTurn}°/min` : null));
-  addLine(lines, "Timestamp", data.Timestamp);
   addLine(lines, "Position Accuracy", data.PositionAccuracy);
-
-  if (data.CommunicationState != null) {
-    const { syncState, slotTimeout, slotOffset } = decodeCommunicationState(data.CommunicationState);
-    lines.push(`Comms State: ${[syncState, slotTimeout, slotOffset].join(', ')}`);
-  }
 
 if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
   // Wrap each numeric code in a clickable span
