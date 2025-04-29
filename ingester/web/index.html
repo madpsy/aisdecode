@@ -439,6 +439,7 @@ function renderBlockedIps(data) {
           renderOverlappingClients(data.shards_multiple);
 	  renderUdpDestinations('udp_destinations', data.udp_destinations);
 	  renderBlockedIps(data);
+	  renderWindowBySource(data);
           
         } catch (err) {
           console.error('Error loading metrics:', err);
@@ -463,6 +464,32 @@ function renderBlockedIps(data) {
       });
 
     });
+function renderWindowBySource(data) {
+  const tbody = document
+    .getElementById('window_by_source')
+    .querySelector('tbody');
+  tbody.innerHTML = '';
+
+  const w = data.window_by_source || {};
+  const msgs   = w.messages    || {};
+  const bytes  = w.bytes       || {};
+  const fails  = w.failures    || {};
+  const unique = w.unique_uids || {};
+
+  Object.keys(msgs)
+    .sort((a, b) => msgs[b] - msgs[a])
+    .forEach(src => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${src}</td>
+        <td>${formatNumber(msgs[src]   )}</td>
+        <td>${formatNumber(bytes[src]  )}</td>
+        <td>${formatNumber(fails[src]  )}</td>
+        <td>${formatNumber(unique[src] )}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+}
   </script>
 </head>
 
@@ -511,6 +538,22 @@ function renderBlockedIps(data) {
       <tbody></tbody>
     </table>
   </section>
+
+<section>
+  <h3>By Source (last <span class="window-size"></span>s)</h3>
+  <table id="window_by_source">
+    <thead>
+      <tr>
+        <th>Source IP</th>
+        <th>Msgs</th>
+        <th>Bytes</th>
+        <th>Fails</th>
+        <th>Unique MMSI</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</section>
 
   <section>
     <h3>Failures by Source IP (Top 25)</h3>
