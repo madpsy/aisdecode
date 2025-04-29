@@ -201,16 +201,16 @@
 
 function updateBlockDOM(block) {
   const { dom, asm, history, idx } = block;
-  const m = history[idx];
+  const msg = history[idx];
 
-  // — title
-  const dac = m.Packet.ApplicationID.DesignatedAreaCode;
-  const fi  = m.Packet.ApplicationID.FunctionIdentifier;
+  // — Title
+  const dac = msg.Packet.ApplicationID.DesignatedAreaCode;
+  const fi  = msg.Packet.ApplicationID.FunctionIdentifier;
   dom.titleDiv.textContent =
-    asm[m.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
+    asm[msg.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
 
-  // — timestamp & nav
-  dom.tsDiv.textContent = new Date(m.Timestamp).toLocaleString([], {
+  // — Timestamp & nav
+  dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
     hour12: false,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit'
@@ -219,39 +219,28 @@ function updateBlockDOM(block) {
   dom.btnOlder.disabled = idx === history.length - 1;
   dom.counter.textContent = `${idx + 1} of ${history.length}`;
 
-  // — table
-  const flat = flattenObject(m.Packet.DecodedBinary);
-  dom.tableContainer.innerHTML = makeTableHTML(flat);
+  // — Table
+  dom.tableContainer.innerHTML =
+    makeTableHTML(flattenObject(msg.Packet.DecodedBinary));
 
-  // — prepare new chart data
-  const records = history.map(x => flattenObject(x.Packet.DecodedBinary));
-  const times   = history.map(x => new Date(x.Timestamp));
+  // — Build the raw arrays
+  const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
+  const times   = history.map(m => new Date(m.Timestamp));
   const fields  = Object.keys(records[0]).filter(f => typeof records[0][f] === 'number');
-
-  // 1) capture existing hidden states
-  const prevHidden = {};
-  if (block.chart) {
-    block.chart.data.datasets.forEach(ds => {
-      prevHidden[ds.label] = ds.hidden;
-    });
-  }
-
-  // 2) build datasets, reusing hidden or defaulting to first 3 visible
   const defaultVisible = new Set(fields.slice(0, 3));
-  const datasets = fields.map(field => {
-    const label = humanizeField(field);
-    return {
-      label,
-      data: times.map((t, i) => ({ x: t, y: records[i][field] })),
-      borderWidth: 1,
-      hidden: prevHidden[label] != null
-              ? prevHidden[label]
-              : !defaultVisible.has(field)
-    };
-  });
 
-  // 3) create or update chart
+  // — Create or update datasets, reusing existing instances to keep `.hidden`
+  let datasets;
   if (!block.chart) {
+    // First‐time creation
+    datasets = fields.map(field => ({
+      label:    humanizeField(field),
+      data:     times.map((t, i) => ({ x: t, y: records[i][field] })),
+      borderWidth: 1,
+      hidden:   !defaultVisible.has(field),
+      _fieldKey: field
+    }));
+
     block.chart = new Chart(dom.canvas.getContext('2d'), {
       type: 'line',
       data: { datasets },
@@ -276,15 +265,43 @@ function updateBlockDOM(block) {
           },
           tooltip: { mode: 'index', intersect: false },
           zoom: {
-            pan:   { enabled: true, mode: 'x' },
-            zoom:  { wheel: { enabled: true }, drag: { enabled: true, backgroundColor: 'rgba(54,162,235,0.3)' }, pinch: { enabled: true }, mode: 'x', doubleClickReset: true }
+            pan: { enabled: true, mode: 'x' },
+            zoom: {
+              wheel: { enabled: true },
+              drag: { enabled: true, backgroundColor: 'rgba(54,162,235,0.3)' },
+              pinch: { enabled: true },
+              mode: 'x',
+              doubleClickReset: true
+            }
           }
         },
         interaction: { mode: 'nearest', axis: 'x', intersect: false }
       }
     });
+
+    // double-click to reset zoom
     dom.canvas.addEventListener('dblclick', () => block.chart.resetZoom());
+
   } else {
+    // Subsequent refreshes: find & update existing datasets
+    const oldDatasets = block.chart.data.datasets;
+    datasets = fields.map(field => {
+      const existing = oldDatasets.find(ds => ds._fieldKey === field);
+      if (existing) {
+        existing.data = times.map((t, i) => ({ x: t, y: records[i][field] }));
+        return existing;
+      }
+      // brand-new field
+      return {
+        label:    humanizeField(field),
+        data:     times.map((t, i) => ({ x: t, y: records[i][field] })),
+        borderWidth: 1,
+        hidden:   !defaultVisible.has(field),
+        _fieldKey: field
+      };
+    });
+
+    // replace the array and redraw
     block.chart.data.datasets = datasets;
     block.chart.update();
   }
