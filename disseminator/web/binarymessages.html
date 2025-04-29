@@ -44,7 +44,10 @@
       vertical-align: top;
     }
     th { background: #f0f0f0; }
+    .chart { margin-top: 1rem; max-width: 100%; height: 300px; }
   </style>
+  <!-- Include Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
@@ -150,7 +153,6 @@
     }
     output.innerHTML = '';
 
-    // Initialize history and render for each message type
     await Promise.all(decoded.map(msg => initHistory(msg, userID, asm)));
   }
 
@@ -172,7 +174,6 @@
 
   function renderBlock(history, asm) {
     let idx = 0;
-
     const container = document.createElement('div');
     container.className = 'message';
 
@@ -191,7 +192,7 @@
     tsDiv.className = 'ts';
     container.appendChild(tsDiv);
 
-    // Nav (arrows + counter) under timestamp
+    // Nav (arrows + counter)
     const nav = document.createElement('div');
     nav.className = 'nav';
     const btnNewer = document.createElement('button');
@@ -208,31 +209,78 @@
     tableContainer.className = 'table-container';
     container.appendChild(tableContainer);
 
+    // Chart canvas
+    const canvas = document.createElement('canvas');
+    canvas.className = 'chart';
+    container.appendChild(canvas);
+
+    // Gather all numeric fields
+    const allFields = [];
+    const numericSet = new Set();
+    history.forEach(m => {
+      const flat = flattenObject(m.Packet.DecodedBinary);
+      Object.entries(flat).forEach(([k, v]) => {
+        if (typeof v === 'number' && isFinite(v)) {
+          numericSet.add(k);
+        }
+      });
+    });
+    const fields = Array.from(numericSet);
+    // Pick 3 random by default
+    const defaultFields = fields.sort(() => 0.5 - Math.random()).slice(0, 3);
+
     function refresh() {
       const m = history[idx];
-      tsDiv.textContent = new Date(m.Timestamp).toLocaleString();
+      tsDiv.textContent = new Date(m.Timestamp).toLocaleString('default', { hour12: false, hour: '2-digit', minute: '2-digit', month: 'numeric', day: 'numeric' });
       tableContainer.innerHTML = makeTableHTML(flattenObject(m.Packet.DecodedBinary));
-      btnNewer.disabled = (idx === 0);
-      btnOlder.disabled = (idx === history.length - 1);
+      btnNewer.disabled = idx === 0;
+      btnOlder.disabled = idx === history.length - 1;
       counter.textContent = `${idx + 1} of ${history.length}`;
     }
 
-    btnNewer.addEventListener('click', () => {
-      if (idx > 0) {
-        idx--;
-        refresh();
-      }
-    });
-    btnOlder.addEventListener('click', () => {
-      if (idx < history.length - 1) {
-        idx++;
-        refresh();
-      }
-    });
+    btnNewer.addEventListener('click', () => { if (idx > 0) { idx--; refresh(); } });
+    btnOlder.addEventListener('click', () => { if (idx < history.length - 1) { idx++; refresh(); } });
 
     // Initial draw
     refresh();
     document.getElementById('output').appendChild(container);
+
+    // Initialize Chart.js
+    const ctx = canvas.getContext('2d');
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: history.map(m => new Date(m.Timestamp).toLocaleString('default', { hour12: false, hour: '2-digit', minute: '2-digit', month: 'numeric', day: 'numeric' })),
+        datasets: fields.map(field => ({
+          label: humanizeField(field),
+          data: history.map(m => {
+            const flat = flattenObject(m.Packet.DecodedBinary);
+            return flat[field] != null ? flat[field] : null;
+          }),
+          hidden: !defaultFields.includes(field),
+          fill: false
+        }))
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            display: true,
+            onClick: (e, legendItem, legend) => {
+              const index = legendItem.datasetIndex;
+              const ci = legend.chart;
+              const meta = ci.getDatasetMeta(index);
+              meta.hidden = meta.hidden === null ? !legendItem.hidden : null;
+              ci.update();
+            }
+          }
+        },
+        scales: {
+          x: { title: { display: true, text: 'Time' } },
+          y: { title: { display: true, text: 'Value' } }
+        }
+      }
+    });
   }
 
   main();
