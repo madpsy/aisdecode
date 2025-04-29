@@ -1,5 +1,11 @@
 https://www.e-navigation.nl/asm?order=field_fi&sort=asc
 
+
+Type 8 messages have had their 56 bit header bits already stripped and available in the JSON already
+Type 6 messages have had their 88 bit header bits already stripped and available in the JSON already
+
+When adding a new decoder ensure to add its description to disseminator/web/asm.json
+
 Get list of received binary messages:
 
 

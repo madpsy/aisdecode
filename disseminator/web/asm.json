@@ -4,6 +4,11 @@
       "0": {
         "Title": "Text using 6-bit ASCII"
       }
+    },
+    "235": {
+      "10": {
+        "Title": "Aids to Navigation monitoring data"
+      }
     }
   },
   "8": {
@@ -17,12 +22,10 @@
       "31": {
         "Title": "Meteorological and Hydrographic data"
       }
-    }
-  },
-  "6": {
-    "235": {
+    },
+    "200": {
       "10": {
-        "Title": "Aids to Navigation monitoring data"
+        "Title": "Inland ship static and voyage related data"
       }
     }
   }

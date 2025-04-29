@@ -91,6 +91,8 @@ var (
     }
 )
 
+var prevClientWindows []map[string]interface{}
+
 // FixedWindowCounter counts events in a fixed-duration window and resets at each tick.
 type FixedWindowCounter struct {
 	mu    sync.Mutex
@@ -628,7 +630,7 @@ func startMetricsReset() {
     defer ticker.Stop()
 
     for range ticker.C {
-        // 1) Snapshot & reset under a single metricsMu lock
+        // 1) Snapshot & reset global/window‐by‐source metrics
         metricsMu.Lock()
         // — snapshot the globals —
         previousPeriodMetrics.windowMsgs           = totalCounter.Count()
@@ -639,7 +641,7 @@ func startMetricsReset() {
         previousPeriodMetrics.windowBytesReceived  = bytesReceivedWindow.Sum()
         previousPeriodMetrics.windowBytesForwarded = bytesForwardedWindow.Sum()
 
-        // — snapshot per-source into prevWindowBySource —
+        // — snapshot per-source into prevWindowBySource and reset —
         prevWindowBySource.Msgs  = make(map[string]int64, len(msgWindowBySource))
         prevWindowBySource.Bytes = make(map[string]int64, len(bytesWindowBySource))
         prevWindowBySource.Fails = make(map[string]int64, len(failWindowBySource))
@@ -668,7 +670,7 @@ func startMetricsReset() {
                 prevWindowBySource.Uids[src] = u
             }
         }
-        // clear the set of per-source UIDs
+        // clear the per-source UID sets
         usersWindowBySource = make(map[string]map[string]struct{})
 
         // — reset the global windowed counters —
@@ -681,12 +683,32 @@ func startMetricsReset() {
         bytesForwardedWindow.Reset()
         metricsMu.Unlock()
 
-        // 2) Reset each client’s own windows under clientsMu
+        // 2) Snapshot & reset each client’s windows
         clientsMu.Lock()
+        newPrev := make([]map[string]interface{}, 0, len(clients))
         for _, c := range clients {
+            c.mu.Lock()
+            msgsInWindow := c.messageWindow.Count()
+            bytesInWindow := c.bytesWindow.Sum()
+            c.mu.Unlock()
+
+            // record the snapshot
+            newPrev = append(newPrev, map[string]interface{}{
+                "ip":                 c.ip,
+                "shards":             c.shards,
+                "description":        c.description,
+                "port":               c.port,
+                "messages_sent":      c.messagesSent,      // cumulative
+                "bytes_sent":         c.bytesSent,         // cumulative
+                "messages_per_window": msgsInWindow,       // this interval
+                "bytes_per_window":    bytesInWindow,      // this interval
+            })
+
+            // now reset for the next interval
             c.messageWindow.Reset()
             c.bytesWindow.Reset()
         }
+        prevClientWindows = newPrev
         clientsMu.Unlock()
     }
 }
@@ -1471,22 +1493,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	windowBytesForwarded := previousPeriodMetrics.windowBytesForwarded
 
 	// gather client‐level stream metrics
-	clientMetrics := []map[string]interface{}{}
-	clientsMu.Lock()
-	for _, c := range clients {
-		c.mu.Lock()
-		clientMetrics = append(clientMetrics, map[string]interface{}{
-			"ip":              c.ip,
-			"shards":          c.shards,
-			"messages_sent":   c.messagesSent,
-			"bytes_sent":      c.bytesSent,
-			"window_messages": c.messageWindow.Count(),
-			"window_bytes":    c.bytesWindow.Sum(),
-		})
-		c.mu.Unlock()
-	}
-	clientsMu.Unlock()
-
+	clientMetrics := prevClientWindows
 	totalClients := getTotalClients()
 	shardsMissing := getShardsMissing()
 	shardsMultiple := getShardsMultiple()
@@ -1664,7 +1671,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		// shard & client metrics
 		"messages_per_shard":                     msgs,
 		"user_ids_per_shard":                     uids,
-		"connected_clients":                      connected,
+		"connected_clients":                      clientMetrics,
 
 		// data‐transfer totals & ratios
 		"total_bytes_received":                   totalBytesReceived,
