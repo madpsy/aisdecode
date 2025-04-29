@@ -44,247 +44,258 @@
       vertical-align: top;
     }
     th { background: #f0f0f0; }
-    .chart { margin-top: 1rem; max-width: 100%; height: 300px; }
+
+    /* —— Chart container styling —— */
+    .message .chart-container {
+      position: relative;
+      width: 100%;
+      height: 300px;         /* adjust height as needed */
+      margin-top: 1rem;
+    }
+    .message .chart-container canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
   </style>
-  <!-- Include Chart.js -->
+
+  <!-- Chart.js and date adapter for time scales -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 </head>
 <body>
 
-<h1 id="main-title">Loading vessel…</h1>
-<div id="output">Loading messages…</div>
+  <h1 id="main-title">Loading vessel…</h1>
+  <div id="output">Loading messages…</div>
 
-<script>
-  function getUserID() {
-    const p = new URLSearchParams(window.location.search);
-    const v = p.get('UserID');
-    return v && /^\d+$/.test(v) ? v : null;
-  }
+  <script>
+    function getUserID() {
+      const p = new URLSearchParams(window.location.search);
+      const v = p.get('UserID');
+      return v && /^\d+$/.test(v) ? v : null;
+    }
 
-  function flattenObject(obj, parentKey = '', res = {}) {
-    for (const [k, v] of Object.entries(obj)) {
-      const nk = parentKey ? `${parentKey}.${k}` : k;
-      if (v != null && typeof v === 'object' && !Array.isArray(v)) {
-        flattenObject(v, nk, res);
-      } else {
-        res[nk] = v;
+    function flattenObject(obj, parentKey = '', res = {}) {
+      for (const [k, v] of Object.entries(obj)) {
+        const nk = parentKey ? `${parentKey}.${k}` : k;
+        if (v != null && typeof v === 'object' && !Array.isArray(v)) {
+          flattenObject(v, nk, res);
+        } else {
+          res[nk] = v;
+        }
       }
-    }
-    return res;
-  }
-
-  function formatValue(val) {
-    if (typeof val === 'number' && isFinite(val)) {
-      return parseFloat(val.toFixed(4)).toString();
-    }
-    return String(val);
-  }
-
-  function humanizeField(field) {
-    return field.replace(/[_\.]/g, ' ');
-  }
-
-  function makeTableHTML(data) {
-    return `
-      <table>
-        <thead><tr><th>Field</th><th>Value</th></tr></thead>
-        <tbody>
-          ${Object.entries(data).map(([f, v]) =>
-            `<tr>
-               <td>${humanizeField(f)}</td>
-               <td>${formatValue(v)}</td>
-             </tr>`
-          ).join('')}
-        </tbody>
-      </table>`;
-  }
-
-  async function main() {
-    const userID = getUserID();
-    const titleEl = document.getElementById('main-title');
-    const output = document.getElementById('output');
-    if (!userID) {
-      titleEl.textContent = 'Error';
-      output.innerHTML = '<div class="error">Invalid or missing numeric UserID parameter.</div>';
-      return;
+      return res;
     }
 
-    // Fetch vessel summary
-    let summary;
-    try {
-      const r = await fetch(`/summary?UserID=${userID}`);
-      if (!r.ok) throw '';
-      summary = await r.json();
-    } catch {
-      titleEl.textContent = 'Error';
-      output.innerHTML = '<div class="error">Failed to load summary</div>';
-      return;
-    }
-    const info = summary[userID] || {};
-    const name = info.Name?.trim() ? info.Name : userID;
-    titleEl.textContent = `Latest Messages for ${name}`;
-
-    // Fetch asm.json
-    let asm;
-    try {
-      const r = await fetch('/asm.json');
-      if (!r.ok) throw '';
-      asm = await r.json();
-    } catch {
-      output.innerHTML = '<div class="error">Failed to load asm.json</div>';
-      return;
+    function formatValue(val) {
+      if (typeof val === 'number' && isFinite(val)) {
+        return parseFloat(val.toFixed(4)).toString();
+      }
+      return String(val);
     }
 
-    // Fetch all messages
-    let allMsgs;
-    try {
-      const r = await fetch(`/latestmessages?UserID=${userID}`);
-      if (r.status !== 200) throw '';
-      allMsgs = await r.json();
-    } catch {
-      output.innerHTML = '<div class="error">Vessel Not Found</div>';
-      return;
+    function humanizeField(field) {
+      return field.replace(/[_\.]/g, ' ');
     }
 
-    const decoded = allMsgs.filter(m => m.Packet?.DecodedBinary);
-    if (!decoded.length) {
-      output.innerHTML = '<div>No decoded-binary messages available.</div>';
-      return;
+    function makeTableHTML(data) {
+      return `
+        <table>
+          <thead><tr><th>Field</th><th>Value</th></tr></thead>
+          <tbody>
+            ${Object.entries(data).map(([f, v]) =>
+              `<tr>
+                 <td>${humanizeField(f)}</td>
+                 <td>${formatValue(v)}</td>
+               </tr>`
+            ).join('')}
+          </tbody>
+        </table>`;
     }
-    output.innerHTML = '';
 
-    await Promise.all(decoded.map(msg => initHistory(msg, userID, asm)));
-  }
+    async function main() {
+      const userID = getUserID();
+      const titleEl = document.getElementById('main-title');
+      const output = document.getElementById('output');
+      if (!userID) {
+        titleEl.textContent = 'Error';
+        output.innerHTML = '<div class="error">Invalid or missing numeric UserID parameter.</div>';
+        return;
+      }
 
-  async function initHistory(initialMsg, userID, asm) {
-    const url = `/latestmessages?UserID=${userID}`
-      + `&MessageID=${initialMsg.MessageID}&limit=100`;
-    let arr = [];
-    try {
-      const r = await fetch(url);
-      if (r.ok) arr = await r.json();
-    } catch {}
-    const history = arr
-      .filter(m => m.Packet?.DecodedBinary)
-      .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
-    if (!history.length) history.push(initialMsg);
+      // Fetch vessel summary
+      let summary;
+      try {
+        const r = await fetch(`/summary?UserID=${userID}`);
+        if (!r.ok) throw '';
+        summary = await r.json();
+      } catch {
+        titleEl.textContent = 'Error';
+        output.innerHTML = '<div class="error">Failed to load summary</div>';
+        return;
+      }
+      const info = summary[userID] || {};
+      const name = info.Name?.trim() ? info.Name : userID;
+      titleEl.textContent = `Latest Messages for ${name}`;
 
-    renderBlock(history, asm);
-  }
+      // Fetch asm.json
+      let asm;
+      try {
+        const r = await fetch('/asm.json');
+        if (!r.ok) throw '';
+        asm = await r.json();
+      } catch {
+        output.innerHTML = '<div class="error">Failed to load asm.json</div>';
+        return;
+      }
 
-  function renderBlock(history, asm) {
-    let idx = 0;
-    const container = document.createElement('div');
-    container.className = 'message';
+      // Fetch all messages
+      let allMsgs;
+      try {
+        const r = await fetch(`/latestmessages?UserID=${userID}`);
+        if (r.status !== 200) throw '';
+        allMsgs = await r.json();
+      } catch {
+        output.innerHTML = '<div class="error">Vessel Not Found</div>';
+        return;
+      }
 
-    // Title
-    const msg0 = history[0];
-    const dac = msg0.Packet.ApplicationID.DesignatedAreaCode;
-    const fi = msg0.Packet.ApplicationID.FunctionIdentifier;
-    const title = asm[msg0.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
-    const titleDiv = document.createElement('div');
-    titleDiv.className = 'title';
-    titleDiv.textContent = title;
-    container.appendChild(titleDiv);
+      const decoded = allMsgs.filter(m => m.Packet?.DecodedBinary);
+      if (!decoded.length) {
+        output.innerHTML = '<div>No decoded-binary messages available.</div>';
+        return;
+      }
+      output.innerHTML = '';
 
-    // Timestamp
-    const tsDiv = document.createElement('div');
-    tsDiv.className = 'ts';
-    container.appendChild(tsDiv);
+      await Promise.all(decoded.map(msg => initHistory(msg, userID, asm)));
+    }
 
-    // Nav (arrows + counter)
-    const nav = document.createElement('div');
-    nav.className = 'nav';
-    const btnNewer = document.createElement('button');
-    btnNewer.textContent = '◀️';
-    const counter = document.createElement('div');
-    counter.className = 'counter';
-    const btnOlder = document.createElement('button');
-    btnOlder.textContent = '▶️';
-    nav.append(btnNewer, counter, btnOlder);
-    container.appendChild(nav);
+    async function initHistory(initialMsg, userID, asm) {
+      const url = `/latestmessages?UserID=${userID}`
+                + `&MessageID=${initialMsg.MessageID}&limit=100`;
+      let arr = [];
+      try {
+        const r = await fetch(url);
+        if (r.ok) arr = await r.json();
+      } catch {}
+      const history = arr
+        .filter(m => m.Packet?.DecodedBinary)
+        .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+      if (!history.length) history.push(initialMsg);
 
-    // Table container
-    const tableContainer = document.createElement('div');
-    tableContainer.className = 'table-container';
-    container.appendChild(tableContainer);
+      renderBlock(history, asm);
+    }
 
-    // Chart canvas
-    const canvas = document.createElement('canvas');
-    canvas.className = 'chart';
-    container.appendChild(canvas);
+    function renderBlock(history, asm) {
+      let idx = 0;
+      const container = document.createElement('div');
+      container.className = 'message';
 
-    // Gather all numeric fields
-    const allFields = [];
-    const numericSet = new Set();
-    history.forEach(m => {
-      const flat = flattenObject(m.Packet.DecodedBinary);
-      Object.entries(flat).forEach(([k, v]) => {
-        if (typeof v === 'number' && isFinite(v)) {
-          numericSet.add(k);
+      // Title
+      const msg0 = history[0];
+      const dac = msg0.Packet.ApplicationID.DesignatedAreaCode;
+      const fi  = msg0.Packet.ApplicationID.FunctionIdentifier;
+      const title = asm[msg0.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
+      const titleDiv = document.createElement('div');
+      titleDiv.className = 'title';
+      titleDiv.textContent = title;
+      container.appendChild(titleDiv);
+
+      // Timestamp & Nav
+      const tsDiv = document.createElement('div');
+      tsDiv.className = 'ts';
+      const nav = document.createElement('div');
+      nav.className = 'nav';
+      const btnNewer = document.createElement('button');
+      const btnOlder = document.createElement('button');
+      const counter = document.createElement('div');
+      btnNewer.textContent = '◀️';
+      btnOlder.textContent = '▶️';
+      counter.className = 'counter';
+      nav.append(btnNewer, counter, btnOlder);
+      container.append(tsDiv, nav);
+
+      // Table
+      const tableContainer = document.createElement('div');
+      tableContainer.className = 'table-container';
+      container.appendChild(tableContainer);
+
+      function refresh() {
+        const m = history[idx];
+        tsDiv.textContent = new Date(m.Timestamp).toLocaleString([], {
+          hour12: false,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+        tableContainer.innerHTML = makeTableHTML(flattenObject(m.Packet.DecodedBinary));
+        btnNewer.disabled = idx === 0;
+        btnOlder.disabled = idx === history.length - 1;
+        counter.textContent = `${idx + 1} of ${history.length}`;
+      }
+      btnNewer.onclick = () => { if (idx > 0) { idx--; refresh(); } };
+      btnOlder.onclick = () => { if (idx < history.length - 1) { idx++; refresh(); } };
+      refresh();
+
+      // Chart.js setup
+      const chartWrapper = document.createElement('div');
+      chartWrapper.className = 'chart-container';
+      const canvas = document.createElement('canvas');
+      chartWrapper.appendChild(canvas);
+      container.appendChild(chartWrapper);
+
+      const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
+      const times = history.map(m => new Date(m.Timestamp));
+      const fields = Object.keys(records[0]).filter(f => typeof records[0][f] === 'number');
+      const visible = new Set(fields.sort(() => Math.random() - .5).slice(0, 3));
+
+      const datasets = fields.map(field => ({
+        label: humanizeField(field),
+        data: times.map((t, i) => ({ x: t, y: records[i][field] })),
+        borderWidth: 1,
+        hidden: !visible.has(field)
+      }));
+
+      new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { datasets },
+        options: {
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              type: 'time',
+              time: {
+                tooltipFormat: 'HH:mm:ss',
+                displayFormats: { hour: 'HH:mm', minute: 'HH:mm' }
+              },
+              ticks: { autoSkip: true, maxRotation: 0 }
+            },
+            y: { beginAtZero: false }
+          },
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: {
+                boxWidth: 8,
+                padding: 8,
+                font: { size: 10 }
+              }
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false
+            }
+          },
+          interaction: {
+            mode: 'nearest',
+            axis: 'x',
+            intersect: false
+          }
         }
       });
-    });
-    const fields = Array.from(numericSet);
-    // Pick 3 random by default
-    const defaultFields = fields.sort(() => 0.5 - Math.random()).slice(0, 3);
 
-    function refresh() {
-      const m = history[idx];
-      tsDiv.textContent = new Date(m.Timestamp).toLocaleString('default', { hour12: false, hour: '2-digit', minute: '2-digit', month: 'numeric', day: 'numeric' });
-      tableContainer.innerHTML = makeTableHTML(flattenObject(m.Packet.DecodedBinary));
-      btnNewer.disabled = idx === 0;
-      btnOlder.disabled = idx === history.length - 1;
-      counter.textContent = `${idx + 1} of ${history.length}`;
+      document.getElementById('output').appendChild(container);
     }
 
-    btnNewer.addEventListener('click', () => { if (idx > 0) { idx--; refresh(); } });
-    btnOlder.addEventListener('click', () => { if (idx < history.length - 1) { idx++; refresh(); } });
-
-    // Initial draw
-    refresh();
-    document.getElementById('output').appendChild(container);
-
-    // Initialize Chart.js
-    const ctx = canvas.getContext('2d');
-    new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: history.map(m => new Date(m.Timestamp).toLocaleString('default', { hour12: false, hour: '2-digit', minute: '2-digit', month: 'numeric', day: 'numeric' })),
-        datasets: fields.map(field => ({
-          label: humanizeField(field),
-          data: history.map(m => {
-            const flat = flattenObject(m.Packet.DecodedBinary);
-            return flat[field] != null ? flat[field] : null;
-          }),
-          hidden: !defaultFields.includes(field),
-          fill: false
-        }))
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: {
-            display: true,
-            onClick: (e, legendItem, legend) => {
-              const index = legendItem.datasetIndex;
-              const ci = legend.chart;
-              const meta = ci.getDatasetMeta(index);
-              meta.hidden = meta.hidden === null ? !legendItem.hidden : null;
-              ci.update();
-            }
-          }
-        },
-        scales: {
-          x: { title: { display: true, text: 'Time' } },
-          y: { title: { display: true, text: 'Value' } }
-        }
-      }
-    });
-  }
-
-  main();
-</script>
-
+    main();
+  </script>
 </body>
 </html>
