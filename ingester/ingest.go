@@ -72,6 +72,25 @@ var userIDCache = struct {
 	m map[uint32]string
 }{m: make(map[uint32]string)}
 
+var (
+    msgWindowBySource   = make(map[string]*FixedWindowCounter)
+    bytesWindowBySource = make(map[string]*FixedWindowBytesCounter)
+    failWindowBySource  = make(map[string]*FixedWindowCounter)
+    usersWindowBySource = make(map[string]map[string]struct{})
+
+    prevWindowBySource = struct {
+        Msgs  map[string]int64
+        Bytes map[string]int64
+        Fails map[string]int64
+        Uids  map[string]int64
+    }{
+        Msgs:  make(map[string]int64),
+        Bytes: make(map[string]int64),
+        Fails: make(map[string]int64),
+        Uids:  make(map[string]int64),
+    }
+)
+
 // FixedWindowCounter counts events in a fixed-duration window and resets at each tick.
 type FixedWindowCounter struct {
 	mu    sync.Mutex
@@ -605,40 +624,63 @@ func initializeUDPDestinationMetrics() {
 
 // startMetricsReset resets all fixed-window counters every metricWindowSize period.
 func startMetricsReset() {
-	ticker := time.NewTicker(metricWindowSize)
-	defer ticker.Stop()
+    ticker := time.NewTicker(metricWindowSize)
+    defer ticker.Stop()
 
-	for range ticker.C {
-		// Capture current metrics into the previousPeriodMetrics before resetting
-		metricsMu.Lock()
-		previousPeriodMetrics.windowMsgs = totalCounter.Count()
-		previousPeriodMetrics.windowFailures = failureCounter.Count()
-		previousPeriodMetrics.windowDownsampled = downsampledCounter.Count()
-		previousPeriodMetrics.windowDedup = dedupCounter.Count()
-		previousPeriodMetrics.windowForwarded = forwardedCounter.Count()
-		previousPeriodMetrics.windowBytesReceived = bytesReceivedWindow.Sum()
-		previousPeriodMetrics.windowBytesForwarded = bytesForwardedWindow.Sum()
-		metricsMu.Unlock()
+    for range ticker.C {
+        // 1) Snapshot & reset under a single metricsMu lock
+        metricsMu.Lock()
+        // — snapshot the globals —
+        previousPeriodMetrics.windowMsgs          = totalCounter.Count()
+        previousPeriodMetrics.windowFailures      = failureCounter.Count()
+        previousPeriodMetrics.windowDownsampled   = downsampledCounter.Count()
+        previousPeriodMetrics.windowDedup         = dedupCounter.Count()
+        previousPeriodMetrics.windowForwarded     = forwardedCounter.Count()
+        previousPeriodMetrics.windowBytesReceived = bytesReceivedWindow.Sum()
+        previousPeriodMetrics.windowBytesForwarded = bytesForwardedWindow.Sum()
 
-		// Reset all counters
-		metricsMu.Lock()
-		totalCounter.Reset()
-		failureCounter.Reset()
-		downsampledCounter.Reset()
-		dedupCounter.Reset()
-		forwardedCounter.Reset()
-		bytesReceivedWindow.Reset()
-		bytesForwardedWindow.Reset()
-		metricsMu.Unlock()
+        // — snapshot per-source into prevWindowBySource —
+        prevWindowBySource.Msgs  = make(map[string]int64, len(msgWindowBySource))
+        prevWindowBySource.Bytes = make(map[string]int64, len(bytesWindowBySource))
+        prevWindowBySource.Fails = make(map[string]int64, len(failWindowBySource))
+        prevWindowBySource.Uids  = make(map[string]int64, len(usersWindowBySource))
 
-		// Reset client-specific windows
-		clientsMu.Lock()
-		for _, c := range clients {
-			c.messageWindow.Reset()
-			c.bytesWindow.Reset()
-		}
-		clientsMu.Unlock()
-	}
+        for src, ctr := range msgWindowBySource {
+            prevWindowBySource.Msgs[src] = ctr.Count()
+            ctr.Reset()
+        }
+        for src, bctr := range bytesWindowBySource {
+            prevWindowBySource.Bytes[src] = bctr.Sum()
+            bctr.Reset()
+        }
+        for src, fctr := range failWindowBySource {
+            prevWindowBySource.Fails[src] = fctr.Count()
+            fctr.Reset()
+        }
+        for src, uset := range usersWindowBySource {
+            prevWindowBySource.Uids[src] = int64(len(uset))
+        }
+        // clear the set of per-source UIDs
+        usersWindowBySource = make(map[string]map[string]struct{})
+
+        // — reset the global windowed counters —
+        totalCounter.Reset()
+        failureCounter.Reset()
+        downsampledCounter.Reset()
+        dedupCounter.Reset()
+        forwardedCounter.Reset()
+        bytesReceivedWindow.Reset()
+        bytesForwardedWindow.Reset()
+        metricsMu.Unlock()
+
+        // 2) Reset each client’s own windows under clientsMu
+        clientsMu.Lock()
+        for _, c := range clients {
+            c.messageWindow.Reset()
+            c.bytesWindow.Reset()
+        }
+        clientsMu.Unlock()
+    }
 }
 
 func main() {
@@ -997,6 +1039,17 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         bytesReceivedTotals[srcIP] += int64(len(pkt.raw))
         totalBytesReceived += int64(len(pkt.raw))
         totalSourceCounters.AddEvent()
+
+	if msgWindowBySource[srcIP] == nil {
+	    msgWindowBySource[srcIP] = NewFixedWindowCounter()
+	}
+	msgWindowBySource[srcIP].AddEvent()
+	
+	if bytesWindowBySource[srcIP] == nil {
+	    bytesWindowBySource[srcIP] = NewFixedWindowBytesCounter()
+	}
+	bytesWindowBySource[srcIP].Add(int64(len(pkt.raw)))
+
         metricsMu.Unlock()
 
         bytesReceivedWindow.Add(int64(len(pkt.raw)))
@@ -1023,6 +1076,10 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
                 failureSourceCounters[srcIP] = NewFixedWindowCounter()
             }
             failureSourceCounters[srcIP].AddEvent()
+	    if failWindowBySource[srcIP] == nil {
+		failWindowBySource[srcIP] = NewFixedWindowCounter()
+	    }
+	    failWindowBySource[srcIP].AddEvent()
             metricsMu.Unlock()
 
             if failedDecodeLogger != nil {
@@ -1388,6 +1445,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	defer metricsMu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
 
+	// rolling‐window snapshots
 	windowMsgs := previousPeriodMetrics.windowMsgs
 	windowFailures := previousPeriodMetrics.windowFailures
 	windowDownsampled := previousPeriodMetrics.windowDownsampled
@@ -1396,6 +1454,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	windowBytesReceived := previousPeriodMetrics.windowBytesReceived
 	windowBytesForwarded := previousPeriodMetrics.windowBytesForwarded
 
+	// gather client‐level stream metrics
 	clientMetrics := []map[string]interface{}{}
 	clientsMu.Lock()
 	for _, c := range clients {
@@ -1434,6 +1493,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		Count    int64  `json:"count"`
 	}
 
+	// top-25 per‐user aggregates
 	users := []userStat{}
 	for uid, cnt := range userIDTotals {
 		users = append(users, userStat{UserID: uid, Count: cnt, PerMessageID: perUserMessageIDCount[uid]})
@@ -1461,6 +1521,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		dupUsers = dupUsers[:25]
 	}
 
+	// top-25 failure and total by source
 	failures := []sourceStat{}
 	for src, cnt := range failureSourceTotals {
 		failures = append(failures, sourceStat{SourceIP: src, Count: cnt})
@@ -1497,23 +1558,17 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		dupSources = dupSources[:25]
 	}
 
-        // build and cap top-25 unique users per source IP
-        uniqUsers := []sourceStat{}
-        for ip, users := range userIDsPerSource {
-            uniqUsers = append(uniqUsers, sourceStat{
-                SourceIP: ip,
-                Count:    int64(len(users)),
-            })
-        }
-        // sort descending by count
-        sort.Slice(uniqUsers, func(i, j int) bool {
-            return uniqUsers[i].Count > uniqUsers[j].Count
-        })
-        // keep only top 25 sources
-        if len(uniqUsers) > 25 {
-            uniqUsers = uniqUsers[:25]
-        }
+	// top-25 cumulative unique users per source
+	topTotalUniqUsers := []sourceStat{}
+	for ip, uset := range userIDsPerSource {
+		topTotalUniqUsers = append(topTotalUniqUsers, sourceStat{SourceIP: ip, Count: int64(len(uset))})
+	}
+	sort.Slice(topTotalUniqUsers, func(i, j int) bool { return topTotalUniqUsers[i].Count > topTotalUniqUsers[j].Count })
+	if len(topTotalUniqUsers) > 25 {
+		topTotalUniqUsers = topTotalUniqUsers[:25]
+	}
 
+	// build shard maps
 	msgs := make(map[int]int64, len(messagesPerShard))
 	for s, cnt := range messagesPerShard {
 		msgs[s] = cnt
@@ -1523,96 +1578,109 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		uids[s] = len(m)
 	}
 
-        udpMetrics := []UDPDestinationMetrics{}
-        for _, destMetrics := range udpDestinationMetrics {
-             udpMetrics = append(udpMetrics, *destMetrics)
-        }
+	// udp destination metrics
+	udpMetrics := []UDPDestinationMetrics{}
+	for _, dm := range udpDestinationMetrics {
+		udpMetrics = append(udpMetrics, *dm)
+	}
 
-	type clientInfo struct {
-		IP                string `json:"ip"`
-		Shards            []int  `json:"shards"`
-		Description       string `json:"description"`
-		Port              int    `json:"port"`
-		BytesSent         int64  `json:"bytes_sent"`
-		MessagesSent      int64  `json:"messages_sent"`
-		MessagesPerWindow int64  `json:"messages_per_window"`
-		BytesPerWindow    int64  `json:"bytes_per_window"`
-	}
+	// connected‐client blocking stats
 	blockedIPMetrics := []map[string]interface{}{}
-	clientsMu.Lock()
-    	for ip, counter := range blockedIPCounters {
-        	blockedIPMetrics = append(blockedIPMetrics, map[string]interface{}{
-        	    "source_ip": ip,
-	            "messages_blocked": counter.Count(),
-	        })
+	for ip, ctr := range blockedIPCounters {
+		blockedIPMetrics = append(blockedIPMetrics, map[string]interface{}{
+			"source_ip":       ip,
+			"messages_blocked": ctr.Count(),
+		})
 	}
-	connected := []clientInfo{}
+
+	connected := []map[string]interface{}{}
+	clientsMu.Lock()
 	for _, c := range clients {
 		c.mu.Lock()
-		connected = append(connected, clientInfo{
-			IP:                c.ip,
-			Shards:            c.shards,
-			Description:       c.description,
-			Port:              c.port,
-			BytesSent:         c.bytesSent,
-			MessagesSent:      c.messagesSent,
-			MessagesPerWindow: c.messageWindow.Count(),
-			BytesPerWindow:    c.bytesWindow.Sum(),
+		connected = append(connected, map[string]interface{}{
+			"ip":                 c.ip,
+			"shards":             c.shards,
+			"description":        c.description,
+			"port":               c.port,
+			"bytes_sent":         c.bytesSent,
+			"messages_sent":      c.messagesSent,
+			"messages_per_window": c.messageWindow.Count(),
+			"bytes_per_window":    c.bytesWindow.Sum(),
 		})
 		c.mu.Unlock()
 	}
 	clientsMu.Unlock()
 
+	// assemble full JSON payload
 	resp := map[string]interface{}{
-		"uptime_seconds":                     uptime,
-		"total_messages":                     totalMessages,
-		"total_failures":                     totalFailures,
-		"total_downsampled":                  totalDownsampled,
-		"total_deduplicated":                 totalDeduplicated,
-		"per_message_id":                     messageIDTotals,
-		"per_downsampled_message_id":         downsampledMessageTypeTotals,
-		"per_deduplicated_user_id":           deduplicatedUserIDTotals,
-		"per_deduplicated_source":            deduplicatedSourceTotals,
-		"top25_per_user_id":                  users,
-		"top25_downsampled_per_user_id":      dsUsers,
-		"top25_deduplicated_per_user_id":     dupUsers,
-		"failures_by_source":                 failures,
-		"totals_by_source":                   totals,
-		"bytes_received_by_source":           bytesTotals,
-		"top25_deduplicated_per_source":      dupSources,
-		"window_messages":                    windowMsgs,
-		"window_failures":                    windowFailures,
-		"window_downsampled":                 windowDownsampled,
-		"window_deduplicated":                windowDedup,
-		"window_messages_forwarded":          windowForwarded,
-		"bytes_received_window":              windowBytesReceived,
-		"bytes_forwarded_window":             windowBytesForwarded,
-		"messages_per_shard":                 msgs,
-		"user_ids_per_shard":                 uids,
-		"connected_clients":                  connected,
-		"total_bytes_received":               totalBytesReceived,
-		"total_messages_forwarded":           totalForwarded,
-		"total_bytes_forwarded":              totalBytesForwarded,
-		"ratio_forwarded_to_received":        ratioTotal,
-		"window_ratio_forwarded_to_received": ratioWindow,
-		"downsample_window_sec":              downsampleWindow.Seconds(),
-		"deduplication_window_sec":           dedupWindow.Seconds(),
-		"metric_window_size_sec":             (metricWindowSize).Seconds(),
-		"total_clients":                      totalClients,
-		"shards_missing":                     shardsMissing,
-		"shards_multiple":                    shardsMultiple,
-		"udp_destinations": 		      udpMetrics,
-		"blocked_ip_metrics":                 blockedIPMetrics,
-		"unique_users_by_source":             uniqUsers,
+		"uptime_seconds":                         uptime,
+		"total_messages":                         totalMessages,
+		"total_failures":                         totalFailures,
+		"total_downsampled":                      totalDownsampled,
+		"total_deduplicated":                     totalDeduplicated,
+		"per_message_id":                         messageIDTotals,
+		"per_downsampled_message_id":             downsampledMessageTypeTotals,
+		"per_deduplicated_user_id":               deduplicatedUserIDTotals,
+		"per_deduplicated_source":                deduplicatedSourceTotals,
+		"top25_per_user_id":                      users,
+		"top25_downsampled_per_user_id":          dsUsers,
+		"top25_deduplicated_per_user_id":         dupUsers,
+		"failures_by_source":                     failures,
+		"totals_by_source":                       totals,
+		"bytes_received_by_source":               bytesTotals,
+		"top25_deduplicated_per_source":          dupSources,
+
+		// rolling‐window totals
+		"window_messages":                        windowMsgs,
+		"window_failures":                        windowFailures,
+		"window_downsampled":                     windowDownsampled,
+		"window_deduplicated":                    windowDedup,
+		"window_messages_forwarded":              windowForwarded,
+		"bytes_received_window":                  windowBytesReceived,
+		"bytes_forwarded_window":                 windowBytesForwarded,
+
+		// **new per‐source window snapshots**
+		"window_messages_by_source":              prevWindowBySource.Msgs,
+		"window_bytes_by_source":                 prevWindowBySource.Bytes,
+		"window_failures_by_source":              prevWindowBySource.Fails,
+		"window_unique_uids_by_source":           prevWindowBySource.Uids,
+
+		// shard & client metrics
+		"messages_per_shard":                     msgs,
+		"user_ids_per_shard":                     uids,
+		"connected_clients":                      connected,
+
+		// data‐transfer totals & ratios
+		"total_bytes_received":                   totalBytesReceived,
+		"total_messages_forwarded":               totalForwarded,
+		"total_bytes_forwarded":                  totalBytesForwarded,
+		"ratio_forwarded_to_received":            ratioTotal,
+		"window_ratio_forwarded_to_received":     ratioWindow,
+
+		// schedule & runtime
+		"downsample_window_sec":                  downsampleWindow.Seconds(),
+		"deduplication_window_sec":               dedupWindow.Seconds(),
+		"metric_window_size_sec":                 metricWindowSize.Seconds(),
+		"total_clients":                          totalClients,
+		"shards_missing":                         shardsMissing,
+		"shards_multiple":                        shardsMultiple,
+
+		// MQTT/UDP destinations
+		"udp_destinations":                       udpMetrics,
+		"blocked_ip_metrics":                     blockedIPMetrics,
+
+		// **new cumulative top-25 unique users per source**
+		"top25_total_unique_users_by_source":     topTotalUniqUsers,
+
 		"memory_stats": map[string]uint64{
-	            "alloc_bytes":       mem.Alloc,
-	            "total_alloc_bytes": mem.TotalAlloc,
-	            "sys_bytes":         mem.Sys,
-	            "heap_alloc_bytes":  mem.HeapAlloc,
-	            "heap_sys_bytes":    mem.HeapSys,
-	            "num_gc":            uint64(mem.NumGC),
-	      },
-	}	
+			"alloc_bytes":       mem.Alloc,
+			"total_alloc_bytes": mem.TotalAlloc,
+			"sys_bytes":         mem.Sys,
+			"heap_alloc_bytes":  mem.HeapAlloc,
+			"heap_sys_bytes":    mem.HeapSys,
+			"num_gc":            uint64(mem.NumGC),
+		},
+	}
 
 	json.NewEncoder(w).Encode(resp)
 }

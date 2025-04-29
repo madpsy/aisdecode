@@ -425,7 +425,7 @@ function renderBlockedIps(data) {
           renderMap('per_message_id', data.per_message_id);
           renderTopUsers('top_users', data.top25_per_user_id);
           renderArray('failures_by_source', data.failures_by_source, 'source_ip', 'count');
-	  renderArray('unique_users_by_source', data.unique_users_by_source, 'source_ip', 'count');
+	  renderArray('unique_users_by_source', data.top25_total_unique_users_by_source, 'source_ip', 'count');
           renderArray('totals_by_source', data.totals_by_source, 'source_ip', 'count');
           renderArray('bytes_received_by_source', data.bytes_received_by_source, 'source_ip', 'count');
           renderMap('down_msg', data.per_downsampled_message_id);
