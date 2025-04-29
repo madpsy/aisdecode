@@ -62,19 +62,19 @@ func decode_8_1_31(packet map[string]interface{}) (map[string]interface{}, error
     lat := getSint(bits, O["latitude"][0], O["latitude"][1])
     // no‐value constants from spec
     if lon != 0x6791AC0 && lat != 0x3412140 {
-        out["longitude_deg"] = float64(lon) / 60000.0
-        out["latitude_deg"] = float64(lat) / 60000.0
+        out["Longitude_deg"] = float64(lon) / 60000.0
+        out["Latitude_deg"] = float64(lat) / 60000.0
     }
 
     pa := getUint(bits, O["pos_acc"][0], O["pos_acc"][1])
-    out["pos_accuracy_high"] = (pa == 0)
+    out["Position_Accuracy_High"] = (pa == 0)
 
     day := getUint(bits, O["utc_day"][0], O["utc_day"][1])
     hr := getUint(bits, O["utc_hour"][0], O["utc_hour"][1])
     mn := getUint(bits, O["utc_min"][0], O["utc_min"][1])
     if day >= 1 && day <= 31 && hr < 24 && mn < 60 {
-        out["utc_day"] = day
-        out["utc_time"] = fmt.Sprintf("%02d:%02d", hr, mn)
+        out["UTC_Day"] = day
+        out["UTC_Time"] = fmt.Sprintf("%02d:%02d", hr, mn)
     }
 
     // ── Meteorological ─────────────────────────────────────────────────────
@@ -82,60 +82,60 @@ func decode_8_1_31(packet map[string]interface{}) (map[string]interface{}, error
     // Wind speed & gust
     if ws := getUint(bits, O["wind_spd"][0], O["wind_spd"][1]); ws != 127 {
         if ws == 126 {
-            out["wind_speed_kn"] = ">=126"
+            out["Wind_Speed_kn"] = ">=126"
         } else {
-            out["wind_speed_kn"] = ws
+            out["Wind_Speed_kn"] = ws
         }
     }
     if wg := getUint(bits, O["wind_gust"][0], O["wind_gust"][1]); wg != 127 {
         if wg == 126 {
-            out["wind_gust_kn"] = ">=126"
+            out["Wind_Gust_kn"] = ">=126"
         } else {
-            out["wind_gust_kn"] = wg
+            out["Wind_Gust_kn"] = wg
         }
     }
     if wd := getUint(bits, O["wind_dir"][0], O["wind_dir"][1]); wd != 360 {
-        out["wind_dir_deg"] = wd
+        out["Wind_Direction_deg"] = wd
     }
     if gd := getUint(bits, O["gust_dir"][0], O["gust_dir"][1]); gd != 360 {
-        out["gust_dir_deg"] = gd
+        out["Gust_Direction_deg"] = gd
     }
 
     // Air temperature, humidity, dew point
     if at := getSint(bits, O["air_temp"][0], O["air_temp"][1]); at != 2047 {
-        out["air_temp_C"] = float64(at) / 10.0
+        out["Air_Temp_C"] = float64(at) / 10.0
     }
     if rh := getUint(bits, O["rel_hum"][0], O["rel_hum"][1]); rh <= 100 {
-        out["rel_hum_pct"] = rh
+        out["Relative_Humidity_pct"] = rh
     }
     if dp := getSint(bits, O["dew_pt"][0], O["dew_pt"][1]); dp != 1023 {
-        out["dew_point_C"] = float64(dp) / 10.0
+        out["Dew_Point_C"] = float64(dp) / 10.0
     }
 
     // Air pressure
     if ap := getUint(bits, O["air_pres"][0], O["air_pres"][1]); ap != 511 {
         switch ap {
         case 0:
-            out["air_pres_hPa"] = "<=799"
+            out["Air_Pressure_hPa"] = "<=799"
         case 402:
-            out["air_pres_hPa"] = ">=1201"
+            out["Air_Pressure_hPa"] = ">=1201"
         default:
-            out["air_pres_hPa"] = ap + 800
+            out["Air_Pressure_hPa"] = ap + 800
         }
     }
 
     // Pressure tendency
     if pt := getUint(bits, O["pres_tend"][0], O["pres_tend"][1]); pt <= 2 {
         tendencies := []string{"steady", "decreasing", "increasing"}
-        out["pres_tendency"] = tendencies[pt]
+        out["Pressure_Tendency"] = tendencies[pt]
     }
 
     // Visibility (nautical miles)
     if vis := getUint(bits, O["visibility"][0], O["visibility"][1]); vis != 127 {
         if vis == 127 {
-            out["visibility_NM"] = ">=12.7"
+            out["Visibility_NM"] = ">=12.7"
         } else {
-            out["visibility_NM"] = float64(vis) / 10.0
+            out["Visibility_NM"] = float64(vis) / 10.0
         }
     }
 
@@ -143,12 +143,12 @@ func decode_8_1_31(packet map[string]interface{}) (map[string]interface{}, error
 
     // Water level
     if wl := getSint(bits, O["water_lvl"][0], O["water_lvl"][1]); wl != 4095 {
-        out["water_level_m"] = float64(wl)/100.0 - 10.0
+        out["Water_Level_m"] = float64(wl)/100.0 - 10.0
     }
     // Water level trend
     if lt := getUint(bits, O["lvl_trend"][0], O["lvl_trend"][1]); lt <= 2 {
         trends := []string{"steady", "rising", "falling"}
-        out["level_trend"] = trends[lt]
+        out["Level_Trend"] = trends[lt]
     }
 
     // Currents 1–3
@@ -158,14 +158,14 @@ func decode_8_1_31(packet map[string]interface{}) (map[string]interface{}, error
         lvOff, hasLv := O[fmt.Sprintf("cur%d_lvl", i)]
 
         if sp := getUint(bits, spOff[0], spOff[1]); sp != 255 {
-            out[fmt.Sprintf("current%d_speed_kn", i)] = float64(sp) / 10.0
+            out[fmt.Sprintf("Current_%d_Speed_kn", i)] = float64(sp) / 10.0
         }
         if dr := getUint(bits, drOff[0], drOff[1]); dr != 360 {
-            out[fmt.Sprintf("current%d_dir_deg", i)] = dr
+            out[fmt.Sprintf("Current_%d_Direction_deg", i)] = dr
         }
         if hasLv {
             if lv := getUint(bits, lvOff[0], lvOff[1]); lv != 31 {
-                out[fmt.Sprintf("current%d_level_m", i)] = lv
+                out[fmt.Sprintf("Current_%d_Level_m", i)] = lv
             }
         }
     }
@@ -174,24 +174,24 @@ func decode_8_1_31(packet map[string]interface{}) (map[string]interface{}, error
 
     // Waves
     if wh := getUint(bits, O["wave_h"][0], O["wave_h"][1]); wh != 255 {
-        out["wave_height_m"] = float64(wh) / 10.0
+        out["Wave_Height_m"] = float64(wh) / 10.0
     }
     if wp := getUint(bits, O["wave_p"][0], O["wave_p"][1]); wp != 63 {
-        out["wave_period_s"] = wp
+        out["Wave_Period_s"] = wp
     }
     if wd2 := getUint(bits, O["wave_d"][0], O["wave_d"][1]); wd2 != 360 {
-        out["wave_dir_deg"] = wd2
+        out["Wave_Direction_deg"] = wd2
     }
 
     // Swell
     if sh := getUint(bits, O["swell_h"][0], O["swell_h"][1]); sh != 255 {
-        out["swell_height_m"] = float64(sh) / 10.0
+        out["Swell_Height_m"] = float64(sh) / 10.0
     }
     if sp2 := getUint(bits, O["swell_p"][0], O["swell_p"][1]); sp2 != 63 {
-        out["swell_period_s"] = sp2
+        out["Swell_Period_s"] = sp2
     }
     if sd := getUint(bits, O["swell_d"][0], O["swell_d"][1]); sd != 360 {
-        out["swell_dir_deg"] = sd
+        out["Swell_Direction_deg"] = sd
     }
 
     // ── Sea State (Beaufort scale + description) ────────────────────────────
@@ -230,25 +230,25 @@ func decode_8_1_31(packet map[string]interface{}) (map[string]interface{}, error
     default:
         desc = "Reserved/future use"
     }
-    out["sea_state"] = map[string]interface{}{
-        "scale": ss,
-        "desc":  desc,
+    out["Sea_State"] = map[string]interface{}{
+        "Scale": ss,
+        "Description":  desc,
     }
 
     // ── Extras ───────────────────────────────────────────────────────────────
 
     if wt := getSint(bits, O["water_temp"][0], O["water_temp"][1]); wt != 1023 {
-        out["water_temp_C"] = float64(wt) / 10.0
+        out["Water_Temp_C"] = float64(wt) / 10.0
     }
     if pr := getUint(bits, O["precip"][0], O["precip"][1]); pr >= 1 && pr <= 6 {
         precips := []string{"", "rain", "thunderstorm", "ice", "snow", "hail", "mixed"}
-        out["precipitation"] = precips[pr]
+        out["Precipitation"] = precips[pr]
     }
     if sa := getUint(bits, O["salinity"][0], O["salinity"][1]); sa != 511 {
-        out["salinity_ppt"] = float64(sa) / 10.0
+        out["Salinity_ppt"] = float64(sa) / 10.0
     }
     if ic := getUint(bits, O["ice_ind"][0], O["ice_ind"][1]); ic <= 1 {
-        out["ice_indicator"] = (ic == 1)
+        out["Ice_Indicator"] = (ic == 1)
     }
 
     return out, nil

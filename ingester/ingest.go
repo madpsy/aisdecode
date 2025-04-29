@@ -146,10 +146,6 @@ var (
     fragmentBuf   = make(map[string]*fragmentEntry)
 )
 
-// addFragment returns (complete, joined):
-//   complete==false: still waiting  
-//   complete==true && joined==raw: single‐part  
-//   complete==true && joined!=""  : all parts assembled
 func addFragment(raw string) (bool, string) {
     raw = strings.TrimSpace(raw)
     f := strings.Split(raw, ",")
@@ -428,6 +424,7 @@ var mqttClient mqtt.Client
 var (
 	messagesPerShard = map[int]int64{}
 	userIDsPerShard  = map[int]map[string]struct{}{}
+	userIDsPerSource = map[string]map[string]struct{}{}
 )
 
 // Cumulative totals
@@ -1092,6 +1089,14 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         }
         msgID, userID := midKey, uidKey
 
+        // ── Track unique users per source IP ────────────────────────────────
+        metricsMu.Lock()
+        if _, seen := userIDsPerSource[srcIP]; !seen {
+            userIDsPerSource[srcIP] = make(map[string]struct{})
+        }
+        userIDsPerSource[srcIP][userID] = struct{}{}
+        metricsMu.Unlock()
+
         // ── Deduplication window ───────────────────────────────────────────────
         if dedupWindow > 0 {
             dedupMu.Lock()
@@ -1492,6 +1497,23 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		dupSources = dupSources[:25]
 	}
 
+        // build and cap top-25 unique users per source IP
+        uniqUsers := []sourceStat{}
+        for ip, users := range userIDsPerSource {
+            uniqUsers = append(uniqUsers, sourceStat{
+                SourceIP: ip,
+                Count:    int64(len(users)),
+            })
+        }
+        // sort descending by count
+        sort.Slice(uniqUsers, func(i, j int) bool {
+            return uniqUsers[i].Count > uniqUsers[j].Count
+        })
+        // keep only top 25 sources
+        if len(uniqUsers) > 25 {
+            uniqUsers = uniqUsers[:25]
+        }
+
 	msgs := make(map[int]int64, len(messagesPerShard))
 	for s, cnt := range messagesPerShard {
 		msgs[s] = cnt
@@ -1581,6 +1603,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		"shards_multiple":                    shardsMultiple,
 		"udp_destinations": 		      udpMetrics,
 		"blocked_ip_metrics":                 blockedIPMetrics,
+		"unique_users_by_source":             uniqUsers,
 		"memory_stats": map[string]uint64{
 	            "alloc_bytes":       mem.Alloc,
 	            "total_alloc_bytes": mem.TotalAlloc,
