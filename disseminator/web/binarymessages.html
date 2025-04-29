@@ -49,7 +49,7 @@
     .message .chart-container {
       position: relative;
       width: 100%;
-      height: 300px;         /* adjust height as needed */
+      height: 300px;
       margin-top: 1rem;
     }
     .message .chart-container canvas {
@@ -61,6 +61,8 @@
   <!-- Chart.js and date adapter for time scales -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  <!-- Zoom & Pan plugin for Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2/dist/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body>
 
@@ -68,6 +70,9 @@
   <div id="output">Loading messages…</div>
 
   <script>
+    // Register the zoom plugin
+    Chart.register(ChartZoom);
+
     function getUserID() {
       const p = new URLSearchParams(window.location.search);
       const v = p.get('UserID');
@@ -122,7 +127,6 @@
         return;
       }
 
-      // Fetch vessel summary
       let summary;
       try {
         const r = await fetch(`/summary?UserID=${userID}`);
@@ -137,7 +141,6 @@
       const name = info.Name?.trim() ? info.Name : userID;
       titleEl.textContent = `Latest Messages for ${name}`;
 
-      // Fetch asm.json
       let asm;
       try {
         const r = await fetch('/asm.json');
@@ -148,7 +151,6 @@
         return;
       }
 
-      // Fetch all messages
       let allMsgs;
       try {
         const r = await fetch(`/latestmessages?UserID=${userID}`);
@@ -190,7 +192,6 @@
       const container = document.createElement('div');
       container.className = 'message';
 
-      // Title
       const msg0 = history[0];
       const dac = msg0.Packet.ApplicationID.DesignatedAreaCode;
       const fi  = msg0.Packet.ApplicationID.FunctionIdentifier;
@@ -200,7 +201,6 @@
       titleDiv.textContent = title;
       container.appendChild(titleDiv);
 
-      // Timestamp & Nav
       const tsDiv = document.createElement('div');
       tsDiv.className = 'ts';
       const nav = document.createElement('div');
@@ -214,7 +214,6 @@
       nav.append(btnNewer, counter, btnOlder);
       container.append(tsDiv, nav);
 
-      // Table
       const tableContainer = document.createElement('div');
       tableContainer.className = 'table-container';
       container.appendChild(tableContainer);
@@ -235,7 +234,6 @@
       btnOlder.onclick = () => { if (idx < history.length - 1) { idx++; refresh(); } };
       refresh();
 
-      // Chart.js setup
       const chartWrapper = document.createElement('div');
       chartWrapper.className = 'chart-container';
       const canvas = document.createElement('canvas');
@@ -254,16 +252,14 @@
         hidden: !visible.has(field)
       }));
 
+      // Create the zoomable/pannable chart with click-to-reset
       new Chart(canvas.getContext('2d'), {
         type: 'line',
         data: { datasets },
         options: {
-	elements: {
-	  point: {
-            radius: 1,       
-            hoverRadius: 2 
-          }
-        },
+          elements: {
+            point: { radius: 1, hoverRadius: 2 }
+          },
           maintainAspectRatio: false,
           scales: {
             x: {
@@ -279,21 +275,35 @@
           plugins: {
             legend: {
               position: 'bottom',
-              labels: {
-                boxWidth: 8,
-                padding: 8,
-                font: { size: 10 }
-              }
+              labels: { boxWidth: 8, padding: 8, font: { size: 10 } }
             },
             tooltip: {
               mode: 'index',
               intersect: false
+            },
+            zoom: {
+              zoom: {
+                drag: true,
+                mode: 'x'
+              },
+              pan: {
+                enabled: true,
+                mode: 'x'
+              },
+              limits: {
+                x: { min: 'original', max: 'original' },
+                y: { min: 'original', max: 'original' }
+              }
             }
           },
           interaction: {
             mode: 'nearest',
             axis: 'x',
             intersect: false
+          },
+          // Single-click resets zoom
+          onClick: (_, __, chart) => {
+            chart.resetZoom();
           }
         }
       });
