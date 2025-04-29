@@ -764,8 +764,7 @@ function sendSummaryRequest() {
   updateOverlay();
 }
 
-        // Mapping objects for Fix Type, Nav Status, and Static Message Types.
-        const fixTypeMapping = { 0: "No Fix", 1: "GPS Fix", 2: "DGPS Fix" };
+        // Mapping objects for Nav Status, and Static Message Types.
 
         const navigationalStatusMapping = {
           0: "Using Engine",
@@ -1953,11 +1952,6 @@ if (data.UserID) {
       hour12: false
     });
     lines.push(`ETA: ${etaFormatted}`);
-  }
-
-  if (data.FixType != null) {
-    const fixDescription = fixTypeMapping[data.FixType] || data.FixType;
-    addLine(lines, "Fix Type", fixDescription);
   }
 
   addLine(lines, "Max Draught", (data.MaximumStaticDraught != null ? `${data.MaximumStaticDraught} m` : null));
