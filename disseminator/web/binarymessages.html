@@ -67,6 +67,7 @@
 <body>
 
   <h1 id="main-title">Loading vessel…</h1>
+  <label style="display:block; margin-bottom:1rem;"><input type="checkbox" id="auto-refresh-checkbox"> Auto Refresh</label>
   <div id="output">Loading messages…</div>
 
   <script>
@@ -74,6 +75,9 @@
     Chart.register(ChartZoom);
     // 2) make points small by default
     Chart.defaults.elements.point.radius = 1;
+
+    const messageBlocks = [];
+    let autoRefreshIntervalId = null;
 
     function getUserID() {
       const p = new URLSearchParams(window.location.search);
@@ -169,11 +173,20 @@
         return;
       }
       output.innerHTML = '';
+      messageBlocks.length = 0; // reset blocks
 
       await Promise.all(decoded.map(msg => initHistory(msg, userID, asm)));
     }
 
     async function initHistory(initialMsg, userID, asm) {
+      // Each block stores its metadata and update logic
+      const block = { initialMsg, userID, asm, history: [], chart: null, idx: 0, dom: {} };
+      messageBlocks.push(block);
+      await fetchAndRender(block);
+    }
+
+    async function fetchAndRender(block) {
+      const { initialMsg, userID, asm } = block;
       const url = `/latestmessages?UserID=${userID}`
                 + `&MessageID=${initialMsg.MessageID}&limit=100`;
       let arr = [];
@@ -184,135 +197,132 @@
       const history = arr
         .filter(m => m.Packet?.DecodedBinary)
         .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
-      if (!history.length) history.push(initialMsg);
+      block.history = history.length ? history : [initialMsg];
 
-      renderBlock(history, asm);
+      if (!block.dom.container) {
+        createBlockDOM(block);
+      }
+      updateBlockDOM(block);
     }
 
-    function renderBlock(history, asm) {
-      let idx = 0;
+    function createBlockDOM(block) {
       const container = document.createElement('div');
       container.className = 'message';
+      block.dom.container = container;
 
-      // title + nav + table (unchanged) …
-      const msg0 = history[0];
-      const dac = msg0.Packet.ApplicationID.DesignatedAreaCode;
-      const fi  = msg0.Packet.ApplicationID.FunctionIdentifier;
-      const title = asm[msg0.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
+      // title
       const titleDiv = document.createElement('div');
       titleDiv.className = 'title';
-      titleDiv.textContent = title;
       container.appendChild(titleDiv);
+      block.dom.titleDiv = titleDiv;
 
+      // timestamp and nav
       const tsDiv = document.createElement('div');
       tsDiv.className = 'ts';
-      const nav = document.createElement('div');
-      nav.className = 'nav';
+      const nav = document.createElement('div'); nav.className = 'nav';
       const btnNewer = document.createElement('button');
       const btnOlder = document.createElement('button');
-      const counter = document.createElement('div');
-      btnNewer.textContent = '◀️';
-      btnOlder.textContent = '▶️';
-      counter.className = 'counter';
+      const counter = document.createElement('div'); counter.className = 'counter';
+      btnNewer.textContent = '◀️'; btnOlder.textContent = '▶️';
       nav.append(btnNewer, counter, btnOlder);
       container.append(tsDiv, nav);
+      block.dom.tsDiv = tsDiv;
+      block.dom.btnNewer = btnNewer;
+      block.dom.btnOlder = btnOlder;
+      block.dom.counter = counter;
 
+      // table
       const tableContainer = document.createElement('div');
       tableContainer.className = 'table-container';
       container.appendChild(tableContainer);
+      block.dom.tableContainer = tableContainer;
 
-      function refresh() {
-        const m = history[idx];
-        tsDiv.textContent = new Date(m.Timestamp).toLocaleString([], {
-          hour12: false,
-          year: 'numeric', month: '2-digit', day: '2-digit',
-          hour: '2-digit', minute: '2-digit', second: '2-digit'
-        });
-        tableContainer.innerHTML = makeTableHTML(flattenObject(m.Packet.DecodedBinary));
-        btnNewer.disabled = idx === 0;
-        btnOlder.disabled = idx === history.length - 1;
-        counter.textContent = `${idx + 1} of ${history.length}`;
-      }
-      btnNewer.onclick = () => { if (idx > 0) { idx--; refresh(); } };
-      btnOlder.onclick = () => { if (idx < history.length - 1) { idx++; refresh(); } };
-      refresh();
-
-      // chart container + canvas
+      // chart
       const chartWrapper = document.createElement('div');
       chartWrapper.className = 'chart-container';
       const canvas = document.createElement('canvas');
       chartWrapper.appendChild(canvas);
       container.appendChild(chartWrapper);
+      block.dom.canvas = canvas;
 
-      const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
-      const times = history.map(m => new Date(m.Timestamp));
+      document.getElementById('output').appendChild(container);
+
+      // nav handlers
+      btnNewer.onclick = () => { if (block.idx > 0) { block.idx--; updateBlockDOM(block); } };
+      btnOlder.onclick = () => { const len = block.history.length; if (block.idx < len - 1) { block.idx++; updateBlockDOM(block); } };
+    }
+
+    function updateBlockDOM(block) {
+      const { dom, asm, history, idx } = block;
+      const m = history[idx];
+      // title
+      const dac = m.Packet.ApplicationID.DesignatedAreaCode;
+      const fi  = m.Packet.ApplicationID.FunctionIdentifier;
+      dom.titleDiv.textContent = asm[m.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
+      // timestamp and nav
+      dom.tsDiv.textContent = new Date(m.Timestamp).toLocaleString([], {
+        hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+      dom.btnNewer.disabled = idx === 0;
+      dom.btnOlder.disabled = idx === history.length - 1;
+      dom.counter.textContent = `${idx + 1} of ${history.length}`;
+      // table
+      dom.tableContainer.innerHTML = makeTableHTML(flattenObject(m.Packet.DecodedBinary));
+
+      // chart data
+      const records = history.map(x => flattenObject(x.Packet.DecodedBinary));
+      const times = history.map(x => new Date(x.Timestamp));
       const fields = Object.keys(records[0]).filter(f => typeof records[0][f] === 'number');
-      const visible = new Set(fields.sort(() => Math.random() - .5).slice(0, 3));
+      const visible = new Set(fields.slice(0, 3)); // keep first 3 visible by default
       const datasets = fields.map(field => ({
         label: humanizeField(field),
-        data: times.map((t, i) => ({ x: t, y: records[i][field] })),
+        data: times.map((t,i) => ({ x: t, y: records[i][field] })),
         borderWidth: 1,
         hidden: !visible.has(field)
       }));
 
-      // 3) instantiate chart with the working zoom config:
-      const chart = new Chart(canvas.getContext('2d'), {
-        type: 'line',
-        data: { datasets },
-        options: {
-          maintainAspectRatio: false,
-          scales: {
-            x: {
-              type: 'time',
-              time: {
-                tooltipFormat: 'HH:mm:ss',
-                displayFormats: { hour: 'HH:mm', minute: 'HH:mm' }
-              },
-              ticks: { autoSkip: true, maxRotation: 0 }
+      if (!block.chart) {
+        block.chart = new Chart(dom.canvas.getContext('2d'), {
+          type: 'line',
+          data: { datasets },
+          options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: {
+              x: { type: 'time', time: { tooltipFormat: 'HH:mm:ss', displayFormats: { hour: 'HH:mm', minute: 'HH:mm' } }, ticks: { autoSkip: true, maxRotation: 0 } },
+              y: { beginAtZero: false }
             },
-            y: { beginAtZero: false }
-          },
-          plugins: {
-            legend: {
-              position: 'bottom',
-              labels: { boxWidth: 8, padding: 8, font: { size: 10 } }
+            plugins: {
+              legend: { position: 'bottom', labels: { boxWidth: 8, padding: 8, font: { size: 10 } } },
+              tooltip: { mode: 'index', intersect: false },
+              zoom: { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true }, drag: { enabled: true, backgroundColor: 'rgba(54,162,235,0.3)' }, pinch: { enabled: true }, mode: 'x', doubleClickReset: true } }
             },
-            tooltip: {
-              mode: 'index',
-              intersect: false
-            },
-            zoom: {
-              pan: {
-                enabled: true,
-                mode: 'x'
-              },
-              zoom: {
-                wheel: { enabled: true },
-                drag: {
-                  enabled: true,
-                  backgroundColor: 'rgba(54, 162, 235, 0.3)'
-                },
-                pinch: { enabled: true },
-                mode: 'x',
-                doubleClickReset: true
-              }
-            }
-          },
-          interaction: {
-            mode: 'nearest',
-            axis: 'x',
-            intersect: false
-          },
-        }
-      });
-
-      // 4) add dblclick listener to reset zoom
-      canvas.addEventListener('dblclick', () => {
-        chart.resetZoom();
-      });
-
-      document.getElementById('output').appendChild(container);
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
+          }
+        });
+        // dblclick to reset zoom
+        dom.canvas.addEventListener('dblclick', () => block.chart.resetZoom());
+      } else {
+        block.chart.data.datasets = datasets;
+        block.chart.update();
+      }
     }
+
+    function runRefresh() {
+      messageBlocks.forEach(block => fetchAndRender(block));
+    }
+
+    document.getElementById('auto-refresh-checkbox').addEventListener('change', function(e) {
+      if (e.target.checked) {
+        runRefresh();
+        autoRefreshIntervalId = setInterval(runRefresh, 60000);
+      } else if (autoRefreshIntervalId) {
+        clearInterval(autoRefreshIntervalId);
+        autoRefreshIntervalId = null;
+      }
+    });
 
     main();
   </script>
