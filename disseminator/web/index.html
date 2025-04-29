@@ -1963,8 +1963,9 @@ if (data.UserID) {
   addLine(lines, "Maximum Draught", (data.MaximumStaticDraught != null ? `${data.MaximumStaticDraught} m` : null));
 
   if (data.Latitude != null && data.Longitude != null) {
-    addLine(lines, "Latitude", data.Latitude.toFixed(5));
-    addLine(lines, "Longitude", data.Longitude.toFixed(5));
+    const lat = data.Latitude.toFixed(5);
+    const lon = data.Longitude.toFixed(5);
+    addLine(lines, "Position", `${lat},${lon}`);
   }
 
   if (data.NavigationalStatus != null) {
