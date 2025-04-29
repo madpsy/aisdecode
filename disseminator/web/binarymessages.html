@@ -56,6 +56,14 @@
       width: 100% !important;
       height: 100% !important;
     }
+    const datasets = fields.map(field => ({
+     label: humanizeField(field),
+     data: times.map((t,i) => ({ x: t, y: records[i][field] })),
+     borderWidth: 1,
+     hidden: !visible.has(field),
+     pointRadius: 2,       // ← smaller dots
+     pointHoverRadius: 4    // ← hover size
+   }));
   </style>
 
   <!-- Chart.js and date adapter for time scales -->
