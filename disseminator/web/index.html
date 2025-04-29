@@ -1960,13 +1960,7 @@ if (data.UserID) {
     addLine(lines, "Fix Type", fixDescription);
   }
 
-  addLine(lines, "Maximum Draught", (data.MaximumStaticDraught != null ? `${data.MaximumStaticDraught} m` : null));
-
-  if (data.Latitude != null && data.Longitude != null) {
-    const lat = data.Latitude.toFixed(5);
-    const lon = data.Longitude.toFixed(5);
-    addLine(lines, "Co-ords", `${lat},${lon}`);
-  }
+  addLine(lines, "Max Draught", (data.MaximumStaticDraught != null ? `${data.MaximumStaticDraught} m` : null));
 
   if (data.NavigationalStatus != null) {
     const navStatusDescription = navigationalStatusMapping[data.NavigationalStatus] || data.NavigationalStatus;
