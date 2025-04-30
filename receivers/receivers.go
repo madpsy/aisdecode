@@ -66,17 +66,16 @@ type FullMetrics struct {
     WindowUniqueUIDsBySource map[string]int                                                    `json:"window_unique_uids_by_source"`
 }
 
-// FilteredMetrics is the response structure for /metrics/bysource
-type FilteredMetrics struct {
-    SourceIP                 string         `json:"source_ip"`
-    BytesReceivedBySource    []any          `json:"bytes_received_by_source"`
-    FailuresBySource         []any          `json:"failures_by_source"`
-    MessagesBySource         []any          `json:"messages_by_source"`
-    PerDeduplicatedSource    map[string]int `json:"per_deduplicated_source"`
-    WindowBytesBySource      map[string]int `json:"window_bytes_by_source"`
-    WindowMessagesBySource   map[string]int `json:"window_messages_by_source"`
-    UniqueMMSIBySource       []any          `json:"unique_mmsi_by_source"`
-    WindowUniqueUIDsBySource map[string]int `json:"window_unique_uids_by_source"`
+// SimpleMetrics is the flattened response for /metrics/bysource
+type SimpleMetrics struct {
+    BytesReceived    int `json:"bytes_received"`
+    Messages         int `json:"messages"`
+    UniqueMMSI       int `json:"unique_mmsi"`
+    Failures         int `json:"failures"`
+    Deduplicated     int `json:"deduplicated"`
+    WindowBytes      int `json:"window_bytes"`
+    WindowMessages   int `json:"window_messages"`
+    WindowUniqueUIDs int `json:"window_unique_uids"`
 }
 
 var (
@@ -115,7 +114,7 @@ func main() {
 
     createSchema()
 
-    // Public API
+    // Public API: list receivers
     http.HandleFunc("/receivers", func(w http.ResponseWriter, r *http.Request) {
         if r.Method != http.MethodGet {
             w.WriteHeader(http.StatusMethodNotAllowed)
@@ -124,11 +123,11 @@ func main() {
         handleListReceivers(w, r)
     })
 
-    // Admin API
+    // Admin API: full CRUD
     http.HandleFunc("/admin/receivers", adminReceiversHandler)
     http.HandleFunc("/admin/receivers/", adminReceiverHandler)
 
-    // Admin static files
+    // Serve static files for admin UI
     http.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))))
 
     // Latest ingested metrics
@@ -183,7 +182,8 @@ func ingestMetricsLoop() {
     }
 }
 
-// handleMetricsBySource filters latestMetrics for a single source IP.
+// handleMetricsBySource filters latestMetrics for a single source IP
+// and returns a flat SimpleMetrics JSON.
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
     ip := r.URL.Query().Get("ipaddress")
     if ip == "" {
@@ -199,60 +199,50 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Re-marshal into FullMetrics
     blob, err := json.Marshal(raw)
     if err != nil {
-        log.Printf("Error re-marshaling metrics: %v", err)
+        log.Printf("Error marshaling metrics: %v", err)
         http.Error(w, "internal error", http.StatusInternalServerError)
         return
     }
     var full FullMetrics
     if err := json.Unmarshal(blob, &full); err != nil {
-        log.Printf("Error parsing into FullMetrics: %v", err)
+        log.Printf("Error parsing FullMetrics: %v", err)
         http.Error(w, "internal error", http.StatusInternalServerError)
         return
     }
 
-    // Build filtered result
-    filtered := FilteredMetrics{
-        SourceIP:                 ip,
-        BytesReceivedBySource:    filterEntries(full.BytesReceivedBySource, ip),
-        FailuresBySource:         filterEntries(full.FailuresBySource, ip),
-        MessagesBySource:         filterEntries(full.MessagesBySource, ip),
-        PerDeduplicatedSource:    filterMap(full.PerDeduplicatedSource, ip),
-        WindowBytesBySource:      filterMap(full.WindowBytesBySource, ip),
-        WindowMessagesBySource:   filterMap(full.WindowMessagesBySource, ip),
-        UniqueMMSIBySource:       filterEntries(full.UniqueMMSIBySource, ip),
-        WindowUniqueUIDsBySource: filterMap(full.WindowUniqueUIDsBySource, ip),
+    flat := SimpleMetrics{
+        BytesReceived:    findCount(full.BytesReceivedBySource, ip),
+        Messages:         findCount(full.MessagesBySource, ip),
+        UniqueMMSI:       findCount(full.UniqueMMSIBySource, ip),
+        Failures:         findCount(full.FailuresBySource, ip),
+        Deduplicated:     full.PerDeduplicatedSource[ip],
+        WindowBytes:      full.WindowBytesBySource[ip],
+        WindowMessages:   full.WindowMessagesBySource[ip],
+        WindowUniqueUIDs: full.WindowUniqueUIDsBySource[ip],
     }
 
     w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(filtered)
+    json.NewEncoder(w).Encode(flat)
 }
 
-// filterEntries returns only those map entries where "source_ip" == ip.
-func filterEntries(slice any, ip string) []any {
-    out := []any{}
+// findCount extracts the Count for a given IP from a slice of structs.
+func findCount[T any](slice []T, ip string) int {
     data, _ := json.Marshal(slice)
-    var arr []map[string]any
-    if err := json.Unmarshal(data, &arr); err != nil {
-        return out
+    var arr []struct {
+        SourceIP string `json:"source_ip"`
+        Count    int    `json:"count"`
     }
-    for _, obj := range arr {
-        if obj["source_ip"] == ip {
-            out = append(out, obj)
+    if err := json.Unmarshal(data, &arr); err != nil {
+        return 0
+    }
+    for _, e := range arr {
+        if e.SourceIP == ip {
+            return e.Count
         }
     }
-    return out
-}
-
-// filterMap picks only the map value for ip, if present.
-func filterMap(orig map[string]int, ip string) map[string]int {
-    out := make(map[string]int)
-    if v, ok := orig[ip]; ok {
-        out[ip] = v
-    }
-    return out
+    return 0
 }
 
 func createSchema() {
