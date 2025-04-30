@@ -2370,8 +2370,6 @@ function subscribeInstantUpdates(UserID) {
   //const allowedTypes = new Set([1,2,3,8,9,18,19]);
 
   instantHandler = function(rawMessage) {
-    console.log("[AIS_DATA RECEIVED raw]", rawMessage);
-
     let message = rawMessage;
     // If you ever get a JSON string, parse it
     if (typeof rawMessage === "string") {
