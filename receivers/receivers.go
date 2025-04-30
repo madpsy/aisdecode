@@ -10,19 +10,22 @@ import (
     "net/url"
     "strconv"
     "strings"
+    "sync"
     "time"
 
     _ "github.com/lib/pq"
 )
 
 type Settings struct {
-    DbHost     string `json:"db_host"`
-    DbPort     int    `json:"db_port"`
-    DbUser     string `json:"db_user"`
-    DbPass     string `json:"db_pass"`
-    DbName     string `json:"db_name"`
-    ListenPort int    `json:"listen_port"`
-    Debug      bool   `json:"debug"`
+    DbHost      string `json:"db_host"`
+    DbPort      int    `json:"db_port"`
+    DbUser      string `json:"db_user"`
+    DbPass      string `json:"db_pass"`
+    DbName      string `json:"db_name"`
+    ListenPort  int    `json:"listen_port"`
+    Debug       bool   `json:"debug"`
+    IngestHost  string `json:"ingest_host"`
+    IngestPort  int    `json:"ingest_port"`
 }
 
 type Receiver struct {
@@ -52,8 +55,10 @@ type ReceiverPatch struct {
 }
 
 var (
-    db       *sql.DB
-    settings Settings
+    db            *sql.DB
+    settings      Settings
+    metricsLock   sync.RWMutex
+    latestMetrics interface{}
 )
 
 func main() {
@@ -65,6 +70,9 @@ func main() {
     if err := json.Unmarshal(data, &settings); err != nil {
         log.Fatalf("Error parsing settings.json: %v", err)
     }
+
+    // Start metrics ingestion loop
+    go ingestMetricsLoop()
 
     // Connect to Postgres
     connStr := fmt.Sprintf(
@@ -101,9 +109,52 @@ func main() {
        http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))),
     )
 
+    // Optional: expose latest ingested metrics
+    http.HandleFunc("/metrics/latest", func(w http.ResponseWriter, r *http.Request) {
+        metricsLock.RLock()
+        defer metricsLock.RUnlock()
+        if latestMetrics == nil {
+            http.Error(w, "no metrics yet", http.StatusNoContent)
+            return
+        }
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(latestMetrics)
+    })
+
     addr := fmt.Sprintf(":%d", settings.ListenPort)
     log.Printf("Server listening on %s", addr)
     log.Fatal(http.ListenAndServe(addr, nil))
+}
+
+// ingestMetricsLoop fires every second and updates latestMetrics
+func ingestMetricsLoop() {
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
+
+    for range ticker.C {
+        url := fmt.Sprintf("http://%s:%d/metrics", settings.IngestHost, settings.IngestPort)
+        resp, err := http.Get(url)
+        if err != nil {
+            log.Printf("Error fetching metrics: %v", err)
+            continue
+        }
+        body, err := ioutil.ReadAll(resp.Body)
+        resp.Body.Close()
+        if err != nil {
+            log.Printf("Error reading metrics response: %v", err)
+            continue
+        }
+
+        var m interface{}
+        if err := json.Unmarshal(body, &m); err != nil {
+            log.Printf("Error parsing metrics JSON: %v", err)
+            continue
+        }
+
+        metricsLock.Lock()
+        latestMetrics = m
+        metricsLock.Unlock()
+    }
 }
 
 func createSchema() {

@@ -1,4 +1,6 @@
 {
+  "ingest_port": 8112,
+  "ingest_host": "localhost",
   "db_host": "localhost",
   "db_port": 5432,
   "db_user": "new_user",
