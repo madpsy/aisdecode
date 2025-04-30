@@ -132,7 +132,7 @@ func main() {
     http.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))))
 
     // Latest ingested metrics
-    http.HandleFunc("/metrics/latest", func(w http.ResponseWriter, r *http.Request) {
+    http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
         metricsLock.RLock()
         defer metricsLock.RUnlock()
         if latestMetrics == nil {
