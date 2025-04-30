@@ -1505,12 +1505,15 @@ func startHTTPServer(port int, mux *http.ServeMux) {
 func setupServer(settings *Settings) {
     mux := http.NewServeMux()
 
-    // Reverse-proxy for /receivers
-    receiversTarget, err := url.Parse(conf.ReceiversBaseURL)
+    // Reverse-proxy for /receivers and /metrics
+    targetURL, err := url.Parse(conf.ReceiversBaseURL)
     if err != nil {
         log.Fatalf("invalid receivers_base_url: %v", err)
     }
-    mux.Handle("/receivers", httputil.NewSingleHostReverseProxy(receiversTarget))
+    proxy := httputil.NewSingleHostReverseProxy(targetURL)
+    mux.Handle("/receivers", proxy)
+    mux.Handle("/metrics",  proxy)
+    mux.Handle("/metrics/",  proxy)
 
     // HTTP API endpoints
     mux.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
