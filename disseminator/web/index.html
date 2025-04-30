@@ -2037,44 +2037,39 @@ function adjustMapBounds() {
         }
 
 function updateStationaryMarkers() {
-  const showStationary = document.getElementById('stationary').checked;
-  const onlyFocussed = document.getElementById('only-focussed').checked;
-  const showPaths = document.getElementById('show-paths').checked;
+  const showPaths   = document.getElementById('show-paths').checked;
+  const onlyFocused = document.getElementById('only-focussed').checked;
 
-  for (const userid in vesselData) {
-    // Always ensure the marker is visible.
-    if (vesselMarkers[userid] && !map.hasLayer(vesselMarkers[userid])) {
-      map.addLayer(vesselMarkers[userid]);
-    }
-    // Now handle track visibility based on only-focussed status.
-    if (vesselTracks[userid]) {
-      // If onlyFocussed is active and a vessel is focused,
-      // then only display the track if this vessel is the focused one.
-      if (onlyFocussed && focusedVessel) {
-        if (userid === focusedVessel) {
-          if (showPaths && !map.hasLayer(vesselTracks[userid])) {
-            map.addLayer(vesselTracks[userid]);
-          } else if (!showPaths && map.hasLayer(vesselTracks[userid])) {
-            map.removeLayer(vesselTracks[userid]);
-          }
-        } else {
-          // Ensure non-focused vessel tracks are not shown.
-          if (map.hasLayer(vesselTracks[userid])) {
-            map.removeLayer(vesselTracks[userid]);
-          }
-        }
-      } else {
-        // If not filtering by focus, add/remove tracks for every vessel normally.
-        if (showPaths && !map.hasLayer(vesselTracks[userid])) {
-          map.addLayer(vesselTracks[userid]);
-        } else if (!showPaths && map.hasLayer(vesselTracks[userid])) {
-          map.removeLayer(vesselTracks[userid]);
-        }
-      }
+  // 1) Always ensure all vessel markers remain on the map
+  for (const userid in vesselMarkers) {
+    const marker = vesselMarkers[userid];
+    if (marker && !map.hasLayer(marker)) {
+      map.addLayer(marker);
     }
   }
+
+  // 2) Remove every existing track layer
+  for (const userid in vesselTracks) {
+    const trackLayer = vesselTracks[userid];
+    if (trackLayer && map.hasLayer(trackLayer)) {
+      map.removeLayer(trackLayer);
+    }
+  }
+
+  // 3) If “Show Paths” is not checked, don’t add any tracks
+  if (!showPaths) {
+    updateOverlay();
+    return;
+  }
+
+  // 4) Only draw the focused vessel’s track (if one is focused)
+  if (focusedVessel && vesselTracks[focusedVessel]) {
+    map.addLayer(vesselTracks[focusedVessel]);
+  }
+
   updateOverlay();
 }
+
 
 
 
