@@ -49,57 +49,59 @@ func decode_6_235_10(packet map[string]interface{}) (map[string]interface{}, err
 
     out := make(map[string]interface{})
 
-    // — Analogue readings (0.05 V steps) —
-    if ai, err := SafeGetUint(bits, O["analogue_int"][0], O["analogue_int"][1]); err != nil {
+    // — Analogue readings (0.05 V steps), always output all three —
+    ai, err := SafeGetUint(bits, O["analogue_int"][0], O["analogue_int"][1])
+    if err != nil {
         return nil, fmt.Errorf("decode_6_235_10 analogue_int: %v", err)
-    } else if ai != 0 {
-        out["analogue_internal_V"] = float64(ai) * 0.05
     }
-    if ae1, err := SafeGetUint(bits, O["analogue_ext1"][0], O["analogue_ext1"][1]); err != nil {
+    out["analogue_internal_V"] = float64(ai) * 0.05
+
+    ae1, err := SafeGetUint(bits, O["analogue_ext1"][0], O["analogue_ext1"][1])
+    if err != nil {
         return nil, fmt.Errorf("decode_6_235_10 analogue_ext1: %v", err)
-    } else if ae1 != 0 {
-        out["analogue_external1_V"] = float64(ae1) * 0.05
     }
-    if ae2, err := SafeGetUint(bits, O["analogue_ext2"][0], O["analogue_ext2"][1]); err != nil {
+    out["analogue_external1_V"] = float64(ae1) * 0.05
+
+    ae2, err := SafeGetUint(bits, O["analogue_ext2"][0], O["analogue_ext2"][1])
+    if err != nil {
         return nil, fmt.Errorf("decode_6_235_10 analogue_ext2: %v", err)
-    } else if ae2 != 0 {
-        out["analogue_external2_V"] = float64(ae2) * 0.05
     }
+    out["analogue_external2_V"] = float64(ae2) * 0.05
 
     // — Internal status bits (5 bits) —
-    if sb, err := SafeGetUint(bits, O["status_int"][0], O["status_int"][1]); err != nil {
+    sb, err := SafeGetUint(bits, O["status_int"][0], O["status_int"][1])
+    if err != nil {
         return nil, fmt.Errorf("decode_6_235_10 status_internal: %v", err)
-    } else {
-        out["status_internal"] = map[string]bool{
-            "racon_installed":   (sb>>4)&1 == 0,
-            "racon_monitored":   (sb>>4)&1 == 1,
-            "racon_operational": (sb>>3)&1 == 1,
-            "racon_error":       (sb>>3)&1 == 1 && (sb>>4)&1 == 1,
-            "light_on":          (sb>>2)&1 == 1,
-            "light_off":         (sb>>1)&1 == 1,
-            "light_error":       (sb>>1)&1 == 1 && (sb>>2)&1 == 1,
-            "good_health":       sb&1 == 0,
-            "alarm":             sb&1 == 1,
-        }
+    }
+    out["status_internal"] = map[string]bool{
+        "racon_installed":   (sb>>4)&1 == 0,
+        "racon_monitored":   (sb>>4)&1 == 1,
+        "racon_operational": (sb>>3)&1 == 1,
+        "racon_error":       (sb>>3)&1 == 1 && (sb>>4)&1 == 1,
+        "light_on":          (sb>>2)&1 == 1,
+        "light_off":         (sb>>1)&1 == 1,
+        "light_error":       (sb>>1)&1 == 1 && (sb>>2)&1 == 1,
+        "good_health":       sb&1 == 0,
+        "alarm":             sb&1 == 1,
     }
 
     // — External status bits (8 bits) —
-    if eb, err := SafeGetUint(bits, O["status_ext"][0], O["status_ext"][1]); err != nil {
+    eb, err := SafeGetUint(bits, O["status_ext"][0], O["status_ext"][1])
+    if err != nil {
         return nil, fmt.Errorf("decode_6_235_10 status_external: %v", err)
-    } else {
-        ext := make(map[string]bool, 8)
-        for i := 0; i < 8; i++ {
-            ext[fmt.Sprintf("digital_input_%d_on", 7-i)] = ((eb>>uint(i))&1 == 1)
-        }
-        out["status_external"] = ext
     }
+    ext := make(map[string]bool, 8)
+    for i := 0; i < 8; i++ {
+        ext[fmt.Sprintf("digital_input_%d_on", 7-i)] = ((eb>>uint(i))&1 == 1)
+    }
+    out["status_external"] = ext
 
     // — Off-position status (1 bit) —
-    if ofs, err := SafeGetUint(bits, O["off_pos_status"][0], O["off_pos_status"][1]); err != nil {
+    ofs, err := SafeGetUint(bits, O["off_pos_status"][0], O["off_pos_status"][1])
+    if err != nil {
         return nil, fmt.Errorf("decode_6_235_10 off_position_status: %v", err)
-    } else {
-        out["off_position_status"] = (ofs == 1)
     }
+    out["off_position_status"] = (ofs == 1)
 
     return out, nil
 }
