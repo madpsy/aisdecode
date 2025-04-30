@@ -3454,31 +3454,25 @@ window.addEventListener('load', () => {
 });
 
 document.getElementById('show-paths').addEventListener('change', function() {
-  const showPaths = this.checked;
-  const onlyFocussed = document.getElementById('only-focussed').checked;
-  if (onlyFocussed && focusedVessel) {
-    // Only toggle the focused vessel's track.
-    if (vesselTracks[focusedVessel]) {
-      if (showPaths && !map.hasLayer(vesselTracks[focusedVessel])) {
-        map.addLayer(vesselTracks[focusedVessel]);
-      } else if (!showPaths && map.hasLayer(vesselTracks[focusedVessel])) {
-        map.removeLayer(vesselTracks[focusedVessel]);
-      }
-    }
-  } else {
-    // Toggle tracks for all vessels.
-    for (const userid in vesselTracks) {
-      if (showPaths && !map.hasLayer(vesselTracks[userid])) {
-        map.addLayer(vesselTracks[userid]);
-      } else if (!showPaths && map.hasLayer(vesselTracks[userid])) {
-        map.removeLayer(vesselTracks[userid]);
-      }
+  const showPaths    = this.checked;
+  const onlyFocused  = document.getElementById('only-focussed').checked;
+
+  // 1) First, remove all existing track layers immediately
+  for (const uid in vesselTracks) {
+    const layer = vesselTracks[uid];
+    if (map.hasLayer(layer)) {
+      map.removeLayer(layer);
     }
   }
+
+  // 2) Now re-add only the focused vessel’s track if needed
+  if (showPaths && focusedVessel && vesselTracks[focusedVessel]) {
+    map.addLayer(vesselTracks[focusedVessel]);
+  }
+
+  // 3) Update any remaining visibility logic (tooltips, overlays, etc.)
   updateFocussedVisibility();
 });
-
-
 
 // Conversion: 1 nautical mile = 1852 meters.
 function updateNauticalScale() {
