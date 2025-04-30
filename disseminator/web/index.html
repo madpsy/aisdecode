@@ -2864,15 +2864,13 @@ socket.on("summaryData", (data) => {
           }
           vesselMarkers[userid] = marker;
         }
-//        const filteredTrack = filterTrackPoints(vesselData[userid].track);
-//        if (vesselTracks[userid]) {
-//	  map.removeLayer(vesselTracks[userid]);
-//	}
-//	vesselTracks[userid] = createColoredTrack(filteredTrack);
-//        if (document.getElementById('show-paths').checked) {
-//	    map.addLayer(vesselTracks[userid]);
-//	    attachPolylineEvents(vesselTracks[userid], userid);
-//        }
+       if (userid === focusedVessel) {
+         const filteredTrack = filterTrackPoints(vesselData[userid].track);
+         if (vesselTracks[userid]) map.removeLayer(vesselTracks[userid]);
+         vesselTracks[userid] = createColoredTrack(filteredTrack);
+         map.addLayer(vesselTracks[userid]);
+         attachPolylineEvents(vesselTracks[userid], userid);
+       }
       } else {
         // For a focused vessel, skip location updates—only update its popup.
         if (vesselMarkers[userid]) {
