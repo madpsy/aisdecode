@@ -54,6 +54,31 @@ type ReceiverPatch struct {
     URL         *string   `json:"url,omitempty"`
 }
 
+// FullMetrics mirrors the parts of the JSON we filter by source IP.
+type FullMetrics struct {
+    BytesReceivedBySource    []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"bytes_received_by_source"`
+    FailuresBySource         []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"failures_by_source"`
+    MessagesBySource         []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"messages_by_source"`
+    PerDeduplicatedSource    map[string]int                                                    `json:"per_deduplicated_source"`
+    WindowBytesBySource      map[string]int                                                    `json:"window_bytes_by_source"`
+    WindowMessagesBySource   map[string]int                                                    `json:"window_messages_by_source"`
+    UniqueMMSIBySource       []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"unique_mmsi_by_source"`
+    WindowUniqueUIDsBySource map[string]int                                                    `json:"window_unique_uids_by_source"`
+}
+
+// FilteredMetrics is the response structure for /metrics/bysource
+type FilteredMetrics struct {
+    SourceIP                 string         `json:"source_ip"`
+    BytesReceivedBySource    []any          `json:"bytes_received_by_source"`
+    FailuresBySource         []any          `json:"failures_by_source"`
+    MessagesBySource         []any          `json:"messages_by_source"`
+    PerDeduplicatedSource    map[string]int `json:"per_deduplicated_source"`
+    WindowBytesBySource      map[string]int `json:"window_bytes_by_source"`
+    WindowMessagesBySource   map[string]int `json:"window_messages_by_source"`
+    UniqueMMSIBySource       []any          `json:"unique_mmsi_by_source"`
+    WindowUniqueUIDsBySource map[string]int `json:"window_unique_uids_by_source"`
+}
+
 var (
     db            *sql.DB
     settings      Settings
@@ -71,7 +96,7 @@ func main() {
         log.Fatalf("Error parsing settings.json: %v", err)
     }
 
-    // Start metrics ingestion loop
+    // Start background ingestion of metrics
     go ingestMetricsLoop()
 
     // Connect to Postgres
@@ -90,7 +115,7 @@ func main() {
 
     createSchema()
 
-    // Public API: only GET /receivers
+    // Public API
     http.HandleFunc("/receivers", func(w http.ResponseWriter, r *http.Request) {
         if r.Method != http.MethodGet {
             w.WriteHeader(http.StatusMethodNotAllowed)
@@ -99,17 +124,14 @@ func main() {
         handleListReceivers(w, r)
     })
 
-    // Admin API: full CRUD under /admin/receivers
+    // Admin API
     http.HandleFunc("/admin/receivers", adminReceiversHandler)
     http.HandleFunc("/admin/receivers/", adminReceiverHandler)
 
-    // Serve static files at /admin/
-    http.Handle(
-       "/admin/",
-       http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))),
-    )
+    // Admin static files
+    http.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))))
 
-    // Optional: expose latest ingested metrics
+    // Latest ingested metrics
     http.HandleFunc("/metrics/latest", func(w http.ResponseWriter, r *http.Request) {
         metricsLock.RLock()
         defer metricsLock.RUnlock()
@@ -121,19 +143,23 @@ func main() {
         json.NewEncoder(w).Encode(latestMetrics)
     })
 
+    // New: metrics by source IP
+    http.HandleFunc("/metrics/bysource", handleMetricsBySource)
+
     addr := fmt.Sprintf(":%d", settings.ListenPort)
     log.Printf("Server listening on %s", addr)
     log.Fatal(http.ListenAndServe(addr, nil))
 }
 
-// ingestMetricsLoop fires every second and updates latestMetrics
+// ingestMetricsLoop polls /metrics every second with a 5s timeout.
 func ingestMetricsLoop() {
+    client := &http.Client{Timeout: 5 * time.Second}
     ticker := time.NewTicker(1 * time.Second)
     defer ticker.Stop()
 
     for range ticker.C {
         url := fmt.Sprintf("http://%s:%d/metrics", settings.IngestHost, settings.IngestPort)
-        resp, err := http.Get(url)
+        resp, err := client.Get(url)
         if err != nil {
             log.Printf("Error fetching metrics: %v", err)
             continue
@@ -157,6 +183,78 @@ func ingestMetricsLoop() {
     }
 }
 
+// handleMetricsBySource filters latestMetrics for a single source IP.
+func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
+    ip := r.URL.Query().Get("ipaddress")
+    if ip == "" {
+        http.Error(w, "missing ipaddress parameter", http.StatusBadRequest)
+        return
+    }
+
+    metricsLock.RLock()
+    raw := latestMetrics
+    metricsLock.RUnlock()
+    if raw == nil {
+        http.Error(w, "no metrics yet", http.StatusNoContent)
+        return
+    }
+
+    // Re-marshal into FullMetrics
+    blob, err := json.Marshal(raw)
+    if err != nil {
+        log.Printf("Error re-marshaling metrics: %v", err)
+        http.Error(w, "internal error", http.StatusInternalServerError)
+        return
+    }
+    var full FullMetrics
+    if err := json.Unmarshal(blob, &full); err != nil {
+        log.Printf("Error parsing into FullMetrics: %v", err)
+        http.Error(w, "internal error", http.StatusInternalServerError)
+        return
+    }
+
+    // Build filtered result
+    filtered := FilteredMetrics{
+        SourceIP:                 ip,
+        BytesReceivedBySource:    filterEntries(full.BytesReceivedBySource, ip),
+        FailuresBySource:         filterEntries(full.FailuresBySource, ip),
+        MessagesBySource:         filterEntries(full.MessagesBySource, ip),
+        PerDeduplicatedSource:    filterMap(full.PerDeduplicatedSource, ip),
+        WindowBytesBySource:      filterMap(full.WindowBytesBySource, ip),
+        WindowMessagesBySource:   filterMap(full.WindowMessagesBySource, ip),
+        UniqueMMSIBySource:       filterEntries(full.UniqueMMSIBySource, ip),
+        WindowUniqueUIDsBySource: filterMap(full.WindowUniqueUIDsBySource, ip),
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(filtered)
+}
+
+// filterEntries returns only those map entries where "source_ip" == ip.
+func filterEntries(slice any, ip string) []any {
+    out := []any{}
+    data, _ := json.Marshal(slice)
+    var arr []map[string]any
+    if err := json.Unmarshal(data, &arr); err != nil {
+        return out
+    }
+    for _, obj := range arr {
+        if obj["source_ip"] == ip {
+            out = append(out, obj)
+        }
+    }
+    return out
+}
+
+// filterMap picks only the map value for ip, if present.
+func filterMap(orig map[string]int, ip string) map[string]int {
+    out := make(map[string]int)
+    if v, ok := orig[ip]; ok {
+        out[ip] = v
+    }
+    return out
+}
+
 func createSchema() {
     _, err := db.Exec(`
         CREATE TABLE IF NOT EXISTS receivers (
@@ -176,12 +274,11 @@ func createSchema() {
     if err != nil {
         log.Fatalf("Error creating index: %v", err)
     }
-    // Sync the SERIAL sequence
     _, err = db.Exec(`
         SELECT setval(
-          pg_get_serial_sequence('receivers','id'),
-          COALESCE(MAX(id), 1),
-          true
+            pg_get_serial_sequence('receivers','id'),
+            COALESCE(MAX(id), 1),
+            true
         ) FROM receivers;
     `)
     if err != nil {

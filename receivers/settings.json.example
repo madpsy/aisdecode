@@ -1,5 +1,5 @@
 {
-  "ingest_port": 8112,
+  "ingest_port": 8080,
   "ingest_host": "localhost",
   "db_host": "localhost",
   "db_port": 5432,
