@@ -42,6 +42,52 @@ var cfgDir string
 
 var failedDecodeLogger *log.Logger
 
+// per-IP sliding-window rate limiter
+const (
+    rateLimitWindow = time.Minute  // 60s window
+    rateLimitCount  = 1200         // max 1200 messages/window
+)
+type rateLimiter struct {
+    mu         sync.Mutex
+    timestamps []time.Time
+}
+
+var (
+    rlMu         sync.Mutex
+    rateLimiters = make(map[string]*rateLimiter)
+)
+
+// allow returns true if ip is under the RATE_LIMIT_COUNT per RATE_LIMIT_WINDOW
+func allow(ip string) bool {
+    // retrieve-or-create limiter
+    rlMu.Lock()
+    lim, ok := rateLimiters[ip]
+    if !ok {
+        lim = &rateLimiter{}
+        rateLimiters[ip] = lim
+    }
+    rlMu.Unlock()
+
+    lim.mu.Lock()
+    defer lim.mu.Unlock()
+    now := time.Now()
+    // drop timestamps older than window
+    i := 0
+    for ; i < len(lim.timestamps); i++ {
+        if now.Sub(lim.timestamps[i]) <= rateLimitWindow {
+            break
+        }
+
+    }
+    lim.timestamps = lim.timestamps[i:]
+    if len(lim.timestamps) >= rateLimitCount {
+        return false
+    }
+    // record this event
+    lim.timestamps = append(lim.timestamps, now)
+    return true
+}
+
 // how many events we keep per “keyed” counter
 const maxPerKeyEvents = 10000
 // how many events we keep in the global ring buffers
@@ -955,6 +1001,14 @@ func main() {
 		  // Give worker the full buffer and the length it needs
 		  pkt.raw = buf[:n]
 		  pkt.sourceIP = strings.Split(addr.String(), ":")[0]
+	          // Rate limiting
+ 	          if !allow(pkt.sourceIP) {
+                     // drop the packet and recycle buffers
+                     log.Printf("Rate limit exceeded for IP %s, dropping packet", pkt.sourceIP)
+                     bufPool.Put(buf)
+                     packetPool.Put(pkt)
+                     continue
+                 }
 		  packetChan <- pkt
 	}
 
