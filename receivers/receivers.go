@@ -6,13 +6,14 @@ import (
     "fmt"
     "io/ioutil"
     "log"
+    "net"
     "net/http"
     "net/url"
+    "regexp"
     "strconv"
     "strings"
     "sync"
     "time"
-    "regexp"
 
     _ "github.com/lib/pq"
 )
@@ -67,7 +68,7 @@ type FullMetrics struct {
     WindowUniqueUIDsBySource map[string]int                                                    `json:"window_unique_uids_by_source"`
 }
 
-// SimpleMetrics is the flattened response for /metrics/bysource
+// SimpleMetrics is the flattened response for a single source
 type SimpleMetrics struct {
     BytesReceived    int `json:"bytes_received"`
     Messages         int `json:"messages"`
@@ -77,6 +78,12 @@ type SimpleMetrics struct {
     WindowBytes      int `json:"window_bytes"`
     WindowMessages   int `json:"window_messages"`
     WindowUniqueUIDs int `json:"window_unique_uids"`
+}
+
+// ResponseMetrics embeds the simple metrics plus the client IP
+type ResponseMetrics struct {
+    IPAddress string `json:"ip_address"`
+    SimpleMetrics
 }
 
 var (
@@ -156,7 +163,7 @@ func main() {
         w.Write(masked)
     })
 
-    // New: metrics by source IP
+    // Metrics by source IP uses the request source
     http.HandleFunc("/metrics/bysource", handleMetricsBySource)
 
     addr := fmt.Sprintf(":%d", settings.ListenPort)
@@ -196,13 +203,22 @@ func ingestMetricsLoop() {
     }
 }
 
-// handleMetricsBySource filters latestMetrics for a single source IP
-// and returns a flat SimpleMetrics JSON.
+// handleMetricsBySource filters latestMetrics for the request's source IP
+// and returns a JSON including that IP as "ip_address" plus the flat metrics.
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
-    ip := r.URL.Query().Get("ipaddress")
-    if ip == "" {
-        http.Error(w, "missing ipaddress parameter", http.StatusBadRequest)
-        return
+    // Determine client IP: prefer X-Forwarded-For, else RemoteAddr
+    var ip string
+    if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+        // X-Forwarded-For may contain multiple IPs comma-separated; take the first
+        parts := strings.Split(xff, ",")
+        ip = strings.TrimSpace(parts[0])
+    } else {
+        host, _, err := net.SplitHostPort(r.RemoteAddr)
+        if err != nil {
+            ip = r.RemoteAddr
+        } else {
+            ip = host
+        }
     }
 
     metricsLock.RLock()
@@ -213,6 +229,7 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Marshal and unmarshal into our FullMetrics struct
     blob, err := json.Marshal(raw)
     if err != nil {
         log.Printf("Error marshaling metrics: %v", err)
@@ -226,6 +243,7 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Build the flattened metrics for this IP
     flat := SimpleMetrics{
         BytesReceived:    findCount(full.BytesReceivedBySource, ip),
         Messages:         findCount(full.MessagesBySource, ip),
@@ -237,8 +255,13 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
         WindowUniqueUIDs: full.WindowUniqueUIDsBySource[ip],
     }
 
+    // Respond with IP + metrics
+    resp := ResponseMetrics{
+        IPAddress:     ip,
+        SimpleMetrics: flat,
+    }
     w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(flat)
+    json.NewEncoder(w).Encode(resp)
 }
 
 // findCount extracts the Count for a given IP from a slice of structs.
