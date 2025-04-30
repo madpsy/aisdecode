@@ -10,7 +10,7 @@ When adding a new decoder ensure to add its description to disseminator/web/asm.
 
 Get list of received binary messages:
 
-
+```
 WITH extracted AS (
   SELECT
     id,
@@ -51,3 +51,29 @@ ORDER BY
   message_id,
   dac,
   fi;
+```
+
+
+To get each unique vessel which has sent a particular message type and order results by most recent, use this SQL example (message id 8, DAC 200, FI 10):
+
+```WITH filtered AS (
+  SELECT
+    (packet ->> 'UserID')::INT                              AS user_id,
+    timestamp,
+    ROW_NUMBER() OVER (
+      PARTITION BY (packet ->> 'UserID')::INT
+      ORDER BY timestamp DESC
+    ) AS rn
+  FROM messages
+  WHERE (packet ->> 'MessageID')::INT                             = 8
+    AND (packet ->  'ApplicationID' ->> 'DesignatedAreaCode')::INT = 200
+    AND (packet ->  'ApplicationID' ->> 'FunctionIdentifier')::INT  = 10
+)
+SELECT
+  user_id,
+  timestamp AS latest_timestamp
+FROM filtered
+WHERE rn = 1
+ORDER BY
+  latest_timestamp DESC;
+```
