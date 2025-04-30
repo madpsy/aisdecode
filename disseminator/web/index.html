@@ -3659,15 +3659,6 @@ document.getElementById("history-slider").addEventListener("input", () => {
   }, 500);
 });
 
-  
-  // Debounce the fetch for additional history data for the focused vessel.
-  clearTimeout(historyDebounceTimer);
-  historyDebounceTimer = setTimeout(() => {
-    if (focusedVessel) {
-      hydrateTrackHistory(focusedVessel);
-    }
-  }, 500); // Adjust debounce delay as needed.
-});
 
 document.getElementById('modal-close').addEventListener('click', closeImageModal);
 document.getElementById('image-modal-overlay').addEventListener('click', function(e) {
