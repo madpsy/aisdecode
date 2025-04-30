@@ -12,6 +12,7 @@ import (
     "strings"
     "sync"
     "time"
+    "regexp"
 
     _ "github.com/lib/pq"
 )
@@ -138,8 +139,21 @@ func main() {
             http.Error(w, "no metrics yet", http.StatusNoContent)
             return
         }
+
+        // Marshal the raw metrics to JSON
+        blob, err := json.Marshal(latestMetrics)
+        if err != nil {
+            log.Printf("Error marshaling metrics: %v", err)
+            http.Error(w, "internal error", http.StatusInternalServerError)
+            return
+        }
+
+        // Mask first two octets of every IPv4 address (e.g. 127.0.0.1 → x.x.0.1)
+        re := regexp.MustCompile(`\b(\d{1,3})\.(\d{1,3})\.(\d{1,3}\.\d{1,3})\b`)
+        masked := re.ReplaceAll(blob, []byte("x.x.$3"))
+
         w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(latestMetrics)
+        w.Write(masked)
     })
 
     // New: metrics by source IP
