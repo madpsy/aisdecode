@@ -746,9 +746,9 @@ function sendSummaryRequest() {
   
   // Dynamically choose updatePeriod based on zoom ranges
   let updatePeriod;
-  if (zoom >= 13) {
+  if (zoom >= 12) {
     updatePeriod = 5;
-  } else if (zoom >= 11) {
+  } else if (zoom >= 10) {
     updatePeriod = 10;
   } else {
     updatePeriod = 15;
