@@ -207,17 +207,22 @@ func ingestMetricsLoop() {
 // and returns a JSON including that IP as "ip_address" plus the flat metrics.
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
     // Determine client IP: prefer X-Forwarded-For, else RemoteAddr
-    var ip string
-    if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-        // X-Forwarded-For may contain multiple IPs comma-separated; take the first
-        parts := strings.Split(xff, ",")
-        ip = strings.TrimSpace(parts[0])
-    } else {
-        host, _, err := net.SplitHostPort(r.RemoteAddr)
-        if err != nil {
-            ip = r.RemoteAddr
+    // 1) Override via query parameter?
+    ip := r.URL.Query().Get("ipaddress")
+
+    if ip == "" {
+        // 2) Else check X-Forwarded-For
+        if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+            parts := strings.Split(xff, ",")
+            ip = strings.TrimSpace(parts[0])
         } else {
-            ip = host
+            // 3) Fallback to RemoteAddr
+            host, _, err := net.SplitHostPort(r.RemoteAddr)
+            if err != nil {
+                ip = r.RemoteAddr
+            } else {
+                ip = host
+            }
         }
     }
 
