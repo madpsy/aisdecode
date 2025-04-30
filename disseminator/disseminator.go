@@ -1511,9 +1511,9 @@ func setupServer(settings *Settings) {
         log.Fatalf("invalid receivers_base_url: %v", err)
     }
     proxy := httputil.NewSingleHostReverseProxy(targetURL)
-    mux.Handle("/receivers", proxy)
-    mux.Handle("/metrics",  proxy)
-    mux.Handle("/metrics/",  proxy)
+    mux.Handle("/receivers", proxy) // receivers JSON endpoint
+    mux.Handle("/metrics",  proxy) // all metrics JSON endpoint
+    mux.Handle("/metrics/",  proxy) // per user metrics JSON endpoints
 
     // HTTP API endpoints
     mux.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
