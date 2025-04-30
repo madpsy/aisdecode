@@ -730,11 +730,10 @@ function sendSummaryRequest() {
   
   if (onlyTracked && focusedVessel) {
     const filterParams = {
-    UserID: parseInt(focusedVessel, 10)  // Convert to integer
-  };
-    const jsonPayload = JSON.stringify(filterParams);
-    //console.log("Emitting requestSummary (Only Tracked):", jsonPayload);
-    socket.emit("requestSummary", jsonPayload);
+      UserID: parseInt(focusedVessel, 10)
+    };
+    console.log(`sendSummaryRequest: onlyTracked for vessel ${focusedVessel}`);
+    socket.emit("requestSummary", JSON.stringify(filterParams));
     updateOverlay();
     return;
   }
@@ -742,25 +741,35 @@ function sendSummaryRequest() {
   const center = map.getCenter();
   const bounds = map.getBounds();
   const radius = center.distanceTo(bounds.getNorthEast()) * 1.5;
-  const ageSlider = document.getElementById("age-slider");
-  const maxAge = parseInt(ageSlider.value, 10);
+  const maxAge = parseInt(document.getElementById("age-slider").value, 10);
+  const zoom   = map.getZoom();
   
+  // Dynamically choose updatePeriod based on zoom ranges
+  let updatePeriod;
+  if (zoom >= 12) {
+    updatePeriod = 1;
+  } else if (zoom >= 8) {
+    updatePeriod = 2;
+  } else {
+    updatePeriod = 5;
+  }
+
+  console.log(`sendSummaryRequest called at zoom ${zoom}, setting updatePeriod=${updatePeriod}`);
+
   const filterParams = {
-    latitude: center.lat,
-    longitude: center.lng,
-    radius: radius,      // in meters
-    maxResults: 500,     // fixed limit
-    maxAge: maxAge,      // in hours
-    updatePeriod: 2      // in seconds
+    latitude:     center.lat,
+    longitude:    center.lng,
+    radius:       radius,
+    maxResults:   500,
+    maxAge:       maxAge,
+    updatePeriod: updatePeriod
   };
 
   if (!document.getElementById('stationary').checked) {
     filterParams.minSpeed = 1;
   }
   
-  const jsonPayload = JSON.stringify(filterParams);
-  //console.log("Emitting requestSummary:", jsonPayload);
-  socket.emit("requestSummary", jsonPayload);
+  socket.emit("requestSummary", JSON.stringify(filterParams));
   updateOverlay();
 }
 
