@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Metrics Dashboard</title>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .controls { margin-bottom: 20px; }
+    .cards { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; }
+    .card { background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; padding: 16px; min-width: 150px; text-align: center; }
+    .card h3 { margin: 0 0 8px; font-size: 1em; color: #333; }
+    .card p { margin: 0; font-size: 1.5em; font-weight: bold; }
+    .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; }
+    .chart-container { width: 100%; height: 300px; }
+  </style>
+</head>
+<body>
+  <div class="controls">
+    <label for="ipInput">Override IP Address:</label>
+    <input type="text" id="ipInput" placeholder="e.g. 44.31.231.4">
+    <button id="applyBtn">Apply</button>
+  </div>
+
+  <h2>IP Address: <span id="ip-address">127.0.0.1</span></h2>
+
+  <div class="cards" id="cards"></div>
+  <div class="charts" id="charts"></div>
+
+  <script>
+    const allMetrics = [
+      'bytes_received',
+      'messages',
+      'failures',
+      'deduplicated',
+      'window_bytes',
+      'window_messages',
+      'window_unique_uids'
+    ];
+
+    const cardMetrics = allMetrics.filter(m => !m.startsWith('window_'));
+    const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
+
+    const maxPoints = 60;
+    let overrideIp = '';
+    const charts = {};
+    const baselines = {};
+    const cardsContainer = document.getElementById('cards');
+    const chartsContainer = document.getElementById('charts');
+
+    function formatNumber(value) {
+      if (value >= 1e6) return +(value / 1e6).toFixed(value % 1e6 === 0 ? 0 : 2) + 'M';
+      if (value >= 1e3) return +(value / 1e3).toFixed(value % 1e3 === 0 ? 0 : 2) + 'K';
+      return value;
+    }
+
+    const colors = [
+      'rgba(255, 99, 132, 1)',
+      'rgba(54, 162, 235, 1)',
+      'rgba(255, 206, 86, 1)',
+      'rgba(75, 192, 192, 1)',
+      'rgba(153, 102, 255, 1)',
+      'rgba(255, 159, 64, 1)',
+      'rgba(199, 199, 199, 1)',
+      'rgba(83, 102, 255, 1)'
+    ];
+
+    // Build UI elements
+    cardMetrics.forEach(metric => {
+      const title = metric.replace(/_/g, ' ');
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.id = `card-${metric}`;
+      card.innerHTML = `<h3>${title}</h3><p>0</p>`;
+      cardsContainer.appendChild(card);
+    });
+
+    chartMetrics.forEach((metric, idx) => {
+      const legendLabel = metric.replace(/^window_/, '').replace(/_/g, ' ');
+      const container = document.createElement('div');
+      container.className = 'chart-container';
+      const canvas = document.createElement('canvas');
+      canvas.id = `chart-${metric}`;
+      container.appendChild(canvas);
+      chartsContainer.appendChild(container);
+      const ctx = canvas.getContext('2d');
+      charts[metric] = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: legendLabel, data: [], borderColor: colors[idx % colors.length], backgroundColor: colors[idx % colors.length], fill: false }] },
+        options: { animation: false, responsive: true, scales: { x: { display: true, title: { display: true, text: 'Time' } }, y: { display: true, title: { display: false } } } }
+      });
+    });
+
+    // Apply settings (reset and set ip)
+    function applyOverride(ip) {
+      overrideIp = ip;
+      document.getElementById('ipInput').value = ip;
+      Object.keys(baselines).forEach(k => delete baselines[k]);
+      cardMetrics.forEach(metric => document.getElementById(`card-${metric}`).querySelector('p').textContent = '0');
+      chartMetrics.forEach(metric => {
+        const chart = charts[metric];
+        chart.data.labels = [];
+        chart.data.datasets[0].data = [];
+        chart.update();
+      });
+
+      // Update the URL so ipaddress shows up in the query string
+      const url = new URL(window.location);
+      if (ip) {
+        url.searchParams.set('ipaddress', ip);
+      } else {
+        url.searchParams.delete('ipaddress');
+      }
+      window.history.replaceState({}, '', url);
+    }
+
+    // Read query param on load
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('ipaddress')) {
+        applyOverride(params.get('ipaddress'));
+      }
+      fetchMetrics();
+      setInterval(fetchMetrics, 1000);
+    });
+
+    document.getElementById('applyBtn').addEventListener('click', () => {
+      applyOverride(document.getElementById('ipInput').value.trim());
+    });
+
+    // Allow submitting by pressing Enter in the input field
+    document.getElementById('ipInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        applyOverride(document.getElementById('ipInput').value.trim());
+      }
+    });
+
+    async function fetchMetrics() {
+      try {
+        let url = '/metrics/bysource';
+        if (overrideIp) url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        document.getElementById('ip-address').textContent = data.ip_address;
+        const timeLabel = new Date().toLocaleTimeString();
+        cardMetrics.forEach(metric => {
+          if (baselines[metric] === undefined) baselines[metric] = data[metric];
+          const delta = data[metric] - baselines[metric];
+          document.getElementById(`card-${metric}`).querySelector('p').textContent = formatNumber(delta);
+        });
+        chartMetrics.forEach(metric => {
+          const chart = charts[metric];
+          chart.data.labels.push(timeLabel);
+          chart.data.datasets[0].data.push(data[metric]);
+          if (chart.data.labels.length > maxPoints) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+          chart.update();
+        });
+      } catch (err) {
+        console.error('Fetch error:', err);
+      }
+    }
+  </script>
+</body>
+</html>
