@@ -455,8 +455,8 @@ function renderBlockedIps(data) {
           renderMap('per_message_id', data.per_message_id);
           renderTopUsers('top_users', data.top25_per_user_id);
           renderArray('failures_by_source', data.failures_by_source, 'source_ip', 'count');
-	  renderArray('unique_users_by_source', data.top25_total_unique_users_by_source, 'source_ip', 'count');
-          renderArray('totals_by_source', data.totals_by_source, 'source_ip', 'count');
+	  renderArray('unique_users_by_source', data.unique_mmsi_by_source, 'source_ip', 'count');
+          renderArray('messages_by_source', data.messages_by_source, 'source_ip', 'count');
           renderArray('bytes_received_by_source', data.bytes_received_by_source, 'source_ip', 'count');
           renderMap('down_msg', data.per_downsampled_message_id);
           renderTopUsers('down_user', data.top25_downsampled_per_user_id);
@@ -564,7 +564,7 @@ function renderBlockedIps(data) {
  </section>
 
   <section>
-    <h3>Failures by Source IP (Top 25)</h3>
+    <h3>Failures by Source IP</h3>
     <table id="failures_by_source">
       <thead>
         <tr><th>Source IP</th><th>Failures</th></tr>
@@ -573,7 +573,7 @@ function renderBlockedIps(data) {
     </table>
   </section>
   <section>
-    <h3>Unique MMSI by Source IP (Top 25)</h3>
+    <h3>Unique MMSI by Source IP</h3>
     <table id="unique_users_by_source">
       <thead>
         <tr>
@@ -585,8 +585,8 @@ function renderBlockedIps(data) {
     </table>
   </section>
   <section>
-    <h3>Messages by Source IP (Top 25)</h3>
-    <table id="totals_by_source">
+    <h3>Messages by Source IP</h3>
+    <table id="messages_by_source">
       <thead>
         <tr><th>Source IP</th><th>Total Msgs</th></tr>
       </thead>
@@ -595,7 +595,7 @@ function renderBlockedIps(data) {
   </section>
 
   <section>
-    <h3>Bytes Received by Source IP (Top 25)</h3>
+    <h3>Bytes Received by Source IP</h3>
     <table id="bytes_received_by_source">
       <thead>
         <tr><th>Source IP</th><th>Bytes Received</th></tr>

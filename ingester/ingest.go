@@ -1476,11 +1476,13 @@ func getShardsMultiple() map[int][]map[string]string {
 
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := int64(math.Round(time.Since(startTime).Seconds()))
+
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 
 	metricsMu.RLock()
 	defer metricsMu.RUnlock()
+
 	w.Header().Set("Content-Type", "application/json")
 
 	// rolling‐window snapshots
@@ -1492,7 +1494,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	windowBytesReceived := previousPeriodMetrics.windowBytesReceived
 	windowBytesForwarded := previousPeriodMetrics.windowBytesForwarded
 
-	// gather client‐level stream metrics
+	// client‐level stream metrics
 	clientMetrics := prevClientWindows
 	totalClients := getTotalClients()
 	shardsMissing := getShardsMissing()
@@ -1516,8 +1518,8 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		Count    int64  `json:"count"`
 	}
 
-	// top-25 per‐user aggregates
-	users := []userStat{}
+	// top-25 per‐user aggregates (unchanged)
+	users := make([]userStat, 0, len(userIDTotals))
 	for uid, cnt := range userIDTotals {
 		users = append(users, userStat{UserID: uid, Count: cnt, PerMessageID: perUserMessageIDCount[uid]})
 	}
@@ -1526,7 +1528,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		users = users[:25]
 	}
 
-	dsUsers := []userStat{}
+	dsUsers := make([]userStat, 0, len(downsampledUserIDTotals))
 	for uid, cnt := range downsampledUserIDTotals {
 		dsUsers = append(dsUsers, userStat{UserID: uid, Count: cnt, PerMessageID: downsampledPerUserMessageIDCount[uid]})
 	}
@@ -1535,7 +1537,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		dsUsers = dsUsers[:25]
 	}
 
-	dupUsers := []userStat{}
+	dupUsers := make([]userStat, 0, len(deduplicatedUserIDTotals))
 	for uid, cnt := range deduplicatedUserIDTotals {
 		dupUsers = append(dupUsers, userStat{UserID: uid, Count: cnt, PerMessageID: dedupPerUserMessageIDCount[uid]})
 	}
@@ -1544,51 +1546,50 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		dupUsers = dupUsers[:25]
 	}
 
-	// top-25 failure and total by source
-	failures := []sourceStat{}
+	// **All** failures by source IP
+	failuresBySource := make([]sourceStat, 0, len(failureSourceTotals))
 	for src, cnt := range failureSourceTotals {
-		failures = append(failures, sourceStat{SourceIP: src, Count: cnt})
+		failuresBySource = append(failuresBySource, sourceStat{SourceIP: src, Count: cnt})
 	}
-	sort.Slice(failures, func(i, j int) bool { return failures[i].Count > failures[j].Count })
-	if len(failures) > 25 {
-		failures = failures[:25]
-	}
+	sort.Slice(failuresBySource, func(i, j int) bool {
+		return failuresBySource[i].Count > failuresBySource[j].Count
+	})
 
-	totals := []sourceStat{}
+	// **All** total messages by source IP
+	totalMsgsBySource := make([]sourceStat, 0, len(totalSourceTotals))
 	for src, cnt := range totalSourceTotals {
-		totals = append(totals, sourceStat{SourceIP: src, Count: cnt})
+		totalMsgsBySource = append(totalMsgsBySource, sourceStat{SourceIP: src, Count: cnt})
 	}
-	sort.Slice(totals, func(i, j int) bool { return totals[i].Count > totals[j].Count })
-	if len(totals) > 25 {
-		totals = totals[:25]
-	}
+	sort.Slice(totalMsgsBySource, func(i, j int) bool {
+		return totalMsgsBySource[i].Count > totalMsgsBySource[j].Count
+	})
 
-	bytesTotals := []sourceStat{}
+	// **All** bytes received by source IP
+	bytesBySource := make([]sourceStat, 0, len(bytesReceivedTotals))
 	for src, cnt := range bytesReceivedTotals {
-		bytesTotals = append(bytesTotals, sourceStat{SourceIP: src, Count: cnt})
+		bytesBySource = append(bytesBySource, sourceStat{SourceIP: src, Count: cnt})
 	}
-	sort.Slice(bytesTotals, func(i, j int) bool { return bytesTotals[i].Count > bytesTotals[j].Count })
-	if len(bytesTotals) > 25 {
-		bytesTotals = bytesTotals[:25]
-	}
+	sort.Slice(bytesBySource, func(i, j int) bool {
+		return bytesBySource[i].Count > bytesBySource[j].Count
+	})
 
-	dupSources := []sourceStat{}
+	// **All** cumulative unique MMSI per source IP
+	uniqueMMSIBySource := make([]sourceStat, 0, len(userIDsPerSource))
+	for ip, uset := range userIDsPerSource {
+		uniqueMMSIBySource = append(uniqueMMSIBySource, sourceStat{SourceIP: ip, Count: int64(len(uset))})
+	}
+	sort.Slice(uniqueMMSIBySource, func(i, j int) bool {
+		return uniqueMMSIBySource[i].Count > uniqueMMSIBySource[j].Count
+	})
+
+	// Deduplicated per‐source stays as top 25
+	dupSources := make([]sourceStat, 0, len(deduplicatedSourceTotals))
 	for src, cnt := range deduplicatedSourceTotals {
 		dupSources = append(dupSources, sourceStat{SourceIP: src, Count: cnt})
 	}
 	sort.Slice(dupSources, func(i, j int) bool { return dupSources[i].Count > dupSources[j].Count })
 	if len(dupSources) > 25 {
 		dupSources = dupSources[:25]
-	}
-
-	// top-25 cumulative unique users per source
-	topTotalUniqUsers := []sourceStat{}
-	for ip, uset := range userIDsPerSource {
-		topTotalUniqUsers = append(topTotalUniqUsers, sourceStat{SourceIP: ip, Count: int64(len(uset))})
-	}
-	sort.Slice(topTotalUniqUsers, func(i, j int) bool { return topTotalUniqUsers[i].Count > topTotalUniqUsers[j].Count })
-	if len(topTotalUniqUsers) > 25 {
-		topTotalUniqUsers = topTotalUniqUsers[:25]
 	}
 
 	// build shard maps
@@ -1602,31 +1603,32 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// udp destination metrics
-	udpMetrics := []UDPDestinationMetrics{}
+	udpMetrics := make([]UDPDestinationMetrics, 0, len(udpDestinationMetrics))
 	for _, dm := range udpDestinationMetrics {
 		udpMetrics = append(udpMetrics, *dm)
 	}
 
 	// connected‐client blocking stats
-	blockedIPMetrics := []map[string]interface{}{}
+	blockedIPMetrics := make([]map[string]interface{}, 0, len(blockedIPCounters))
 	for ip, ctr := range blockedIPCounters {
 		blockedIPMetrics = append(blockedIPMetrics, map[string]interface{}{
-			"source_ip":       ip,
+			"source_ip":        ip,
 			"messages_blocked": ctr.Count(),
 		})
 	}
 
-	connected := []map[string]interface{}{}
+	// stream‐client details
+	connected := make([]map[string]interface{}, 0, len(clients))
 	clientsMu.Lock()
 	for _, c := range clients {
 		c.mu.Lock()
 		connected = append(connected, map[string]interface{}{
-			"ip":                 c.ip,
-			"shards":             c.shards,
-			"description":        c.description,
-			"port":               c.port,
-			"bytes_sent":         c.bytesSent,
-			"messages_sent":      c.messagesSent,
+			"ip":                  c.ip,
+			"shards":              c.shards,
+			"description":         c.description,
+			"port":                c.port,
+			"bytes_sent":          c.bytesSent,
+			"messages_sent":       c.messagesSent,
 			"messages_per_window": c.messageWindow.Count(),
 			"bytes_per_window":    c.bytesWindow.Sum(),
 		})
@@ -1636,64 +1638,66 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// assemble full JSON payload
 	resp := map[string]interface{}{
-		"uptime_seconds":                         uptime,
-		"total_messages":                         totalMessages,
-		"total_failures":                         totalFailures,
-		"total_downsampled":                      totalDownsampled,
-		"total_deduplicated":                     totalDeduplicated,
-		"per_message_id":                         messageIDTotals,
-		"per_downsampled_message_id":             downsampledMessageTypeTotals,
-		"per_deduplicated_user_id":               deduplicatedUserIDTotals,
-		"per_deduplicated_source":                deduplicatedSourceTotals,
-		"top25_per_user_id":                      users,
-		"top25_downsampled_per_user_id":          dsUsers,
-		"top25_deduplicated_per_user_id":         dupUsers,
-		"failures_by_source":                     failures,
-		"totals_by_source":                       totals,
-		"bytes_received_by_source":               bytesTotals,
-		"top25_deduplicated_per_source":          dupSources,
+		"uptime_seconds":                       uptime,
+		"total_messages":                       totalMessages,
+		"total_failures":                       totalFailures,
+		"total_downsampled":                    totalDownsampled,
+		"total_deduplicated":                   totalDeduplicated,
+		"per_message_id":                       messageIDTotals,
+		"per_downsampled_message_id":           downsampledMessageTypeTotals,
+		"per_deduplicated_user_id":             deduplicatedUserIDTotals,
+		"per_deduplicated_source":              deduplicatedSourceTotals,
+		"top25_per_user_id":                    users,
+		"top25_downsampled_per_user_id":        dsUsers,
+		"top25_deduplicated_per_user_id":       dupUsers,
+
+		// **all** source‐IP metrics
+		"failures_by_source":                   failuresBySource,
+		"messages_by_source":                   totalMsgsBySource,
+		"bytes_received_by_source":             bytesBySource,
+		"unique_mmsi_by_source":                uniqueMMSIBySource,
+
+		// dedup‐by‐source still top25
+		"top25_deduplicated_per_source":        dupSources,
 
 		// rolling‐window totals
-		"window_messages":                        windowMsgs,
-		"window_failures":                        windowFailures,
-		"window_downsampled":                     windowDownsampled,
-		"window_deduplicated":                    windowDedup,
-		"window_messages_forwarded":              windowForwarded,
-		"bytes_received_window":                  windowBytesReceived,
-		"bytes_forwarded_window":                 windowBytesForwarded,
+		"window_messages":                      windowMsgs,
+		"window_failures":                      windowFailures,
+		"window_downsampled":                   windowDownsampled,
+		"window_deduplicated":                  windowDedup,
+		"window_messages_forwarded":            windowForwarded,
+		"bytes_received_window":                windowBytesReceived,
+		"bytes_forwarded_window":               windowBytesForwarded,
 
-		// **new per‐source window snapshots**
-		"window_messages_by_source":              prevWindowBySource.Msgs,
-		"window_bytes_by_source":                 prevWindowBySource.Bytes,
-		"window_failures_by_source":              prevWindowBySource.Fails,
-		"window_unique_uids_by_source":           prevWindowBySource.Uids,
+		// per‐source window snapshots
+		"window_messages_by_source":            prevWindowBySource.Msgs,
+		"window_bytes_by_source":               prevWindowBySource.Bytes,
+		"window_failures_by_source":            prevWindowBySource.Fails,
+		"window_unique_uids_by_source":         prevWindowBySource.Uids,
 
 		// shard & client metrics
-		"messages_per_shard":                     msgs,
-		"user_ids_per_shard":                     uids,
-		"connected_clients":                      clientMetrics,
+		"messages_per_shard":                   msgs,
+		"user_ids_per_shard":                   uids,
+		"connected_clients":                    clientMetrics,
 
 		// data‐transfer totals & ratios
-		"total_bytes_received":                   totalBytesReceived,
-		"total_messages_forwarded":               totalForwarded,
-		"total_bytes_forwarded":                  totalBytesForwarded,
-		"ratio_forwarded_to_received":            ratioTotal,
-		"window_ratio_forwarded_to_received":     ratioWindow,
+		"total_bytes_received":                 totalBytesReceived,
+		"total_messages_forwarded":             totalForwarded,
+		"total_bytes_forwarded":                totalBytesForwarded,
+		"ratio_forwarded_to_received":          ratioTotal,
+		"window_ratio_forwarded_to_received":   ratioWindow,
 
 		// schedule & runtime
-		"downsample_window_sec":                  downsampleWindow.Seconds(),
-		"deduplication_window_sec":               dedupWindow.Seconds(),
-		"metric_window_size_sec":                 metricWindowSize.Seconds(),
-		"total_clients":                          totalClients,
-		"shards_missing":                         shardsMissing,
-		"shards_multiple":                        shardsMultiple,
+		"downsample_window_sec":                downsampleWindow.Seconds(),
+		"deduplication_window_sec":             dedupWindow.Seconds(),
+		"metric_window_size_sec":               metricWindowSize.Seconds(),
+		"total_clients":                        totalClients,
+		"shards_missing":                       shardsMissing,
+		"shards_multiple":                      shardsMultiple,
 
 		// MQTT/UDP destinations
-		"udp_destinations":                       udpMetrics,
-		"blocked_ip_metrics":                     blockedIPMetrics,
-
-		// **new cumulative top-25 unique users per source**
-		"top25_total_unique_users_by_source":     topTotalUniqUsers,
+		"udp_destinations":                     udpMetrics,
+		"blocked_ip_metrics":                   blockedIPMetrics,
 
 		"memory_stats": map[string]uint64{
 			"alloc_bytes":       mem.Alloc,
