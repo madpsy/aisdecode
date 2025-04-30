@@ -9,7 +9,6 @@ import (
 // ----------------------------------------------------------------------------
 // Register this decoder for MessageID=8, DAC=200, FI=10
 // ----------------------------------------------------------------------------
-
 func init() {
     RegisterDecoder(8, 200, 10, decode_8_200_10)
 }
@@ -17,9 +16,8 @@ func init() {
 // https://www.e-navigation.nl/content/inland-ship-static-and-voyage-related-data
 
 // ----------------------------------------------------------------------------
-// decode_8_200_10 (EU Vessel ID + dimensions)
+// decode_8_200_10 (EU Vessel ID + dimensions + load status)
 // ----------------------------------------------------------------------------
-
 func decode_8_200_10(packet map[string]interface{}) (map[string]interface{}, error) {
     // 1) Base64 → bits (assumes the first 56-bit header has been stripped)
     rawB64, ok := packet["BinaryData"].(string)
@@ -35,12 +33,12 @@ func decode_8_200_10(packet map[string]interface{}) (map[string]interface{}, err
     // 2) Field offsets (all offsets are after that 56-bit header)
     O := map[string][2]int{
         "uevin":        {0, 48},  // 8×6-bit ASCII
-        "length":       {48, 13}, // decimetres
-        "beam":         {61, 10}, // decimetres
-        "ship_type":    {71, 14},
-        "hazard":       {85, 3},
-        "draught":      {88, 11}, // centimetres (1/100 m)
-        "load_stat":    {99, 2},
+        "length":       {48, 13}, // 0=default, 1–8000 decimetres
+        "beam":         {61, 10}, // 0=default, 1–1000 decimetres
+        "ship_type":    {71, 14}, // 0=default
+        "hazard":       {85, 3},  // 0–3 valid, 4=B-Flag, 5=default
+        "draught":      {88, 11}, // 0=default, 1–2000 (in 1/100 m)
+        "load_stat":    {99, 2},  // 0=not available/default, 1=loaded, 2=unloaded, 3=reserved
         "qual_speed":   {101, 1},
         "qual_course":  {102, 1},
         "qual_heading": {103, 1},
@@ -70,22 +68,32 @@ func decode_8_200_10(packet map[string]interface{}) (map[string]interface{}, err
         out["unique_eu_vessel_identification_number"] = uevin
     }
 
-    // — Length of ship (1–8000 decimetres) —
+    // — Length of ship —
     length, err := SafeGetUint(bits, O["length"][0], O["length"][1])
     if err != nil {
         return nil, fmt.Errorf("decode_8_200_10: length: %v", err)
     }
-    if length >= 1 && length <= 8000 {
+    switch {
+    case length == 0:
+        out["length_status"] = "default"
+    case length >= 1 && length <= 8000:
         out["length_tenths_metres"] = length
+    default:
+        out["length_status"] = "invalid"
     }
 
-    // — Beam of ship (1–1000 decimetres) —
+    // — Beam of ship —
     beam, err := SafeGetUint(bits, O["beam"][0], O["beam"][1])
     if err != nil {
         return nil, fmt.Errorf("decode_8_200_10: beam: %v", err)
     }
-    if beam >= 1 && beam <= 1000 {
+    switch {
+    case beam == 0:
+        out["beam_status"] = "default"
+    case beam >= 1 && beam <= 1000:
         out["beam_tenths_metres"] = beam
+    default:
+        out["beam_status"] = "invalid"
     }
 
     // — Ship or combination type —
@@ -93,24 +101,40 @@ func decode_8_200_10(packet map[string]interface{}) (map[string]interface{}, err
     if err != nil {
         return nil, fmt.Errorf("decode_8_200_10: ship_type: %v", err)
     }
-    if stype != 0 {
+    if stype == 0 {
+        out["ship_or_combination_type"] = "default"
+    } else {
         out["ship_or_combination_type"] = stype
     }
 
-    // — Hazardous cargo (0–3 valid; 4=B-Flag; 5=unknown) —
+    // — Hazardous cargo —
     haz, err := SafeGetUint(bits, O["hazard"][0], O["hazard"][1])
     if err != nil {
         return nil, fmt.Errorf("decode_8_200_10: hazard: %v", err)
     }
-    out["hazardous_cargo"] = haz
+    switch haz {
+    case 0, 1, 2, 3:
+        out["hazardous_cargo"] = haz
+    case 4:
+        out["hazardous_cargo"] = "b-flag"
+    case 5:
+        out["hazardous_cargo"] = "unknown"
+    default:
+        out["hazardous_cargo"] = "invalid"
+    }
 
-    // — Draught (1–2000 in 1/100 m) —
+    // — Draught —
     draught, err := SafeGetUint(bits, O["draught"][0], O["draught"][1])
     if err != nil {
         return nil, fmt.Errorf("decode_8_200_10: draught: %v", err)
     }
-    if draught >= 1 && draught <= 2000 {
+    switch {
+    case draught == 0:
+        out["draught_status"] = "default"
+    case draught >= 1 && draught <= 2000:
         out["draught_cm"] = draught
+    default:
+        out["draught_status"] = "invalid"
     }
 
     // — Loaded/unloaded status —
@@ -119,10 +143,14 @@ func decode_8_200_10(packet map[string]interface{}) (map[string]interface{}, err
         return nil, fmt.Errorf("decode_8_200_10: load_status: %v", err)
     }
     switch load {
+    case 0:
+        out["loaded_unloaded"] = "not available"
     case 1:
         out["loaded_unloaded"] = "loaded"
     case 2:
         out["loaded_unloaded"] = "unloaded"
+    case 3:
+        out["loaded_unloaded"] = "reserved"
     }
 
     // — Quality of speed, course, heading —
