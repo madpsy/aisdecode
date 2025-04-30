@@ -748,10 +748,10 @@ function sendSummaryRequest() {
   let updatePeriod;
   if (zoom >= 12) {
     updatePeriod = 1;
-  } else if (zoom >= 8) {
-    updatePeriod = 2;
-  } else {
+  } else if (zoom >= 10) {
     updatePeriod = 5;
+  } else {
+    updatePeriod = 10;
   }
 
   console.log(`sendSummaryRequest called at zoom ${zoom}, setting updatePeriod=${updatePeriod}`);
