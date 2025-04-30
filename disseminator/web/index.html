@@ -3632,25 +3632,32 @@ document.getElementById("history-slider").addEventListener("input", () => {
   historyValueDisplay.textContent = historyHours;
   
   const now = Date.now();
-  // Immediately update the polyline tracks for all vessels using the new slider value.
-for (let UserID in vesselData) {
-  if (vesselData[UserID].track) {
-    const filteredTrack = vesselData[UserID].track.filter(pt => {
-      const pointTime = new Date(pt[0]).getTime();
-      return (now - pointTime) <= historyHours * 3600000;
+
+  // Only redraw the focused vessel’s history
+  if (focusedVessel && vesselData[focusedVessel].track) {
+    // Remove its old path if present
+    if (vesselTracks[focusedVessel]) {
+      map.removeLayer(vesselTracks[focusedVessel]);
+    }
+    // Filter by new history window
+    const filtered = vesselData[focusedVessel].track.filter(pt => {
+      const t = new Date(pt[0]).getTime();
+      return (now - t) <= historyHours * 3600000;
     });
-    // Remove the old track layer (if it exists)
-    if (vesselTracks[UserID]) {
-      map.removeLayer(vesselTracks[UserID]);
-    }
-    // Create a new colored track layer using createColoredTrack
-    if (document.getElementById('show-paths').checked) {
-         vesselTracks[UserID] = createColoredTrack(filteredTrack);
-         map.addLayer(vesselTracks[UserID]);
-         attachPolylineEvents(vesselTracks[UserID], UserID);
-    }
+    // Draw only the focused vessel’s track
+    vesselTracks[focusedVessel] = createColoredTrack(filtered);
+    map.addLayer(vesselTracks[focusedVessel]);
+    attachPolylineEvents(vesselTracks[focusedVessel], focusedVessel);
   }
-}
+
+  // Debounce any backend history fetch (unchanged)
+  clearTimeout(historyDebounceTimer);
+  historyDebounceTimer = setTimeout(() => {
+    if (focusedVessel) {
+      hydrateTrackHistory(focusedVessel);
+    }
+  }, 500);
+});
 
   
   // Debounce the fetch for additional history data for the focused vessel.
