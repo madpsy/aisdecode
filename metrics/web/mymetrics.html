@@ -547,6 +547,7 @@ function updateOverlay(latlng) {
 }
 
 
+    // Fetch & draw receiver markers
 function loadReceivers() {
   // clear any previous receivers
   receiversList = [];
@@ -576,15 +577,12 @@ function loadReceivers() {
         // click handler: select this receiver
         dot.on('click', e => {
           L.DomEvent.stopPropagation(e);
-          selectedReceiverLatLng = e.latlng;  // Update selected receiver's position
+          selectedReceiverLatLng = e.latlng;
           clearDistanceLine();
           updateOverlay(e.latlng);
           updateSummaryTable();
 
-          // Draw radius rings around the selected receiver
-          updateReceiverRings(e.latlng);
-
-          // Update the URL to include ?receiver=<id>
+          // update the URL to include ?receiver=<id>
           const url = new URL(location);
           url.searchParams.set('receiver', r.id);
           history.replaceState(null, '', url);
@@ -600,33 +598,48 @@ function loadReceivers() {
       });
 
       // if the user passed ?receiver= in the URL, force-select it now
-      if (overrideReceiverId) {
-        // coerce to the same type
-        const idToMatch = typeof receiversList[0].id === 'number'
-          ? Number(overrideReceiverId)
-          : overrideReceiverId;
+     if (overrideReceiverId) {
+       // coerce to the same type
+       const idToMatch = typeof receiversList[0].id === 'number'
+         ? Number(overrideReceiverId)
+         : overrideReceiverId;
 
-        const forced = receiversList.find(rx => rx.id === idToMatch);
-        if (forced) {
-          // manually set selection state
-          selectedReceiverLatLng = forced.latlng;
-          updateOverlay(forced.latlng);
-          updateSummaryTable();
+       const forced = receiversList.find(rx => rx.id === idToMatch);
+       if (forced) {
+         // manually set selection state
+         selectedReceiverLatLng = forced.latlng;
+         updateOverlay(forced.latlng);
+         updateSummaryTable();
 
-          // update URL cleanly
-          const url = new URL(location);
-          url.searchParams.set('receiver', forced.id);
-          history.replaceState(null, '', url);
+         // update URL cleanly
+         const url = new URL(location);
+         url.searchParams.set('receiver', forced.id);
+         history.replaceState(null, '', url);
 
-          // fire the click *with* a latlng payload
-          forced.marker.fire('click', { latlng: forced.latlng });
-        }
-      }
+         // fire the click *with* a latlng payload
+         forced.marker.fire('click', { latlng: forced.latlng });
+       }
+     }
 
     })
     .catch(err => console.error('Failed to load receivers', err));
-}
+ }
 
+    // Vessel icon creation
+    function makeIcon(info, color){
+      if(info.Sog > 0.5){
+        const angle = info.Cog || 0;
+        return L.divIcon({
+          html: `<div style="transform: rotate(${angle}deg) scaleY(1.5); font-size: 20px; color: ${color};">&#9650;</div>`,
+          className: '', iconSize: [20,30]
+        });
+      } else {
+        return L.divIcon({
+          html: `<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,
+          className: '', iconSize: [12,12]
+        });
+      }
+    }
 
     // Focus vessel from table
 function focusVessel(uid){
