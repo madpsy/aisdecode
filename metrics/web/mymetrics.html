@@ -1094,8 +1094,6 @@ function updateMap(){
         el.style.display = showDist ? '' : 'none';
       });
 
-      if (!selectedReceiverLatLng) return
-
       let allRows = Array.from(seenUserIds)
         .filter(uid=>uid.length===9)
         .map(uid=>({
