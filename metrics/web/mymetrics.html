@@ -61,9 +61,9 @@
       padding: 5px !important;
     }
     .leaflet-popup-content-wrapper img {
-      width: 120px;       /* or whatever your max-width is */
+      width: 120px;
       height: auto;
-      flex-shrink: 0;     /* if you’re using flex layout */
+      flex-shrink: 0;
     }
     .leaflet-popup-content {
       margin: 0 !important;
@@ -94,6 +94,7 @@
         <th data-field="id">MMSI<span class="arrow"></span></th>
         <th data-field="name">Name<span class="arrow"></span></th>
         <th data-field="typeName">Type<span class="arrow"></span></th>
+        <th data-field="status">Status<span class="arrow"></span></th>
         <th data-field="className">Class<span class="arrow"></span></th>
         <th>Flag</th>
         <th data-field="lastSeen">Last Seen<span class="arrow"></span></th>
@@ -146,6 +147,20 @@
     // Map state
     let map, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
     const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
+
+    // Navigate Status mapping
+    const navigationalStatusMapping = {
+      0: "Using Engine",
+      1: "At Anchor",
+      2: "Not Under Command",
+      3: "Restricted Manoeuvrability",
+      4: "Constrained by Draft",
+      5: "Moored",
+      6: "Aground",
+      7: "Engaged in Fishing",
+      8: "Under Way Sailing",
+      15: "Unknown"
+    };
 
     // Helpers
     function formatNumber(v){
@@ -261,7 +276,6 @@
       };
     });
 
-    // Leaflet init
     function initMap(){
       map = L.map('map').setView([0,0],2);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -270,39 +284,23 @@
       map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
     }
 
-    // UPDATED: focus and simulate hover to bind & open popup
     function focusVessel(uid) {
-      // 1) Close all existing marker popups
       Object.values(vesselMarkers).forEach(m => m.closePopup());
-
-      // 2) Grab the one we want
       const marker = vesselMarkers[uid];
       if (!marker) return;
-
-      // 3) Zoom & pan without re-auto-fitting later
       autoFit = false;
       programmaticFit = true;
       map.once('moveend zoomend', () => programmaticFit = false);
       map.flyTo(marker.getLatLng(), 12);
-
-      // 4) Fire its ‘mouseover’ so your existing popup-binding handler runs
       marker.fire('mouseover');
-      const mapEl = document.getElementById('map');
-      if (mapEl) {
-        mapEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
+      document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+
     function makeIcon(info, color){
       if(info.Sog > 0.5){
         const angle = info.Cog || 0;
         return L.divIcon({
-          html: `<div style="
-                    transform: rotate(${angle}deg) scaleY(1.5);
-                    font-size: 20px;
-                    color: ${color};
-                 ">
-                   &#9650;
-                 </div>`,
+          html: `<div style="transform: rotate(${angle}deg) scaleY(1.5); font-size: 20px; color: ${color};">&#9650;</div>`,
           className:'', iconSize:[20,30]
         });
       } else {
@@ -322,7 +320,6 @@
         const { Latitude:lat, Longitude:lon } = info;
         if(typeof lat!=='number' || typeof lon!=='number') return;
         boundsArr.push([lat,lon]);
-
         const typeDisp = typeNameFor(info.Type);
         const color    = typeColorsMap[typeDisp] || '#000';
         const icon     = makeIcon(info, color);
@@ -332,19 +329,19 @@
           newMarkers[uid] = vesselMarkers[uid];
         } else {
           const m = L.marker([lat,lon], { icon });
-
           m.on('mouseover', () => {
+            const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
             const detailsHtml = `
-              <div class="state-details" style="line-height:1.2;">
+              <div style="line-height:1.2;">
                 <b>MMSI:</b> ${uid}<br/>
                 <b>Name:</b> ${info.Name || ''}<br/>
                 <b>Speed:</b> ${info.Sog} kn<br/>
                 <b>Type:</b> ${typeDisp}<br/>
+                <b>Status:</b> ${status}<br/>
                 <b>Class:</b> ${info.AISClass || ''}
               </div>
             `;
             m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
-
             fetch(`/state/${encodeURIComponent(uid)}`)
               .then(res => { if(!res.ok) throw res.status; return res.json(); })
               .then(state => {
@@ -352,16 +349,13 @@
                 if (imgUrl) {
                   const flexHtml = `
                     <div style="display:flex;align-items:center;gap:8px;">
-                      <img
-                        src="${imgUrl}"
-                        style="max-width:120px;max-height:80px;flex-shrink:0;"
-                        alt="State image"
-                      />
-                      <div class="state-details" style="line-height:1.2;">
+                      <img src="${imgUrl}" style="max-width:120px;max-height:80px;flex-shrink:0;" alt="State image"/>
+                      <div style="line-height:1.2;">
                         <b>MMSI:</b> ${uid}<br/>
                         <b>Name:</b> ${info.Name || ''}<br/>
                         <b>Speed:</b> ${info.Sog} kn<br/>
                         <b>Type:</b> ${typeDisp}<br/>
+                        <b>Status:</b> ${status}<br/>
                         <b>Class:</b> ${info.AISClass || ''}
                       </div>
                     </div>
@@ -374,7 +368,6 @@
           });
           m.on('mouseout', () => m.closePopup());
           m.on('click', () => m.openPopup());
-
           m.addTo(map);
           vesselMarkers[uid] = m;
           newMarkers[uid] = m;
@@ -393,7 +386,6 @@
       }
     }
 
-    // Fetch & update loop
     async function fetchMetrics(){
       try {
         let url = '/metrics/bysource';
@@ -517,6 +509,11 @@
         if (sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
         else if (sortField==='name') cmp = (a.info.Name||'').localeCompare(a.info.Name||'');
         else if (sortField==='typeName') cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
+        else if (sortField==='status') {
+          const sa = navigationalStatusMapping[a.info.NavigationalStatus] || 'Unknown';
+          const sb = navigationalStatusMapping[b.info.NavigationalStatus] || 'Unknown';
+          cmp = sa.localeCompare(sb);
+        }
         else if (sortField==='count') cmp = a.count - b.count;
         else cmp = a.id.localeCompare(b.id);
         return sortAsc ? cmp : -cmp;
@@ -535,17 +532,13 @@
         const flagCell = countryCode
           ? `<td><img src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px;"/></td>`
           : '<td></td>';
+        const status = navigationalStatusMapping[item.info.NavigationalStatus] || 'Unknown';
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td>
-            <a href="#"
-               onclick="focusVessel('${item.id}'); return false;"
-               title="Zoom to vessel on map">
-              ${item.id}
-            </a>
-          </td>
+          <td><a href="#" onclick="focusVessel('${item.id}'); return false;">${item.id}</a></td>
           <td>${item.info.Name||''}</td>
-          <td>${typeNameFor(item.info.Type)}</td>
+          <td title="Type: ${typeNameFor(item.info.Type)}\nStatus: ${status}">${typeNameFor(item.info.Type)}</td>
+          <td>${status}</td>
           <td>${item.info.AISClass||''}</td>
           ${flagCell}
           <td>${ago}</td>
@@ -553,7 +546,7 @@
         `;
         tbody.appendChild(tr);
       });
-      renderPagination(Math.ceil(allRows.length/rowsPerPage));
+      renderPagination(totalPages);
       updateDoughnut();
     }
   </script>
