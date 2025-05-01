@@ -916,49 +916,51 @@ function updateMap(){
         updateReceiverRings(selectedReceiverLatLng);  // Redraw rings based on updated maximum distance
     }
 
-    // Auto‐select nearest RX on first vessel arrival (unless overridden)
-    const newVesselCount = Object.keys(vesselMarkers).length;
-    if (
-        oldVesselCount === 0 &&
-        newVesselCount > 0 &&
-        receiversList.length > 0 &&
-        !overrideReceiverId
-    ) {
-        // pick the very first vessel
-        const firstUid = Object.keys(vesselMarkers)[0];
-        const vesselLatLng = vesselMarkers[firstUid].getLatLng();
+// Auto‐select nearest RX on first vessel arrival (unless overridden)
+const newVesselCount = Object.keys(vesselMarkers).length;
+if (
+    oldVesselCount === 0 &&
+    newVesselCount > 0 &&
+    receiversList.length > 0 &&
+    !overrideReceiverId
+) {
+    // pick the very first vessel
+    const firstUid = Object.keys(vesselMarkers)[0];
+    const vesselLatLng = vesselMarkers[firstUid].getLatLng();
 
-        // find closest receiver
-        let closest = null, minDist = Infinity;
-        receiversList.forEach(rx => {
-            const d = haversineDistance(
-                vesselLatLng.lat, vesselLatLng.lng,
-                rx.latlng.lat, rx.latlng.lng
-            );
-            if (d < minDist) { minDist = d; closest = rx; }
-        });
-
-        // trigger click + flash overlay
-        if (closest) {
-            // explicitly select this RX
-            selectedReceiverLatLng = closest.latlng;
-            // update overlay & table
-            updateOverlay(closest.latlng);
-            updateSummaryTable();
-
-            // fire tooltip & URL update
-            closest.marker.fire('click', { latlng: closest.latlng });
-            const ov = document.createElement('div');
-            ov.className = 'rx-overlay';
-            ov.textContent = `Selected RX ${closest.name}`;
-            document.body.appendChild(ov);
-            requestAnimationFrame(() => ov.classList.add('show'));
-            setTimeout(() => {
-                ov.classList.remove('show');
-                ov.addEventListener('transitionend', () => ov.remove(), { once: true });
-            }, 2000);
+    // find closest receiver
+    let closest = null, minDist = Infinity;
+    receiversList.forEach(rx => {
+        const d = haversineDistance(
+            vesselLatLng.lat, vesselLatLng.lng,
+            rx.latlng.lat, rx.latlng.lng
+        );
+        if (d < minDist) { 
+            minDist = d; 
+            closest = rx; 
         }
+    });
+
+    // trigger click + flash overlay
+    if (closest) {
+        // explicitly select this RX
+        selectedReceiverLatLng = closest.latlng;
+        updateOverlay(closest.latlng); // Update overlay for selected receiver
+        updateSummaryTable(); // Update summary table to show receiver info
+
+        // fire tooltip & URL update
+        closest.marker.fire('click', { latlng: closest.latlng });
+        const ov = document.createElement('div');
+        ov.className = 'rx-overlay';
+        ov.textContent = `Selected RX ${closest.name}`;
+        document.body.appendChild(ov);
+        requestAnimationFrame(() => ov.classList.add('show'));
+        setTimeout(() => {
+            ov.classList.remove('show');
+            ov.addEventListener('transitionend', () => ov.remove(), { once: true });
+        }, 2000);
     }
+}
 
     if (autoFit && boundsArr.length) {
         programmaticFit = true;
