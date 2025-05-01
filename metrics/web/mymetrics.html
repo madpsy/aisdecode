@@ -496,43 +496,45 @@ map.on('moveend', function () {
       updateSummaryTable();
     });
 
-    // Initialize map, overlay, and receivers
-    function initMap(){
-      map = L.map('map').setView([0,0],2);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(map);
+function initMap(){
+  // Initialize the map
+  map = L.map('map').setView([0,0], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
 
-map.on('click', e => {
-  const tgt = e.originalEvent.target;
+  // Ensure map is initialized before interacting with it
+  map.on('click', e => {
+    const tgt = e.originalEvent.target;
 
-  // if the click came from a marker icon, popup, or tooltip, ignore it
-  if (
-    tgt.classList.contains('leaflet-marker-icon') ||
-    tgt.classList.contains('leaflet-interactive') ||  // SVG marker
-    tgt.closest('.leaflet-popup') ||
-    tgt.closest('.distance-tooltip')
-  ) {
-    return;
-  }
-
-  // otherwise clear
-  updateOverlay(null);
-  clearDistanceLine();
-  clearSelectedRow();
-  focusedUid = null;
-});
-
-      // create and append overlay
-      overlayDiv = document.createElement('div');
-      overlayDiv.className = 'latlng-overlay';
-      map.getContainer().appendChild(overlayDiv);
-      updateOverlay(null);
-
-      loadReceivers();
-
-      map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
+    // if the click came from a marker icon, popup, or tooltip, ignore it
+    if (
+      tgt.classList.contains('leaflet-marker-icon') ||
+      tgt.classList.contains('leaflet-interactive') ||  // SVG marker
+      tgt.closest('.leaflet-popup') ||
+      tgt.closest('.distance-tooltip')
+    ) {
+      return;
     }
+
+    // otherwise clear
+    updateOverlay(null);
+    clearDistanceLine();
+    clearSelectedRow();
+    focusedUid = null;
+  });
+
+  // Create and append overlay for lat/lng display
+  overlayDiv = document.createElement('div');
+  overlayDiv.className = 'latlng-overlay';
+  map.getContainer().appendChild(overlayDiv);
+  updateOverlay(null);
+
+  // Call this after map is initialized
+  loadReceivers();
+
+  map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
+}
 
 function updateOverlay(latlng) {
 
