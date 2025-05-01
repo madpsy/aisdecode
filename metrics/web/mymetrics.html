@@ -646,20 +646,26 @@ function updateOverlay(latlng) {
 
     // Fetch & draw receiver markers
 function loadReceivers() {
+  console.log("Loading receivers..."); // Log here to check if this function is called
+
   // Clear any previous receivers
   receiversList = [];
-  
+
   fetch('/receivers')
     .then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     })
     .then(receivers => {
+      console.log("Receivers loaded:", receivers);  // Log the list of receivers fetched
+
       let closestReceiver = null;
       let minDistance = Infinity;
 
-      // Iterate over each receiver to create markers
+      // Process each receiver
       receivers.forEach(r => {
+        console.log(`Processing receiver: ${r.name}, Coordinates: [${r.latitude}, ${r.longitude}]`);  // Log each receiver
+
         const dot = L.circleMarker([r.latitude, r.longitude], {
           radius: 8,
           color: 'red',
@@ -668,14 +674,12 @@ function loadReceivers() {
           weight: 2
         }).addTo(map);
 
-        // Bind tooltip
         dot.bindTooltip(`${r.name} (RX)`, {
           permanent: true,
           direction: 'top',
           className: 'receiver-tooltip'
         });
 
-        // Store receiver info in receiversList
         receiversList.push({
           id: r.id,
           name: r.name,
@@ -683,13 +687,12 @@ function loadReceivers() {
           latlng: L.latLng(r.latitude, r.longitude)
         });
 
-        // If no query parameter exists, find the closest receiver based on vessel distance
+        // Check if closest receiver logic should run
         if (!overrideReceiverId && Object.keys(vesselMarkers).length > 0) {
           const firstVessel = vesselMarkers[Object.keys(vesselMarkers)[0]]; // Take the first vessel
           const vesselLatLng = firstVessel.getLatLng();
           const distance = haversineDistance(vesselLatLng.lat, vesselLatLng.lng, r.latitude, r.longitude);
 
-          // Check if this receiver is closer than the previously found one
           if (distance < minDistance) {
             minDistance = distance;
             closestReceiver = r;
@@ -697,7 +700,7 @@ function loadReceivers() {
         }
       });
 
-      // Handle receiver override (from query parameter)
+      // Log and handle receiver override (query parameter)
       if (overrideReceiverId) {
         const receiver = receiversList.find(r => r.id === overrideReceiverId);
         if (receiver) {
@@ -706,17 +709,14 @@ function loadReceivers() {
           receiver.marker.fire('click', { latlng: selectedReceiverLatLng });
         }
       } else if (closestReceiver) {
-        // Automatically select the closest receiver
-        console.log("Selecting the closest receiver:", closestReceiver.name);
+        console.log("Selecting the closest receiver:", closestReceiver.name);  // Log the closest receiver
         selectedReceiverLatLng = L.latLng(closestReceiver.latitude, closestReceiver.longitude);
-        updateOverlay(selectedReceiverLatLng); // Update overlay to show coordinates
-        updateReceiverRings(selectedReceiverLatLng); // Update rings on map
-        updateSummaryTable(); // Update the summary table with this receiver's info
+        updateOverlay(selectedReceiverLatLng);
+        updateReceiverRings(selectedReceiverLatLng);
+        updateSummaryTable();
 
-        // Simulate the click event on the closest receiver
         closestReceiver.marker.fire('click', { latlng: selectedReceiverLatLng });
 
-        // Update URL with the receiver's ID (for consistency with the query param)
         const url = new URL(location);
         url.searchParams.set('receiver', closestReceiver.id);
         history.replaceState(null, '', url);
