@@ -572,7 +572,7 @@ function focusVessel(uid){
     autoFit        = false;
     programmaticFit = true;
     map.once('moveend zoomend', () => programmaticFit = false);
-    map.flyTo(marker.getLatLng(), 12);
+    map.flyTo(marker.getLatLng(), 11);
   }
 
   marker.fire('mouseover');
