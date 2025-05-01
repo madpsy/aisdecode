@@ -446,6 +446,36 @@
       map.flyTo(marker.getLatLng(), 12);
       marker.fire('mouseover');
       updateOverlay(marker.getLatLng());
+      marker.fire('mouseover');
+      updateOverlay(marker.getLatLng());
+
+      // — draw distance line when a receiver is selected —
+      if(selectedReceiverLatLng){
+        clearDistanceLine();
+        const vesselLatLng = marker.getLatLng();
+        const dist = haversineDistance(
+          selectedReceiverLatLng.lat,
+          selectedReceiverLatLng.lng,
+          vesselLatLng.lat,
+          vesselLatLng.lng
+        ).toFixed(2);
+
+        distancePolyline = L.polyline(
+          [ selectedReceiverLatLng, vesselLatLng ],
+          { color: 'blue' }
+        ).addTo(map);
+
+        const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
+        const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
+        distanceLabel = L.tooltip({
+          permanent: true,
+          direction: 'center',
+          className: 'distance-tooltip'
+        })
+          .setLatLng([midLat, midLng])
+          .setContent(`${dist} km`)
+          .addTo(map);
+      }
       document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
