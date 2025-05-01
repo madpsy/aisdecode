@@ -85,7 +85,7 @@
       }
     });
 
-    // Metrics setup (unchanged) …
+    // Metric definitions
     const allMetrics = [
       'bytes_received','messages','failures','deduplicated',
       'window_bytes','window_messages','window_unique_uids'
@@ -93,6 +93,7 @@
     const cardMetrics = allMetrics.filter(m => !m.startsWith('window_'));
     const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
     const maxPoints = 60;
+
     let overrideIp = '';
     const charts = {}, baselines = {};
     const cardsContainer = document.getElementById('cards');
@@ -109,6 +110,7 @@
       'rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'
     ];
 
+    // Helpers
     function formatNumber(v){
       if(v>=1e6) return +(v/1e6).toFixed(v%1e6===0?0:2)+'M';
       if(v>=1e3) return +(v/1e3).toFixed(v%1e3===0?0:2)+'K';
@@ -166,7 +168,6 @@
       history.replaceState(null,'',url);
     }
 
-    // Initialize
     window.addEventListener('DOMContentLoaded', ()=>{
       fetch('/types.json')
         .then(r=>r.ok?r.json():Promise.reject(r.status))
@@ -198,51 +199,39 @@
       };
     });
 
-    // ——— Leaflet map & markers ———
+    // Leaflet init
     function initMap(){
-      map = L.map('map').setView([0,0], 2);
+      map = L.map('map').setView([0,0],2);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      // disable auto-fit after any manual move/zoom
-      map.on('movestart zoomstart', ()=> autoFit = false);
+      // only cancel autoFit on real user interaction
+      map.on('movestart zoomstart', e => {
+        if (e.originalEvent) autoFit = false;
+      });
     }
 
     function makeIcon(info, color){
       if(info.Sog > 0.5){
-        // triangle arrow
         const angle = info.Cog || 0;
         return L.divIcon({
-          html: `<div style="
-                    transform: rotate(${angle}deg);
-                    font-size:12px;
-                    color:${color};
-                  ">&#9650;</div>`,
-          className:'',
-          iconSize: [12,12]
+          html: `<div style="transform: rotate(${angle}deg); font-size:12px; color:${color};">&#9650;</div>`,
+          className:'', iconSize:[12,12]
         });
       } else {
-        // small circle
         return L.divIcon({
-          html: `<div style="
-                    width:8px; height:8px;
-                    background:${color};
-                    border-radius:50%;
-                  "></div>`,
-          className:'',
-          iconSize: [8,8]
+          html: `<div style="width:8px; height:8px; background:${color}; border-radius:50%;"></div>`,
+          className:'', iconSize:[8,8]
         });
       }
     }
 
     function updateMap(){
-      const boundsArr = [];
+      const boundsArr = [], newMarkers = {};
 
-      // build new set and update/create markers
-      const newMap = {};
       seenUserIds.forEach(uid => {
-        if(uid.length!==9) return;
+        if(uid.length !== 9) return;
         const info = summaryCache[uid];
         if(!info) return;
         const lat = info.Latitude, lon = info.Longitude;
@@ -253,13 +242,10 @@
         const color = typeColorsMap[typeDisp] || '#000';
         const icon = makeIcon(info, color);
 
-        if(vesselMarkers[uid]){
-          // move existing
-          vesselMarkers[uid].setLatLng([lat,lon]);
-          vesselMarkers[uid].setIcon(icon);
+        if (vesselMarkers[uid]) {
+          vesselMarkers[uid].setLatLng([lat,lon]).setIcon(icon);
         } else {
-          // create new
-          const m = L.marker([lat,lon],{icon});
+          const m = L.marker([lat,lon], { icon });
           const popupHtml =
             `<b>MMSI:</b> ${uid}<br/>`+
             `<b>Name:</b> ${info.Name||''}<br/>`+
@@ -273,26 +259,23 @@
           vesselMarkers[uid] = m;
         }
 
-        newMap[uid] = vesselMarkers[uid];
+        newMarkers[uid] = vesselMarkers[uid];
       });
 
-      // remove old markers
       Object.keys(vesselMarkers).forEach(uid => {
-        if(!newMap[uid]){
+        if (!newMarkers[uid]) {
           map.removeLayer(vesselMarkers[uid]);
           delete vesselMarkers[uid];
         }
       });
-      vesselMarkers = newMap;
+      vesselMarkers = newMarkers;
 
-      // auto-fit only if still enabled
-      if(autoFit && boundsArr.length){
-        const b = L.latLngBounds(boundsArr);
-        map.fitBounds(b, { padding:[20,20] });
+      if (autoFit && boundsArr.length) {
+        map.fitBounds(L.latLngBounds(boundsArr), { padding:[20,20] });
       }
     }
 
-    // ——— Fetch & update logic (unchanged except calling updateMap) ———
+    // Fetch & update
     async function fetchMetrics(){
       try {
         let url = '/metrics/bysource';
@@ -303,12 +286,12 @@
         document.getElementById('ip-address').textContent = data.ip_address;
         const lbl = new Date().toLocaleTimeString();
 
-        // cards
+        // update cards
         cardMetrics.forEach(m=>{
           if(baselines[m]===undefined) baselines[m]=data[m];
           document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m]-baselines[m]);
         });
-        // line charts
+        // update line charts
         chartMetrics.forEach(m=>{
           const c = charts[m];
           c.data.labels.push(lbl);
@@ -320,7 +303,7 @@
           c.update();
         });
 
-        // summary + detail fetch
+        // handle summary IDs
         if(Array.isArray(data.window_user_ids)){
           data.window_user_ids.forEach(uid=>{
             lastSeenTs[uid] = new Date();
@@ -363,17 +346,14 @@
     function updateDoughnut(){
       if(!typeDoughnut) return;
       const counts = {};
-      Array.from(seenUserIds)
-        .filter(uid=>uid.length===9)
-        .forEach(uid=>{
-          const name = typeNameFor(summaryCache[uid]?.Type);
-          counts[name] = (counts[name]||0) + 1;
-        });
+      Array.from(seenUserIds).filter(uid=>uid.length===9).forEach(uid=>{
+        const name = typeNameFor(summaryCache[uid]?.Type);
+        counts[name] = (counts[name]||0) + 1;
+      });
       const entries = Object.entries(counts);
-      const labels = entries.map(e=>e[0]+' ('+e[1]+')');
+      const labels = entries.map(e=>`${e[0]} (${e[1]})`);
       const data   = entries.map(e=>e[1]);
       const bg     = entries.map((_,i)=>colors[i%colors.length]);
-      // map type→color
       typeColorsMap = {};
       entries.forEach((e,i)=> typeColorsMap[e[0]] = bg[i]);
 
@@ -383,7 +363,6 @@
       typeDoughnut.options.plugins.centerText.text = data.reduce((a,b)=>a+b,0);
       typeDoughnut.update();
 
-      // now update map
       updateMap();
     }
 
