@@ -215,7 +215,6 @@
     const cardMetrics  = allMetrics.filter(m => !m.startsWith('window_'));
     const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
     const maxPoints    = 60;
-    let radiusCircles = [];
     let focusedUid = null;
     let overrideIp = '';
     let overlayDisplayed = false;
@@ -253,66 +252,6 @@
         distanceLabel = null,
         overrideReceiverId = '',
         receiversList = [];
-
-// Function to draw rings based on receiver's location
-function drawRadiusRings(latlng) {
-  clearRadiusRings();  // Clear existing rings
-
-  if (!latlng) return;  // No receiver selected
-
-  const zoomLevel = map.getZoom();
-  const distance = 5 * zoomLevel;  // Calculate distance (for example, the distance grows with zoom level)
-
-  // Define the radii for the 3 rings (in nautical miles)
-  const rings = [1, 3, 5];  // Example: 1 NM, 3 NM, 5 NM
-
-  // Draw each circle and label it in nautical miles
-  rings.forEach((nm, index) => {
-    const radiusInMeters = nm * 1852;  // Convert NM to meters
-    const circle = L.circle(latlng, {
-      radius: radiusInMeters,
-      color: 'blue',
-      weight: 1,
-      opacity: 0.6,
-      fillOpacity: 0.1,
-    }).addTo(map);
-
-    // Label the circle with the distance in NM
-    const label = L.tooltip({ permanent: true, direction: 'center', className: 'distance-tooltip' })
-      .setLatLng(latlng)
-      .setContent(`${nm} NM`)
-      .addTo(map);
-
-    radiusCircles.push({ circle, label });
-  });
-}
-
-// Clear existing radius rings
-function clearRadiusRings() {
-  radiusCircles.forEach(item => {
-    map.removeLayer(item.circle);
-    map.removeLayer(item.label);
-  });
-  radiusCircles = [];
-}
-
-// Call this function when a receiver is selected
-function updateReceiverRings(latlng) {
-  drawRadiusRings(latlng);
-}
-
-// Add event listener for zoom and move events to adjust rings
-map.on('zoomend', function () {
-  if (selectedReceiverLatLng) {
-    drawRadiusRings(selectedReceiverLatLng);  // Redraw rings on zoom
-  }
-});
-
-map.on('moveend', function () {
-  if (selectedReceiverLatLng) {
-    drawRadiusRings(selectedReceiverLatLng);  // Redraw rings on move
-  }
-});
 
     // **Filter term & row‐highlight helpers**
     let filterTerm = '';
