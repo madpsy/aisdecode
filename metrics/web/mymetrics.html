@@ -28,7 +28,7 @@
       margin-bottom: 20px;
     }
     canvas.doughnut-chart { width: 400px !important; height: 400px !important; }
-    #map { width: 600px !important; height: 400px !important; }
+    #map { width: 600px !important; height: 400px !important; position: relative; }
     table { width: 100%; border-collapse: collapse; margin-top: 20px; }
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
     th { background: #f0f0f0; cursor: pointer; user-select: none; }
@@ -78,6 +78,20 @@
       border-radius: 4px;
       box-shadow: 0 1px 2px rgba(0,0,0,0.2);
       font-size: 0.9em;
+    }
+
+    /* Lat/Lng overlay centered at top of map */
+    .leaflet-top .leaflet-latlng-control {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.8);
+      padding: 4px 8px;
+      font-weight: bold;
+      border-radius: 4px;
+      pointer-events: none;
+      user-select: none;
+      z-index: 1000;
     }
   </style>
 </head>
@@ -155,21 +169,15 @@
     let midMap = {};
 
     // Map state
-    let map, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
+    let map, coordControl, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
     const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
 
-    // Navigate Status mapping
+    // Navigational status mapping
     const navigationalStatusMapping = {
-      0: "Using Engine",
-      1: "At Anchor",
-      2: "Not Under Command",
-      3: "Restricted Manoeuvrability",
-      4: "Constrained by Draft",
-      5: "Moored",
-      6: "Aground",
-      7: "Engaged in Fishing",
-      8: "Under Way Sailing",
-      15: "Unknown"
+      0: "Using Engine", 1: "At Anchor", 2: "Not Under Command",
+      3: "Restricted Manoeuvrability", 4: "Constrained by Draft",
+      5: "Moored", 6: "Aground", 7: "Engaged in Fishing",
+      8: "Under Way Sailing", 15: "Unknown"
     };
 
     // Helpers
@@ -213,17 +221,12 @@
     function applyOverride(ip){
       overrideIp = ip;
       document.getElementById('ipInput').value = ip;
-
       Object.keys(baselines).forEach(k => delete baselines[k]);
       cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
-
       chartMetrics.forEach(m => {
         const c = charts[m];
-        c.data.labels = [];
-        c.data.datasets[0].data = [];
-        c.update();
+        c.data.labels = []; c.data.datasets[0].data = []; c.update();
       });
-
       seenUserIds.clear();
       Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
       vesselMarkers = {};
@@ -232,19 +235,16 @@
       Object.keys(seenCount).forEach(k => delete seenCount[k]);
       document.getElementById('summaryBody').innerHTML = '';
       currentPage = 1;
-
       if(typeDoughnut){
         typeDoughnut.data.labels = [];
         typeDoughnut.data.datasets[0].data = [];
         typeDoughnut.options.plugins.centerText.text = '';
         typeDoughnut.update();
       }
-
       autoFit = true;
       sortField = 'lastSeen'; sortAsc = false;
       document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
       document.getElementById('pagination').innerHTML = '';
-
       const url = new URL(location);
       ip ? url.searchParams.set('ipaddress', ip) : url.searchParams.delete('ipaddress');
       history.replaceState(null, '', url);
@@ -286,7 +286,7 @@
       };
     });
 
-    // -- NEW: loadReceivers & integrate them outside of fitBounds --
+    // -- loadReceivers outside of fitBounds --
     function loadReceivers() {
       fetch('/receivers')
         .then(res => {
@@ -297,16 +297,17 @@
           receivers.forEach(r => {
             const dot = L.circleMarker([r.latitude, r.longitude], {
               radius: 8,
-              color: 'red',
-              fillColor: 'red',
-              fillOpacity: 1,
-              weight: 1
+              color: 'red', fillColor: 'red', fillOpacity: 1, weight: 1
             }).addTo(map);
 
             dot.bindTooltip(`${r.name} (RX)`, {
               permanent: true,
               direction: 'top',
               className: 'receiver-tooltip'
+            });
+
+            dot.on('click', e => {
+              coordControl.update(e.latlng);
             });
           });
         })
@@ -319,13 +320,24 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      // add all of our fixed “receiver” markers
+      // 1) add receivers
       loadReceivers();
+
+      // 2) create coordControl and add
+      coordControl = L.control({ position: 'topright' });
+      coordControl.onAdd = function(m) {
+        this._div = L.DomUtil.create('div', 'leaflet-latlng-control');
+        this._div.innerHTML = '';
+        return this._div;
+      };
+      coordControl.update = function(latlng) {
+        if (!latlng) this._div.innerHTML = '';
+        else this._div.innerHTML = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
+      };
+      coordControl.addTo(map);
 
       map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
     }
-
-    // (rest of your existing map/fetchMetrics/updateMap/focusVessel etc. unchanged…)
 
     function focusVessel(uid) {
       Object.values(vesselMarkers).forEach(m => m.closePopup());
@@ -336,6 +348,7 @@
       map.once('moveend zoomend', () => programmaticFit = false);
       map.flyTo(marker.getLatLng(), 12);
       marker.fire('mouseover');
+      coordControl.update(marker.getLatLng());
       document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -410,7 +423,10 @@
               .catch(e => console.error(`Failed to load state for ${uid}`, e));
           });
           m.on('mouseout', () => m.closePopup());
-          m.on('click', () => m.openPopup());
+          m.on('click', e => {
+            coordControl.update(e.latlng);
+            m.openPopup();
+          });
           m.addTo(map);
           vesselMarkers[uid] = m;
           newMarkers[uid] = m;
