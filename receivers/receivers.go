@@ -76,7 +76,9 @@ func main() {
         log.Fatalf("Failed to open database: %v", err)
     }
     defer db.Close()
-    if err = db.Ping(); err != nil {
+
+    // Ensure connection is alive initially
+    if err = ensureConnection(); err != nil {
         log.Fatalf("Unable to connect to database: %v", err)
     }
 
@@ -97,8 +99,8 @@ func main() {
 
     // Serve static files at /admin/
     http.Handle(
-       "/admin/",
-       http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))),
+        "/admin/",
+        http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))),
     )
 
     addr := fmt.Sprintf(":%d", settings.ListenPort)
@@ -138,8 +140,33 @@ func createSchema() {
     }
 }
 
+// Ensure connection is alive, attempt to reconnect if needed
+func ensureConnection() error {
+    if err := db.Ping(); err != nil {
+        log.Println("Database connection lost, attempting to reconnect...")
+        db, err = sql.Open("postgres", fmt.Sprintf(
+            "host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+            settings.DbHost, settings.DbPort, settings.DbUser, settings.DbPass, settings.DbName,
+        ))
+        if err != nil {
+            return fmt.Errorf("failed to reconnect to database: %v", err)
+        }
+        if err := db.Ping(); err != nil {
+            return fmt.Errorf("unable to verify reconnected database: %v", err)
+        }
+        log.Println("Reconnected to the database successfully.")
+    }
+    return nil
+}
+
 // --- Public listing only ---
 func handleListReceivers(w http.ResponseWriter, r *http.Request) {
+    // Ensure the connection is alive before performing the query
+    if err := ensureConnection(); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
     rows, err := db.Query(`
         SELECT id, lastupdated, description, latitude, longitude, name, url
         FROM receivers ORDER BY id
