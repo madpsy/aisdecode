@@ -20,7 +20,13 @@
     .card p { margin: 0; font-size: 1.5em; font-weight: bold; }
     .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; margin-bottom: 20px; }
     .chart-container { width: 100%; height: 300px; }
-    .doughnut-wrapper { display: flex; align-items: flex-start; justify-content: center; gap: 20px; margin-bottom: 20px; }
+    .doughnut-wrapper {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
     canvas.doughnut-chart { width: 400px !important; height: 400px !important; }
     #map { width: 600px !important; height: 400px !important; position: relative; }
     table { width: 100%; border-collapse: collapse; margin-top: 20px; }
@@ -31,20 +37,79 @@
     td a:hover { text-decoration: underline; }
     td img { display: block; }
     #pagination { margin: 10px 0; text-align: center; }
-    #pagination button { margin: 0 2px; padding: 4px 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; border-radius: 4px; }
-    #pagination button.active { background: #0066cc; color: #fff; border-color: #0066cc; }
-    #pagination button:disabled { opacity: 0.5; cursor: default; }
+    #pagination button {
+      margin: 0 2px;
+      padding: 4px 8px;
+      border: 1px solid #ccc;
+      background: #fff;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    #pagination button.active {
+      background: #0066cc;
+      color: #fff;
+      border-color: #0066cc;
+    }
+    #pagination button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
 
-    .leaflet-popup-content-wrapper { border: none !important; box-shadow: none !important; padding: 5px !important; }
-    .leaflet-popup-content-wrapper img { width: 120px; height: auto; flex-shrink: 0; }
-    .leaflet-popup-content { margin: 0 !important; padding: 0 !important; }
+    .leaflet-popup-content-wrapper {
+      border: none !important;
+      box-shadow: none !important;
+      padding: 5px !important;
+    }
+    .leaflet-popup-content-wrapper img {
+      width: 120px;
+      height: auto;
+      flex-shrink: 0;
+    }
+    .leaflet-popup-content {
+      margin: 0 !important;
+      padding: 0 !important;
+    }
 
-    .receiver-tooltip { background: white; border: 1px solid #ccc; padding: 2px 6px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.2); font-size: 0.9em; }
-    .latlng-overlay { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.8); padding: 4px 8px; font-weight: bold; border-radius: 4px; pointer-events: none; user-select: none; white-space: nowrap; display: none; z-index: 1000; }
-    .distance-tooltip { background-color: rgba(255,255,255,0.9); border: 1px solid #333; padding: 2px 4px; border-radius: 4px; font-weight: bold; }
+    /* Receiver tooltip styling */
+    .receiver-tooltip {
+      background: white;
+      border: 1px solid #ccc;
+      padding: 2px 6px;
+      border-radius: 4px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+      font-size: 0.9em;
+    }
+
+    /* Lat/Lng overlay centered at top of map */
+    .latlng-overlay {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.8);
+      padding: 4px 8px;
+      font-weight: bold;
+      border-radius: 4px;
+      pointer-events: none;
+      user-select: none;
+      white-space: nowrap;
+      display: none;
+      z-index: 1000;
+    }
+
+    /* Distance label */
+    .distance-tooltip {
+      background-color: rgba(255,255,255,0.9);
+      border: 1px solid #333;
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
 
     /* Hide distance column until a receiver is selected */
-    .distance-col { display: none; }
+    .distance-col {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -55,8 +120,10 @@
   </div>
 
   <h2>IP Address: <span id="ip-address">127.0.0.1</span></h2>
+
   <div class="cards" id="cards"></div>
   <div class="charts" id="charts"></div>
+
   <div class="doughnut-wrapper">
     <canvas id="typeDoughnut" class="doughnut-chart"></canvas>
     <div id="map"></div>
@@ -81,7 +148,7 @@
   <div id="pagination"></div>
 
   <script>
-    // center-text plugin
+    // Chart.js center-text plugin
     Chart.register({
       id: 'centerText',
       beforeDraw(chart) {
@@ -91,16 +158,16 @@
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.font = `${(bottom - top)/6}px sans-serif`;
-        ctx.fillText(c.text, (left+right)/2, (top+bottom)/2);
+        ctx.font = `${(bottom - top) / 6}px sans-serif`;
+        ctx.fillText(c.text, (left + right)/2, (top + bottom)/2);
         ctx.restore();
       }
     });
 
-    // Metrics defs
+    // Metrics definitions
     const allMetrics   = ['bytes_received','messages','failures','deduplicated','window_bytes','window_messages','window_unique_uids'];
-    const cardMetrics  = allMetrics.filter(m=>!m.startsWith('window_'));
-    const chartMetrics = allMetrics.filter(m=>m.startsWith('window_'));
+    const cardMetrics  = allMetrics.filter(m => !m.startsWith('window_'));
+    const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
     const maxPoints    = 60;
 
     let overrideIp = '';
@@ -112,14 +179,17 @@
     let sortField = 'lastSeen', sortAsc = false;
     let typesConfig = null, typeDoughnut = null;
 
-    let currentPage = 1, rowsPerPage = 20;
+    // Pagination
+    let currentPage = 1;
+    const rowsPerPage = 20;
+
+    // MIDs → country map
     let midMap = {};
 
-    // Map state
-    let map, overlayDiv, autoFit = true, programmaticFit = false;
-    let vesselMarkers = {}, typeColorsMap = {};
-
+    // Map & overlay state
+    let map, overlayDiv, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
     const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
+
     const navigationalStatusMapping = {
       0:"Using Engine",1:"At Anchor",2:"Not Under Command",
       3:"Restricted Manoeuvrability",4:"Constrained by Draft",
@@ -127,110 +197,391 @@
       8:"Under Way Sailing",15:"Unknown"
     };
 
-    // —— Distance globals —— 
-    let selectedReceiverLatLng = null;
-    let distancePolyline = null, distanceLabel = null;
+    // ——— NEW GLOBALS ———
+    let selectedReceiverLatLng = null,
+        distancePolyline = null,
+        distanceLabel = null;
 
-    function toRad(x){return x*Math.PI/180;}
+    // Haversine distance in km
     function haversineDistance(lat1, lon1, lat2, lon2) {
-      const R=6371, dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1),
-            a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
-      return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-    }
-    function clearDistanceLine(){
-      if(distancePolyline) map.removeLayer(distancePolyline), distancePolyline=null;
-      if(distanceLabel)    map.removeLayer(distanceLabel),    distanceLabel=null;
+      function toRad(x){return x*Math.PI/180;}
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2)**2 +
+                Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*
+                Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
+    // Remove existing line + label
+    function clearDistanceLine(){
+      if(distancePolyline){ map.removeLayer(distancePolyline); distancePolyline = null; }
+      if(distanceLabel){ map.removeLayer(distanceLabel); distanceLabel = null; }
+    }
+
+    // Helpers
     function formatNumber(v){
       if(v>=1e6) return +(v/1e6).toFixed(v%1e6===0?0:2)+'M';
       if(v>=1e3) return +(v/1e3).toFixed(v%1e3===0?0:2)+'K';
       return v;
     }
     function formatAgo(ts){
-      const sec=Math.floor((Date.now()-ts.getTime())/1000),
-            h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60;
-      return (h? h+'h ':'')+(m? m+'m ':'')+s+'s';
+      const sec = Math.floor((Date.now() - ts.getTime())/1000),
+            h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+      return (h? h+'h ':'') + (m? m+'m ':'') + s+'s';
     }
 
     // Build cards
-    cardMetrics.forEach(m=>{
-      const c=document.createElement('div');
-      c.className='card'; c.id=`card-${m}`;
-      c.innerHTML=`<h3>${m.replace(/_/g,' ')}</h3><p>0</p>`;
+    cardMetrics.forEach(m => {
+      const c = document.createElement('div');
+      c.className = 'card'; c.id = `card-${m}`;
+      c.innerHTML = `<h3>${m.replace(/_/g,' ')}</h3><p>0</p>`;
       cardsContainer.appendChild(c);
     });
-    // Build charts
-    chartMetrics.forEach((m,i)=>{
-      const lbl=m.replace(/^window_/,'').replace(/_/g,' ');
-      const cont=document.createElement('div');
-      cont.className='chart-container';
-      const canvas=document.createElement('canvas');
-      canvas.id=`chart-${m}`;
+
+    // Build line charts
+    chartMetrics.forEach((m,i) => {
+      const lbl = m.replace(/^window_/,'').replace(/_/g,' ');
+      const cont = document.createElement('div');
+      cont.className = 'chart-container';
+      const canvas = document.createElement('canvas');
+      canvas.id = `chart-${m}`;
       cont.appendChild(canvas);
       chartsContainer.appendChild(cont);
-      const ctx=canvas.getContext('2d');
-      charts[m]=new Chart(ctx,{
-        type:'line',
-        data:{labels:[],datasets:[{label:lbl,data:[],borderColor:colors[i%colors.length],fill:false}]},
-        options:{animation:false,responsive:true,scales:{x:{title:{display:true,text:'Time'}},y:{}}}
+      const ctx = canvas.getContext('2d');
+      charts[m] = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: lbl, data: [], borderColor: colors[i%colors.length], fill: false }] },
+        options: {
+          animation: false,
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: 'Time' } },
+            y: {}
+          }
+        }
       });
     });
 
+    // Apply override and reset everything
     function applyOverride(ip){
-      overrideIp=ip;
-      document.getElementById('ipInput').value=ip;
-      // reset metrics
-      Object.keys(baselines).forEach(k=>delete baselines[k]);
-      cardMetrics.forEach(m=>document.querySelector(`#card-${m} p`).textContent='0');
-      chartMetrics.forEach(m=>{
-        const c=charts[m];
-        c.data.labels=[]; c.data.datasets[0].data=[]; c.update();
+      overrideIp = ip;
+      document.getElementById('ipInput').value = ip;
+
+      // reset cards & charts
+      Object.keys(baselines).forEach(k => delete baselines[k]);
+      cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
+      chartMetrics.forEach(m => {
+        const c = charts[m];
+        c.data.labels = [];
+        c.data.datasets[0].data = [];
+        c.update();
       });
-      // clear vessels
+
+      // clear vessels & summary
       seenUserIds.clear();
-      Object.values(vesselMarkers).forEach(m=>map.removeLayer(m));
-      vesselMarkers={};
-      Object.keys(summaryCache).forEach(k=>delete summaryCache[k]);
-      Object.keys(lastSeenTs).forEach(k=>delete lastSeenTs[k]);
-      Object.keys(seenCount).forEach(k=>delete seenCount[k]);
-      document.getElementById('summaryBody').innerHTML='';
-      currentPage=1;
+      Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
+      vesselMarkers = {};
+      Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
+      Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
+      Object.keys(seenCount).forEach(k => delete seenCount[k]);
+      document.getElementById('summaryBody').innerHTML = '';
+      currentPage = 1;
+
       // clear doughnut
       if(typeDoughnut){
-        typeDoughnut.data.labels=[]; typeDoughnut.data.datasets[0].data=[];
-        typeDoughnut.options.plugins.centerText.text=''; typeDoughnut.update();
+        typeDoughnut.data.labels = [];
+        typeDoughnut.data.datasets[0].data = [];
+        typeDoughnut.options.plugins.centerText.text = '';
+        typeDoughnut.update();
       }
-      // reset sort & pagination
-      autoFit=true; sortField='lastSeen'; sortAsc=false;
+
+      // reset sorting & pagination
+      autoFit = true;
+      sortField = 'lastSeen'; sortAsc = false;
       document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
-      document.getElementById('pagination').innerHTML='';
-      // clear receiver & line
-      selectedReceiverLatLng=null;
+      document.getElementById('pagination').innerHTML = '';
+
+      // clear receiver selection & any line
+      selectedReceiverLatLng = null;
       clearDistanceLine();
       updateSummaryTable();
+
       // update URL
-      const url=new URL(location);
-      ip?url.searchParams.set('ipaddress',ip):url.searchParams.delete('ipaddress');
-      history.replaceState(null,'',url);
-      if(overlayDiv) updateOverlay(null);
+      const url = new URL(location);
+      ip ? url.searchParams.set('ipaddress', ip) : url.searchParams.delete('ipaddress');
+      history.replaceState(null, '', url);
+
+      // hide overlay
+      if (overlayDiv) updateOverlay(null);
     }
 
-    async function fetchMetrics(){
-      try{
-        let url='/metrics/bysource';
-        if(overrideIp) url+=`?ipaddress=${encodeURIComponent(overrideIp)}`;
-        const res=await fetch(url);
-        if(!res.ok) throw res.status;
-        const data=await res.json();
-        document.getElementById('ip-address').textContent=data.ip_address;
-        const lbl=new Date().toLocaleTimeString();
-        cardMetrics.forEach(m=>{
-          if(baselines[m]===undefined) baselines[m]=data[m];
-          document.querySelector(`#card-${m} p`).textContent=formatNumber(data[m]-baselines[m]);
+    window.addEventListener('DOMContentLoaded', ()=>{
+      fetch('/types.json')
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(json => { typesConfig = json; initDoughnut(); initMap(); })
+        .catch(e => console.error('types.json error', e));
+
+      fetch('/mids.json')
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(json => { midMap = json; })
+        .catch(e => console.error('mids.json error', e));
+
+      const p = new URLSearchParams(location.search);
+      if(p.has('ipaddress')) applyOverride(p.get('ipaddress'));
+      fetchMetrics();
+      setInterval(fetchMetrics, 1000);
+    });
+
+    document.getElementById('applyBtn').onclick = () =>
+      applyOverride(document.getElementById('ipInput').value.trim());
+    document.getElementById('ipInput').onkeydown = e => {
+      if(e.key === 'Enter') applyOverride(document.getElementById('ipInput').value.trim());
+    };
+
+    document.querySelectorAll('#summaryTable th').forEach(th=>{
+      th.onclick = ()=>{
+        const f = th.dataset.field;
+        if(!f) return;
+        if(sortField === f) sortAsc = !sortAsc;
+        else { sortField = f; sortAsc = true; }
+        document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
+        th.querySelector('.arrow').textContent = sortAsc ? '▲' : '▼';
+        currentPage = 1;
+        updateSummaryTable();
+      };
+    });
+
+    // Initialize map, overlay, and receivers
+    function initMap(){
+      map = L.map('map').setView([0,0],2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      map.on('click', () => {
+        updateOverlay(null);
+        clearDistanceLine();
+      });
+
+      // create and append overlay
+      overlayDiv = document.createElement('div');
+      overlayDiv.className = 'latlng-overlay';
+      map.getContainer().appendChild(overlayDiv);
+      updateOverlay(null);
+
+      loadReceivers();
+
+      map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
+    }
+
+    // Show/hide & update the overlay
+    function updateOverlay(latlng){
+      if(!overlayDiv) return;
+      if(!latlng){
+        overlayDiv.style.display = 'none';
+      } else {
+        overlayDiv.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
+        overlayDiv.style.display = 'block';
+      }
+    }
+
+    // Fetch & draw receiver markers
+    function loadReceivers(){
+      fetch('/receivers')
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(receivers => {
+          receivers.forEach(r => {
+            const dot = L.circleMarker([r.latitude, r.longitude], {
+              radius: 8,
+              color: 'red',
+              fillColor: 'red',
+              fillOpacity: 1,
+              weight: 1
+            }).addTo(map);
+
+            dot.bindTooltip(`${r.name} (RX)`, {
+              permanent: true,
+              direction: 'top',
+              className: 'receiver-tooltip'
+            });
+
+            dot.on('click', function(e){
+              // ← this was added
+              L.DomEvent.stopPropagation(e);
+              selectedReceiverLatLng = e.latlng;
+              clearDistanceLine();
+              updateOverlay(e.latlng);
+              updateSummaryTable(); // ← this was added
+            });
+          });
+        })
+        .catch(err => console.error('Failed to load receivers', err));
+    }
+
+    // Vessel icon creation
+    function makeIcon(info, color){
+      if(info.Sog > 0.5){
+        const angle = info.Cog || 0;
+        return L.divIcon({
+          html: `<div style="transform: rotate(${angle}deg) scaleY(1.5); font-size: 20px; color: ${color};">&#9650;</div>`,
+          className: '', iconSize: [20,30]
         });
-        chartMetrics.forEach(m=>{
-          const c=charts[m];
+      } else {
+        return L.divIcon({
+          html: `<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,
+          className: '', iconSize: [12,12]
+        });
+      }
+    }
+
+    // Focus vessel from table
+    function focusVessel(uid){
+      Object.values(vesselMarkers).forEach(m => m.closePopup());
+      const marker = vesselMarkers[uid];
+      if(!marker) return;
+      autoFit = false;
+      programmaticFit = true;
+      map.once('moveend zoomend', ()=> programmaticFit = false);
+      map.flyTo(marker.getLatLng(), 12);
+      marker.fire('mouseover');
+      updateOverlay(marker.getLatLng());
+      document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Update vessel markers & fit bounds
+    function updateMap(){
+      const boundsArr = [], newMarkers = {};
+      seenUserIds.forEach(uid=>{
+        if(uid.length!==9) return;
+        const info = summaryCache[uid];
+        if(!info) return;
+        const { Latitude: lat, Longitude: lon } = info;
+        if(typeof lat!=='number' || typeof lon!=='number') return;
+        boundsArr.push([lat,lon]);
+        const typeDisp = typeNameFor(info.Type);
+        const color    = typeColorsMap[typeDisp] || '#000';
+        const icon     = makeIcon(info, color);
+
+        if(vesselMarkers[uid]){
+          vesselMarkers[uid].setLatLng([lat,lon]).setIcon(icon);
+          newMarkers[uid] = vesselMarkers[uid];
+        } else {
+          const m = L.marker([lat,lon], { icon });
+
+          // stop map click from clearing our line
+          m.on('click', function(e){
+            L.DomEvent.stopPropagation(e);
+            updateOverlay(e.latlng);
+            m.openPopup();
+
+            if(selectedReceiverLatLng){
+              clearDistanceLine();
+              const vesselLatLng = m.getLatLng();
+              const dist = haversineDistance(
+                selectedReceiverLatLng.lat,
+                selectedReceiverLatLng.lng,
+                vesselLatLng.lat,
+                vesselLatLng.lng
+              ).toFixed(2);
+
+              distancePolyline = L.polyline(
+                [ selectedReceiverLatLng, vesselLatLng ],
+                { color: 'blue' }
+              ).addTo(map);
+
+              const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat)/2;
+              const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng)/2;
+              distanceLabel = L.tooltip({
+                permanent: true,
+                direction: 'center',
+                className: 'distance-tooltip'
+              })
+                .setLatLng([midLat, midLng])
+                .setContent(`${dist} km`)
+                .addTo(map);
+            }
+          });
+
+          m.on('mouseover', ()=>{
+            const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
+            const detailsHtml = `
+              <div style="line-height:1.2;">
+                <b>MMSI:</b> ${uid}<br/>
+                <b>Name:</b> ${info.Name || ''}<br/>
+                <b>Speed:</b> ${info.Sog} kn<br/>
+                <b>Type:</b> ${typeDisp}<br/>
+                <b>Status:</b> ${status}<br/>
+                <b>Class:</b> ${info.AISClass || ''}
+              </div>
+            `;
+            m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
+            fetch(`/state/${encodeURIComponent(uid)}`)
+              .then(res => res.ok ? res.json() : Promise.reject(res.status))
+              .then(state => {
+                if(state.ImageURL){
+                  const flexHtml = `
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <img src="${state.ImageURL}" style="max-width:120px;max-height:80px;flex-shrink:0;" alt="State image"/>
+                      <div style="line-height:1.2;">
+                        <b>MMSI:</b> ${uid}<br/>
+                        <b>Name:</b> ${info.Name || ''}<br/>
+                        <b>Speed:</b> ${info.Sog} kn<br/>
+                        <b>Type:</b> ${typeDisp}<br/>
+                        <b>Status:</b> ${status}<br/>
+                        <b>Class:</b> ${info.AISClass || ''}
+                      </div>
+                    </div>
+                  `;
+                  m.getPopup().setContent(flexHtml).update();
+                  m.openPopup();
+                }
+              })
+              .catch(e => console.error(`Failed to load state for ${uid}`, e));
+          });
+
+          m.on('mouseout', () => m.closePopup());
+          m.on('popupclose', () => {
+            updateOverlay(null);
+            clearDistanceLine();
+          });
+
+          m.addTo(map);
+          vesselMarkers[uid] = m;
+          newMarkers[uid] = m;
+        }
+      });
+
+      Object.keys(vesselMarkers).forEach(uid => {
+        if(!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
+      });
+      vesselMarkers = newMarkers;
+
+      if(autoFit && boundsArr.length){
+        programmaticFit = true;
+        map.once('moveend zoomend', ()=> programmaticFit = false);
+        map.fitBounds(L.latLngBounds(boundsArr), { padding: [20,20] });
+      }
+    }
+
+    // Fetch metrics, update cards/charts/table
+    async function fetchMetrics(){
+      try {
+        let url = '/metrics/bysource';
+        if(overrideIp) url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
+        const res = await fetch(url);
+        if(!res.ok) throw res.status;
+        const data = await res.json();
+        document.getElementById('ip-address').textContent = data.ip_address;
+        const lbl = new Date().toLocaleTimeString();
+
+        cardMetrics.forEach(m => {
+          if(baselines[m]===undefined) baselines[m]=data[m];
+          document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m]-baselines[m]);
+        });
+
+        chartMetrics.forEach(m => {
+          const c = charts[m];
           c.data.labels.push(lbl);
           c.data.datasets[0].data.push(data[m]);
           if(c.data.labels.length>maxPoints){
@@ -239,42 +590,43 @@
           }
           c.update();
         });
+
         if(Array.isArray(data.window_user_ids)){
           data.window_user_ids.forEach(uid=>{
-            lastSeenTs[uid]=new Date();
-            seenCount[uid]=(seenCount[uid]||0)+1;
+            lastSeenTs[uid] = new Date();
+            seenCount[uid] = (seenCount[uid]||0)+1;
             if(!seenUserIds.has(uid)){
               seenUserIds.add(uid);
               fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
-                .then(r=>r.ok?r.json():Promise.reject(r.status))
+                .then(r=>r.ok? r.json():Promise.reject(r.status))
                 .then(json=>{ summaryCache[uid]=json[uid]||{}; updateSummaryTable(); })
                 .catch(e=>console.error(`summary ${uid} error`,e));
             }
           });
           updateSummaryTable();
         }
-      }catch(e){
-        console.error('Fetch error',e);
+      } catch(e) {
+        console.error('Fetch error', e);
       }
     }
 
     function typeNameFor(val){
       if(!typesConfig) return val;
-      const catId=typesConfig.valueLookup[val];
-      const cat=typesConfig.categories.find(c=>c.id===catId);
-      return cat?cat.name:val;
+      const catId = typesConfig.valueLookup[val];
+      const cat = typesConfig.categories.find(c=>c.id===catId);
+      return cat ? cat.name : val;
     }
 
     function initDoughnut(){
-      const ctx=document.getElementById('typeDoughnut').getContext('2d');
-      typeDoughnut=new Chart(ctx,{
-        type:'doughnut',
-        data:{labels:[],datasets:[{data:[],backgroundColor:[]}]},
-        options:{
-          responsive:true,
-          plugins:{
-            legend:{position:'right',labels:{boxWidth:12}},
-            centerText:{display:true,text:''}
+      const ctx = document.getElementById('typeDoughnut').getContext('2d');
+      typeDoughnut = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'right', labels: { boxWidth:12 } },
+            centerText: { display: true, text: '' }
           }
         }
       });
@@ -282,100 +634,119 @@
 
     function updateDoughnut(){
       if(!typeDoughnut) return;
-      const counts={};
+      const counts = {};
       Array.from(seenUserIds).filter(uid=>uid.length===9).forEach(uid=>{
-        const name=typeNameFor(summaryCache[uid]?.Type);
-        counts[name]=(counts[name]||0)+1;
+        const name = typeNameFor(summaryCache[uid]?.Type);
+        counts[name] = (counts[name]||0) + 1;
       });
-      const entries=Object.entries(counts);
-      typeColorsMap={};
-      const bg=entries.map((_,i)=>colors[i%colors.length]);
+      const entries = Object.entries(counts);
+      typeColorsMap = {};
+      const bg = entries.map((_,i)=>colors[i%colors.length]);
       entries.forEach(([name],i)=> typeColorsMap[name]=bg[i]);
-      typeDoughnut.data.labels=entries.map(e=>`${e[0]} (${e[1]})`);
-      typeDoughnut.data.datasets[0].data=entries.map(e=>e[1]);
-      typeDoughnut.data.datasets[0].backgroundColor=bg;
-      typeDoughnut.options.plugins.centerText.text=entries.reduce((s,[,c])=>s+c,0);
+      typeDoughnut.data.labels = entries.map(e=>`${e[0]} (${e[1]})`);
+      typeDoughnut.data.datasets[0].data = entries.map(e=>e[1]);
+      typeDoughnut.data.datasets[0].backgroundColor = bg;
+      typeDoughnut.options.plugins.centerText.text = entries.reduce((sum,[,c])=>sum+c,0);
       typeDoughnut.update();
       updateMap();
     }
 
     function renderPagination(totalPages){
-      const container=document.getElementById('pagination');
-      container.innerHTML='';
-      const prev=document.createElement('button');
-      prev.textContent='« Prev';
-      prev.disabled=currentPage===1;
-      prev.onclick=()=>{ currentPage--; updateSummaryTable(); };
+      const container = document.getElementById('pagination');
+      container.innerHTML = '';
+      const prev = document.createElement('button');
+      prev.textContent = '« Prev';
+      prev.disabled = currentPage===1;
+      prev.onclick = ()=>{ currentPage--; updateSummaryTable(); };
       container.appendChild(prev);
-      for(let p=1;p<=totalPages;p++){
-        const btn=document.createElement('button');
-        btn.textContent=p;
+      for(let p=1; p<=totalPages; p++){
+        const btn = document.createElement('button');
+        btn.textContent = p;
         if(p===currentPage) btn.classList.add('active');
-        btn.onclick=()=>{ currentPage=p; updateSummaryTable(); };
+        btn.onclick = ()=>{ currentPage=p; updateSummaryTable(); };
         container.appendChild(btn);
       }
-      const next=document.createElement('button');
-      next.textContent='Next »';
-      next.disabled=currentPage===totalPages;
-      next.onclick=()=>{ currentPage++; updateSummaryTable(); };
+      const next = document.createElement('button');
+      next.textContent = 'Next »';
+      next.disabled = currentPage===totalPages;
+      next.onclick = ()=>{ currentPage++; updateSummaryTable(); };
       container.appendChild(next);
     }
 
     function updateSummaryTable(){
-      // toggle distance-col
-      const show=!!selectedReceiverLatLng;
-      document.querySelectorAll('.distance-col').forEach(el=>el.style.display = show ? 'table-cell' : 'none');
-
-      const tbody=document.getElementById('summaryBody');
-      const rows=Array.from(seenUserIds).filter(uid=>uid.length===9).map(uid=>({
-        id:uid, info:summaryCache[uid]||{}, lastTs:lastSeenTs[uid]||new Date(0), count:seenCount[uid]||0
-      }));
-      rows.sort((a,b)=>{
-        let cmp;
-        if(sortField==='lastSeen') cmp=a.lastTs-b.lastTs;
-        else if(sortField==='name') cmp=(a.info.Name||'').localeCompare(b.info.Name||'');
-        else if(sortField==='typeName') cmp=typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
-        else if(sortField==='status'){
-          const sa=navigationalStatusMapping[a.info.NavigationalStatus]||'Unknown';
-          const sb=navigationalStatusMapping[b.info.NavigationalStatus]||'Unknown';
-          cmp=sa.localeCompare(sb);
-        }
-        else if(sortField==='count') cmp=a.count-b.count;
-        else if(sortField==='distance'&&selectedReceiverLatLng){
-          const lat=a.info.Latitude, lon=a.info.Longitude;
-          const d=(typeof lat==='number'&&typeof lon==='number')
-            ? haversineDistance(selectedReceiverLatLng.lat,selectedReceiverLatLng.lng,lat,lon)
-            : Infinity;
-          cmp=d-Infinity;
-        }
-        else cmp=a.id.localeCompare(b.id);
-        return sortAsc?cmp:-cmp;
+      // Show/hide distance column
+      const showDist = !!selectedReceiverLatLng;
+      document.querySelectorAll('.distance-col').forEach(el=>{
+        el.style.display = showDist ? '' : 'none';
       });
-      const totalPages=Math.max(1,Math.ceil(rows.length/rowsPerPage));
-      if(currentPage>totalPages) currentPage=totalPages;
-      const start=(currentPage-1)*rowsPerPage, page=rows.slice(start,start+rowsPerPage);
-      tbody.innerHTML='';
-      page.forEach(item=>{
-        const ago=formatAgo(item.lastTs),
-              mid=item.id.slice(0,3),
-              entry=midMap[mid]||[],
-              cc=entry[0]||'', cn=entry[3]||'',
-              flagCell=cc?`<td><img src="/flags/${cc.toLowerCase()}.svg" alt="${cn}" title="${cn}" style="width:24px;"/></td>`:'<td></td>',
-              status=navigationalStatusMapping[item.info.NavigationalStatus]||'Unknown';
-        let distCell=`<td class="distance-col"></td>`;
-        if(selectedReceiverLatLng&&typeof item.info.Latitude==='number'&&typeof item.info.Longitude==='number'){
-          const d=haversineDistance(selectedReceiverLatLng.lat,selectedReceiverLatLng.lng,item.info.Latitude,item.info.Longitude).toFixed(2);
-          distCell=`<td class="distance-col">${d} km</td>`;
+
+      const tbody = document.getElementById('summaryBody');
+      const allRows = Array.from(seenUserIds)
+        .filter(uid=>uid.length===9)
+        .map(uid=>({
+          id: uid,
+          info: summaryCache[uid]||{},
+          lastTs: lastSeenTs[uid]||new Date(0),
+          count: seenCount[uid]||0
+        }));
+      allRows.sort((a,b)=>{
+        let cmp;
+        if(sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
+        else if(sortField==='name') cmp = (a.info.Name||'').localeCompare(b.info.Name||'');
+        else if(sortField==='typeName') cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
+        else if(sortField==='status'){
+          const sa = navigationalStatusMapping[a.info.NavigationalStatus]||'Unknown';
+          const sb = navigationalStatusMapping[b.info.NavigationalStatus]||'Unknown';
+          cmp = sa.localeCompare(sb);
         }
-        const tr=document.createElement('tr');
-        tr.innerHTML=`
-          <td><a href="#" onclick="focusVessel('${item.id}');return false;">${item.id}</a></td>
+        else if(sortField==='count') cmp = a.count - b.count;
+        else if(sortField==='distance' && selectedReceiverLatLng){
+          const lat = a.info.Latitude, lon = a.info.Longitude;
+          const d = (typeof lat==='number' && typeof lon==='number')
+            ? haversineDistance(selectedReceiverLatLng.lat, selectedReceiverLatLng.lng, lat, lon)
+            : Infinity;
+          cmp = d - Infinity;
+        }
+        else cmp = a.id.localeCompare(b.id);
+        return sortAsc ? cmp : -cmp;
+      });
+      const totalPages = Math.max(1, Math.ceil(allRows.length/rowsPerPage));
+      if(currentPage>totalPages) currentPage = totalPages;
+      const start = (currentPage-1)*rowsPerPage;
+      const pageRows = allRows.slice(start, start+rowsPerPage);
+      tbody.innerHTML = '';
+      pageRows.forEach(item=>{
+        const ago = formatAgo(item.lastTs);
+        const mid = item.id.slice(0,3);
+        const entry = midMap[mid]||[];
+        const countryCode = entry[0]||'';
+        const countryName = entry[3]||'';
+        const flagCell = countryCode
+          ? `<td><img src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px;"/></td>`
+          : '<td></td>';
+
+        // distance cell
+        let distanceCell = '<td class="distance-col"></td>';
+        if(selectedReceiverLatLng && typeof item.info.Latitude==='number' && typeof item.info.Longitude==='number'){
+          const d = haversineDistance(
+            selectedReceiverLatLng.lat,
+            selectedReceiverLatLng.lng,
+            item.info.Latitude,
+            item.info.Longitude
+          ).toFixed(2);
+          distanceCell = `<td class="distance-col">${d} km</td>`;
+        }
+
+        const status = navigationalStatusMapping[item.info.NavigationalStatus]||'Unknown';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><a href="#" onclick="focusVessel('${item.id}'); return false;">${item.id}</a></td>
           <td>${item.info.Name||''}</td>
           <td title="Type: ${typeNameFor(item.info.Type)}\nStatus: ${status}">${typeNameFor(item.info.Type)}</td>
           <td>${status}</td>
           <td>${item.info.AISClass||''}</td>
           ${flagCell}
-          ${distCell}
+          ${distanceCell}
           <td>${ago}</td>
           <td>${item.count}</td>
         `;
@@ -384,176 +755,6 @@
       renderPagination(totalPages);
       updateDoughnut();
     }
-
-    function initMap(){
-      map=L.map('map').setView([0,0],2);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors'}).addTo(map);
-
-      map.on('click',()=>{
-        updateOverlay(null);
-        clearDistanceLine();
-      });
-
-      overlayDiv=document.createElement('div');
-      overlayDiv.className='latlng-overlay';
-      map.getContainer().appendChild(overlayDiv);
-      updateOverlay(null);
-
-      loadReceivers();
-      map.on('movestart zoomstart',()=>{ if(!programmaticFit) autoFit=false; });
-    }
-
-    function updateOverlay(latlng){
-      if(!overlayDiv) return;
-      if(!latlng) overlayDiv.style.display='none';
-      else {
-        overlayDiv.textContent=`${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
-        overlayDiv.style.display='block';
-      }
-    }
-
-    function loadReceivers(){
-      fetch('/receivers')
-        .then(r=>r.ok?r.json():Promise.reject(r.status))
-        .then(receivers=>{
-          receivers.forEach(r=>{
-            const dot=L.circleMarker([r.latitude,r.longitude],{radius:8,color:'red',fillColor:'red',fillOpacity:1,weight:1}).addTo(map);
-            dot.bindTooltip(`${r.name} (RX)`,{permanent:true,direction:'top',className:'receiver-tooltip'});
-            dot.on('click',function(e){
-              L.DomEvent.stopPropagation(e);
-              selectedReceiverLatLng=e.latlng;
-              clearDistanceLine();
-              updateOverlay(e.latlng);
-              updateSummaryTable();
-	      Object.values(vesselMarkers).forEach(marker => {
-		const vLatLng = marker.getLatLng();
-		L.polyline([selectedReceiverLatLng, vLatLng], { color: 'blue' }).addTo(map);
-              });
-            });
-          });
-        })
-        .catch(err=>console.error('Failed to load receivers',err));
-    }
-
-    function makeIcon(info,color){
-      if(info.Sog>0.5){
-        const angle=info.Cog||0;
-        return L.divIcon({html:`<div style="transform:rotate(${angle}deg) scaleY(1.5); font-size:20px; color:${color};">&#9650;</div>`,className:'',iconSize:[20,30]});
-      } else {
-        return L.divIcon({html:`<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,className:'',iconSize:[12,12]});
-      }
-    }
-
-    function focusVessel(uid){
-      Object.values(vesselMarkers).forEach(m=>m.closePopup());
-      const m=vesselMarkers[uid];
-      if(!m) return;
-      autoFit=false; programmaticFit=true;
-      map.once('moveend zoomend',()=>programmaticFit=false);
-      map.flyTo(m.getLatLng(),12);
-      m.fire('mouseover');
-      updateOverlay(m.getLatLng());
-      document.getElementById('map').scrollIntoView({behavior:'smooth',block:'start'});
-    }
-
-    function updateMap(){
-      const boundsArr=[], newM={};
-      seenUserIds.forEach(uid=>{
-        if(uid.length!==9) return;
-        const info=summaryCache[uid];
-        if(!info) return;
-        const lat=info.Latitude, lon=info.Longitude;
-        if(typeof lat!=='number'||typeof lon!=='number') return;
-        boundsArr.push([lat,lon]);
-        const type=typeNameFor(info.Type), col=typeColorsMap[type]||'#000', icon=makeIcon(info,col);
-
-        if(vesselMarkers[uid]){
-          vesselMarkers[uid].setLatLng([lat,lon]).setIcon(icon);
-          newM[uid]=vesselMarkers[uid];
-        } else {
-          const m=L.marker([lat,lon],{icon});
-          m.on('click',function(e){
-            L.DomEvent.stopPropagation(e);
-            updateOverlay(e.latlng);
-            m.openPopup();
-            if(selectedReceiverLatLng){
-              clearDistanceLine();
-              const vL=m.getLatLng(),
-                    d=haversineDistance(selectedReceiverLatLng.lat,selectedReceiverLatLng.lng,vL.lat,vL.lng).toFixed(2);
-              distancePolyline=L.polyline([selectedReceiverLatLng,vL],{color:'blue'}).addTo(map);
-              const midLat=(selectedReceiverLatLng.lat+vL.lat)/2,
-                    midLng=(selectedReceiverLatLng.lng+vL.lng)/2;
-              distanceLabel=L.tooltip({permanent:true,direction:'center',className:'distance-tooltip'})
-                .setLatLng([midLat,midLng]).setContent(`${d} km`).addTo(map);
-            }
-          });
-          m.on('mouseover',()=>{
-            const status=navigationalStatusMapping[info.NavigationalStatus]||'Unknown';
-            const html=`<div style="line-height:1.2;">
-              <b>MMSI:</b>${uid}<br/><b>Name:</b>${info.Name||''}<br/>
-              <b>Speed:</b>${info.Sog} kn<br/><b>Type:</b>${type}<br/>
-              <b>Status:</b>${status}<br/>
-              <b>Class:</b>${info.AISClass||''}
-            </div>`;
-            m.bindPopup(html,{closeButton:false,autoClose:false}).openPopup();
-            fetch(`/state/${encodeURIComponent(uid)}`)
-              .then(r=>r.ok?r.json():Promise.reject(r.status))
-              .then(s=>{
-                if(s.ImageURL){
-                  const flex=`<div style="display:flex;align-items:center;gap:8px;">
-                    <img src="${s.ImageURL}" style="max-width:120px;max-height:80px;flex-shrink:0;"/>
-                    <div style="line-height:1.2;">
-                      <b>MMSI:</b>${uid}<br/><b>Name:</b>${info.Name||''}<br/>
-                      <b>Speed:</b>${info.Sog} kn<br/><b>Type:</b>${type}<br/>
-                      <b>Status:</b>${status}<br/>
-                      <b>Class:</b>${info.AISClass||''}
-                    </div>
-                  </div>`;
-                  m.getPopup().setContent(flex).update(); m.openPopup();
-                }
-              }).catch(e=>console.error(e));
-          });
-          m.on('mouseout',()=>m.closePopup());
-          m.on('popupclose',()=>{updateOverlay(null);clearDistanceLine();});
-          m.addTo(map);
-          vesselMarkers[uid]=m; newM[uid]=m;
-        }
-      });
-      Object.keys(vesselMarkers).forEach(uid=>{if(!newM[uid]) map.removeLayer(vesselMarkers[uid]);});
-      vesselMarkers=newM;
-      if(autoFit && boundsArr.length){
-        programmaticFit=true;
-        map.once('moveend zoomend',()=>programmaticFit=false);
-        map.fitBounds(L.latLngBounds(boundsArr),{padding:[20,20]});
-      }
-    }
-
-    window.addEventListener('DOMContentLoaded',()=>{
-      fetch('/types.json').then(r=>r.ok?r.json():Promise.reject(r.status))
-        .then(json=>{ typesConfig=json; initDoughnut(); initMap(); }).catch(console.error);
-      fetch('/mids.json').then(r=>r.ok?r.json():Promise.reject(r.status))
-        .then(json=>midMap=json).catch(console.error);
-      const p=new URLSearchParams(location.search);
-      if(p.has('ipaddress')) applyOverride(p.get('ipaddress'));
-      fetchMetrics(); setInterval(fetchMetrics,1000);
-    });
-
-    document.getElementById('applyBtn').onclick=()=>
-      applyOverride(document.getElementById('ipInput').value.trim());
-    document.getElementById('ipInput').onkeydown=e=>{
-      if(e.key==='Enter') applyOverride(document.getElementById('ipInput').value.trim());
-    };
-
-    document.querySelectorAll('#summaryTable th').forEach(th=>{
-      th.onclick=()=>{
-        const f=th.dataset.field;
-        if(!f) return;
-        if(sortField===f) sortAsc=!sortAsc; else{ sortField=f; sortAsc=true; }
-        document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
-        th.querySelector('.arrow').textContent=sortAsc?'▲':'▼';
-        currentPage=1; updateSummaryTable();
-      };
-    });
   </script>
 </body>
 </html>
