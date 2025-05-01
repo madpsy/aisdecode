@@ -123,8 +123,8 @@ var (
     bytesWindowBySource = make(map[string]*FixedWindowBytesCounter)
     failWindowBySource  = make(map[string]*FixedWindowCounter)
     usersWindowBySource = make(map[string]map[string]struct{})
-
-    prevWindowBySource = struct {
+    prevWindowUserIDs   = make(map[string][]string)
+    prevWindowBySource  = struct {
         Msgs  map[string]int64
         Bytes map[string]int64
         Fails map[string]int64
@@ -671,6 +671,7 @@ func initializeUDPDestinationMetrics() {
 }
 
 // startMetricsReset resets all fixed-window counters every metricWindowSize period.
+// at top‐level, alongside your other “prev” globals:
 func startMetricsReset() {
     ticker := time.NewTicker(metricWindowSize)
     defer ticker.Stop()
@@ -687,12 +688,16 @@ func startMetricsReset() {
         previousPeriodMetrics.windowBytesReceived  = bytesReceivedWindow.Sum()
         previousPeriodMetrics.windowBytesForwarded = bytesForwardedWindow.Sum()
 
-        // — snapshot per-source into prevWindowBySource and reset —
+        // — prepare per‐source snapshots —
         prevWindowBySource.Msgs  = make(map[string]int64, len(msgWindowBySource))
         prevWindowBySource.Bytes = make(map[string]int64, len(bytesWindowBySource))
         prevWindowBySource.Fails = make(map[string]int64, len(failWindowBySource))
         prevWindowBySource.Uids  = make(map[string]int64, len(usersWindowBySource))
 
+        // reset our slice‐of‐IDs snapshot too:
+        prevWindowUserIDs = make(map[string][]string, len(usersWindowBySource))
+
+        // — snapshot counts & actual IDs, then reset each windowed structure —
         for src, ctr := range msgWindowBySource {
             if cnt := ctr.Count(); cnt > 0 {
                 prevWindowBySource.Msgs[src] = cnt
@@ -712,11 +717,18 @@ func startMetricsReset() {
             fctr.Reset()
         }
         for src, uset := range usersWindowBySource {
+            // count
             if u := int64(len(uset)); u > 0 {
                 prevWindowBySource.Uids[src] = u
             }
+            // actual list of user‐IDs
+            ids := make([]string, 0, len(uset))
+            for uid := range uset {
+                ids = append(ids, uid)
+            }
+            prevWindowUserIDs[src] = ids
         }
-        // clear the per-source UID sets
+        // clear the per‐source UID sets for the next interval
         usersWindowBySource = make(map[string]map[string]struct{})
 
         // — reset the global windowed counters —
@@ -740,14 +752,14 @@ func startMetricsReset() {
 
             // record the snapshot
             newPrev = append(newPrev, map[string]interface{}{
-                "ip":                 c.ip,
-                "shards":             c.shards,
-                "description":        c.description,
-                "port":               c.port,
-                "messages_sent":      c.messagesSent,      // cumulative
-                "bytes_sent":         c.bytesSent,         // cumulative
-                "messages_per_window": msgsInWindow,       // this interval
-                "bytes_per_window":    bytesInWindow,      // this interval
+                "ip":                  c.ip,
+                "shards":              c.shards,
+                "description":         c.description,
+                "port":                c.port,
+                "messages_sent":       c.messagesSent,      // cumulative
+                "bytes_sent":          c.bytesSent,         // cumulative
+                "messages_per_window": msgsInWindow,        // this interval
+                "bytes_per_window":    bytesInWindow,       // this interval
             })
 
             // now reset for the next interval
@@ -1728,7 +1740,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		"window_bytes_by_source":               prevWindowBySource.Bytes,
 		"window_failures_by_source":            prevWindowBySource.Fails,
 		"window_unique_uids_by_source":         prevWindowBySource.Uids,
-
+		"window_user_ids_by_source":            prevWindowUserIDs,
 		// shard & client metrics
 		"messages_per_shard":                   msgs,
 		"user_ids_per_shard":                   uids,
