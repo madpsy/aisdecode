@@ -446,6 +446,7 @@
       map.flyTo(marker.getLatLng(), 12);
       marker.fire('mouseover');
       updateOverlay(marker.getLatLng());
+      Object.values(vesselMarkers).forEach(v => v.closePopup());
       marker.fire('mouseover');
       updateOverlay(marker.getLatLng());
 
