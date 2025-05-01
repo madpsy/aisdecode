@@ -54,6 +54,15 @@
       opacity: 0.5;
       cursor: default;
     }
+
+    /* remove popup border & tip */
+    .leaflet-popup-content-wrapper {
+      border: none !important;
+      box-shadow: none !important;
+    }
+    .leaflet-popup-tip {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
@@ -296,56 +305,48 @@
         } else {
           const m = L.marker([lat,lon], { icon });
 
-          // --- UPDATED: flex popup with image to left of text ---
-          m.on('mouseover', async () => {
-            m.bindPopup(`
-              <div id="popup-${uid}" style="display:flex; align-items:center; gap:8px;">
-                <div class="state-image" 
-                     style="
-                       width:120px; 
-                       height:80px; 
-                       flex-shrink:0; 
-                       display:flex; 
-                       justify-content:center; 
-                       align-items:center;
-                     ">
-                  Loading…
-                </div>
-                <div class="state-details" style="line-height:1.2;">
-                  <b>MMSI:</b> ${uid}<br/>
-                  <b>Name:</b> ${info.Name || ''}<br/>
-                  <b>Speed:</b> ${info.Sog} kn<br/>
-                  <b>Type:</b> ${typeDisp}<br/>
-                  <b>Class:</b> ${info.AISClass || ''}
-                </div>
+          // mouseover: text-only popup, then fetch and add image if valid
+          m.on('mouseover', () => {
+            const detailsHtml = `
+              <div class="state-details" style="line-height:1.2;">
+                <b>MMSI:</b> ${uid}<br/>
+                <b>Name:</b> ${info.Name || ''}<br/>
+                <b>Speed:</b> ${info.Sog} kn<br/>
+                <b>Type:</b> ${typeDisp}<br/>
+                <b>Class:</b> ${info.AISClass || ''}
               </div>
-            `, { closeButton: false, autoClose: false }).openPopup();
+            `;
+            m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
 
-            try {
-              const res = await fetch(`/state/${encodeURIComponent(uid)}`);
-              if (!res.ok) throw new Error(res.status);
-              const state = await res.json();
-              const imgUrl = state.ImageURL;
-              const container = document.querySelector(`#popup-${uid} .state-image`);
-              if (imgUrl) {
-                container.innerHTML = `
-                  <img 
-                    src="${imgUrl}" 
-                    style="max-width:120px; max-height:80px; display:block;" 
-                    alt="State image"
-                  />`;
-              } else {
-                container.textContent = '';
-              }
-            } catch (e) {
-              console.error(`Failed to load state for ${uid}`, e);
-              document.querySelector(`#popup-${uid} .state-image`).textContent = '';
-            }
+            fetch(`/state/${encodeURIComponent(uid)}`)
+              .then(res => { if(!res.ok) throw res.status; return res.json(); })
+              .then(state => {
+                const imgUrl = state.ImageURL;
+                if (imgUrl) {
+                  const flexHtml = `
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <img
+                        src="${imgUrl}"
+                        style="max-width:120px;max-height:80px;flex-shrink:0;"
+                        alt="State image"
+                      />
+                      <div class="state-details" style="line-height:1.2;">
+                        <b>MMSI:</b> ${uid}<br/>
+                        <b>Name:</b> ${info.Name || ''}<br/>
+                        <b>Speed:</b> ${info.Sog} kn<br/>
+                        <b>Type:</b> ${typeDisp}<br/>
+                        <b>Class:</b> ${info.AISClass || ''}
+                      </div>
+                    </div>
+                  `;
+                  m.getPopup().setContent(flexHtml).update();
+                  m.openPopup();
+                }
+              })
+              .catch(e => console.error(`Failed to load state for ${uid}`, e));
           });
-
           m.on('mouseout', () => m.closePopup());
           m.on('click', () => m.openPopup());
-          // ---------------------------------------------------------
 
           m.addTo(map);
           vesselMarkers[uid] = m;
@@ -354,9 +355,7 @@
       });
 
       Object.keys(vesselMarkers).forEach(uid => {
-        if (!newMarkers[uid]) {
-          map.removeLayer(vesselMarkers[uid]);
-        }
+        if (!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
       });
       vesselMarkers = newMarkers;
 
@@ -371,52 +370,52 @@
     async function fetchMetrics(){
       try {
         let url = '/metrics/bysource';
-        if(overrideIp) url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
+        if (overrideIp) url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
         const r = await fetch(url);
-        if(!r.ok) throw r.status;
+        if (!r.ok) throw r.status;
         const data = await r.json();
         document.getElementById('ip-address').textContent = data.ip_address;
         const lbl = new Date().toLocaleTimeString();
 
-        cardMetrics.forEach(m=>{
-          if(baselines[m]===undefined) baselines[m]=data[m];
+        cardMetrics.forEach(m => {
+          if (baselines[m]===undefined) baselines[m]=data[m];
           document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m]-baselines[m]);
         });
 
-        chartMetrics.forEach(m=>{
+        chartMetrics.forEach(m => {
           const c = charts[m];
           c.data.labels.push(lbl);
           c.data.datasets[0].data.push(data[m]);
-          if(c.data.labels.length>maxPoints){
+          if (c.data.labels.length>maxPoints) {
             c.data.labels.shift();
             c.data.datasets[0].data.shift();
           }
           c.update();
         });
 
-        if(Array.isArray(data.window_user_ids)){
-          data.window_user_ids.forEach(uid=>{
+        if (Array.isArray(data.window_user_ids)) {
+          data.window_user_ids.forEach(uid => {
             lastSeenTs[uid] = new Date();
             seenCount[uid] = (seenCount[uid]||0)+1;
-            if(!seenUserIds.has(uid)){
+            if (!seenUserIds.has(uid)) {
               seenUserIds.add(uid);
               fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
-                .then(r=>r.ok?r.json():Promise.reject(r.status))
-                .then(json=>{ summaryCache[uid]=json[uid]||{}; updateSummaryTable(); })
-                .catch(e=>console.error(`summary ${uid} error`,e));
+                .then(r => r.ok ? r.json() : Promise.reject(r.status))
+                .then(json => { summaryCache[uid]=json[uid]||{}; updateSummaryTable(); })
+                .catch(e => console.error(`summary ${uid} error`, e));
             }
           });
           updateSummaryTable();
         }
-      } catch(e){
-        console.error('Fetch error',e);
+      } catch (e) {
+        console.error('Fetch error', e);
       }
     }
 
     function typeNameFor(val){
-      if(!typesConfig) return val;
+      if (!typesConfig) return val;
       const catId = typesConfig.valueLookup[val];
-      const cat = typesConfig.categories.find(c=>c.id===catId);
+      const cat = typesConfig.categories.find(c => c.id===catId);
       return cat?cat.name:val;
     }
 
@@ -436,7 +435,7 @@
     }
 
     function updateDoughnut(){
-      if(!typeDoughnut) return;
+      if (!typeDoughnut) return;
       const counts = {};
       Array.from(seenUserIds).filter(uid=>uid.length===9).forEach(uid=>{
         const name = typeNameFor(summaryCache[uid]?.Type);
@@ -445,18 +444,15 @@
       const entries = Object.entries(counts);
       typeColorsMap = {};
       const bg = entries.map((_,i)=>colors[i%colors.length]);
-      entries.forEach((e,i)=>typeColorsMap[e[0]] = bg[i]);
-
+      entries.forEach(([name],i)=> typeColorsMap[name]=bg[i]);
       typeDoughnut.data.labels = entries.map(e=>`${e[0]} (${e[1]})`);
       typeDoughnut.data.datasets[0].data = entries.map(e=>e[1]);
       typeDoughnut.data.datasets[0].backgroundColor = bg;
       typeDoughnut.options.plugins.centerText.text = entries.reduce((sum,[,c])=>sum+c,0);
       typeDoughnut.update();
-
       updateMap();
     }
 
-    // Pagination rendering
     function renderPagination(totalPages) {
       const container = document.getElementById('pagination');
       container.innerHTML = '';
@@ -465,7 +461,6 @@
       prev.disabled = currentPage === 1;
       prev.onclick = () => { currentPage--; updateSummaryTable(); };
       container.appendChild(prev);
-
       for (let p = 1; p <= totalPages; p++) {
         const btn = document.createElement('button');
         btn.textContent = p;
@@ -473,7 +468,6 @@
         btn.onclick = () => { currentPage = p; updateSummaryTable(); };
         container.appendChild(btn);
       }
-
       const next = document.createElement('button');
       next.textContent = 'Next »';
       next.disabled = currentPage === totalPages;
@@ -491,31 +485,28 @@
           lastTs: lastSeenTs[uid]||new Date(0),
           count: seenCount[uid]||0
         }));
-
       allRows.sort((a,b)=>{
         let cmp;
-        if(sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
-        else if(sortField==='name') cmp = (a.info.Name||'').localeCompare(a.info.Name||'');
-        else if(sortField==='typeName') cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
-        else if(sortField==='count') cmp = a.count - b.count;
+        if (sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
+        else if (sortField==='name') cmp = (a.info.Name||'').localeCompare(b.info.Name||'');
+        else if (sortField==='typeName') cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
+        else if (sortField==='count') cmp = a.count - b.count;
         else cmp = a.id.localeCompare(b.id);
         return sortAsc ? cmp : -cmp;
       });
-
-      const totalPages = Math.ceil(allRows.length / rowsPerPage) || 1;
-      if (currentPage > totalPages) currentPage = totalPages;
-      const start = (currentPage - 1) * rowsPerPage;
-      const pageRows = allRows.slice(start, start + rowsPerPage);
-
+      const totalPages = Math.ceil(allRows.length/rowsPerPage)||1;
+      if (currentPage>totalPages) currentPage = totalPages;
+      const start = (currentPage-1)*rowsPerPage;
+      const pageRows = allRows.slice(start, start+rowsPerPage);
       tbody.innerHTML = '';
       pageRows.forEach(item=>{
         const ago = formatAgo(item.lastTs);
         const mid = item.id.slice(0,3);
-        const entry = midMap[mid] || [];
-        const countryCode = entry[0] || '';
-        const countryName = entry[3] || '';
+        const entry = midMap[mid]||[];
+        const countryCode = entry[0]||'';
+        const countryName = entry[3]||'';
         const flagCell = countryCode
-          ? `<td><img src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px; height:auto;" /></td>`
+          ? `<td><img src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px;"/></td>`
           : '<td></td>';
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -529,8 +520,7 @@
         `;
         tbody.appendChild(tr);
       });
-
-      renderPagination(totalPages);
+      renderPagination(Math.ceil(allRows.length/rowsPerPage));
       updateDoughnut();
     }
   </script>
