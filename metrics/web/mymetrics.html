@@ -752,6 +752,12 @@
         `;
         tbody.appendChild(tr);
       });
+
+      // Toggle distance column now that rows are in the DOM
+      const showDist = !!selectedReceiverLatLng;
+      document.querySelectorAll('.distance-col').forEach(el=>{
+        el.style.display = showDist ? 'table-cell' : 'none';
+      });
       renderPagination(totalPages);
       updateDoughnut();
     }
