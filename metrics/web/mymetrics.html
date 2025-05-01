@@ -324,7 +324,7 @@
     function updateSummaryTable(){
       // toggle distance-col
       const show=!!selectedReceiverLatLng;
-      document.querySelectorAll('.distance-col').forEach(el=>el.style.display=show?'':'none');
+      document.querySelectorAll('.distance-col').forEach(el=>el.style.display = show ? 'table-cell' : 'none');
 
       const tbody=document.getElementById('summaryBody');
       const rows=Array.from(seenUserIds).filter(uid=>uid.length===9).map(uid=>({
@@ -425,6 +425,10 @@
               clearDistanceLine();
               updateOverlay(e.latlng);
               updateSummaryTable();
+	      Object.values(vesselMarkers).forEach(marker => {
+		const vLatLng = marker.getLatLng();
+		L.polyline([selectedReceiverLatLng, vLatLng], { color: 'blue' }).addTo(map);
+              });
             });
           });
         })
