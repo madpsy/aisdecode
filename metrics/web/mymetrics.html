@@ -113,8 +113,8 @@
     let sortField = 'lastSeen', sortAsc = false;
     let typesConfig = null, typeDoughnut = null;
 
-    // New globals for map and color mapping
-    let map, markers, typeColorsMap = {};
+    // Map globals
+    let map, markers, userZoomed = false, typeColorsMap = {};
 
     const colors = [
       'rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)',
@@ -218,6 +218,8 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
       markers = L.layerGroup().addTo(map);
+      // disable auto zoom once user zooms/pans
+      map.on('zoomstart movestart', ()=>{ userZoomed = true; });
     }
 
     // ---- Update all markers on the map ----
@@ -234,16 +236,21 @@
         latlngs.push([lat, lon]);
         const typeDisp = typeNameFor(info.Type);
         const color = typeColorsMap[typeDisp] || '#000';
+        const popupTxt = `MMSI: ${uid}<br>Name: ${info.Name||''}<br>Speed: ${info.Sog||0} kn<br>Type: ${typeDisp}`;
         if(info.Sog > 0.5){
           const angle = info.Cog || 0;
           const arrowHtml = `<div style="transform: rotate(${angle}deg); font-size:16px; color:${color};">&#9650;</div>`;
           const arrowIcon = L.divIcon({ html: arrowHtml, iconSize: [16,16], className: '' });
-          L.marker([lat, lon], { icon: arrowIcon }).addTo(markers);
+          L.marker([lat, lon], { icon: arrowIcon })
+            .bindPopup(popupTxt)
+            .addTo(markers);
         } else {
-          L.circleMarker([lat, lon], { radius: 6, color, fillColor: color, fillOpacity: 1 }).addTo(markers);
+          L.circleMarker([lat, lon], { radius: 4, color, fillColor: color, fillOpacity: 1 })
+            .bindPopup(popupTxt)
+            .addTo(markers);
         }
       });
-      if(latlngs.length){
+      if(!userZoomed && latlngs.length){
         const bounds = L.latLngBounds(latlngs);
         map.fitBounds(bounds, { padding: [20,20] });
       }
@@ -302,7 +309,6 @@
       return cat?cat.name:val;
     }
 
-    // ---- Initialize the doughnut with placeholder data ----
     function initDoughnut(){
       const ctx = document.getElementById('typeDoughnut').getContext('2d');
       typeDoughnut = new Chart(ctx, {
@@ -318,10 +324,8 @@
       });
     }
 
-    // ---- Update doughnut & rebuild color map, then refresh the map ----
     function updateDoughnut(){
       if(!typeDoughnut) return;
-      // count per type
       const counts = {};
       Array.from(seenUserIds)
         .filter(uid=>uid.length===9)
@@ -330,24 +334,19 @@
           const name = typeNameFor(t);
           counts[name] = (counts[name]||0) + 1;
         });
-      // build ordered arrays
       const entries = Object.entries(counts);
       const typeNames = entries.map(e => e[0]);
       const data = entries.map(e => e[1]);
-      // assign one of the palette colors
       const bgColors = typeNames.map((_, i) => colors[i % colors.length]);
-      // build mapping
       typeColorsMap = {};
       typeNames.forEach((name, i) => typeColorsMap[name] = bgColors[i]);
 
-      // update chart
       typeDoughnut.data.labels = typeNames.map((n, i) => `${n} (${data[i]})`);
       typeDoughnut.data.datasets[0].data = data;
       typeDoughnut.data.datasets[0].backgroundColor = bgColors;
       typeDoughnut.options.plugins.centerText.text = data.reduce((a,b)=>a+b,0);
       typeDoughnut.update();
 
-      // refresh map markers
       updateMap();
     }
 
@@ -364,8 +363,8 @@
       arr.sort((a,b)=>{
         let cmp;
         if(sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
-        else if(sortField==='name') cmp = (a.info.Name||'').localeCompare(b.info.Name||'');
-        else if(sortField==='typeName') cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
+        else if(sortField==='name') cmp = (a.info.Name||'').localeCompare(a.info.Name||'');
+        else if(sortField==='typeName') cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(a.info.Type));
         else if(sortField==='count') cmp = a.count - b.count;
         else cmp = a.id.localeCompare(b.id);
         return sortAsc? cmp : -cmp;
