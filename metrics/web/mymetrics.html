@@ -110,6 +110,11 @@
     .distance-col {
       display: none;
     }
+
+    /* highlight selected table row */
+    #summaryBody tr.selected {
+      background-color: #d0e8ff;
+    }
   </style>
 </head>
 <body>
@@ -127,6 +132,16 @@
   <div class="doughnut-wrapper">
     <canvas id="typeDoughnut" class="doughnut-chart"></canvas>
     <div id="map"></div>
+  </div>
+
+  <!-- filter input above table -->
+  <div style="margin: 20px 0;">
+    <input
+      type="text"
+      id="filterInput"
+      placeholder="Filter by MMSI or Name"
+      style="padding: 6px; width: 250px;"
+    />
   </div>
 
   <table id="summaryTable">
@@ -159,23 +174,29 @@
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.font = `${(bottom - top) / 6}px sans-serif`;
-        ctx.fillText(c.text, (left + right)/2, (top + bottom)/2);
+        ctx.fillText(c.text, (left + right) / 2, (top + bottom) / 2);
         ctx.restore();
       }
     });
 
     // Metrics definitions
-    const allMetrics   = ['bytes_received','messages','failures','deduplicated','window_bytes','window_messages','window_unique_uids'];
+    const allMetrics = [
+      'bytes_received','messages','failures','deduplicated',
+      'window_bytes','window_messages','window_unique_uids'
+    ];
     const cardMetrics  = allMetrics.filter(m => !m.startsWith('window_'));
     const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
     const maxPoints    = 60;
 
     let overrideIp = '';
     const charts = {}, baselines = {};
-    const cardsContainer = document.getElementById('cards');
+    const cardsContainer  = document.getElementById('cards');
     const chartsContainer = document.getElementById('charts');
 
-    const seenUserIds = new Set(), summaryCache = {}, lastSeenTs = {}, seenCount = {};
+    const seenUserIds = new Set();
+    const summaryCache = {};
+    const lastSeenTs   = {};
+    const seenCount    = {};
     let sortField = 'lastSeen', sortAsc = false;
     let typesConfig = null, typeDoughnut = null;
 
@@ -187,9 +208,14 @@
     let midMap = {};
 
     // Map & overlay state
-    let map, overlayDiv, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
-    const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
-
+    let map, overlayDiv;
+    let autoFit = true, programmaticFit = false;
+    let vesselMarkers = {}, typeColorsMap = {};
+    const colors = [
+      'rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)',
+      'rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)',
+      'rgba(199,199,199,1)','rgba(83,102,255,1)'
+    ];
     const navigationalStatusMapping = {
       0:"Using Engine",1:"At Anchor",2:"Not Under Command",
       3:"Restricted Manoeuvrability",4:"Constrained by Draft",
@@ -197,44 +223,64 @@
       8:"Under Way Sailing",15:"Unknown"
     };
 
-    // ——— NEW GLOBALS ———
-    let selectedReceiverLatLng = null,
-        distancePolyline = null,
-        distanceLabel = null;
+    // Receiver & selection
+    let selectedReceiverLatLng = null;
+    let distancePolyline = null, distanceLabel = null;
 
-    // Haversine distance in km
+    // Filter term
+    let filterTerm = '';
+
+    // Haversine distance
     function haversineDistance(lat1, lon1, lat2, lon2) {
-      function toRad(x){return x*Math.PI/180;}
-      const R = 6371; // km
+      function toRad(x){ return x * Math.PI/180; }
+      const R = 6371;
       const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
       const a = Math.sin(dLat/2)**2 +
-                Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
                 Math.sin(dLon/2)**2;
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    // Remove existing line + label
-    function clearDistanceLine(){
-      if(distancePolyline){ map.removeLayer(distancePolyline); distancePolyline = null; }
-      if(distanceLabel){ map.removeLayer(distanceLabel); distanceLabel = null; }
+    function clearDistanceLine() {
+      if (distancePolyline) {
+        map.removeLayer(distancePolyline);
+        distancePolyline = null;
+      }
+      if (distanceLabel) {
+        map.removeLayer(distanceLabel);
+        distanceLabel = null;
+      }
     }
 
-    // Helpers
-    function formatNumber(v){
-      if(v>=1e6) return +(v/1e6).toFixed(v%1e6===0?0:2)+'M';
-      if(v>=1e3) return +(v/1e3).toFixed(v%1e3===0?0:2)+'K';
+    function clearSelectedRow() {
+      const prev = document.querySelector('#summaryBody tr.selected');
+      if (prev) prev.classList.remove('selected');
+    }
+
+    function highlightRow(uid) {
+      const row = document.getElementById('row-' + uid);
+      if (row) row.classList.add('selected');
+    }
+
+    function formatNumber(v) {
+      if (v >= 1e6) return +(v/1e6).toFixed(v%1e6===0?0:2) + 'M';
+      if (v >= 1e3) return +(v/1e3).toFixed(v%1e3===0?0:2) + 'K';
       return v;
     }
-    function formatAgo(ts){
+
+    function formatAgo(ts) {
       const sec = Math.floor((Date.now() - ts.getTime())/1000),
-            h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+            h   = Math.floor(sec/3600),
+            m   = Math.floor((sec%3600)/60),
+            s   = sec % 60;
       return (h? h+'h ':'') + (m? m+'m ':'') + s+'s';
     }
 
     // Build cards
     cardMetrics.forEach(m => {
       const c = document.createElement('div');
-      c.className = 'card'; c.id = `card-${m}`;
+      c.className = 'card';
+      c.id = `card-${m}`;
       c.innerHTML = `<h3>${m.replace(/_/g,' ')}</h3><p>0</p>`;
       cardsContainer.appendChild(c);
     });
@@ -251,7 +297,15 @@
       const ctx = canvas.getContext('2d');
       charts[m] = new Chart(ctx, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: lbl, data: [], borderColor: colors[i%colors.length], fill: false }] },
+        data: {
+          labels: [],
+          datasets: [{
+            label: lbl,
+            data: [],
+            borderColor: colors[i % colors.length],
+            fill: false
+          }]
+        },
         options: {
           animation: false,
           responsive: true,
@@ -263,14 +317,15 @@
       });
     });
 
-    // Apply override and reset everything
-    function applyOverride(ip){
+    function applyOverride(ip) {
       overrideIp = ip;
       document.getElementById('ipInput').value = ip;
 
       // reset cards & charts
       Object.keys(baselines).forEach(k => delete baselines[k]);
-      cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
+      cardMetrics.forEach(m => {
+        document.querySelector(`#card-${m} p`).textContent = '0';
+      });
       chartMetrics.forEach(m => {
         const c = charts[m];
         c.data.labels = [];
@@ -289,7 +344,7 @@
       currentPage = 1;
 
       // clear doughnut
-      if(typeDoughnut){
+      if (typeDoughnut) {
         typeDoughnut.data.labels = [];
         typeDoughnut.data.datasets[0].data = [];
         typeDoughnut.options.plugins.centerText.text = '';
@@ -298,37 +353,51 @@
 
       // reset sorting & pagination
       autoFit = true;
-      sortField = 'lastSeen'; sortAsc = false;
-      document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
+      sortField = 'lastSeen';
+      sortAsc = false;
+      document.querySelectorAll('#summaryTable th .arrow').forEach(a => a.textContent = '');
       document.getElementById('pagination').innerHTML = '';
 
       // clear receiver selection & any line
       selectedReceiverLatLng = null;
       clearDistanceLine();
+
+      // clear filter
+      filterTerm = '';
+      document.getElementById('filterInput').value = '';
+
       updateSummaryTable();
 
       // update URL
       const url = new URL(location);
-      ip ? url.searchParams.set('ipaddress', ip) : url.searchParams.delete('ipaddress');
+      if (ip) url.searchParams.set('ipaddress', ip);
+      else    url.searchParams.delete('ipaddress');
       history.replaceState(null, '', url);
 
       // hide overlay
       if (overlayDiv) updateOverlay(null);
     }
 
-    window.addEventListener('DOMContentLoaded', ()=>{
+    window.addEventListener('DOMContentLoaded', () => {
       fetch('/types.json')
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
-        .then(json => { typesConfig = json; initDoughnut(); initMap(); })
+        .then(json => {
+          typesConfig = json;
+          initDoughnut();
+          initMap();
+        })
         .catch(e => console.error('types.json error', e));
 
       fetch('/mids.json')
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
-        .then(json => { midMap = json; })
+        .then(json => {
+          midMap = json;
+        })
         .catch(e => console.error('mids.json error', e));
 
       const p = new URLSearchParams(location.search);
-      if(p.has('ipaddress')) applyOverride(p.get('ipaddress'));
+      if (p.has('ipaddress')) applyOverride(p.get('ipaddress'));
+
       fetchMetrics();
       setInterval(fetchMetrics, 1000);
     });
@@ -336,25 +405,32 @@
     document.getElementById('applyBtn').onclick = () =>
       applyOverride(document.getElementById('ipInput').value.trim());
     document.getElementById('ipInput').onkeydown = e => {
-      if(e.key === 'Enter') applyOverride(document.getElementById('ipInput').value.trim());
+      if (e.key === 'Enter') applyOverride(document.getElementById('ipInput').value.trim());
     };
 
-    document.querySelectorAll('#summaryTable th').forEach(th=>{
-      th.onclick = ()=>{
+    // Sorting handlers
+    document.querySelectorAll('#summaryTable th').forEach(th => {
+      th.onclick = () => {
         const f = th.dataset.field;
-        if(!f) return;
-        if(sortField === f) sortAsc = !sortAsc;
+        if (!f) return;
+        if (sortField === f) sortAsc = !sortAsc;
         else { sortField = f; sortAsc = true; }
-        document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
+        document.querySelectorAll('#summaryTable th .arrow').forEach(a => a.textContent = '');
         th.querySelector('.arrow').textContent = sortAsc ? '▲' : '▼';
         currentPage = 1;
         updateSummaryTable();
       };
     });
 
-    // Initialize map, overlay, and receivers
-    function initMap(){
-      map = L.map('map').setView([0,0],2);
+    // Filter handler
+    document.getElementById('filterInput').addEventListener('input', e => {
+      filterTerm = e.target.value.trim().toLowerCase();
+      currentPage = 1;
+      updateSummaryTable();
+    });
+
+    function initMap() {
+      map = L.map('map').setView([0, 0], 2);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
@@ -362,9 +438,9 @@
       map.on('click', () => {
         updateOverlay(null);
         clearDistanceLine();
+        clearSelectedRow();
       });
 
-      // create and append overlay
       overlayDiv = document.createElement('div');
       overlayDiv.className = 'latlng-overlay';
       map.getContainer().appendChild(overlayDiv);
@@ -372,13 +448,14 @@
 
       loadReceivers();
 
-      map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
+      map.on('movestart zoomstart', () => {
+        if (!programmaticFit) autoFit = false;
+      });
     }
 
-    // Show/hide & update the overlay
-    function updateOverlay(latlng){
-      if(!overlayDiv) return;
-      if(!latlng){
+    function updateOverlay(latlng) {
+      if (!overlayDiv) return;
+      if (!latlng) {
         overlayDiv.style.display = 'none';
       } else {
         overlayDiv.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
@@ -386,8 +463,7 @@
       }
     }
 
-    // Fetch & draw receiver markers
-    function loadReceivers(){
+    function loadReceivers() {
       fetch('/receivers')
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
         .then(receivers => {
@@ -406,52 +482,53 @@
               className: 'receiver-tooltip'
             });
 
-            dot.on('click', function(e){
-              // ← this was added
+            dot.on('click', function(e) {
               L.DomEvent.stopPropagation(e);
               selectedReceiverLatLng = e.latlng;
               clearDistanceLine();
               updateOverlay(e.latlng);
-              updateSummaryTable(); // ← this was added
+              updateSummaryTable();
             });
           });
         })
         .catch(err => console.error('Failed to load receivers', err));
     }
 
-    // Vessel icon creation
-    function makeIcon(info, color){
-      if(info.Sog > 0.5){
+    function makeIcon(info, color) {
+      if (info.Sog > 0.5) {
         const angle = info.Cog || 0;
         return L.divIcon({
           html: `<div style="transform: rotate(${angle}deg) scaleY(1.5); font-size: 20px; color: ${color};">&#9650;</div>`,
-          className: '', iconSize: [20,30]
+          className: '',
+          iconSize: [20, 30]
         });
       } else {
         return L.divIcon({
           html: `<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,
-          className: '', iconSize: [12,12]
+          className: '',
+          iconSize: [12, 12]
         });
       }
     }
 
-    // Focus vessel from table
-    function focusVessel(uid){
+    function focusVessel(uid) {
+      clearSelectedRow();
+      highlightRow(uid);
+
       Object.values(vesselMarkers).forEach(m => m.closePopup());
       const marker = vesselMarkers[uid];
-      if(!marker) return;
+      if (!marker) return;
+
       autoFit = false;
       programmaticFit = true;
-      map.once('moveend zoomend', ()=> programmaticFit = false);
+      map.once('moveend zoomend', () => programmaticFit = false);
       map.flyTo(marker.getLatLng(), 12);
-      marker.fire('mouseover');
-      updateOverlay(marker.getLatLng());
-      Object.values(vesselMarkers).forEach(v => v.closePopup());
-      marker.fire('mouseover');
-      updateOverlay(marker.getLatLng());
 
-      // — draw distance line when a receiver is selected —
-      if(selectedReceiverLatLng){
+      marker.fire('mouseover');
+      updateOverlay(marker.getLatLng());
+      marker.fire('mouseover');
+
+      if (selectedReceiverLatLng) {
         clearDistanceLine();
         const vesselLatLng = marker.getLatLng();
         const dist = haversineDistance(
@@ -462,7 +539,7 @@
         ).toFixed(2);
 
         distancePolyline = L.polyline(
-          [ selectedReceiverLatLng, vesselLatLng ],
+          [selectedReceiverLatLng, vesselLatLng],
           { color: 'blue' }
         ).addTo(map);
 
@@ -477,36 +554,44 @@
           .setContent(`${dist} km`)
           .addTo(map);
       }
-      document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      document.getElementById('map').scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
     }
 
-    // Update vessel markers & fit bounds
-    function updateMap(){
-      const boundsArr = [], newMarkers = {};
-      seenUserIds.forEach(uid=>{
-        if(uid.length!==9) return;
-        const info = summaryCache[uid];
-        if(!info) return;
-        const { Latitude: lat, Longitude: lon } = info;
-        if(typeof lat!=='number' || typeof lon!=='number') return;
-        boundsArr.push([lat,lon]);
-        const typeDisp = typeNameFor(info.Type);
-        const color    = typeColorsMap[typeDisp] || '#000';
-        const icon     = makeIcon(info, color);
+    function updateMap() {
+      const boundsArr = [];
+      const newMarkers = {};
 
-        if(vesselMarkers[uid]){
-          vesselMarkers[uid].setLatLng([lat,lon]).setIcon(icon);
+      seenUserIds.forEach(uid => {
+        if (uid.length !== 9) return;
+        const info = summaryCache[uid];
+        if (!info) return;
+        const { Latitude: lat, Longitude: lon } = info;
+        if (typeof lat !== 'number' || typeof lon !== 'number') return;
+
+        boundsArr.push([lat, lon]);
+        const typeDisp = typeNameFor(info.Type);
+        const color = typeColorsMap[typeDisp] || '#000';
+        const icon  = makeIcon(info, color);
+
+        if (vesselMarkers[uid]) {
+          vesselMarkers[uid].setLatLng([lat, lon]).setIcon(icon);
           newMarkers[uid] = vesselMarkers[uid];
         } else {
-          const m = L.marker([lat,lon], { icon });
+          const m = L.marker([lat, lon], { icon });
 
-          // stop map click from clearing our line
-          m.on('click', function(e){
+          m.on('click', function(e) {
             L.DomEvent.stopPropagation(e);
             updateOverlay(e.latlng);
             m.openPopup();
 
-            if(selectedReceiverLatLng){
+            clearSelectedRow();
+            highlightRow(uid);
+
+            if (selectedReceiverLatLng) {
               clearDistanceLine();
               const vesselLatLng = m.getLatLng();
               const dist = haversineDistance(
@@ -517,12 +602,12 @@
               ).toFixed(2);
 
               distancePolyline = L.polyline(
-                [ selectedReceiverLatLng, vesselLatLng ],
+                [selectedReceiverLatLng, vesselLatLng],
                 { color: 'blue' }
               ).addTo(map);
 
-              const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat)/2;
-              const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng)/2;
+              const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
+              const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
               distanceLabel = L.tooltip({
                 permanent: true,
                 direction: 'center',
@@ -534,7 +619,7 @@
             }
           });
 
-          m.on('mouseover', ()=>{
+          m.on('mouseover', () => {
             const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
             const detailsHtml = `
               <div style="line-height:1.2;">
@@ -547,10 +632,11 @@
               </div>
             `;
             m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
+
             fetch(`/state/${encodeURIComponent(uid)}`)
               .then(res => res.ok ? res.json() : Promise.reject(res.status))
               .then(state => {
-                if(state.ImageURL){
+                if (state.ImageURL) {
                   const flexHtml = `
                     <div style="display:flex;align-items:center;gap:8px;">
                       <img src="${state.ImageURL}" style="max-width:120px;max-height:80px;flex-shrink:0;" alt="State image"/>
@@ -579,186 +665,226 @@
 
           m.addTo(map);
           vesselMarkers[uid] = m;
-          newMarkers[uid] = m;
+          newMarkers[uid]    = m;
         }
       });
 
       Object.keys(vesselMarkers).forEach(uid => {
-        if(!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
+        if (!newMarkers[uid]) {
+          map.removeLayer(vesselMarkers[uid]);
+        }
       });
       vesselMarkers = newMarkers;
 
-      if(autoFit && boundsArr.length){
+      if (autoFit && boundsArr.length) {
         programmaticFit = true;
-        map.once('moveend zoomend', ()=> programmaticFit = false);
+        map.once('moveend zoomend', () => programmaticFit = false);
         map.fitBounds(L.latLngBounds(boundsArr), { padding: [20,20] });
       }
     }
 
-    // Fetch metrics, update cards/charts/table
-    async function fetchMetrics(){
+    async function fetchMetrics() {
       try {
         let url = '/metrics/bysource';
-        if(overrideIp) url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
-        const res = await fetch(url);
-        if(!res.ok) throw res.status;
+        if (overrideIp) {
+          url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
+        }
+        const res  = await fetch(url);
+        if (!res.ok) throw res.status;
         const data = await res.json();
         document.getElementById('ip-address').textContent = data.ip_address;
         const lbl = new Date().toLocaleTimeString();
 
         cardMetrics.forEach(m => {
-          if(baselines[m]===undefined) baselines[m]=data[m];
-          document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m]-baselines[m]);
+          if (baselines[m] === undefined) baselines[m] = data[m];
+          document.querySelector(`#card-${m} p`).textContent =
+            formatNumber(data[m] - baselines[m]);
         });
 
         chartMetrics.forEach(m => {
           const c = charts[m];
           c.data.labels.push(lbl);
           c.data.datasets[0].data.push(data[m]);
-          if(c.data.labels.length>maxPoints){
+          if (c.data.labels.length > maxPoints) {
             c.data.labels.shift();
             c.data.datasets[0].data.shift();
           }
           c.update();
         });
 
-        if(Array.isArray(data.window_user_ids)){
-          data.window_user_ids.forEach(uid=>{
-            lastSeenTs[uid] = new Date();
-            seenCount[uid] = (seenCount[uid]||0)+1;
-            if(!seenUserIds.has(uid)){
+        if (Array.isArray(data.window_user_ids)) {
+          data.window_user_ids.forEach(uid => {
+            lastSeenTs[uid]  = new Date();
+            seenCount[uid]   = (seenCount[uid] || 0) + 1;
+            if (!seenUserIds.has(uid)) {
               seenUserIds.add(uid);
               fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
-                .then(r=>r.ok? r.json():Promise.reject(r.status))
-                .then(json=>{ summaryCache[uid]=json[uid]||{}; updateSummaryTable(); })
-                .catch(e=>console.error(`summary ${uid} error`,e));
+                .then(r => r.ok ? r.json() : Promise.reject(r.status))
+                .then(json => {
+                  summaryCache[uid] = json[uid] || {};
+                  updateSummaryTable();
+                })
+                .catch(e => console.error(`summary ${uid} error`, e));
             }
           });
           updateSummaryTable();
         }
-      } catch(e) {
+      } catch (e) {
         console.error('Fetch error', e);
       }
     }
 
-    function typeNameFor(val){
-      if(!typesConfig) return val;
+    function typeNameFor(val) {
+      if (!typesConfig) return val;
       const catId = typesConfig.valueLookup[val];
-      const cat = typesConfig.categories.find(c=>c.id===catId);
+      const cat   = typesConfig.categories.find(c => c.id === catId);
       return cat ? cat.name : val;
     }
 
-    function initDoughnut(){
+    function initDoughnut() {
       const ctx = document.getElementById('typeDoughnut').getContext('2d');
       typeDoughnut = new Chart(ctx, {
         type: 'doughnut',
-        data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
+        data: {
+          labels: [],
+          datasets: [{
+            data: [],
+            backgroundColor: []
+          }]
+        },
         options: {
           responsive: true,
           plugins: {
-            legend: { position: 'right', labels: { boxWidth:12 } },
+            legend: { position: 'right', labels: { boxWidth: 12 } },
             centerText: { display: true, text: '' }
           }
         }
       });
     }
 
-    function updateDoughnut(){
-      if(!typeDoughnut) return;
+    function updateDoughnut() {
       const counts = {};
-      Array.from(seenUserIds).filter(uid=>uid.length===9).forEach(uid=>{
-        const name = typeNameFor(summaryCache[uid]?.Type);
-        counts[name] = (counts[name]||0) + 1;
-      });
+      Array.from(seenUserIds)
+        .filter(uid => uid.length === 9)
+        .forEach(uid => {
+          const name = typeNameFor(summaryCache[uid]?.Type);
+          counts[name] = (counts[name] || 0) + 1;
+        });
       const entries = Object.entries(counts);
-      typeColorsMap = {};
-      const bg = entries.map((_,i)=>colors[i%colors.length]);
-      entries.forEach(([name],i)=> typeColorsMap[name]=bg[i]);
-      typeDoughnut.data.labels = entries.map(e=>`${e[0]} (${e[1]})`);
-      typeDoughnut.data.datasets[0].data = entries.map(e=>e[1]);
+      const bg      = entries.map((_, i) => colors[i % colors.length]);
+      typeColorsMap  = {};
+      entries.forEach(([name], i) => {
+        typeColorsMap[name] = bg[i];
+      });
+
+      typeDoughnut.data.labels = entries.map(e => `${e[0]} (${e[1]})`);
+      typeDoughnut.data.datasets[0].data            = entries.map(e => e[1]);
       typeDoughnut.data.datasets[0].backgroundColor = bg;
-      typeDoughnut.options.plugins.centerText.text = entries.reduce((sum,[,c])=>sum+c,0);
+      typeDoughnut.options.plugins.centerText.text = entries.reduce((sum, [, c]) => sum + c, 0);
       typeDoughnut.update();
+
       updateMap();
     }
 
-    function renderPagination(totalPages){
+    function renderPagination(totalPages) {
       const container = document.getElementById('pagination');
       container.innerHTML = '';
+
       const prev = document.createElement('button');
       prev.textContent = '« Prev';
-      prev.disabled = currentPage===1;
-      prev.onclick = ()=>{ currentPage--; updateSummaryTable(); };
+      prev.disabled   = (currentPage === 1);
+      prev.onclick    = () => { currentPage--; updateSummaryTable(); };
       container.appendChild(prev);
-      for(let p=1; p<=totalPages; p++){
+
+      for (let p = 1; p <= totalPages; p++) {
         const btn = document.createElement('button');
         btn.textContent = p;
-        if(p===currentPage) btn.classList.add('active');
-        btn.onclick = ()=>{ currentPage=p; updateSummaryTable(); };
+        if (p === currentPage) btn.classList.add('active');
+        btn.onclick = () => { currentPage = p; updateSummaryTable(); };
         container.appendChild(btn);
       }
+
       const next = document.createElement('button');
       next.textContent = 'Next »';
-      next.disabled = currentPage===totalPages;
-      next.onclick = ()=>{ currentPage++; updateSummaryTable(); };
+      next.disabled   = (currentPage === totalPages);
+      next.onclick    = () => { currentPage++; updateSummaryTable(); };
       container.appendChild(next);
     }
 
-    function updateSummaryTable(){
-      // Show/hide distance column
+    function updateSummaryTable() {
       const showDist = !!selectedReceiverLatLng;
-      document.querySelectorAll('.distance-col').forEach(el=>{
+      document.querySelectorAll('.distance-col').forEach(el => {
         el.style.display = showDist ? '' : 'none';
       });
 
-      const tbody = document.getElementById('summaryBody');
-      const allRows = Array.from(seenUserIds)
-        .filter(uid=>uid.length===9)
-        .map(uid=>({
+      let allRows = Array.from(seenUserIds)
+        .filter(uid => uid.length === 9)
+        .map(uid => ({
           id: uid,
-          info: summaryCache[uid]||{},
-          lastTs: lastSeenTs[uid]||new Date(0),
-          count: seenCount[uid]||0
+          info: summaryCache[uid] || {},
+          lastTs: lastSeenTs[uid] || new Date(0),
+          count: seenCount[uid] || 0
         }));
-      allRows.sort((a,b)=>{
+
+      if (filterTerm) {
+        allRows = allRows.filter(item =>
+          item.id.includes(filterTerm) ||
+          (item.info.Name || '').toLowerCase().includes(filterTerm)
+        );
+      }
+
+      allRows.sort((a, b) => {
         let cmp;
-        if(sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
-        else if(sortField==='name') cmp = (a.info.Name||'').localeCompare(b.info.Name||'');
-        else if(sortField==='typeName') cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
-        else if(sortField==='status'){
-          const sa = navigationalStatusMapping[a.info.NavigationalStatus]||'Unknown';
-          const sb = navigationalStatusMapping[b.info.NavigationalStatus]||'Unknown';
+        if (sortField === 'lastSeen') {
+          cmp = a.lastTs - b.lastTs;
+        } else if (sortField === 'name') {
+          cmp = (a.info.Name || '').localeCompare(b.info.Name || '');
+        } else if (sortField === 'typeName') {
+          cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
+        } else if (sortField === 'status') {
+          const sa = navigationalStatusMapping[a.info.NavigationalStatus] || 'Unknown';
+          const sb = navigationalStatusMapping[b.info.NavigationalStatus] || 'Unknown';
           cmp = sa.localeCompare(sb);
-        }
-        else if(sortField==='count') cmp = a.count - b.count;
-        else if(sortField==='distance' && selectedReceiverLatLng){
+        } else if (sortField === 'count') {
+          cmp = a.count - b.count;
+        } else if (sortField === 'distance' && selectedReceiverLatLng) {
           const lat = a.info.Latitude, lon = a.info.Longitude;
-          const d = (typeof lat==='number' && typeof lon==='number')
-            ? haversineDistance(selectedReceiverLatLng.lat, selectedReceiverLatLng.lng, lat, lon)
+          const d = (typeof lat === 'number' && typeof lon === 'number')
+            ? haversineDistance(
+                selectedReceiverLatLng.lat,
+                selectedReceiverLatLng.lng,
+                lat, lon
+              )
             : Infinity;
           cmp = d - Infinity;
+        } else {
+          cmp = a.id.localeCompare(b.id);
         }
-        else cmp = a.id.localeCompare(b.id);
         return sortAsc ? cmp : -cmp;
       });
-      const totalPages = Math.max(1, Math.ceil(allRows.length/rowsPerPage));
-      if(currentPage>totalPages) currentPage = totalPages;
-      const start = (currentPage-1)*rowsPerPage;
-      const pageRows = allRows.slice(start, start+rowsPerPage);
+
+      const totalPages = Math.max(1, Math.ceil(allRows.length / rowsPerPage));
+      if (currentPage > totalPages) currentPage = totalPages;
+      const start = (currentPage - 1) * rowsPerPage;
+      const pageRows = allRows.slice(start, start + rowsPerPage);
+
+      const tbody = document.getElementById('summaryBody');
       tbody.innerHTML = '';
-      pageRows.forEach(item=>{
+
+      pageRows.forEach(item => {
         const ago = formatAgo(item.lastTs);
-        const mid = item.id.slice(0,3);
-        const entry = midMap[mid]||[];
-        const countryCode = entry[0]||'';
-        const countryName = entry[3]||'';
+        const mid = item.id.slice(0, 3);
+        const entry = midMap[mid] || [];
+        const countryCode = entry[0] || '';
+        const countryName = entry[3] || '';
         const flagCell = countryCode
-          ? `<td><img src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px;"/></td>`
+          ? `<td><img src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px;" /></td>`
           : '<td></td>';
 
-        // distance cell
         let distanceCell = '<td class="distance-col"></td>';
-        if(selectedReceiverLatLng && typeof item.info.Latitude==='number' && typeof item.info.Longitude==='number'){
+        if (selectedReceiverLatLng &&
+            typeof item.info.Latitude === 'number' &&
+            typeof item.info.Longitude === 'number') {
           const d = haversineDistance(
             selectedReceiverLatLng.lat,
             selectedReceiverLatLng.lng,
@@ -768,14 +894,17 @@
           distanceCell = `<td class="distance-col">${d} km</td>`;
         }
 
-        const status = navigationalStatusMapping[item.info.NavigationalStatus]||'Unknown';
+        const status = navigationalStatusMapping[item.info.NavigationalStatus] || 'Unknown';
         const tr = document.createElement('tr');
+        tr.id = 'row-' + item.id;
         tr.innerHTML = `
           <td><a href="#" onclick="focusVessel('${item.id}'); return false;">${item.id}</a></td>
-          <td>${item.info.Name||''}</td>
-          <td title="Type: ${typeNameFor(item.info.Type)}\nStatus: ${status}">${typeNameFor(item.info.Type)}</td>
+          <td>${item.info.Name || ''}</td>
+          <td title="Type: ${typeNameFor(item.info.Type)}\nStatus: ${status}">
+            ${typeNameFor(item.info.Type)}
+          </td>
           <td>${status}</td>
-          <td>${item.info.AISClass||''}</td>
+          <td>${item.info.AISClass || ''}</td>
           ${flagCell}
           ${distanceCell}
           <td>${ago}</td>
@@ -784,10 +913,10 @@
         tbody.appendChild(tr);
       });
 
-      // Toggle distance column now that rows are in the DOM
-      document.querySelectorAll('.distance-col').forEach(el=>{
+      document.querySelectorAll('.distance-col').forEach(el => {
         el.style.display = showDist ? 'table-cell' : 'none';
       });
+
       renderPagination(totalPages);
       updateDoughnut();
     }
