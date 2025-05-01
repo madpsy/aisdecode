@@ -4,7 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Metrics Dashboard</title>
+
+  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Leaflet CSS/JS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet/dist/leaflet.css"
+  />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
     .controls { margin-bottom: 20px; }
@@ -16,12 +25,18 @@
     .chart-container { width: 100%; height: 300px; }
     .doughnut-wrapper {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
+      gap: 20px;
       margin-bottom: 20px;
     }
-    /* increased square size for the doughnut chart */
+    /* size for the doughnut chart */
     canvas.doughnut-chart {
+      width: 400px !important;
+      height: 400px !important;
+    }
+    /* size for the map */
+    #map {
       width: 400px !important;
       height: 400px !important;
     }
@@ -47,6 +62,7 @@
 
   <div class="doughnut-wrapper">
     <canvas id="typeDoughnut" class="doughnut-chart"></canvas>
+    <div id="map"></div>
   </div>
 
   <table id="summaryTable">
@@ -73,7 +89,6 @@
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        // adapt font size to new, larger chart area
         const fontSize = (bottom - top) / 6;
         ctx.font = `${fontSize}px sans-serif`;
         ctx.fillText(center.text, (left + right) / 2, (top + bottom) / 2);
@@ -98,6 +113,14 @@
     let sortField = 'lastSeen', sortAsc = false;
     let typesConfig = null, typeDoughnut = null;
 
+    // New globals for map and color mapping
+    let map, markers, typeColorsMap = {};
+
+    const colors = [
+      'rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)',
+      'rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'
+    ];
+
     function formatNumber(v){
       if(v>=1e6) return +(v/1e6).toFixed(v%1e6===0?0:2)+'M';
       if(v>=1e3) return +(v/1e3).toFixed(v%1e3===0?0:2)+'K';
@@ -108,11 +131,6 @@
             h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
       return (h? h+'h ':'') + (m? m+'m ':'') + s+'s ago';
     }
-
-    const colors = [
-      'rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)',
-      'rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'
-    ];
 
     // Build cards
     cardMetrics.forEach(m => {
@@ -165,7 +183,11 @@
     window.addEventListener('DOMContentLoaded', ()=>{
       fetch('/types.json')
         .then(r=>r.ok?r.json():Promise.reject(r.status))
-        .then(json=>{ typesConfig=json; initDoughnut(); })
+        .then(json=>{
+          typesConfig=json;
+          initDoughnut();
+          initMap();
+        })
         .catch(e=>console.error('types.json error',e));
 
       const p = new URLSearchParams(location.search);
@@ -188,6 +210,44 @@
         updateSummaryTable();
       };
     });
+
+    // ---- Map initialization ----
+    function initMap(){
+      map = L.map('map').setView([0,0],2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      markers = L.layerGroup().addTo(map);
+    }
+
+    // ---- Update all markers on the map ----
+    function updateMap(){
+      if(!map) return;
+      markers.clearLayers();
+      const latlngs = [];
+      seenUserIds.forEach(uid => {
+        if(uid.length!==9) return;
+        const info = summaryCache[uid];
+        if(!info) return;
+        const lat = info.Latitude, lon = info.Longitude;
+        if(typeof lat!=='number' || typeof lon!=='number') return;
+        latlngs.push([lat, lon]);
+        const typeDisp = typeNameFor(info.Type);
+        const color = typeColorsMap[typeDisp] || '#000';
+        if(info.Sog > 0.5){
+          const angle = info.Cog || 0;
+          const arrowHtml = `<div style="transform: rotate(${angle}deg); font-size:16px; color:${color};">&#9650;</div>`;
+          const arrowIcon = L.divIcon({ html: arrowHtml, iconSize: [16,16], className: '' });
+          L.marker([lat, lon], { icon: arrowIcon }).addTo(markers);
+        } else {
+          L.circleMarker([lat, lon], { radius: 6, color, fillColor: color, fillOpacity: 1 }).addTo(markers);
+        }
+      });
+      if(latlngs.length){
+        const bounds = L.latLngBounds(latlngs);
+        map.fitBounds(bounds, { padding: [20,20] });
+      }
+    }
 
     async function fetchMetrics(){
       try {
@@ -242,11 +302,12 @@
       return cat?cat.name:val;
     }
 
+    // ---- Initialize the doughnut with placeholder data ----
     function initDoughnut(){
       const ctx = document.getElementById('typeDoughnut').getContext('2d');
       typeDoughnut = new Chart(ctx, {
         type: 'doughnut',
-        data: { labels: [], datasets: [{ data: [], backgroundColor: colors }] },
+        data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
         options: {
           responsive: true,
           plugins: {
@@ -257,24 +318,37 @@
       });
     }
 
+    // ---- Update doughnut & rebuild color map, then refresh the map ----
     function updateDoughnut(){
       if(!typeDoughnut) return;
+      // count per type
       const counts = {};
       Array.from(seenUserIds)
         .filter(uid=>uid.length===9)
         .forEach(uid=>{
           const t = summaryCache[uid]?.Type;
           const name = typeNameFor(t);
-          counts[name] = (counts[name]||0)+1;
+          counts[name] = (counts[name]||0) + 1;
         });
-      const labels = Object.entries(counts).map(([n,c])=>`${n} (${c})`);
-      const data = Object.values(counts);
-      const total = data.reduce((a,b)=>a+b,0);
+      // build ordered arrays
+      const entries = Object.entries(counts);
+      const typeNames = entries.map(e => e[0]);
+      const data = entries.map(e => e[1]);
+      // assign one of the palette colors
+      const bgColors = typeNames.map((_, i) => colors[i % colors.length]);
+      // build mapping
+      typeColorsMap = {};
+      typeNames.forEach((name, i) => typeColorsMap[name] = bgColors[i]);
 
-      typeDoughnut.data.labels = labels;
+      // update chart
+      typeDoughnut.data.labels = typeNames.map((n, i) => `${n} (${data[i]})`);
       typeDoughnut.data.datasets[0].data = data;
-      typeDoughnut.options.plugins.centerText.text = total;
+      typeDoughnut.data.datasets[0].backgroundColor = bgColors;
+      typeDoughnut.options.plugins.centerText.text = data.reduce((a,b)=>a+b,0);
       typeDoughnut.update();
+
+      // refresh map markers
+      updateMap();
     }
 
     function updateSummaryTable(){
