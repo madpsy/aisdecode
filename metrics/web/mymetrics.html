@@ -596,7 +596,7 @@ map.on('click', e => {
 
   // Remove any active vessel marker popups
   Object.values(vesselMarkers).forEach(m => m.closePopup());
-  
+
   // Reset vessel markers and table selection
   Object.values(vesselMarkers).forEach(marker => {
     marker.setIcon(makeIcon(marker.info, marker.color)); // Reset to default icon
