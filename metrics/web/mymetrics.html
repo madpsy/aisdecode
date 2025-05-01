@@ -588,15 +588,24 @@ map.on('click', e => {
     return;
   }
 
-  // Otherwise, clear the selection state
+  // Otherwise, clear everything
   updateOverlay(null);  // Hide the lat/lng overlay
-  clearDistanceLine();  // Clear the distance polyline and label
-  clearSelectedRow();   // Clear the selected row highlight
-  focusedUid = null;    // Reset focused vessel UID
+  clearDistanceLine();  // Clear any distance polyline and label
+  clearSelectedRow();   // Clear the table row highlight
+  focusedUid = null;    // Reset the focused vessel UID
 
-  // Remove any active vessel marker popups or highlights
+  // Remove any active vessel marker popups
   Object.values(vesselMarkers).forEach(m => m.closePopup());
+  
+  // Reset vessel markers and table selection
+  Object.values(vesselMarkers).forEach(marker => {
+    marker.setIcon(makeIcon(marker.info, marker.color)); // Reset to default icon
+  });
+
+  // Update table (this will reset the highlighted row)
+  updateSummaryTable();
 });
+
 
       // create and append overlay
       overlayDiv = document.createElement('div');
