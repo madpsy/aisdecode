@@ -346,16 +346,13 @@ function updateReceiverRings(latlng) {
       fillOpacity: 0.1,
     }).addTo(map);
 
-    // Calculate the label position based on distance and angle
-    const angle = (index * Math.PI / 2); // Spread out labels at different angles (e.g., 0, 90, 180, 270 degrees)
-    const labelLatLng = L.latLng(
-      latlng.lat + (distance * Math.sin(angle) / 1852),  // Adjust latitude based on distance and angle
-      latlng.lng + (distance * Math.cos(angle) / 1852)   // Adjust longitude based on distance and angle
-    );
+    // Use Leaflet's destinationPoint to calculate the position at a given angle and distance
+    const angle = (index * Math.PI / 2);  // Spread out labels at different angles (e.g., 0, 90, 180, 270 degrees)
+    const labelLatLng = latlng.destinationPoint(angle, distance * 1852);  // Get the point at a specific distance and angle
 
     // Label the circle with the distance in NM, positioned on the ring's circumference
     const label = L.tooltip({ permanent: true, direction: 'center', className: 'distance-tooltip' })
-      .setLatLng(labelLatLng)
+      .setLatLng(labelLatLng)  // Place label at calculated position
       .setContent(`${Math.round(distance)} NM`)
       .addTo(map);
 
