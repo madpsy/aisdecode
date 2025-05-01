@@ -5,5 +5,8 @@
   "influx_port": 8086,
   "influx_db": "ais_metrics",
   "listen_port": 5133,
+  "cache_time": 10,
+  "redis_host": "127.0.0.1",
+  "redis_port": 6379,
   "debug": false
 }
