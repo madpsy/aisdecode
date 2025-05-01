@@ -182,7 +182,7 @@
         <th data-field="typeName">Type<span class="arrow"></span></th>
         <th data-field="status">Status<span class="arrow"></span></th>
         <th data-field="className">Class<span class="arrow"></span></th>
-        <th>Flag</th>
+        <th data-field="flag">Flag<span class="arrow"></span></th>
         <th data-field="distance" class="distance-col">Distance<span class="arrow"></span></th>
         <th data-field="lastSeen">Last Seen<span class="arrow"></span></th>
         <th data-field="count">Packets<span class="arrow"></span></th>
@@ -922,6 +922,13 @@ function focusVessel(uid){
 	  const dA = getDist(a);
 	  const dB = getDist(b);
 	  cmp = dA - dB;
+	}
+	else if (sortField === 'flag') {
+	    const midA = a.id.slice(0,3), midB = b.id.slice(0,3);
+	    const entryA = midMap[midA] || [], entryB = midMap[midB] || [];
+	    const nameA = entryA[0] || '';
+	    const nameB = entryB[0] || '';
+	    cmp = nameA.localeCompare(nameB);
 	}
         else cmp = a.id.localeCompare(b.id);
         return sortAsc ? cmp : -cmp;
