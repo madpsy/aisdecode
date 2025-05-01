@@ -578,7 +578,7 @@ map.on('zoomend', () => {
 map.on('click', e => {
   const tgt = e.originalEvent.target;
 
-  // if the click came from a marker icon, popup, or tooltip, ignore it
+  // If the click came from a marker icon, popup, or tooltip, ignore it
   if (
     tgt.classList.contains('leaflet-marker-icon') ||
     tgt.classList.contains('leaflet-interactive') ||  // SVG marker
@@ -588,11 +588,14 @@ map.on('click', e => {
     return;
   }
 
-  // otherwise clear
-  updateOverlay(null);
-  clearDistanceLine();
-  clearSelectedRow();
-  focusedUid = null;
+  // Otherwise, clear the selection state
+  updateOverlay(null);  // Hide the lat/lng overlay
+  clearDistanceLine();  // Clear the distance polyline and label
+  clearSelectedRow();   // Clear the selected row highlight
+  focusedUid = null;    // Reset focused vessel UID
+
+  // Remove any active vessel marker popups or highlights
+  Object.values(vesselMarkers).forEach(m => m.closePopup());
 });
 
       // create and append overlay
