@@ -622,55 +622,43 @@ function focusVessel(uid){
         } else {
           const m = L.marker([lat,lon], { icon });
 
-m.on('click', function(e) {
-  L.DomEvent.stopPropagation(e);
-  updateOverlay(e.latlng); // Update the lat/long overlay
+          m.on('click', function(e){
+            L.DomEvent.stopPropagation(e);
+            updateOverlay(e.latlng);
+	    Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
+            m.openPopup();
+	    focusedUid = uid;
 
-  // Highlight the corresponding row in the table
-  Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
-  m.openPopup();
-  focusedUid = uid;
+            clearSelectedRow();
+            highlightRow(uid);
 
-  clearSelectedRow();
-  highlightRow(uid);
+            if(selectedReceiverLatLng){
+              clearDistanceLine();
+              const vesselLatLng = m.getLatLng();
+              const dist = haversineDistance(
+                selectedReceiverLatLng.lat,
+                selectedReceiverLatLng.lng,
+                vesselLatLng.lat,
+                vesselLatLng.lng
+              ).toFixed(2);
 
-  // Ensure a receiver is selected before calculating the polyline and distance
-  if (!selectedReceiverLatLng) {
-    // Optionally auto-select the nearest receiver or display a message
-    console.log('No receiver selected! Automatically selecting the nearest receiver.');
-    // Optionally call a function to select the nearest receiver:
-    // selectNearestReceiver(vesselLatLng);
-    return; // Exit if no receiver is selected
-  }
+              distancePolyline = L.polyline(
+                [ selectedReceiverLatLng, vesselLatLng ],
+                { color: 'blue' }
+              ).addTo(map);
 
-  // Proceed with polyline and tooltip if a receiver is selected
-  clearDistanceLine(); // Clear any previous polyline or tooltip
-  const vesselLatLng = m.getLatLng();
-  const dist = haversineDistance(
-    selectedReceiverLatLng.lat,
-    selectedReceiverLatLng.lng,
-    vesselLatLng.lat,
-    vesselLatLng.lng
-  ).toFixed(2);
-
-  // Create a new polyline between receiver and vessel
-  distancePolyline = L.polyline([selectedReceiverLatLng, vesselLatLng], { color: 'blue' }).addTo(map);
-
-  // Calculate midpoint for distance tooltip
-  const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
-  const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
-
-  // Create and add distance tooltip
-  distanceLabel = L.tooltip({
-    permanent: true,
-    direction: 'center',
-    className: 'distance-tooltip'
-  })
-    .setLatLng([midLat, midLng])
-    .setContent(`${dist} km`)
-    .addTo(map);
-});
-
+              const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat)/2;
+              const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng)/2;
+              distanceLabel = L.tooltip({
+                permanent: true,
+                direction: 'center',
+                className: 'distance-tooltip'
+              })
+                .setLatLng([midLat, midLng])
+                .setContent(`${dist} km`)
+                .addTo(map);
+            }
+          });
 
           m.on('mouseover', ()=>{
             const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
