@@ -359,10 +359,10 @@ function updateReceiverRings(latlng) {
         const radiusInMeters = distance * 1852;  // Convert nautical miles to meters
         const circle = L.circle(latlng, {
             radius: radiusInMeters,
-            color: 'grey',  // Set the ring color to grey
-            weight: 1,      // Make the stroke thinner
-            opacity: 0.6,   // Adjust the opacity for better visibility
-            fillOpacity: 0, // No fill color
+            color: 'blue',
+            weight: 2,  // Thicker stroke if desired
+            opacity: 0.7,  // Ensure visibility
+            fillOpacity: 0,  // No fill color
         }).addTo(map);
 
         // Calculate the label position (place it at the edge of the ring)
