@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Metrics Dashboard</title>
-  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
@@ -19,6 +18,8 @@
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
     th { background: #f0f0f0; cursor: pointer; user-select: none; }
     th .arrow { margin-left: 4px; font-size: 0.8em; }
+    td a { color: #0066cc; text-decoration: none; }
+    td a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -33,7 +34,6 @@
   <div class="cards" id="cards"></div>
   <div class="charts" id="charts"></div>
 
-  <!-- Summary table -->
   <table id="summaryTable">
     <thead>
       <tr>
@@ -47,21 +47,15 @@
   </table>
 
   <script>
-    const allMetrics = [ 'bytes_received','messages','failures','deduplicated','window_bytes','window_messages','window_unique_uids' ];
-    const cardMetrics = allMetrics.filter(m => !m.startsWith('window_'));
-    const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
+    const allMetrics = ['bytes_received','messages','failures','deduplicated','window_bytes','window_messages','window_unique_uids'];
+    const cardMetrics = allMetrics.filter(m=>!m.startsWith('window_'));
+    const chartMetrics = allMetrics.filter(m=>m.startsWith('window_'));
     const maxPoints = 60;
     let overrideIp = '';
     const charts = {}, baselines = {};
     const cardsContainer = document.getElementById('cards');
     const chartsContainer = document.getElementById('charts');
-
-    // track seen user IDs, cache summaries, track last-seen timestamps
-    const seenUserIds = new Set();
-    const summaryCache = {};
-    const lastSeenTs = {};  // Date objects
-
-    // sorting state
+    const seenUserIds = new Set(), summaryCache = {}, lastSeenTs = {};
     let sortField = 'lastSeen', sortAsc = false;
 
     function formatNumber(v){
@@ -71,44 +65,41 @@
     }
 
     function formatAgo(ts){
-      const diff = Math.floor((Date.now() - ts.getTime())/1000);
-      const h = Math.floor(diff/3600), m = Math.floor((diff%3600)/60), s = diff%60;
-      return (h>0? h+'h ':'') + (m>0? m+'m ':'') + s+'s ago';
+      const sec = Math.floor((Date.now()-ts.getTime())/1000);
+      const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60;
+      return (h? h+'h ':'') + (m? m+'m ':'') + s+'s ago';
     }
 
-    const colors = [ 'rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)',
-                     'rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)',
-                     'rgba(199,199,199,1)','rgba(83,102,255,1)' ];
+    const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
 
-    // Build cards
-    cardMetrics.forEach(metric=>{
-      const card=document.createElement('div'); card.className='card'; card.id=`card-${metric}`;
-      card.innerHTML=`<h3>${metric.replace(/_/g,' ')}</h3><p>0</p>`;
-      cardsContainer.appendChild(card);
+    // cards
+    cardMetrics.forEach(m=>{
+      const c=document.createElement('div'); c.className='card'; c.id=`card-${m}`;
+      c.innerHTML=`<h3>${m.replace(/_/g,' ')}</h3><p>0</p>`;
+      cardsContainer.appendChild(c);
     });
 
-    // Build charts
-    chartMetrics.forEach((metric,idx)=>{
-      const label=metric.replace(/^window_/,'').replace(/_/g,' ');
-      const container=document.createElement('div'); container.className='chart-container';
-      const canvas=document.createElement('canvas'); canvas.id=`chart-${metric}`;
-      container.appendChild(canvas); chartsContainer.appendChild(container);
+    // charts
+    chartMetrics.forEach((m,i)=>{
+      const lbl=m.replace(/^window_/,'').replace(/_/g,' ');
+      const cont=document.createElement('div'); cont.className='chart-container';
+      const canvas=document.createElement('canvas'); canvas.id=`chart-${m}`;
+      cont.appendChild(canvas); chartsContainer.appendChild(cont);
       const ctx=canvas.getContext('2d');
-      charts[metric]=new Chart(ctx,{
+      charts[m]=new Chart(ctx,{
         type:'line',
-        data:{ labels:[], datasets:[{ label, data:[], borderColor:colors[idx%colors.length], fill:false }]},
-        options:{ animation:false,responsive:true,scales:{ x:{title:{display:true,text:'Time'}},y:{} } }
+        data:{labels:[],datasets:[{label:lbl,data:[],borderColor:colors[i%colors.length],fill:false}]},
+        options:{animation:false,responsive:true,scales:{x:{title:{display:true,text:'Time'}},y:{}}}
       });
     });
 
     function applyOverride(ip){
-      overrideIp=ip; document.getElementById('ipInput').value=ip;
+      overrideIp=ip;document.getElementById('ipInput').value=ip;
       Object.keys(baselines).forEach(k=>delete baselines[k]);
       cardMetrics.forEach(m=>document.querySelector(`#card-${m} p`).textContent='0');
-      chartMetrics.forEach(m=>{ const c=charts[m]; c.data.labels=[]; c.data.datasets[0].data=[]; c.update(); });
-      const url=new URL(window.location);
-      if(ip) url.searchParams.set('ipaddress',ip); else url.searchParams.delete('ipaddress');
-      window.history.replaceState({},'',url);
+      chartMetrics.forEach(m=>{const c=charts[m];c.data.labels=[];c.data.datasets[0].data=[];c.update();});
+      const url=new URL(location); ip?url.searchParams.set('ipaddress',ip):url.searchParams.delete('ipaddress');
+      history.replaceState(null,'',url);
     }
 
     window.addEventListener('DOMContentLoaded',()=>{
@@ -116,30 +107,26 @@
       if(p.has('ipaddress')) applyOverride(p.get('ipaddress'));
       fetchMetrics(); setInterval(fetchMetrics,1000);
     });
-
     document.getElementById('applyBtn').onclick=()=>applyOverride(document.getElementById('ipInput').value.trim());
-    document.getElementById('ipInput').onkeydown=e=>{ if(e.key==='Enter') applyOverride(e.target.value.trim()); };
+    document.getElementById('ipInput').onkeydown=e=>{if(e.key==='Enter')applyOverride(e.target.value.trim());};
 
-    // add click handlers to headers
     document.querySelectorAll('#summaryTable th').forEach(th=>{
       th.onclick=()=>{
         const f=th.dataset.field;
-        if(sortField===f) sortAsc=!sortAsc; else { sortField=f; sortAsc=true; }
+        if(sortField===f) sortAsc=!sortAsc; else {sortField=f;sortAsc=true;}
         document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
-        th.querySelector('.arrow').textContent= sortAsc? '▲':'▼';
+        th.querySelector('.arrow').textContent=sortAsc?'▲':'▼';
         updateSummaryTable();
       };
     });
 
     async function fetchMetrics(){
       try {
-        let url='/metrics/bysource';
-        if(overrideIp) url+=`?ipaddress=${encodeURIComponent(overrideIp)}`;
-        const res=await fetch(url); if(!res.ok) throw res.status;
-        const data=await res.json();
-
+        let url='/metrics/bysource'; if(overrideIp) url+=`?ipaddress=${encodeURIComponent(overrideIp)}`;
+        const r=await fetch(url); if(!r.ok) throw r.status;
+        const data=await r.json();
         document.getElementById('ip-address').textContent=data.ip_address;
-        const tlabel=new Date().toLocaleTimeString();
+        const lbl=new Date().toLocaleTimeString();
 
         // cards
         cardMetrics.forEach(m=>{
@@ -150,60 +137,55 @@
         // charts
         chartMetrics.forEach(m=>{
           const c=charts[m];
-          c.data.labels.push(tlabel);
+          c.data.labels.push(lbl);
           c.data.datasets[0].data.push(data[m]);
-          if(c.data.labels.length>maxPoints){ c.data.labels.shift(); c.data.datasets[0].data.shift(); }
+          if(c.data.labels.length>maxPoints){c.data.labels.shift();c.data.datasets[0].data.shift();}
           c.update();
         });
 
-        // process user IDs
+        // user IDs
         if(Array.isArray(data.window_user_ids)){
           data.window_user_ids.forEach(uid=>{
             lastSeenTs[uid]=new Date();
             if(!seenUserIds.has(uid)){
               seenUserIds.add(uid);
               fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
-                .then(r=>r.ok? r.json() : Promise.reject(r.status))
-                .then(json=>{ summaryCache[uid]=json[uid]||{}; updateSummaryTable(); })
+                .then(r=>r.ok?r.json():Promise.reject(r.status))
+                .then(json=>{summaryCache[uid]=json[uid]||{};updateSummaryTable();})
                 .catch(e=>console.error(`Summary ${uid} error`,e));
             }
           });
           updateSummaryTable();
         }
-      } catch(e){
-        console.error('Fetch error',e);
-      }
+      } catch(e){ console.error('Fetch error',e); }
     }
 
     function updateSummaryTable(){
       const tbody=document.getElementById('summaryBody');
-      // build array
-      const arr=Array.from(seenUserIds).map(uid=>({
-        id:uid,
-        name: summaryCache[uid]?.Name||'',
-        type: summaryCache[uid]?.Type||'',
-        lastSeen: lastSeenTs[uid] || new Date(0)
-      }));
-      // sort
+      const arr=Array.from(seenUserIds)
+        .filter(uid=>uid.length===9)
+        .map(uid=>({
+          id:uid,
+          name:summaryCache[uid]?.Name||'',
+          type:summaryCache[uid]?.Type||'',
+          lastSeen:lastSeenTs[uid]||new Date(0)
+        }));
       arr.sort((a,b)=>{
-        let v;
         if(sortField==='lastSeen'){
-          v = a.lastSeen - b.lastSeen;
-        } else {
-          v = (''+a[sortField]).localeCompare(''+b[sortField]);
+          return sortAsc?(a.lastSeen-b.lastSeen):(b.lastSeen-a.lastSeen);
         }
-        return sortAsc? v : -v;
+        return sortAsc?
+          (''+a[sortField]).localeCompare(''+b[sortField]):
+          (''+b[sortField]).localeCompare(''+a[sortField]);
       });
-      // render
       tbody.innerHTML='';
       arr.forEach(item=>{
         const tr=document.createElement('tr');
-        const ago=formatAgo(item.lastSeen);
         tr.innerHTML=`
-          <td>${item.id}</td>
+          <td><a href="/?UserID=${item.id}" target="_blank">${item.id}</a></td>
           <td>${item.name}</td>
           <td>${item.type}</td>
-          <td>${ago}</td>
+          <td>${formatAgo(item.lastSeen)}</td>
         `;
         tbody.appendChild(tr);
       });
