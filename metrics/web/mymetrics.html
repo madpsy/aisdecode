@@ -510,10 +510,29 @@ function loadReceivers() {
       });
 
       // if the user passed ?receiver= in the URL, force-select it now
-      if (overrideReceiverId) {
-        const forced = receiversList.find(rx => rx.id === overrideReceiverId);
-        if (forced) forced.marker.fire('click');
-      }
+if (overrideReceiverId) {
+  // coerce to the same type
+  const idToMatch = typeof receiversList[0].id === 'number'
+    ? Number(overrideReceiverId)
+    : overrideReceiverId;
+
+  const forced = receiversList.find(rx => rx.id === idToMatch);
+  if (forced) {
+    // manually set selection state
+    selectedReceiverLatLng = forced.latlng;
+    updateOverlay(forced.latlng);
+    updateSummaryTable();
+
+    // update URL cleanly
+    const url = new URL(location);
+    url.searchParams.set('receiver', forced.id);
+    history.replaceState(null, '', url);
+
+    // fire the click *with* a latlng payload
+    forced.marker.fire('click', { latlng: forced.latlng });
+  }
+}
+
     })
     .catch(err => console.error('Failed to load receivers', err));
  }
