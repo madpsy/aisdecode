@@ -336,7 +336,7 @@ function updateReceiverRings(latlng) {
   ];
 
   // Draw each circle and label it in nautical miles
-  rings.forEach((distance) => {
+  rings.forEach((distance, index) => {
     const radiusInMeters = distance * 1852;  // Convert nautical miles to meters
     const circle = L.circle(latlng, {
       radius: radiusInMeters,
@@ -346,14 +346,14 @@ function updateReceiverRings(latlng) {
       fillOpacity: 0.1,
     }).addTo(map);
 
-    // To place the label on the circumference, offset the position based on angle
-    const angle = Math.PI / 4;  // Label offset angle (45 degrees for this example)
+    // Calculate the label position based on distance and angle
+    const angle = (index * Math.PI / 2); // Spread out labels at different angles (e.g., 0, 90, 180, 270 degrees)
     const labelLatLng = L.latLng(
-      latlng.lat + (distance * Math.sin(angle) / 1852),  // Adjust the latitude offset
-      latlng.lng + (distance * Math.cos(angle) / 1852)   // Adjust the longitude offset
+      latlng.lat + (distance * Math.sin(angle) / 1852),  // Adjust latitude based on distance and angle
+      latlng.lng + (distance * Math.cos(angle) / 1852)   // Adjust longitude based on distance and angle
     );
 
-    // Label the circle with the distance in NM, positioned on the ring circumference
+    // Label the circle with the distance in NM, positioned on the ring's circumference
     const label = L.tooltip({ permanent: true, direction: 'center', className: 'distance-tooltip' })
       .setLatLng(labelLatLng)
       .setContent(`${Math.round(distance)} NM`)
