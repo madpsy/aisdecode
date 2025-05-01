@@ -652,6 +652,11 @@ function focusVessel(uid){
           newMarkers[uid] = vesselMarkers[uid];
         } else {
           const m = L.marker([lat,lon], { icon });
+	  m.bindPopup(detailsHtml, {
+	    closeButton: false,
+	    autoClose: false,
+	    closeOnClick: false
+	  });
 
 m.on('click', function(e) {
   // reset line-drawing state
@@ -716,7 +721,6 @@ m.on('click', function(e) {
                 <b>Class:</b> ${info.AISClass || ''}
               </div>
             `;
-            m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
             fetch(`/state/${encodeURIComponent(uid)}`)
               .then(res => res.ok ? res.json() : Promise.reject(res.status))
               .then(state => {
