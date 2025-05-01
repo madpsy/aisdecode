@@ -204,21 +204,30 @@
       });
     }
 
-    // Icon factory with larger sizes
-    function makeIcon(info, color){
-      if(info.Sog > 0.5){
-        const angle = info.Cog || 0;
-        return L.divIcon({
-          html: `<div style="transform: rotate(${angle}deg); font-size:16px; color:${color};">&#9650;</div>`,
-          className:'', iconSize:[16,16]
-        });
-      } else {
-        return L.divIcon({
-          html: `<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,
-          className:'', iconSize:[12,12]
-        });
-      }
-    }
+function makeIcon(info, color){
+  if (info.Sog > 0.5) {
+    const angle = info.Cog || 0;
+    return L.divIcon({
+      html: `
+        <div style="
+          transform: rotate(${angle}deg) scaleY(1.5);
+          font-size: 20px;
+          color: ${color};
+        ">
+          &#9650;
+        </div>
+      `,
+      className: '',
+      iconSize: [20, 30]
+    });
+  } else {
+    return L.divIcon({
+      html: `<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,
+      className: '',
+      iconSize: [12, 12]
+    });
+  }
+}
 
     function updateMap(){
       const boundsArr = [], newMarkers = {};
