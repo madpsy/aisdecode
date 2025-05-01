@@ -788,7 +788,6 @@ function focusVessel(uid){
 function updateMap(){
     const oldVesselCount = Object.keys(vesselMarkers).length;
     const boundsArr = [], newMarkers = {};
-    if (!selectedReceiverLatLng) return;
     let maxDistance = 0;  // Track the furthest distance
 
     seenUserIds.forEach(uid => {
