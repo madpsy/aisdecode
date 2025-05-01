@@ -60,6 +60,7 @@
         <th data-field="id">MMSI<span class="arrow"></span></th>
         <th data-field="name">Name<span class="arrow"></span></th>
         <th data-field="typeName">Type<span class="arrow"></span></th>
+        <th data-field="className">Class<span class="arrow"></span></th>
         <th data-field="lastSeen">Last Seen<span class="arrow"></span></th>
         <th data-field="count">Count<span class="arrow"></span></th>
       </tr>
@@ -198,7 +199,6 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      // cancel autoFit only on real user drag/zoom
       map.on('movestart zoomstart', () => {
         if (!programmaticFit) autoFit = false;
       });
@@ -241,7 +241,8 @@
           const html = `<b>MMSI:</b> ${uid}<br/>
                         <b>Name:</b> ${info.Name||''}<br/>
                         <b>Speed:</b> ${info.Sog} kn<br/>
-                        <b>Type:</b> ${typeDisp}`;
+                        <b>Type:</b> ${typeDisp}<br/>
+                        <b>Class:</b> ${info.AISClass||''}`;
           m.bindPopup(html, { closeButton:false, autoClose:false });
           m.on('mouseover', ()=> m.openPopup());
           m.on('mouseout',  ()=> m.closePopup());
@@ -253,7 +254,6 @@
         newMarkers[uid] = vesselMarkers[uid];
       });
 
-      // remove stale
       Object.keys(vesselMarkers).forEach(uid => {
         if (!newMarkers[uid]) {
           map.removeLayer(vesselMarkers[uid]);
@@ -262,10 +262,8 @@
       });
       vesselMarkers = newMarkers;
 
-      // programmatic fitBounds
       if (autoFit && boundsArr.length) {
         programmaticFit = true;
-        // clear the flag after the fit completes
         map.once('moveend zoomend', () => { programmaticFit = false; });
         map.fitBounds(L.latLngBounds(boundsArr), { padding:[20,20] });
       }
@@ -389,6 +387,7 @@
           <td><a href="/?UserID=${item.id}" target="_blank">${item.id}</a></td>
           <td>${item.info.Name||''}</td>
           <td>${typeNameFor(item.info.Type)}</td>
+          <td>${item.info.AISClass||''}</td>
           <td>${ago}</td>
           <td>${item.count}</td>
         `;
