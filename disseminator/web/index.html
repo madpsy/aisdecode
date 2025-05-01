@@ -1000,18 +1000,13 @@ function refreshReceivers() {
           const lng = parseFloat(receiver.longitude);
 
           if (isNaN(lat) || isNaN(lng)) {
-            console.warn("Invalid coordinates for receiver id", id);
             return;
           }
 
           // Check if lastupdated exists and is not undefined
           if (!receiver.lastupdated) {
-            console.warn("lastupdated is missing for receiver id", id);
             return; // Skip this receiver if lastupdated is missing
           }
-
-          // Log the receiver.lastupdated and validate the date format
-          console.log("Receiver lastupdated value:", receiver.lastupdated);
 
           let updatedLocalTime;
           try {
@@ -1033,9 +1028,6 @@ function refreshReceivers() {
             console.error("Error processing date for receiver id", id, error);
             updatedLocalTime = "Invalid date";
           }
-
-          // Now you can safely use updatedLocalTime.
-          console.log("Processed updatedLocalTime for receiver id", id, "Updated:", updatedLocalTime);
 
           // Create or update the receiver marker.
           if (receiverMarkers[id]) {
