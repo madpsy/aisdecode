@@ -712,8 +712,16 @@ function loadReceivers() {
         }
       });
 
-      // If the closest receiver was found, select it
-      if (closestReceiver) {
+      // **Handle receiver override** from query parameter
+      if (overrideReceiverId) {
+        const receiver = receiversList.find(r => r.id === overrideReceiverId);
+        if (receiver) {
+          // Programmatically click the receiver
+          selectedReceiverLatLng = receiver.latlng;
+          receiver.marker.fire('click', { latlng: selectedReceiverLatLng });
+        }
+      } else if (closestReceiver) {
+        // Select the closest receiver if not overridden
         selectedReceiverLatLng = L.latLng(closestReceiver.latitude, closestReceiver.longitude);
         updateOverlay(selectedReceiverLatLng);
         updateReceiverRings(selectedReceiverLatLng);
