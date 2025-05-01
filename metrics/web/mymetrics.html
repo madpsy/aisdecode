@@ -907,13 +907,21 @@ function focusVessel(uid){
           cmp = sa.localeCompare(sb);
         }
         else if(sortField==='count') cmp = a.count - b.count;
-        else if(sortField==='distance' && selectedReceiverLatLng){
-          const lat = a.info.Latitude, lon = a.info.Longitude;
-          const d = (typeof lat==='number' && typeof lon==='number')
-            ? haversineDistance(selectedReceiverLatLng.lat, selectedReceiverLatLng.lng, lat, lon)
-            : Infinity;
-          cmp = d - Infinity;
-        }
+else if (sortField === 'distance' && selectedReceiverLatLng) {
+  const getDist = item => {
+    const { Latitude: lat, Longitude: lon } = item.info;
+    return (typeof lat === 'number' && typeof lon === 'number')
+      ? haversineDistance(
+          selectedReceiverLatLng.lat,
+          selectedReceiverLatLng.lng,
+          lat, lon
+        )
+      : Infinity;
+  };
+  const dA = getDist(a);
+  const dB = getDist(b);
+  cmp = dA - dB;
+}
         else cmp = a.id.localeCompare(b.id);
         return sortAsc ? cmp : -cmp;
       });
