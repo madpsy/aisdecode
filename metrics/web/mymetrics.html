@@ -70,6 +70,15 @@
       padding: 0 !important;
     }
 
+    .flag-img {
+      width: 24px;        /* your existing width */
+      height: auto;
+      box-sizing: border-box;      /* include border in that 24px */
+      border: 1px solid #ccc;      /* a nice thin grey line */
+      border-radius: 2px;          /* slightly rounded corners */
+      display: block;              /* remove inline-img quirks */
+    }
+
     /* Receiver tooltip styling */
     .receiver-tooltip {
       background: white;
@@ -806,7 +815,7 @@
         const countryCode = entry[0]||'';
         const countryName = entry[3]||'';
         const flagCell = countryCode
-          ? `<td><img src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px;"/></td>`
+          ? `<td><img class="flag-img" src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px;"/></td>`
           : '<td></td>';
 
         let distanceCell = '<td class="distance-col"></td>';
