@@ -146,6 +146,9 @@ func ingestMetricsLoop() {
 		metricsLock.Lock()
 		latestMetrics = m
 		metricsLock.Unlock()
+	        if err := writeMetricsToInfluxDB(m); err != nil {
+         	   log.Printf("Error writing polled metrics to InfluxDB: %v", err)
+       	        }
 	}
 }
 
@@ -156,13 +159,6 @@ func metricsIngesterHandler(w http.ResponseWriter, r *http.Request) {
 
 	if latestMetrics == nil {
 		http.Error(w, "no metrics yet", http.StatusNoContent)
-		return
-	}
-
-	// Write to InfluxDB
-	if err := writeMetricsToInfluxDB(latestMetrics); err != nil {
-		log.Printf("Error writing to InfluxDB: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
