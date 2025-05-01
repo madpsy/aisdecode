@@ -217,6 +217,7 @@
     const maxPoints    = 60;
     let radiusCircles = [];
     let focusedUid = null;
+    let furthestVesselLatLng = null;
     let overrideIp = '';
     let overlayDisplayed = false;
     let polylineAdded = false;
@@ -256,6 +257,19 @@
 
 function kmToNM(km) {
   return km / 1.852;
+}
+
+function getFurthestVesselDistance(latlng) {
+  let maxDist = 0;
+  Object.values(vesselMarkers).forEach(marker => {
+    const vesselLatLng = marker.getLatLng();
+    const distance = haversineDistance(latlng.lat, latlng.lng, vesselLatLng.lat, vesselLatLng.lng);
+    if (distance > maxDist) {
+      maxDist = distance;
+      furthestVesselLatLng = vesselLatLng;
+    }
+  });
+  return maxDist;  // Return the furthest distance
 }
 
 // Function to draw rings based on receiver's location
@@ -298,6 +312,7 @@ function clearRadiusRings() {
     map.removeLayer(item.label);
   });
   radiusCircles = [];
+  furthestVesselLatLng = null;  // Reset the furthest vessel when clearing rings
 }
 
 function updateReceiverRings(latlng) {
@@ -305,15 +320,24 @@ function updateReceiverRings(latlng) {
 
   if (!latlng) return;  // No receiver selected
 
-  const zoomLevel = map.getZoom();
-  const radiusInNM = Math.max(1, zoomLevel * 1.5);  // Scale with zoom level (adjust factor as needed)
+  // Calculate the maximum distance to the furthest vessel
+  const furthestDistance = getFurthestVesselDistance(latlng);
 
-  // Define the radii for the rings (in nautical miles), extending beyond fitBounds
-  const rings = [1, 3, 5, 7];  // Example: 1 NM, 3 NM, 5 NM, 7 NM for larger rings
+  // If the maximum distance is zero (no vessels or no valid vessels), return early
+  if (furthestDistance === 0) return;
+
+  // Create dynamic rings based on the maximum distance (adjust the number of rings)
+  // Example: 10%, 30%, 50%, 70% of the furthest distance
+  const rings = [
+    furthestDistance * 0.1,  // 10% of the furthest distance
+    furthestDistance * 0.3,  // 30% of the furthest distance
+    furthestDistance * 0.5,  // 50% of the furthest distance
+    furthestDistance * 0.7   // 70% of the furthest distance
+  ];
 
   // Draw each circle and label it in nautical miles
-  rings.forEach((nm) => {
-    const radiusInMeters = kmToNM(nm) * 1852;  // Convert NM to meters
+  rings.forEach((distance) => {
+    const radiusInMeters = distance * 1852;  // Convert nautical miles to meters
     const circle = L.circle(latlng, {
       radius: radiusInMeters,
       color: 'blue',
@@ -325,13 +349,12 @@ function updateReceiverRings(latlng) {
     // Label the circle with the distance in NM
     const label = L.tooltip({ permanent: true, direction: 'center', className: 'distance-tooltip' })
       .setLatLng(latlng)
-      .setContent(`${nm} NM`)
+      .setContent(`${Math.round(distance)} NM`)
       .addTo(map);
 
     radiusCircles.push({ circle, label });
   });
 }
-
 
     // **Filter term & row‐highlight helpers**
     let filterTerm = '';
