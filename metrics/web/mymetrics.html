@@ -445,7 +445,6 @@ map.on('click', e => {
     tgt.closest('.leaflet-popup') ||
     tgt.closest('.distance-tooltip')
   ) {
-    console.log('Map-click on marker/popup disabled clear.');
     return;
   }
 
@@ -454,7 +453,6 @@ map.on('click', e => {
   clearDistanceLine();
   clearSelectedRow();
   focusedUid = null;
-  console.log('Map-click on background: cleared overlay, polyline, selection.');
 });
 
       // create and append overlay
@@ -469,7 +467,6 @@ map.on('click', e => {
     }
 
 function updateOverlay(latlng) {
-  console.log("updateOverlay called with latlng:", latlng);
 
   if (!overlayDiv) return;
 
@@ -478,7 +475,6 @@ function updateOverlay(latlng) {
     if (!overlayDisplayed) {
       overlayDiv.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
       overlayDiv.style.display = 'block';
-      console.log("Overlay shown with latlng:", latlng);
       overlayDisplayed = true;
     }
   } else {
@@ -486,7 +482,6 @@ function updateOverlay(latlng) {
     if (overlayDisplayed) {
       overlayDiv.style.display = 'none';
       overlayDisplayed = false;
-      console.log("Overlay hidden.");
     }
   }
 }
