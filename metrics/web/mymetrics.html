@@ -49,6 +49,8 @@
     const baselines = {};
     const cardsContainer = document.getElementById('cards');
     const chartsContainer = document.getElementById('charts');
+    const seenUserIds = new Set();
+    const summaryCache = {};
 
     function formatNumber(value) {
       if (value >= 1e6) return +(value / 1e6).toFixed(value % 1e6 === 0 ? 0 : 2) + 'M';
@@ -105,6 +107,19 @@
         chart.data.datasets[0].data = [];
         chart.update();
       });
+
+      // — NEW: for each MMSI, fetch summary if we haven't yet —
+      if (Array.isArray(data.window_user_ids)) {
+        for (const userId of data.window_user_ids) {
+          if (!seenUserIds.has(userId)) {
+            seenUserIds.add(userId);
+            fetch(`/summary?UserID=${encodeURIComponent(userId)}`)
+             .then(res => res.ok ? res.json() : Promise.reject(res.status))
+              .then(json => { summaryCache[userId] = json; })
+              .catch(err => console.error(`Failed to fetch summary for ${userId}:`, err));
+          }
+        }
+      }
 
       // Update the URL so ipaddress shows up in the query string
       const url = new URL(window.location);
