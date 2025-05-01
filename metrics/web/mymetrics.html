@@ -96,6 +96,15 @@
       display: none;
       z-index: 1000;
     }
+
+    /* Distance label */
+    .distance-tooltip {
+      background-color: rgba(255,255,255,0.9);
+      border: 1px solid #333;
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -124,6 +133,7 @@
         <th data-field="status">Status<span class="arrow"></span></th>
         <th data-field="className">Class<span class="arrow"></span></th>
         <th>Flag</th>
+        <th data-field="distance">Distance<span class="arrow"></span></th>
         <th data-field="lastSeen">Last Seen<span class="arrow"></span></th>
         <th data-field="count">Packets<span class="arrow"></span></th>
       </tr>
@@ -182,6 +192,28 @@
       8:"Under Way Sailing",15:"Unknown"
     };
 
+    // ——— NEW GLOBALS ———
+    let selectedReceiverLatLng = null,
+        distancePolyline = null,
+        distanceLabel = null;
+
+    // Haversine distance in km
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+      function toRad(x){return x*Math.PI/180;}
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2)**2 +
+                Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*
+                Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Remove existing line + label
+    function clearDistanceLine(){
+      if(distancePolyline){ map.removeLayer(distancePolyline); distancePolyline = null; }
+      if(distanceLabel){ map.removeLayer(distanceLabel); distanceLabel = null; }
+    }
+
     // Helpers
     function formatNumber(v){
       if(v>=1e6) return +(v/1e6).toFixed(v%1e6===0?0:2)+'M';
@@ -214,10 +246,7 @@
       const ctx = canvas.getContext('2d');
       charts[m] = new Chart(ctx, {
         type: 'line',
-        data: {
-          labels: [],
-          datasets: [{ label: lbl, data: [], borderColor: colors[i%colors.length], fill: false }]
-        },
+        data: { labels: [], datasets: [{ label: lbl, data: [], borderColor: colors[i%colors.length], fill: false }] },
         options: {
           animation: false,
           responsive: true,
@@ -244,7 +273,7 @@
         c.update();
       });
 
-      // clear vessels
+      // clear vessels & summary
       seenUserIds.clear();
       Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
       vesselMarkers = {};
@@ -267,6 +296,10 @@
       sortField = 'lastSeen'; sortAsc = false;
       document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
       document.getElementById('pagination').innerHTML = '';
+
+      // clear receiver selection & any line
+      selectedReceiverLatLng = null;
+      clearDistanceLine();
 
       // update URL
       const url = new URL(location);
@@ -320,7 +353,10 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      map.on('click', () => updateOverlay(null));
+      map.on('click', () => {
+        updateOverlay(null);
+        clearDistanceLine();
+      });
 
       // create and append overlay
       overlayDiv = document.createElement('div');
@@ -364,7 +400,12 @@
               className: 'receiver-tooltip'
             });
 
-            dot.on('click', e => updateOverlay(e.latlng));
+            dot.on('click', e => {
+              selectedReceiverLatLng = e.latlng;
+              clearDistanceLine();
+              updateOverlay(e.latlng);
+              updateSummaryTable();
+            });
           });
         })
         .catch(err => console.error('Failed to load receivers', err));
@@ -459,10 +500,39 @@
           m.on('click', e => {
             updateOverlay(e.latlng);
             m.openPopup();
+
+            // draw line + label if a receiver is selected
+            if(selectedReceiverLatLng){
+              clearDistanceLine();
+              const vesselLatLng = m.getLatLng();
+              const dist = haversineDistance(
+                selectedReceiverLatLng.lat,
+                selectedReceiverLatLng.lng,
+                vesselLatLng.lat,
+                vesselLatLng.lng
+              ).toFixed(2);
+
+              distancePolyline = L.polyline(
+                [ selectedReceiverLatLng, vesselLatLng ],
+                { color: 'blue' }
+              ).addTo(map);
+
+              // midpoint for label
+              const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat)/2;
+              const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng)/2;
+              distanceLabel = L.tooltip({
+                permanent: true,
+                direction: 'center',
+                className: 'distance-tooltip'
+              })
+                .setLatLng([midLat, midLng])
+                .setContent(`${dist} km`)
+                .addTo(map);
+            }
           });
-          // hide overlay when the popup is closed
           m.on('popupclose', () => {
             updateOverlay(null);
+            clearDistanceLine();
           });
           m.addTo(map);
           vesselMarkers[uid] = m;
@@ -612,6 +682,13 @@
           cmp = sa.localeCompare(sb);
         }
         else if(sortField==='count') cmp = a.count - b.count;
+        else if(sortField==='distance' && selectedReceiverLatLng){
+          const lat = a.info.Latitude, lon = a.info.Longitude;
+          const d = (typeof lat==='number' && typeof lon==='number')
+            ? haversineDistance(selectedReceiverLatLng.lat, selectedReceiverLatLng.lng, lat, lon)
+            : 0;
+          cmp = d - 0; // sort by ascending distance
+        }
         else cmp = a.id.localeCompare(b.id);
         return sortAsc ? cmp : -cmp;
       });
@@ -629,6 +706,17 @@
         const flagCell = countryCode
           ? `<td><img src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px;"/></td>`
           : '<td></td>';
+        // distance cell
+        let distanceCell = '<td></td>';
+        if(selectedReceiverLatLng && typeof item.info.Latitude==='number' && typeof item.info.Longitude==='number'){
+          const d = haversineDistance(
+            selectedReceiverLatLng.lat,
+            selectedReceiverLatLng.lng,
+            item.info.Latitude,
+            item.info.Longitude
+          ).toFixed(2);
+          distanceCell = `<td>${d} km</td>`;
+        }
         const status = navigationalStatusMapping[item.info.NavigationalStatus]||'Unknown';
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -638,6 +726,7 @@
           <td>${status}</td>
           <td>${item.info.AISClass||''}</td>
           ${flagCell}
+          ${distanceCell}
           <td>${ago}</td>
           <td>${item.count}</td>
         `;
