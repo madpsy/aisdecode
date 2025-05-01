@@ -435,12 +435,27 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      map.on('click', () => {
-        updateOverlay(null);
-        clearDistanceLine();
-        clearSelectedRow();
-	focusedUid = null;
-      });
+map.on('click', e => {
+  const tgt = e.originalEvent.target;
+
+  // if the click came from a marker icon, popup, or tooltip, ignore it
+  if (
+    tgt.classList.contains('leaflet-marker-icon') ||
+    tgt.classList.contains('leaflet-interactive') ||  // SVG marker
+    tgt.closest('.leaflet-popup') ||
+    tgt.closest('.distance-tooltip')
+  ) {
+    console.log('Map-click on marker/popup disabled clear.');
+    return;
+  }
+
+  // otherwise clear
+  updateOverlay(null);
+  clearDistanceLine();
+  clearSelectedRow();
+  focusedUid = null;
+  console.log('Map-click on background: cleared overlay, polyline, selection.');
+});
 
       // create and append overlay
       overlayDiv = document.createElement('div');
