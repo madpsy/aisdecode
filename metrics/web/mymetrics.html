@@ -346,22 +346,22 @@ function updateReceiverRings(latlng) {
       fillOpacity: 0.1,
     }).addTo(map);
 
-    // Calculate the label position based on distance and angle
-    const angle = (index * Math.PI / 2); // Spread out labels at different angles (e.g., 0, 90, 180, 270 degrees)
-    const labelLatLng = L.latLng(
-      latlng.lat + (distance * Math.sin(angle) / 1852),  // Adjust latitude based on distance and angle
-      latlng.lng + (distance * Math.cos(angle) / 1852)   // Adjust longitude based on distance and angle
-    );
+    // Now we place the label at the correct spot on the circle
+    // Let's position the label a little off from the receiver's location on the circle's circumference.
+    // The labels will be placed at the top of each circle (90 degrees), for simplicity.
+    const labelLatLng = latlng
+      .destinationPoint(Math.PI / 2, radiusInMeters); // Placing label at 90 degrees (directly above)
 
-    // Label the circle with the distance in NM, positioned on the ring's circumference
+    // Label the circle with the distance in NM
     const label = L.tooltip({ permanent: true, direction: 'center', className: 'distance-tooltip' })
-      .setLatLng(labelLatLng)
+      .setLatLng(labelLatLng)  // Place label at calculated position
       .setContent(`${Math.round(distance)} NM`)
       .addTo(map);
 
     radiusCircles.push({ circle, label });
   });
 }
+
 
     // **Filter term & row‐highlight helpers**
     let filterTerm = '';
