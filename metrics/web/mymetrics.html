@@ -813,13 +813,8 @@ function focusVessel(uid){
 
     function typeNameFor(info) {
       if (info.AISClass === 'AtoN') {
-	 if (typeof window.staticAtoNTypeMapping === 'object') {
-	   return staticAtoNTypeMapping[info.Type]
-	        || `Unknown AtoN (${info.Type})`;
-	 } else {
-	   console.warn('staticAtoNTypeMapping not loaded');
-	   return `AtoN (${info.Type})`;
-	 }
+        return staticAtoNTypeMapping[info.Type]
+          || `Unknown AtoN (${info.Type})`;
       }
       if (!typesConfig) return info.Type;
       const catId = typesConfig.valueLookup[info.Type];
