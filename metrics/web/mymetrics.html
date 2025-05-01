@@ -155,7 +155,7 @@
     function formatAgo(ts){
       const sec = Math.floor((Date.now() - ts.getTime())/1000),
             h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
-      return (h? h+'h ':'') + (m? m+'m ':'') + s+'s ago';
+      return (h? h+'h ':'') + (m? m+'m ':'') + s+'s';
     }
 
     // Build cards
