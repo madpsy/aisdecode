@@ -566,7 +566,7 @@ function focusVessel(uid){
   if(!marker) return;
 
   updateOverlay(marker.getLatLng());
-console.log("yes");
+
   // if a receiver is selected: fit to both points
   if (selectedReceiverLatLng) {
     const vesselLatLng   = marker.getLatLng();
@@ -623,6 +623,7 @@ console.log("yes");
           const m = L.marker([lat,lon], { icon });
 
           m.on('click', function(e){
+	    console.log("yes");
             L.DomEvent.stopPropagation(e);
             updateOverlay(e.latlng);
 	    Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
