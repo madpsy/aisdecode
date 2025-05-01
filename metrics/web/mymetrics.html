@@ -259,6 +259,23 @@ function kmToNM(km) {
   return km / 1.852;
 }
 
+function destinationPoint(latlng, bearing, distance) {
+    const R = 6371e3; // Earth's radius in meters
+    const φ1 = latlng.lat * Math.PI / 180;  // Convert to radians
+    const λ1 = latlng.lng * Math.PI / 180;  // Convert to radians
+    const θ = bearing * Math.PI / 180;  // Convert bearing to radians
+    const δ = distance / R;  // Angular distance in radians
+
+    const φ2 = Math.asin(Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ));
+    const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(δ) * Math.cos(φ1), Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2));
+
+    // Convert back to degrees
+    const lat = φ2 * 180 / Math.PI;
+    const lng = (λ2 * 180 / Math.PI + 540) % 360 - 180;
+
+    return L.latLng(lat, lng);
+}
+
 function getFurthestVesselDistance(latlng) {
   let maxDist = 0;
   Object.values(vesselMarkers).forEach(marker => {
@@ -316,48 +333,47 @@ function clearRadiusRings() {
 }
 
 function updateReceiverRings(latlng) {
-  clearRadiusRings();  // Clear any existing rings
+    clearRadiusRings();  // Clear any existing rings
 
-  if (!latlng) return;  // No receiver selected
+    if (!latlng) return;  // No receiver selected
 
-  // Calculate the maximum distance to the furthest vessel from the receiver
-  const furthestDistance = getFurthestVesselDistance(latlng);
+    // Calculate the maximum distance to the furthest vessel from the receiver
+    const furthestDistance = getFurthestVesselDistance(latlng);
 
-  // If the maximum distance is zero (no vessels or no valid vessels), return early
-  if (furthestDistance === 0) return;
+    // If the maximum distance is zero (no vessels or no valid vessels), return early
+    if (furthestDistance === 0) return;
 
-  // Create dynamic rings based on the maximum distance (adjust the number of rings)
-  // Example: 10%, 30%, 50%, 70% of the furthest distance
-  const rings = [
-    furthestDistance * 0.1,  // 10% of the furthest distance
-    furthestDistance * 0.3,  // 30% of the furthest distance
-    furthestDistance * 0.5,  // 50% of the furthest distance
-    furthestDistance * 0.7   // 70% of the furthest distance
-  ];
+    // Create dynamic rings based on the maximum distance (adjust the number of rings)
+    // Example: 10%, 30%, 50%, 70% of the furthest distance
+    const rings = [
+        furthestDistance * 0.1,  // 10% of the furthest distance
+        furthestDistance * 0.3,  // 30% of the furthest distance
+        furthestDistance * 0.5,  // 50% of the furthest distance
+        furthestDistance * 0.7   // 70% of the furthest distance
+    ];
 
-  // Draw each circle and label it in nautical miles
-  rings.forEach((distance, index) => {
-    const radiusInMeters = distance * 1852;  // Convert nautical miles to meters
-    const circle = L.circle(latlng, {
-      radius: radiusInMeters,
-      color: 'blue',
-      weight: 1,
-      opacity: 0.6,
-      fillOpacity: 0.1,
-    }).addTo(map);
+    // Draw each circle and label it in nautical miles
+    rings.forEach((distance, index) => {
+        const radiusInMeters = distance * 1852;  // Convert nautical miles to meters
+        const circle = L.circle(latlng, {
+            radius: radiusInMeters,
+            color: 'blue',
+            weight: 1,
+            opacity: 0.6,
+            fillOpacity: 0.1,
+        }).addTo(map);
 
-    // Calculate the label position (place it at the edge of the ring)
-    // We will use a fixed position along the circle (e.g., directly to the right of the circle)
-    const labelLatLng = latlng.destinationPoint(0, radiusInMeters); // 0 degrees (right side of the circle)
+        // Calculate the label position (place it at the edge of the ring)
+        const labelLatLng = destinationPoint(latlng, 0, radiusInMeters); // 0 degrees (right side of the circle)
 
-    // Label the circle with the distance in NM
-    const label = L.tooltip({ permanent: true, direction: 'center', className: 'distance-tooltip' })
-      .setLatLng(labelLatLng)  // Position the label at the calculated position
-      .setContent(`${Math.round(distance)} NM`)
-      .addTo(map);
+        // Label the circle with the distance in NM
+        const label = L.tooltip({ permanent: true, direction: 'center', className: 'distance-tooltip' })
+            .setLatLng(labelLatLng)  // Position the label at the calculated position
+            .setContent(`${Math.round(distance)} NM`)
+            .addTo(map);
 
-    radiusCircles.push({ circle, label });
-  });
+        radiusCircles.push({ circle, label });
+    });
 }
 
     // **Filter term & row‐highlight helpers**
