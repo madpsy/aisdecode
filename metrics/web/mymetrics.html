@@ -785,79 +785,97 @@ function focusVessel(uid){
 }
 
 function updateMap() {
-    const oldVesselCount = Object.keys(vesselMarkers).length;
-    const boundsArr = [], newMarkers = {};
-    let maxDistance = 0;  // Track the furthest distance
+  const oldVesselCount = Object.keys(vesselMarkers).length;
+  const boundsArr = [], newMarkers = {};
+  let maxDistance = 0;  // Track the furthest distance
 
-    seenUserIds.forEach(uid => {
-        if (uid.length !== 9) return;
-        const info = summaryCache[uid];
-        if (!info) return;
-        const { Latitude: lat, Longitude: lon } = info;
-        if (typeof lat !== 'number' || typeof lon !== 'number') return;
-        boundsArr.push([lat, lon]);
-        const typeDisp = typeNameFor(info);
-        const color = typeColorsMap[typeDisp] || '#000';
-        const icon = makeIcon(info, color);
+  seenUserIds.forEach(uid => {
+    if (uid.length !== 9) return;
+    const info = summaryCache[uid];
+    if (!info) return;
+    const { Latitude: lat, Longitude: lon } = info;
+    if (typeof lat !== 'number' || typeof lon !== 'number') return;
+    boundsArr.push([lat, lon]);
+    const typeDisp = typeNameFor(info);
+    const color = typeColorsMap[typeDisp] || '#000';
+    const icon = makeIcon(info, color);
 
-        if (vesselMarkers[uid]) {
-            vesselMarkers[uid].setLatLng([lat, lon]).setIcon(icon);
-            newMarkers[uid] = vesselMarkers[uid];
-        } else {
-            const m = L.marker([lat, lon], { icon });
-            m.on('click', function (e) {
-                // Reset line-drawing state
-                polylineAdded = false;
-                tooltipAdded = false;
+    if (vesselMarkers[uid]) {
+      vesselMarkers[uid].setLatLng([lat, lon]).setIcon(icon);
+      newMarkers[uid] = vesselMarkers[uid];
+    } else {
+      const m = L.marker([lat, lon], { icon });
+      m.on('click', function (e) {
+        // Reset line-drawing state
+        polylineAdded = false;
+        tooltipAdded = false;
 
-                L.DomEvent.stopPropagation(e);
-                updateOverlay(e.latlng);
+        L.DomEvent.stopPropagation(e);
+        updateOverlay(e.latlng);
 
-                // Close other popups
-                Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
+        // Close other popups
+        Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
 
-                // Open this one and keep it open
-                m.openPopup();
+        // Open this one and keep it open
+        m.openPopup();
 
-                focusedUid = uid;
-                clearSelectedRow();
-                highlightRow(uid);
+        focusedUid = uid;
+        clearSelectedRow();
+        highlightRow(uid);
 
-                if (selectedReceiverLatLng) {
-                    clearDistanceLine();
-                    const vesselLatLng = m.getLatLng();
-                    const dist = haversineDistance(
-                        selectedReceiverLatLng.lat,
-                        selectedReceiverLatLng.lng,
-                        vesselLatLng.lat,
-                        vesselLatLng.lng
-                    ).toFixed(2);
+        // Only add distance line and calculate if receiver is selected
+        if (selectedReceiverLatLng) {
+          clearDistanceLine();
+          const vesselLatLng = m.getLatLng();
+          const dist = haversineDistance(
+            selectedReceiverLatLng.lat,
+            selectedReceiverLatLng.lng,
+            vesselLatLng.lat,
+            vesselLatLng.lng
+          ).toFixed(2);
 
-                    distancePolyline = L.polyline(
-                        [selectedReceiverLatLng, vesselLatLng],
-                        { color: 'blue', weight: 3, opacity: 0.7, zIndex: 1000 }
-                    ).addTo(map);
+          distancePolyline = L.polyline(
+            [selectedReceiverLatLng, vesselLatLng],
+            { color: 'blue', weight: 3, opacity: 0.7, zIndex: 1000 }
+          ).addTo(map);
 
-                    const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
-                    const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
-                    distanceLabel = L.tooltip({
-                        permanent: true,
-                        direction: 'center',
-                        className: 'distance-tooltip',
-                        zIndex: 1001
-                    })
-                        .setLatLng([midLat, midLng])
-                        .setContent(`${dist} km`)
-                        .addTo(map);
+          const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
+          const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
+          distanceLabel = L.tooltip({
+            permanent: true,
+            direction: 'center',
+            className: 'distance-tooltip',
+            zIndex: 1001
+          })
+            .setLatLng([midLat, midLng])
+            .setContent(`${dist} km`)
+            .addTo(map);
 
-                    const bounds = L.latLngBounds([selectedReceiverLatLng, vesselLatLng]);
-                    map.fitBounds(bounds, { padding: [30, 30] });
-                }
-            });
+          const bounds = L.latLngBounds([selectedReceiverLatLng, vesselLatLng]);
+          map.fitBounds(bounds, { padding: [30, 30] });
+        }
+      });
 
-            m.on('mouseover', () => {
-                const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
-                const detailsHtml = `
+      m.on('mouseover', () => {
+        const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
+        const detailsHtml = `
+          <div style="line-height:1.2;">
+            <b>MMSI:</b> ${uid}<br/>
+            <b>Name:</b> ${info.Name || ''}<br/>
+            <b>Speed:</b> ${info.Sog} kn<br/>
+            <b>Type:</b> ${typeDisp}<br/>
+            <b>Status:</b> ${status}<br/>
+            <b>Class:</b> ${info.AISClass || ''}
+          </div>
+        `;
+        m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
+        fetch(`/state/${encodeURIComponent(uid)}`)
+          .then(res => res.ok ? res.json() : Promise.reject(res.status))
+          .then(state => {
+            if (state.ImageURL) {
+              const flexHtml = `
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <img src="${state.ImageURL}" style="max-width:120px;max-height:80px;flex-shrink:0;" alt="State image"/>
                   <div style="line-height:1.2;">
                     <b>MMSI:</b> ${uid}<br/>
                     <b>Name:</b> ${info.Name || ''}<br/>
@@ -866,62 +884,45 @@ function updateMap() {
                     <b>Status:</b> ${status}<br/>
                     <b>Class:</b> ${info.AISClass || ''}
                   </div>
-                `;
-                m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
-                fetch(`/state/${encodeURIComponent(uid)}`)
-                    .then(res => res.ok ? res.json() : Promise.reject(res.status))
-                    .then(state => {
-                        if (state.ImageURL) {
-                            const flexHtml = `
-                              <div style="display:flex;align-items:center;gap:8px;">
-                                <img src="${state.ImageURL}" style="max-width:120px;max-height:80px;flex-shrink:0;" alt="State image"/>
-                                <div style="line-height:1.2;">
-                                  <b>MMSI:</b> ${uid}<br/>
-                                  <b>Name:</b> ${info.Name || ''}<br/>
-                                  <b>Speed:</b> ${info.Sog} kn<br/>
-                                  <b>Type:</b> ${typeDisp}<br/>
-                                  <b>Status:</b> ${status}<br/>
-                                  <b>Class:</b> ${info.AISClass || ''}
-                                </div>
-                              </div>
-                            `;
-                            m.getPopup().setContent(flexHtml).update();
-                            m.openPopup();
-                        }
-                    })
-                    .catch(e => console.error(`Failed to load state for ${uid}`, e));
-            });
+                </div>
+              `;
+              m.getPopup().setContent(flexHtml).update();
+              m.openPopup();
+            }
+          })
+          .catch(e => console.error(`Failed to load state for ${uid}`, e));
+      });
 
-            m.on('mouseout', () => m.closePopup());
-            m.addTo(map);
-            vesselMarkers[uid] = m;
-            newMarkers[uid] = m;
-        }
-
-        // Track maximum distance
-        const vesselLatLng = L.latLng(lat, lon);
-        const dist = haversineDistance(selectedReceiverLatLng.lat, selectedReceiverLatLng.lng, vesselLatLng.lat, vesselLatLng.lng);
-        if (dist > maxDistance) {
-            maxDistance = dist;
-        }
-    });
-
-    Object.keys(vesselMarkers).forEach(uid => {
-        if (!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
-    });
-    vesselMarkers = newMarkers;
-
-    // Update radius rings based on the furthest vessel
-    if (selectedReceiverLatLng) {
-        updateReceiverRings(selectedReceiverLatLng);  // Redraw rings based on updated maximum distance
+      m.on('mouseout', () => m.closePopup());
+      m.addTo(map);
+      vesselMarkers[uid] = m;
+      newMarkers[uid] = m;
     }
 
-    // Ensure the map fits the bounds after a vessel is added
-    if (autoFit && boundsArr.length) {
-        programmaticFit = true;
-        map.once('moveend zoomend', () => programmaticFit = false);
-        map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+    // Track maximum distance
+    const vesselLatLng = L.latLng(lat, lon);
+    const dist = haversineDistance(selectedReceiverLatLng ? selectedReceiverLatLng.lat : 0, selectedReceiverLatLng ? selectedReceiverLatLng.lng : 0, vesselLatLng.lat, vesselLatLng.lng);
+    if (dist > maxDistance) {
+      maxDistance = dist;
     }
+  });
+
+  Object.keys(vesselMarkers).forEach(uid => {
+    if (!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
+  });
+  vesselMarkers = newMarkers;
+
+  // If a receiver is selected, update radius rings
+  if (selectedReceiverLatLng) {
+    updateReceiverRings(selectedReceiverLatLng);  // Redraw rings based on updated maximum distance
+  }
+
+  // Ensure the map fits the bounds after a vessel is added
+  if (autoFit && boundsArr.length) {
+    programmaticFit = true;
+    map.once('moveend zoomend', () => programmaticFit = false);
+    map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+  }
 }
 
 
