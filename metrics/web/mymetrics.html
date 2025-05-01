@@ -689,44 +689,44 @@ function loadReceivers() {
       Object.keys(vesselMarkers).forEach(uid => {
         if(!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
       });
-+  vesselMarkers = newMarkers;
-+
-+  // auto‐select nearest RX on first vessel arrival (unless overridden)
-+  const newVesselCount = Object.keys(vesselMarkers).length;
-+  if (
-+    oldVesselCount === 0 &&
-+    newVesselCount > 0 &&
-+    receiversList.length > 0 &&
-+    !overrideReceiverId
-+  ) {
-+    // pick the very first vessel
-+    const firstUid = Object.keys(vesselMarkers)[0];
-+    const vesselLatLng = vesselMarkers[firstUid].getLatLng();
-+
-+    // find closest receiver
-+    let closest = null, minDist = Infinity;
-+    receiversList.forEach(rx => {
-+      const d = haversineDistance(
-+        vesselLatLng.lat, vesselLatLng.lng,
-+        rx.latlng.lat, rx.latlng.lng
-+      );
-+      if (d < minDist) { minDist = d; closest = rx; }
-+    });
-+
-+    // trigger click + flash overlay
-+    if (closest) {
-+      closest.marker.fire('click');
-+      const ov = document.createElement('div');
-+      ov.className = 'rx-overlay';
-+      ov.textContent = `Selected RX ${closest.name}`;
-+      document.body.appendChild(ov);
-+      requestAnimationFrame(() => ov.classList.add('show'));
-+      setTimeout(() => {
-+        ov.classList.remove('show');
-+        ov.addEventListener('transitionend', () => ov.remove(), { once: true });
-+      }, 2000);
-+    }
-+  }
+  vesselMarkers = newMarkers;
+
+  // auto‐select nearest RX on first vessel arrival (unless overridden)
+  const newVesselCount = Object.keys(vesselMarkers).length;
+  if (
+    oldVesselCount === 0 &&
+    newVesselCount > 0 &&
+    receiversList.length > 0 &&
+    !overrideReceiverId
+  ) {
+    // pick the very first vessel
+    const firstUid = Object.keys(vesselMarkers)[0];
+    const vesselLatLng = vesselMarkers[firstUid].getLatLng();
+
+    // find closest receiver
+    let closest = null, minDist = Infinity;
+    receiversList.forEach(rx => {
+      const d = haversineDistance(
+        vesselLatLng.lat, vesselLatLng.lng,
+        rx.latlng.lat, rx.latlng.lng
+      );
+      if (d < minDist) { minDist = d; closest = rx; }
+    });
+
+    // trigger click + flash overlay
+    if (closest) {
+      closest.marker.fire('click');
+      const ov = document.createElement('div');
+      ov.className = 'rx-overlay';
+      ov.textContent = `Selected RX ${closest.name}`;
+      document.body.appendChild(ov);
+      requestAnimationFrame(() => ov.classList.add('show'));
+      setTimeout(() => {
+        ov.classList.remove('show');
+        ov.addEventListener('transitionend', () => ov.remove(), { once: true });
+      }, 2000);
+    }
+  }
 
       if(autoFit && boundsArr.length){
         programmaticFit = true;
