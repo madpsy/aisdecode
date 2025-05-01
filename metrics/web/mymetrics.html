@@ -623,7 +623,6 @@ function focusVessel(uid){
           const m = L.marker([lat,lon], { icon });
 
           m.on('click', function(e){
-	    console.log("yes");
             L.DomEvent.stopPropagation(e);
             updateOverlay(e.latlng);
 	    Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
@@ -634,6 +633,7 @@ function focusVessel(uid){
             highlightRow(uid);
 
             if(selectedReceiverLatLng){
+	      console.log("yes");
               clearDistanceLine();
               const vesselLatLng = m.getLatLng();
               const dist = haversineDistance(
