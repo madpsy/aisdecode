@@ -460,61 +460,65 @@ function clearDistanceLine() {
     });
 
     // Apply override and reset everything
-    function applyOverride(ip){
-      overrideIp = ip;
-      document.getElementById('ipInput').value = ip;
+ // Apply override and reset everything
+function applyOverride(ip){
+  overrideIp = ip;
+  document.getElementById('ipInput').value = ip;
 
-      // reset cards & charts
-      Object.keys(baselines).forEach(k => delete baselines[k]);
-      cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
-      chartMetrics.forEach(m => {
-        const c = charts[m];
-        c.data.labels = [];
-        c.data.datasets[0].data = [];
-        c.update();
-      });
+  // reset cards & charts
+  Object.keys(baselines).forEach(k => delete baselines[k]);
+  cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
+  chartMetrics.forEach(m => {
+    const c = charts[m];
+    c.data.labels = [];
+    c.data.datasets[0].data = [];
+    c.update();
+  });
 
-      // clear vessels & summary
-      seenUserIds.clear();
-      Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
-      vesselMarkers = {};
-      Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
-      Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
-      Object.keys(seenCount).forEach(k => delete seenCount[k]);
-      document.getElementById('summaryBody').innerHTML = '';
-      currentPage = 1;
+  // clear vessels & summary
+  seenUserIds.clear();
+  Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
+  vesselMarkers = {};
+  Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
+  Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
+  Object.keys(seenCount).forEach(k => delete seenCount[k]);
+  document.getElementById('summaryBody').innerHTML = '';
+  currentPage = 1;
 
-      // clear doughnut
-      if(typeDoughnut){
-        typeDoughnut.data.labels = [];
-        typeDoughnut.data.datasets[0].data = [];
-        typeDoughnut.options.plugins.centerText.text = '';
-        typeDoughnut.update();
-      }
+  // clear doughnut
+  if(typeDoughnut){
+    typeDoughnut.data.labels = [];
+    typeDoughnut.data.datasets[0].data = [];
+    typeDoughnut.options.plugins.centerText.text = '';
+    typeDoughnut.update();
+  }
 
-      // reset sorting & pagination
-      autoFit = true;
-      sortField = 'lastSeen'; sortAsc = false;
-      document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
-      document.getElementById('pagination').innerHTML = '';
+  // reset sorting & pagination
+  autoFit = true;
+  sortField = 'lastSeen'; sortAsc = false;
+  document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
+  document.getElementById('pagination').innerHTML = '';
 
-      // clear receiver selection & any line
-      clearDistanceLine();
+  // Do not reset receiver selection if it's already selected
+  if (selectedReceiverLatLng) {
+    clearDistanceLine();
+  }
 
-      // clear filter
-      filterTerm = '';
-      document.getElementById('filterInput').value = '';
+  // clear filter
+  filterTerm = '';
+  document.getElementById('filterInput').value = '';
 
-      updateSummaryTable();
+  updateSummaryTable();
 
-      // update URL
-      const url = new URL(location);
-      ip ? url.searchParams.set('ipaddress', ip) : url.searchParams.delete('ipaddress');
-      history.replaceState(null, '', url);
+  // update URL
+  const url = new URL(location);
+  ip ? url.searchParams.set('ipaddress', ip) : url.searchParams.delete('ipaddress');
+  history.replaceState(null, '', url);
 
-      // hide overlay
-      if (overlayDiv) updateOverlay(null);
-    }
+  // hide overlay
+  if (overlayDiv) updateOverlay(null);
+}
+
 
     window.addEventListener('DOMContentLoaded', ()=>{
       fetch('/types.json')
@@ -641,7 +645,6 @@ function updateOverlay(latlng) {
 
     // Fetch & draw receiver markers
 function loadReceivers() {
-  // clear any previous receivers
   receiversList = [];
   fetch('/receivers')
     .then(r => {
@@ -650,7 +653,6 @@ function loadReceivers() {
     })
     .then(receivers => {
       receivers.forEach(r => {
-        // create the circle marker
         const dot = L.circleMarker([r.latitude, r.longitude], {
           radius: 8,
           color: 'red',
@@ -659,63 +661,46 @@ function loadReceivers() {
           weight: 2
         }).addTo(map);
 
-        // tooltip with the RX name
-        dot.bindTooltip(`${r.name} (RX)`, {
-          permanent: true,
-          direction: 'top',
-          className: 'receiver-tooltip'
+        dot.bindTooltip(`${r.name} (RX)`, { permanent: true, direction: 'top', className: 'receiver-tooltip' });
+
+        dot.on('click', e => {
+          selectedReceiverLatLng = e.latlng;
+          console.log("Receiver selected: ", selectedReceiverLatLng);  // Log the receiver selection
+          clearDistanceLine();
+          updateOverlay(e.latlng);
+          updateReceiverRings(e.latlng);
+          updateSummaryTable();
+          const url = new URL(location);
+          url.searchParams.set('receiver', r.id);
+          history.replaceState(null, '', url);
         });
 
-	dot.on('click', e => {
-	  L.DomEvent.stopPropagation(e);
-	  selectedReceiverLatLng = e.latlng;  // Update the receiver's position
-	  clearDistanceLine();  // Clear any previous distance lines
-	  updateOverlay(e.latlng);
-	  updateReceiverRings(e.latlng);  // Redraw radius rings
-	  updateSummaryTable();
-	
-	  // Update the URL with the receiver ID
-	  const url = new URL(location);
-	  url.searchParams.set('receiver', r.id);
-	  history.replaceState(null, '', url);
-	});
-
-        // store for nearest/override lookup
         receiversList.push({
-          id:   r.id,
+          id: r.id,
           name: r.name,
           marker: dot,
           latlng: L.latLng(r.latitude, r.longitude)
         });
       });
 
-      // if the user passed ?receiver= in the URL, force-select it now
-     if (overrideReceiverId) {
-       // coerce to the same type
-       const idToMatch = typeof receiversList[0].id === 'number'
-         ? Number(overrideReceiverId)
-         : overrideReceiverId;
-
-       const forced = receiversList.find(rx => rx.id === idToMatch);
-       if (forced) {
-         // manually set selection state
-         selectedReceiverLatLng = forced.latlng;
-         updateOverlay(forced.latlng);
-         updateSummaryTable();
-
-         // update URL cleanly
-         const url = new URL(location);
-         url.searchParams.set('receiver', forced.id);
-         history.replaceState(null, '', url);
-
-         // fire the click *with* a latlng payload
-         forced.marker.fire('click', { latlng: forced.latlng });
-       }
-     }
-
+      // Check if receiver selection was set from URL parameter
+      if (overrideReceiverId) {
+        console.log("Receiver overridden by URL: ", overrideReceiverId);  // Log overridden receiver
+        const forced = receiversList.find(rx => rx.id === overrideReceiverId);
+        if (forced) {
+          selectedReceiverLatLng = forced.latlng;
+          console.log("Receiver LatLng after override: ", selectedReceiverLatLng);  // Log after override
+          updateOverlay(forced.latlng);
+          updateSummaryTable();
+          const url = new URL(location);
+          url.searchParams.set('receiver', forced.id);
+          history.replaceState(null, '', url);
+          forced.marker.fire('click', { latlng: forced.latlng });
+        }
+      }
     })
     .catch(err => console.error('Failed to load receivers', err));
- }
+}
 
     // Vessel icon creation
     function makeIcon(info, color){
