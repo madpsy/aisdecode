@@ -1004,62 +1004,72 @@ function refreshReceivers() {
             return;
           }
 
+          // Check the value of receiver.LastUpdated before using it.
+          console.log("Receiver LastUpdated value:", receiver.LastUpdated);
+
+          const updatedLocalTime = new Date(receiver.LastUpdated);
+          
+          // Log the result of the date conversion.
+          if (isNaN(updatedLocalTime)) {
+            console.warn("Invalid date for receiver id", id, "LastUpdated:", receiver.LastUpdated);
+          } else {
+            console.log("Valid updatedLocalTime for receiver id", id, "Updated:", updatedLocalTime.toLocaleString());
+          }
+
           // Create or update the receiver marker.
           if (receiverMarkers[id]) {
-		  // Update marker position.
-		  receiverMarkers[id].setLatLng([lat, lng]);
-		  const updatedLocalTime = new Date(receiver.LastUpdated).toLocaleString();
-	    	  let linksHTML = "";
-	    	  if (receiver.url && receiver.url.trim() !== "") {
-	    	    linksHTML += `<a href="${receiver.url}" target="_blank">Website</a>`;
-	    	  }
-	    	  if (receiver.metrics) {
-	    	    if (linksHTML !== "") {
-	    	      linksHTML += " | ";
-	    	    }
-	    	    linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a>`;
-	    	  }
-	    	  if (receiver.state) {
-	    	    if (linksHTML !== "") {
-	    	      linksHTML += " | ";
-	    	    }
-	    	    linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
-	    	  }
-		  const popupContent = `
-		    <strong>${receiver.name}</strong><br>
-		    ${receiver.description}<br>
-		    Updated: ${updatedLocalTime}<br>
-		    ${linksHTML}
-		  `;
-		  // Update the popup content.
-		  receiverMarkers[id].setPopupContent(popupContent);
-          } else {
-            const marker = L.marker([lat, lng], { icon: createReceiverIcon() }).addTo(map);
-            const updatedLocalTime = new Date(receiver.lastupdated).toLocaleString();
+            // Update marker position.
+            receiverMarkers[id].setLatLng([lat, lng]);
+
             let linksHTML = "";
-	    if (receiver.url && receiver.url.trim() !== "") {
-	      linksHTML += `<a href="${receiver.url}" target="_blank">Website</a>`;
-	    }
-	    if (receiver.metrics) {
-	      // Add separator if needed.
-	      if (linksHTML !== "") {
-	        linksHTML += " | ";
-	      }
-	      linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a>`;
-	    }
-	    if (receiver.state) {
-	      if (linksHTML !== "") {
-	        linksHTML += " | ";
-	      }
-	      linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
-	    }
+            if (receiver.url && receiver.url.trim() !== "") {
+              linksHTML += `<a href="${receiver.url}" target="_blank">Website</a>`;
+            }
+            if (receiver.metrics) {
+              if (linksHTML !== "") {
+                linksHTML += " | ";
+              }
+              linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a>`;
+            }
+            if (receiver.state) {
+              if (linksHTML !== "") {
+                linksHTML += " | ";
+              }
+              linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
+            }
             const popupContent = `
               <strong>${receiver.name}</strong><br>
               ${receiver.description}<br>
-              Updated: ${updatedLocalTime}<br>
+              Updated: ${updatedLocalTime.toLocaleString()}<br>
               ${linksHTML}
             `;
-	    console.log("Updated: ${updatedLocalTime}");
+            // Update the popup content.
+            receiverMarkers[id].setPopupContent(popupContent);
+          } else {
+            const marker = L.marker([lat, lng], { icon: createReceiverIcon() }).addTo(map);
+
+            let linksHTML = "";
+            if (receiver.url && receiver.url.trim() !== "") {
+              linksHTML += `<a href="${receiver.url}" target="_blank">Website</a>`;
+            }
+            if (receiver.metrics) {
+              if (linksHTML !== "") {
+                linksHTML += " | ";
+              }
+              linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a>`;
+            }
+            if (receiver.state) {
+              if (linksHTML !== "") {
+                linksHTML += " | ";
+              }
+              linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
+            }
+            const popupContent = `
+              <strong>${receiver.name}</strong><br>
+              ${receiver.description}<br>
+              Updated: ${updatedLocalTime.toLocaleString()}<br>
+              ${linksHTML}
+            `;
             marker.bindPopup(popupContent, { autoPan: true });
 
             // Bind tooltip showing a label for a receiver.
@@ -1079,7 +1089,6 @@ function refreshReceivers() {
             LastUpdated: receiver.LastUpdated,
             UserID: id,
             isReceiver: true,
-            // You can store other properties (url, description, etc.) if needed.
             url: receiver.url,
             description: receiver.description
           };
