@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -34,23 +33,23 @@ type Settings struct {
 }
 
 type FullMetrics struct {
-	BytesReceivedBySource    []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"bytes_received_by_source"`
-	FailuresBySource         []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"failures_by_source"`
-	MessagesBySource         []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"messages_by_source"`
-	UniqueMMSIBySource       []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"unique_mmsi_by_source"`
-	WindowBytesBySource      map[string]int                                       `json:"window_bytes_by_source"`
-	WindowMessagesBySource   map[string]int                                       `json:"window_messages_by_source"`
-	WindowUniqueUIDsBySource map[string]int                                       `json:"window_unique_uids_by_source"`
-	PerDeduplicatedSource    map[string]int                                       `json:"per_deduplicated_source"`
-	PerDownsampledMessageID  map[string]int                                       `json:"per_downsampled_message_id"`
-	PerMessageID             map[string]int                                       `json:"per_message_id"`
+	BytesReceivedBySource      []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"bytes_received_by_source"`
+	FailuresBySource           []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"failures_by_source"`
+	MessagesBySource           []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"messages_by_source"`
+	UniqueMMSIBySource         []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"unique_mmsi_by_source"`
+	WindowBytesBySource        map[string]int                                       `json:"window_bytes_by_source"`
+	WindowMessagesBySource     map[string]int                                       `json:"window_messages_by_source"`
+	WindowUniqueUIDsBySource   map[string]int                                       `json:"window_unique_uids_by_source"`
+	PerDeduplicatedSource      map[string]int                                       `json:"per_deduplicated_source"`
+	PerDownsampledMessageID    map[string]int                                       `json:"per_downsampled_message_id"`
+	PerMessageID               map[string]int                                       `json:"per_message_id"`
 	Top25DeduplicatedPerSource []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"top25_deduplicated_per_source"`
-	TotalBytesForwarded      int                                                  `json:"total_bytes_forwarded"`
-	TotalBytesReceived       int                                                  `json:"total_bytes_received"`
-	TotalFailures            int                                                  `json:"total_failures"`
-	TotalMessages            int                                                  `json:"total_messages"`
-	TotalMessagesForwarded   int                                                  `json:"total_messages_forwarded"`
-	UptimeSeconds            int                                                  `json:"uptime_seconds"`
+	TotalBytesForwarded        int                                                  `json:"total_bytes_forwarded"`
+	TotalBytesReceived         int                                                  `json:"total_bytes_received"`
+	TotalFailures              int                                                  `json:"total_failures"`
+	TotalMessages              int                                                  `json:"total_messages"`
+	TotalMessagesForwarded     int                                                  `json:"total_messages_forwarded"`
+	UptimeSeconds              int                                                  `json:"uptime_seconds"`
 }
 
 type SimpleMetrics struct {
@@ -64,7 +63,6 @@ type SimpleMetrics struct {
 	WindowUniqueUIDs int `json:"window_unique_uids"`
 }
 
-// Aggregated holds sums over intervals
 type Aggregated struct {
 	BytesReceivedMinute  int `json:"bytes_received_minute"`
 	MessagesMinute       int `json:"messages_minute"`
@@ -84,7 +82,7 @@ type Aggregated struct {
 
 type ResponseMetrics struct {
 	IPAddress       string        `json:"ip_address"`
-	SimpleMetrics                // real‐time
+	SimpleMetrics                // real-time
 	Aggregated     Aggregated    `json:"aggregated"`
 }
 
@@ -106,7 +104,7 @@ func main() {
 		log.Fatalf("Error parsing settings.json: %v", err)
 	}
 
-	// Connect to Redis
+	// Redis
 	redisClient = redis.NewClient(&redis.Options{
 		Addr: fmt.Sprintf("%s:%d", settings.RedisHost, settings.RedisPort),
 	})
@@ -114,7 +112,7 @@ func main() {
 		log.Fatalf("Error connecting to Redis: %v", err)
 	}
 
-	// Connect to InfluxDB
+	// InfluxDB
 	influxURL := fmt.Sprintf("http://%s:%d", settings.InfluxHost, settings.InfluxPort)
 	influxClient, err = client.NewHTTPClient(client.HTTPConfig{Addr: influxURL})
 	if err != nil {
@@ -122,20 +120,20 @@ func main() {
 	}
 	defer influxClient.Close()
 
-	// Ensure InfluxDB exists
+	// Ensure DB
 	if err := ensureDatabase(settings.InfluxDB); err != nil {
 		log.Fatalf("Could not create InfluxDB database %q: %v", settings.InfluxDB, err)
 	}
 
-	// Start polling & writing loop
+	// Start polling & writes
 	go ingestMetricsLoop()
 
-	// Handlers
+	// HTTP handlers
 	http.HandleFunc("/metrics/ingester", metricsIngesterHandler)
 	http.HandleFunc("/metrics/bysource", handleMetricsBySource)
 	http.Handle("/metrics/", http.StripPrefix("/metrics/", http.FileServer(http.Dir("web"))))
 
-	// Listen
+	// Serve
 	addr := fmt.Sprintf(":%d", settings.ListenPort)
 	log.Printf("Server listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
@@ -150,7 +148,6 @@ func ensureDatabase(db string) error {
 	return resp.Error()
 }
 
-// Poll + write once per second
 func ingestMetricsLoop() {
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 	ticker := time.NewTicker(1 * time.Second)
@@ -171,6 +168,7 @@ func ingestMetricsLoop() {
 			log.Printf("Error parsing metrics JSON: %v", err)
 			continue
 		}
+
 		metricsLock.Lock()
 		latestMetrics = m
 		metricsLock.Unlock()
@@ -211,20 +209,82 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 	if err != nil {
 		return err
 	}
+
 	add := func(tags map[string]string, fields map[string]interface{}) {
 		pt, err := client.NewPoint("metrics", tags, fields, time.Now())
-		if err == nil {
-			bp.AddPoint(pt)
+		if err != nil {
+			log.Printf("Point error tags=%v fields=%v: %v", tags, fields, err)
+			return
 		}
+		bp.AddPoint(pt)
 	}
 
-	// --- write all fields as before ---
-	// (omitted for brevity; identical to prior code)
+	// --- Per-source ---
+	for _, m := range full.BytesReceivedBySource {
+		add(map[string]string{"source_ip": m.SourceIP, "metric": "bytes_received"},
+			map[string]interface{}{"value": m.Count})
+	}
+	for _, m := range full.FailuresBySource {
+		add(map[string]string{"source_ip": m.SourceIP, "metric": "failures"},
+			map[string]interface{}{"value": m.Count})
+	}
+	for _, m := range full.MessagesBySource {
+		add(map[string]string{"source_ip": m.SourceIP, "metric": "messages"},
+			map[string]interface{}{"value": m.Count})
+	}
+	for _, m := range full.UniqueMMSIBySource {
+		add(map[string]string{"source_ip": m.SourceIP, "metric": "unique_mmsi"},
+			map[string]interface{}{"value": m.Count})
+	}
+
+	// --- Windowed per-source ---
+	for ip, v := range full.WindowBytesBySource {
+		add(map[string]string{"source_ip": ip, "metric": "window_bytes"},
+			map[string]interface{}{"value": v})
+	}
+	for ip, v := range full.WindowMessagesBySource {
+		add(map[string]string{"source_ip": ip, "metric": "window_messages"},
+			map[string]interface{}{"value": v})
+	}
+	for ip, v := range full.WindowUniqueUIDsBySource {
+		add(map[string]string{"source_ip": ip, "metric": "window_unique_uids"},
+			map[string]interface{}{"value": v})
+	}
+
+	// --- Deduplicated per-source ---
+	for ip, v := range full.PerDeduplicatedSource {
+		add(map[string]string{"source_ip": ip, "metric": "per_deduplicated"},
+			map[string]interface{}{"value": v})
+	}
+
+	// --- Per-message ID ---
+	for mid, v := range full.PerDownsampledMessageID {
+		add(map[string]string{"message_id": mid, "metric": "per_downsampled_message_id"},
+			map[string]interface{}{"value": v})
+	}
+	for mid, v := range full.PerMessageID {
+		add(map[string]string{"message_id": mid, "metric": "per_message_id"},
+			map[string]interface{}{"value": v})
+	}
+
+	// --- Totals & Uptime ---
+	for _, t := range []struct {
+		metric string
+		value  int
+	}{
+		{"total_bytes_forwarded", full.TotalBytesForwarded},
+		{"total_bytes_received", full.TotalBytesReceived},
+		{"total_failures", full.TotalFailures},
+		{"total_messages", full.TotalMessages},
+		{"total_messages_forwarded", full.TotalMessagesForwarded},
+		{"uptime_seconds", full.UptimeSeconds},
+	} {
+		add(map[string]string{"metric": t.metric}, map[string]interface{}{"value": t.value})
+	}
 
 	return influxClient.Write(bp)
 }
 
-// handleMetricsBySource now includes cached Aggregated
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 	ip := r.URL.Query().Get("ipaddress")
 	if ip == "" {
@@ -237,7 +297,7 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 1) build real-time fields
+	// Real-time metrics
 	metricsLock.RLock()
 	raw := latestMetrics
 	metricsLock.RUnlock()
@@ -275,37 +335,33 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 	rt.WindowMessages = full.WindowMessagesBySource[ip]
 	rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[ip]
 
-	// 2) try Redis cache for aggregated
+	// Aggregated (Redis-cached)
 	cacheKey := fmt.Sprintf("agg:%s", ip)
 	var agg Aggregated
 	if data, err := redisClient.Get(ctx, cacheKey).Bytes(); err == nil {
 		json.Unmarshal(data, &agg)
 	} else {
-		// not cached → query Influx for each metric and interval
 		agg = queryAggregates(ip)
-		// cache it
 		if blob, err := json.Marshal(agg); err == nil {
 			redisClient.Set(ctx, cacheKey, blob, time.Duration(settings.CacheTime)*time.Second)
 		}
 	}
 
-	// 3) respond
 	resp := ResponseMetrics{
-		IPAddress:     ip,
-		SimpleMetrics: rt,
-		Aggregated:    agg,
+		IPAddress:       ip,
+		SimpleMetrics:   rt,
+		Aggregated:      agg,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
 
-// queryAggregates runs InfluxQL for each metric over intervals
 func queryAggregates(ip string) Aggregated {
 	var a Aggregated
 	queries := []struct {
-		field     string
-		interval  string
-		setter    func(int)
+		field    string
+		interval string
+		setter   func(int)
 	}{
 		{"bytes_received", "1m", func(v int) { a.BytesReceivedMinute = v }},
 		{"messages",      "1m", func(v int) { a.MessagesMinute = v }},
@@ -333,7 +389,6 @@ func queryAggregates(ip string) Aggregated {
 		if err != nil || res.Error() != nil || len(res.Results[0].Series) == 0 {
 			continue
 		}
-		// series[0].values[0][1] is the SUM
 		if sum, ok := res.Results[0].Series[0].Values[0][1].(json.Number); ok {
 			if iv, err := sum.Int64(); err == nil {
 				q.setter(int(iv))
