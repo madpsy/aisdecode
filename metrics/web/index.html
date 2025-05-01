@@ -447,7 +447,7 @@ function renderBlockedIps(data) {
 
       async function fetchAndRender() {
         try {
-          const res = await fetch('/metrics');
+          const res = await fetch('/metrics/ingester');
           if (!res.ok) throw new Error(res.statusText);
           const data = await res.json();
 
