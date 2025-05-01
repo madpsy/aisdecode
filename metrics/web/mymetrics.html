@@ -665,10 +665,7 @@ m.on('click', function(e) {
   Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
 
   // open this one and keep it open
-  m.openPopup({
-    autoClose: false,
-    closeOnClick: false
-  });
+  m.openPopup();
 
   focusedUid = uid;
   clearSelectedRow();
