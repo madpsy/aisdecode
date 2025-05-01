@@ -784,7 +784,7 @@ function focusVessel(uid){
   document.getElementById('map').scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
-function updateMap(){
+function updateMap() {
     const oldVesselCount = Object.keys(vesselMarkers).length;
     const boundsArr = [], newMarkers = {};
     let maxDistance = 0;  // Track the furthest distance
@@ -916,58 +916,14 @@ function updateMap(){
         updateReceiverRings(selectedReceiverLatLng);  // Redraw rings based on updated maximum distance
     }
 
-// Auto‐select nearest RX on first vessel arrival (unless overridden)
-const newVesselCount = Object.keys(vesselMarkers).length;
-if (
-    oldVesselCount === 0 &&
-    newVesselCount > 0 &&
-    receiversList.length > 0 &&
-    !overrideReceiverId
-) {
-    // pick the very first vessel
-    const firstUid = Object.keys(vesselMarkers)[0];
-    const vesselLatLng = vesselMarkers[firstUid].getLatLng();
-
-    // find closest receiver
-    let closest = null, minDist = Infinity;
-    receiversList.forEach(rx => {
-        const d = haversineDistance(
-            vesselLatLng.lat, vesselLatLng.lng,
-            rx.latlng.lat, rx.latlng.lng
-        );
-        if (d < minDist) { 
-            minDist = d; 
-            closest = rx; 
-        }
-    });
-
-    // trigger click + flash overlay
-    if (closest) {
-        // explicitly select this RX
-        selectedReceiverLatLng = closest.latlng;
-        updateOverlay(closest.latlng); // Update overlay for selected receiver
-        updateSummaryTable(); // Update summary table to show receiver info
-
-        // fire tooltip & URL update
-        closest.marker.fire('click', { latlng: closest.latlng });
-        const ov = document.createElement('div');
-        ov.className = 'rx-overlay';
-        ov.textContent = `Selected RX ${closest.name}`;
-        document.body.appendChild(ov);
-        requestAnimationFrame(() => ov.classList.add('show'));
-        setTimeout(() => {
-            ov.classList.remove('show');
-            ov.addEventListener('transitionend', () => ov.remove(), { once: true });
-        }, 2000);
-    }
-}
-
+    // Ensure the map fits the bounds after a vessel is added
     if (autoFit && boundsArr.length) {
         programmaticFit = true;
         map.once('moveend zoomend', () => programmaticFit = false);
         map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
     }
 }
+
 
 
     // Fetch metrics, update cards/charts/table
