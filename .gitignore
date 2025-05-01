@@ -13,3 +13,4 @@ collector/settings.json
 disseminator/settings.json
 receivers/settings.json
 mqttproxy/settings.json
+metrics/settings.json
