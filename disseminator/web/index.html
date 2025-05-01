@@ -1004,22 +1004,28 @@ function refreshReceivers() {
             return;
           }
 
-          // Log the receiver.LastUpdated and validate the date format
-          console.log("Receiver LastUpdated value:", receiver.LastUpdated);
+          // Check if lastupdated exists and is not undefined
+          if (!receiver.lastupdated) {
+            console.warn("lastupdated is missing for receiver id", id);
+            return; // Skip this receiver if lastupdated is missing
+          }
+
+          // Log the receiver.lastupdated and validate the date format
+          console.log("Receiver lastupdated value:", receiver.lastupdated);
 
           let updatedLocalTime;
           try {
-            // Try to create a new Date object from receiver.LastUpdated.
-            updatedLocalTime = new Date(receiver.LastUpdated);
+            // Try to create a new Date object from receiver.lastupdated.
+            updatedLocalTime = new Date(receiver.lastupdated);
             
             // Check if the date is invalid (NaN)
             if (isNaN(updatedLocalTime)) {
-              console.warn("Invalid date for receiver id", id, "LastUpdated:", receiver.LastUpdated);
+              console.warn("Invalid date for receiver id", id, "lastupdated:", receiver.lastupdated);
               // Try to handle common formats if the date is invalid.
-              updatedLocalTime = new Date(receiver.LastUpdated.replace(/-/g, '/'));
+              updatedLocalTime = new Date(receiver.lastupdated.replace(/-/g, '/'));
               if (isNaN(updatedLocalTime)) {
                 // If it's still invalid, log the failure and set a default message
-                console.error("Failed to parse LastUpdated date for receiver id", id);
+                console.error("Failed to parse lastupdated date for receiver id", id);
                 updatedLocalTime = "Invalid date";
               }
             }
@@ -1101,7 +1107,7 @@ function refreshReceivers() {
           // Store receiver info with an extra flag.
           receiverData[id] = {
             Name: receiver.name,
-            LastUpdated: receiver.LastUpdated,
+            LastUpdated: receiver.lastupdated,
             UserID: id,
             isReceiver: true,
             // You can store other properties (url, description, etc.) if needed.
@@ -1126,7 +1132,6 @@ function refreshReceivers() {
       console.error('Error fetching receivers:', error);
     });
 }
-
 
 function getColorForVesselTypeConsistent(type) {
   if (!type) return "blue";
