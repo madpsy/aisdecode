@@ -108,19 +108,6 @@
         chart.update();
       });
 
-      // — NEW: for each MMSI, fetch summary if we haven't yet —
-      if (Array.isArray(data.window_user_ids)) {
-        for (const userId of data.window_user_ids) {
-          if (!seenUserIds.has(userId)) {
-            seenUserIds.add(userId);
-            fetch(`/summary?UserID=${encodeURIComponent(userId)}`)
-             .then(res => res.ok ? res.json() : Promise.reject(res.status))
-              .then(json => { summaryCache[userId] = json; })
-              .catch(err => console.error(`Failed to fetch summary for ${userId}:`, err));
-          }
-        }
-      }
-
       // Update the URL so ipaddress shows up in the query string
       const url = new URL(window.location);
       if (ip) {
@@ -173,6 +160,18 @@
           if (chart.data.labels.length > maxPoints) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
           chart.update();
         });
+        // — NEW: for each MMSI, fetch summary if we haven't yet —
+       if (Array.isArray(data.window_user_ids)) {
+         for (const userId of data.window_user_ids) {
+           if (!seenUserIds.has(userId)) {
+             seenUserIds.add(userId);
+             fetch(`/summary?UserID=${encodeURIComponent(userId)}`)
+              .then(res => res.ok ? res.json() : Promise.reject(res.status))
+               .then(json => { summaryCache[userId] = json; })
+               .catch(err => console.error(`Failed to fetch summary for ${userId}:`, err));
+           }
+         }
+       }
       } catch (err) {
         console.error('Fetch error:', err);
       }
