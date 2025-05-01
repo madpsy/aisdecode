@@ -35,6 +35,7 @@
     th .arrow { margin-left: 4px; font-size: 0.8em; }
     td a { color: #0066cc; text-decoration: none; }
     td a:hover { text-decoration: underline; }
+    td img { display: block; }
   </style>
 </head>
 <body>
@@ -61,8 +62,9 @@
         <th data-field="name">Name<span class="arrow"></span></th>
         <th data-field="typeName">Type<span class="arrow"></span></th>
         <th data-field="className">Class<span class="arrow"></span></th>
+        <th>Flag</th>
         <th data-field="lastSeen">Last Seen<span class="arrow"></span></th>
-        <th data-field="count">Count<span class="arrow"></span></th>
+        <th data-field="count">Packets<span class="arrow"></span></th>
       </tr>
     </thead>
     <tbody id="summaryBody"></tbody>
@@ -102,6 +104,9 @@
     const seenUserIds = new Set(), summaryCache = {}, lastSeenTs = {}, seenCount = {};
     let sortField = 'lastSeen', sortAsc = false;
     let typesConfig = null, typeDoughnut = null;
+
+    // New: MIDs → country codes
+    let midMap = {};
 
     // Map state
     let map, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
@@ -162,6 +167,7 @@
     }
 
     window.addEventListener('DOMContentLoaded', ()=>{
+      // load vessel types
       fetch('/types.json')
         .then(r=>r.ok?r.json():Promise.reject(r.status))
         .then(json=>{
@@ -170,6 +176,12 @@
           initMap();
         })
         .catch(e=>console.error('types.json error',e));
+
+      // load MID → country map
+      fetch('/mids.json')
+        .then(r=>r.ok?r.json():Promise.reject(r.status))
+        .then(json=>{ midMap = json; })
+        .catch(e=>console.error('mids.json error',e));
 
       const p = new URLSearchParams(location.search);
       if(p.has('ipaddress')) applyOverride(p.get('ipaddress'));
@@ -184,6 +196,7 @@
     document.querySelectorAll('#summaryTable th').forEach(th=>{
       th.onclick = ()=>{
         const f = th.dataset.field;
+        if(!f) return;  // skip Flag column
         if(sortField===f) sortAsc = !sortAsc;
         else { sortField = f; sortAsc = true; }
         document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
@@ -204,30 +217,30 @@
       });
     }
 
-function makeIcon(info, color){
-  if (info.Sog > 0.5) {
-    const angle = info.Cog || 0;
-    return L.divIcon({
-      html: `
-        <div style="
-          transform: rotate(${angle}deg) scaleY(1.5);
-          font-size: 20px;
-          color: ${color};
-        ">
-          &#9650;
-        </div>
-      `,
-      className: '',
-      iconSize: [20, 30]
-    });
-  } else {
-    return L.divIcon({
-      html: `<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,
-      className: '',
-      iconSize: [12, 12]
-    });
-  }
-}
+    function makeIcon(info, color){
+      if (info.Sog > 0.5) {
+        const angle = info.Cog || 0;
+        return L.divIcon({
+          html: `
+            <div style="
+              transform: rotate(${angle}deg) scaleY(1.5);
+              font-size: 20px;
+              color: ${color};
+            ">
+              &#9650;
+            </div>
+          `,
+          className: '',
+          iconSize: [20, 30]
+        });
+      } else {
+        return L.divIcon({
+          html: `<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,
+          className: '',
+          iconSize: [12, 12]
+        });
+      }
+    }
 
     function updateMap(){
       const boundsArr = [], newMarkers = {};
@@ -392,12 +405,19 @@ function makeIcon(info, color){
       tbody.innerHTML = '';
       arr.forEach(item=>{
         const ago = formatAgo(item.lastTs);
+        // compute flag cell
+        const mid = item.id.slice(0,3);
+        const country = midMap[mid]?.[0] || '';
+        const flagCell = country
+          ? `<td><img src="/flags/${country.toLowerCase()}.svg" alt="${country}" style="width:24px; height:auto;" /></td>`
+          : '<td></td>';
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td><a href="/?UserID=${item.id}" target="_blank">${item.id}</a></td>
           <td>${item.info.Name||''}</td>
           <td>${typeNameFor(item.info.Type)}</td>
           <td>${item.info.AISClass||''}</td>
+          ${flagCell}
           <td>${ago}</td>
           <td>${item.count}</td>
         `;
