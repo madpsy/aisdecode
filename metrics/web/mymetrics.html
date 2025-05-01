@@ -254,7 +254,6 @@
     function clearSelectedRow() {
       const prev = document.querySelector('#summaryBody tr.selected');
       if (prev) prev.classList.remove('selected');
-      focusedUid = null;
     }
     function highlightRow(uid) {
       const row = document.getElementById('row-' + uid);
@@ -435,7 +434,8 @@
       map.on('click', () => {
         updateOverlay(null);
         clearDistanceLine();
-        clearSelectedRow();  // ← unhighlight on map‐click
+        clearSelectedRow();
+	focusedUid = null;
       });
 
       // create and append overlay
