@@ -1059,6 +1059,7 @@ function refreshReceivers() {
               Updated: ${updatedLocalTime}<br>
               ${linksHTML}
             `;
+	    console.log("Updated: ${updatedLocalTime}");
             marker.bindPopup(popupContent, { autoPan: true });
 
             // Bind tooltip showing a label for a receiver.
