@@ -477,7 +477,6 @@ function updateOverlay(latlng) {
 }
 
 
-
     // Fetch & draw receiver markers
 function loadReceivers() {
   // clear any previous receivers
@@ -719,7 +718,6 @@ m.on('click', function(e) {
     console.log("No receiver selected. Skipping distance calculation.");
   }
 });
-
 
           m.on('mouseover', ()=>{
             const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
