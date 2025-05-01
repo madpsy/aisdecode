@@ -105,6 +105,11 @@
       border-radius: 4px;
       font-weight: bold;
     }
+
+    /* Hide distance column until a receiver is selected */
+    .distance-col {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -133,7 +138,7 @@
         <th data-field="status">Status<span class="arrow"></span></th>
         <th data-field="className">Class<span class="arrow"></span></th>
         <th>Flag</th>
-        <th data-field="distance">Distance<span class="arrow"></span></th>
+        <th data-field="distance" class="distance-col">Distance<span class="arrow"></span></th>
         <th data-field="lastSeen">Last Seen<span class="arrow"></span></th>
         <th data-field="count">Packets<span class="arrow"></span></th>
       </tr>
@@ -460,6 +465,41 @@
           newMarkers[uid] = vesselMarkers[uid];
         } else {
           const m = L.marker([lat,lon], { icon });
+
+          // stop map click from clearing our line
+          m.on('click', function(e){
+            L.DomEvent.stopPropagation(e);
+            updateOverlay(e.latlng);
+            m.openPopup();
+
+            if(selectedReceiverLatLng){
+              clearDistanceLine();
+              const vesselLatLng = m.getLatLng();
+              const dist = haversineDistance(
+                selectedReceiverLatLng.lat,
+                selectedReceiverLatLng.lng,
+                vesselLatLng.lat,
+                vesselLatLng.lng
+              ).toFixed(2);
+
+              distancePolyline = L.polyline(
+                [ selectedReceiverLatLng, vesselLatLng ],
+                { color: 'blue' }
+              ).addTo(map);
+
+              const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat)/2;
+              const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng)/2;
+              distanceLabel = L.tooltip({
+                permanent: true,
+                direction: 'center',
+                className: 'distance-tooltip'
+              })
+                .setLatLng([midLat, midLng])
+                .setContent(`${dist} km`)
+                .addTo(map);
+            }
+          });
+
           m.on('mouseover', ()=>{
             const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
             const detailsHtml = `
@@ -496,44 +536,13 @@
               })
               .catch(e => console.error(`Failed to load state for ${uid}`, e));
           });
+
           m.on('mouseout', () => m.closePopup());
-          m.on('click', e => {
-            updateOverlay(e.latlng);
-            m.openPopup();
-
-            // draw line + label if a receiver is selected
-            if(selectedReceiverLatLng){
-              clearDistanceLine();
-              const vesselLatLng = m.getLatLng();
-              const dist = haversineDistance(
-                selectedReceiverLatLng.lat,
-                selectedReceiverLatLng.lng,
-                vesselLatLng.lat,
-                vesselLatLng.lng
-              ).toFixed(2);
-
-              distancePolyline = L.polyline(
-                [ selectedReceiverLatLng, vesselLatLng ],
-                { color: 'blue' }
-              ).addTo(map);
-
-              // midpoint for label
-              const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat)/2;
-              const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng)/2;
-              distanceLabel = L.tooltip({
-                permanent: true,
-                direction: 'center',
-                className: 'distance-tooltip'
-              })
-                .setLatLng([midLat, midLng])
-                .setContent(`${dist} km`)
-                .addTo(map);
-            }
-          });
           m.on('popupclose', () => {
             updateOverlay(null);
             clearDistanceLine();
           });
+
           m.addTo(map);
           vesselMarkers[uid] = m;
           newMarkers[uid] = m;
@@ -662,6 +671,12 @@
     }
 
     function updateSummaryTable(){
+      // Show/hide distance column
+      const showDist = !!selectedReceiverLatLng;
+      document.querySelectorAll('.distance-col').forEach(el=>{
+        el.style.display = showDist ? '' : 'none';
+      });
+
       const tbody = document.getElementById('summaryBody');
       const allRows = Array.from(seenUserIds)
         .filter(uid=>uid.length===9)
@@ -686,8 +701,8 @@
           const lat = a.info.Latitude, lon = a.info.Longitude;
           const d = (typeof lat==='number' && typeof lon==='number')
             ? haversineDistance(selectedReceiverLatLng.lat, selectedReceiverLatLng.lng, lat, lon)
-            : 0;
-          cmp = d - 0; // sort by ascending distance
+            : Infinity;
+          cmp = d - Infinity; // sorts those with coords first
         }
         else cmp = a.id.localeCompare(b.id);
         return sortAsc ? cmp : -cmp;
@@ -706,8 +721,9 @@
         const flagCell = countryCode
           ? `<td><img src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px;"/></td>`
           : '<td></td>';
+
         // distance cell
-        let distanceCell = '<td></td>';
+        let distanceCell = '<td class="distance-col"></td>';
         if(selectedReceiverLatLng && typeof item.info.Latitude==='number' && typeof item.info.Longitude==='number'){
           const d = haversineDistance(
             selectedReceiverLatLng.lat,
@@ -715,8 +731,9 @@
             item.info.Latitude,
             item.info.Longitude
           ).toFixed(2);
-          distanceCell = `<td>${d} km</td>`;
+          distanceCell = `<td class="distance-col">${d} km</td>`;
         }
+
         const status = navigationalStatusMapping[item.info.NavigationalStatus]||'Unknown';
         const tr = document.createElement('tr');
         tr.innerHTML = `
