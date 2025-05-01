@@ -772,10 +772,10 @@ m.on('click', function(e) {
           });
 
           m.on('mouseout', () => m.closePopup());
-          m.on('popupclose', () => {
-            updateOverlay(null);
-            clearDistanceLine();
-          });
+          //m.on('popupclose', () => {
+          //  updateOverlay(null);
+          //  clearDistanceLine();
+          //});
 
           m.addTo(map);
           vesselMarkers[uid] = m;
