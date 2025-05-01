@@ -921,6 +921,11 @@ function focusVessel(uid){
           const sb = navigationalStatusMapping[b.info.NavigationalStatus]||'Unknown';
           cmp = sa.localeCompare(sb);
         }
+        else if (sortField==='className') {
+          const ca = a.info.AISClass||'';
+          const cb = b.info.AISClass||'';
+          cmp = ca.localeCompare(cb);
+        }
         else if(sortField==='count') cmp = a.count - b.count;
 	else if (sortField === 'distance' && selectedReceiverLatLng) {
 	  const getDist = item => {
