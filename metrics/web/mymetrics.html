@@ -296,16 +296,28 @@
         } else {
           const m = L.marker([lat,lon], { icon });
 
-          // --- NEW: fetch /state/<UserID> on hover and inject ImageURL if present ---
+          // --- UPDATED: flex popup with image to left of text ---
           m.on('mouseover', async () => {
             m.bindPopup(`
-              <div id="popup-${uid}">
-                <b>MMSI:</b> ${uid}<br/>
-                <b>Name:</b> ${info.Name || ''}<br/>
-                <b>Speed:</b> ${info.Sog} kn<br/>
-                <b>Type:</b> ${typeDisp}<br/>
-                <b>Class:</b> ${info.AISClass || ''}<br/>
-                <div class="state-image">Loading image…</div>
+              <div id="popup-${uid}" style="display:flex; align-items:center; gap:8px;">
+                <div class="state-image" 
+                     style="
+                       width:120px; 
+                       height:80px; 
+                       flex-shrink:0; 
+                       display:flex; 
+                       justify-content:center; 
+                       align-items:center;
+                     ">
+                  Loading…
+                </div>
+                <div class="state-details" style="line-height:1.2;">
+                  <b>MMSI:</b> ${uid}<br/>
+                  <b>Name:</b> ${info.Name || ''}<br/>
+                  <b>Speed:</b> ${info.Sog} kn<br/>
+                  <b>Type:</b> ${typeDisp}<br/>
+                  <b>Class:</b> ${info.AISClass || ''}
+                </div>
               </div>
             `, { closeButton: false, autoClose: false }).openPopup();
 
@@ -316,7 +328,12 @@
               const imgUrl = state.ImageURL;
               const container = document.querySelector(`#popup-${uid} .state-image`);
               if (imgUrl) {
-                container.innerHTML = `<img src="${imgUrl}" style="max-width:120px; max-height:80px; display:block; margin-top:8px;" alt="State image"/>`;
+                container.innerHTML = `
+                  <img 
+                    src="${imgUrl}" 
+                    style="max-width:120px; max-height:80px; display:block;" 
+                    alt="State image"
+                  />`;
               } else {
                 container.textContent = '';
               }
@@ -328,7 +345,7 @@
 
           m.on('mouseout', () => m.closePopup());
           m.on('click', () => m.openPopup());
-          // ------------------------------------------------------------------------
+          // ---------------------------------------------------------
 
           m.addTo(map);
           vesselMarkers[uid] = m;
@@ -336,7 +353,6 @@
         }
       });
 
-      // remove stale markers
       Object.keys(vesselMarkers).forEach(uid => {
         if (!newMarkers[uid]) {
           map.removeLayer(vesselMarkers[uid]);
