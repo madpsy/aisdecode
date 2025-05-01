@@ -651,24 +651,7 @@ function focusVessel(uid){
           vesselMarkers[uid].setLatLng([lat,lon]).setIcon(icon);
           newMarkers[uid] = vesselMarkers[uid];
         } else {
-         const m = L.marker([lat,lon], { icon });
-         // ——— BIND POPUP ONCE AT CREATION ———
-         const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
-         const detailsHtml = `
-           <div style="line-height:1.2;">
-             <b>MMSI:</b> ${uid}<br/>
-             <b>Name:</b> ${info.Name || ''}<br/>
-             <b>Speed:</b> ${info.Sog} kn<br/>
-             <b>Type:</b> ${typeDisp}<br/>
-             <b>Status:</b> ${status}<br/>
-             <b>Class:</b> ${info.AISClass || ''}
-           </div>
-         `;
-         m.bindPopup(detailsHtml, {
-           closeButton: false,
-           autoClose: false,
-           closeOnClick: false
-         });
+          const m = L.marker([lat,lon], { icon });
 
 m.on('click', function(e) {
   // reset line-drawing state
@@ -721,7 +704,42 @@ m.on('click', function(e) {
 });
 
 
- 
+          m.on('mouseover', ()=>{
+            const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
+            const detailsHtml = `
+              <div style="line-height:1.2;">
+                <b>MMSI:</b> ${uid}<br/>
+                <b>Name:</b> ${info.Name || ''}<br/>
+                <b>Speed:</b> ${info.Sog} kn<br/>
+                <b>Type:</b> ${typeDisp}<br/>
+                <b>Status:</b> ${status}<br/>
+                <b>Class:</b> ${info.AISClass || ''}
+              </div>
+            `;
+            m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
+            fetch(`/state/${encodeURIComponent(uid)}`)
+              .then(res => res.ok ? res.json() : Promise.reject(res.status))
+              .then(state => {
+                if(state.ImageURL){
+                  const flexHtml = `
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <img src="${state.ImageURL}" style="max-width:120px;max-height:80px;flex-shrink:0;" alt="State image"/>
+                      <div style="line-height:1.2;">
+                        <b>MMSI:</b> ${uid}<br/>
+                        <b>Name:</b> ${info.Name || ''}<br/>
+                        <b>Speed:</b> ${info.Sog} kn<br/>
+                        <b>Type:</b> ${typeDisp}<br/>
+                        <b>Status:</b> ${status}<br/>
+                        <b>Class:</b> ${info.AISClass || ''}
+                      </div>
+                    </div>
+                  `;
+                  m.getPopup().setContent(flexHtml).update();
+                  m.openPopup();
+                }
+              })
+              .catch(e => console.error(`Failed to load state for ${uid}`, e));
+          });
 
           m.on('mouseout', () => m.closePopup());
           //m.on('popupclose', () => {
