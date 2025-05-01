@@ -306,10 +306,10 @@ function drawRadiusRings(latlng) {
     const radiusInMeters = nm * 1852;  // Convert NM to meters
     const circle = L.circle(latlng, {
       radius: radiusInMeters,
-      color: 'blue',
-      weight: 2,  // Make the stroke thicker if desired
-      opacity: 0.7,  // Ensure the stroke is visible
-      fillOpacity: 0,  // No fill color
+      color: 'grey',  // Set the ring color to grey
+      weight: 1,      // Make the stroke thinner
+      opacity: 0.6,   // Adjust the opacity for better visibility
+      fillOpacity: 0, // No fill color
     }).addTo(map);
 
     // Label the circle with the distance in NM
@@ -321,6 +321,7 @@ function drawRadiusRings(latlng) {
     radiusCircles.push({ circle, label });
   });
 }
+
 
 
 // Clear existing radius rings
@@ -358,10 +359,10 @@ function updateReceiverRings(latlng) {
         const radiusInMeters = distance * 1852;  // Convert nautical miles to meters
         const circle = L.circle(latlng, {
             radius: radiusInMeters,
-            color: 'blue',
-            weight: 2,  // Thicker stroke if desired
-            opacity: 0.7,  // Ensure visibility
-            fillOpacity: 0,  // No fill color
+            color: 'grey',  // Set the ring color to grey
+            weight: 1,      // Make the stroke thinner
+            opacity: 0.6,   // Adjust the opacity for better visibility
+            fillOpacity: 0, // No fill color
         }).addTo(map);
 
         // Calculate the label position (place it at the edge of the ring)
