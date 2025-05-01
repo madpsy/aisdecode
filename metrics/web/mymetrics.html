@@ -451,15 +451,18 @@
     }
 
     // Show/hide & update the overlay
-    function updateOverlay(latlng){
-      if(!overlayDiv) return;
-      if(!latlng){
-        overlayDiv.style.display = 'none';
-      } else {
-        overlayDiv.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
-        overlayDiv.style.display = 'block';
-      }
-    }
+function updateOverlay(latlng) {
+  if (!overlayDiv) return;
+  
+  if (!latlng) {
+    overlayDiv.style.display = 'none';  // Hide if no latlng
+    console.log("Overlay hidden.");
+  } else {
+    overlayDiv.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
+    overlayDiv.style.display = 'block';  // Show overlay
+    console.log("Overlay displayed with latlng:", latlng);
+  }
+}
 
     // Fetch & draw receiver markers
 function loadReceivers() {
@@ -622,85 +625,43 @@ function focusVessel(uid){
         } else {
           const m = L.marker([lat,lon], { icon });
 
-m.on('click', function(e) {
-  console.log("Vessel marker clicked!");
-  
-  // Prevent map's default click behavior
-  L.DomEvent.stopPropagation(e);
-  console.log("Event propagation stopped.");
+          m.on('click', function(e){
+            L.DomEvent.stopPropagation(e);
+            updateOverlay(e.latlng);
+	    Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
+            m.openPopup();
+	    focusedUid = uid;
 
-  // Update the overlay with the clicked latlng
-  updateOverlay(e.latlng);
-  console.log("Overlay updated with latlng:", e.latlng);
+            clearSelectedRow();
+            highlightRow(uid);
 
-  // Close any previously opened vessel popups
-  Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
-  console.log("All previously opened popups closed.");
+            if(selectedReceiverLatLng){
+              clearDistanceLine();
+              const vesselLatLng = m.getLatLng();
+              const dist = haversineDistance(
+                selectedReceiverLatLng.lat,
+                selectedReceiverLatLng.lng,
+                vesselLatLng.lat,
+                vesselLatLng.lng
+              ).toFixed(2);
 
-  // Open the popup for the clicked vessel
-  m.openPopup();
-  console.log("Popup opened for the clicked vessel.");
+              distancePolyline = L.polyline(
+                [ selectedReceiverLatLng, vesselLatLng ],
+                { color: 'blue' }
+              ).addTo(map);
 
-  // Set the focused vessel ID
-  focusedUid = uid;
-  console.log("Focused UID set to:", focusedUid);
-
-  // Clear any previously selected row in the summary table
-  clearSelectedRow();
-  console.log("Previously selected row cleared.");
-
-  // Highlight the current row in the summary table
-  highlightRow(uid);
-  console.log("Current row highlighted in table with UID:", uid);
-
-  // Check if a receiver has been selected
-  if (selectedReceiverLatLng) {
-    console.log("Receiver selected. Proceeding with distance calculations.");
-
-    // Clear any existing distance line
-    clearDistanceLine();
-    console.log("Existing distance line cleared.");
-
-    // Get the vessel's current latlng
-    const vesselLatLng = m.getLatLng();
-    console.log("Vessel's latlng:", vesselLatLng);
-
-    // Calculate the distance between the selected receiver and vessel
-    const dist = haversineDistance(
-      selectedReceiverLatLng.lat,
-      selectedReceiverLatLng.lng,
-      vesselLatLng.lat,
-      vesselLatLng.lng
-    ).toFixed(2);
-    console.log("Calculated distance:", dist, "km");
-
-    // Draw a polyline between the receiver and the vessel
-    distancePolyline = L.polyline(
-      [selectedReceiverLatLng, vesselLatLng],
-      { color: 'blue' }
-    ).addTo(map);
-    console.log("Distance polyline drawn between receiver and vessel.");
-
-    // Calculate the midpoint for the distance label
-    const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
-    const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
-    console.log("Midpoint for distance label calculated:", { midLat, midLng });
-
-    // Create a distance label at the midpoint
-    distanceLabel = L.tooltip({
-      permanent: true,
-      direction: 'center',
-      className: 'distance-tooltip'
-    })
-      .setLatLng([midLat, midLng])
-      .setContent(`${dist} km`)
-      .addTo(map);
-    console.log("Distance label created and added to map with content:", `${dist} km`);
-  } else {
-    console.log("No receiver selected. Skipping distance calculation.");
-  }
-});
-
+              const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat)/2;
+              const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng)/2;
+              distanceLabel = L.tooltip({
+                permanent: true,
+                direction: 'center',
+                className: 'distance-tooltip'
+              })
+                .setLatLng([midLat, midLng])
+                .setContent(`${dist} km`)
+                .addTo(map);
+            }
+          });
 
           m.on('mouseover', ()=>{
             const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
