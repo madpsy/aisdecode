@@ -566,10 +566,9 @@ function focusVessel(uid){
   if(!marker) return;
 
   updateOverlay(marker.getLatLng());
-
+console.log("yes");
   // if a receiver is selected: fit to both points
   if (selectedReceiverLatLng) {
-    console.log("yes");
     const vesselLatLng   = marker.getLatLng();
     const bounds         = L.latLngBounds([ selectedReceiverLatLng, vesselLatLng ]);
     autoFit               = false;
