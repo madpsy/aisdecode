@@ -216,6 +216,7 @@
     const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
     const maxPoints    = 60;
     let radiusCircles = [];
+    let radiusCircles = [];
     let focusedUid = null;
     let furthestVesselLatLng = null;
     let overrideIp = '';
@@ -266,10 +267,10 @@ function getFurthestVesselDistance(latlng) {
     const distance = haversineDistance(latlng.lat, latlng.lng, vesselLatLng.lat, vesselLatLng.lng);
     if (distance > maxDist) {
       maxDist = distance;
-      furthestVesselLatLng = vesselLatLng;
+      furthestVesselLatLng = vesselLatLng; // Store the furthest vessel position
     }
   });
-  return maxDist;  // Return the furthest distance
+  return maxDist;  // Return the furthest distance in kilometers
 }
 
 // Function to draw rings based on receiver's location
@@ -307,12 +308,12 @@ function drawRadiusRings(latlng) {
 
 // Clear existing radius rings
 function clearRadiusRings() {
+  // Remove each circle and label from the map
   radiusCircles.forEach(item => {
     map.removeLayer(item.circle);
     map.removeLayer(item.label);
   });
-  radiusCircles = [];
-  furthestVesselLatLng = null;  // Reset the furthest vessel when clearing rings
+  radiusCircles = [];  // Reset the array to clear all the previous rings and labels
 }
 
 function updateReceiverRings(latlng) {
@@ -320,7 +321,7 @@ function updateReceiverRings(latlng) {
 
   if (!latlng) return;  // No receiver selected
 
-  // Calculate the maximum distance to the furthest vessel
+  // Calculate the maximum distance to the furthest vessel from the receiver
   const furthestDistance = getFurthestVesselDistance(latlng);
 
   // If the maximum distance is zero (no vessels or no valid vessels), return early
@@ -346,23 +347,19 @@ function updateReceiverRings(latlng) {
       fillOpacity: 0.1,
     }).addTo(map);
 
-    // Calculate the label position based on distance and angle
-    const angle = (index * Math.PI / 2); // Spread out labels at different angles (e.g., 0, 90, 180, 270 degrees)
-    const labelLatLng = L.latLng(
-      latlng.lat + (distance * Math.sin(angle) / 1852),  // Adjust latitude based on distance and angle
-      latlng.lng + (distance * Math.cos(angle) / 1852)   // Adjust longitude based on distance and angle
-    );
+    // Calculate the label position (place it at the edge of the ring)
+    // We will use a fixed position along the circle (e.g., directly to the right of the circle)
+    const labelLatLng = latlng.destinationPoint(0, radiusInMeters); // 0 degrees (right side of the circle)
 
-    // Label the circle with the distance in NM, positioned on the ring's circumference
+    // Label the circle with the distance in NM
     const label = L.tooltip({ permanent: true, direction: 'center', className: 'distance-tooltip' })
-      .setLatLng(labelLatLng)
+      .setLatLng(labelLatLng)  // Position the label at the calculated position
       .setContent(`${Math.round(distance)} NM`)
       .addTo(map);
 
     radiusCircles.push({ circle, label });
   });
 }
-
 
     // **Filter term & row‐highlight helpers**
     let filterTerm = '';
