@@ -1,59 +1,28 @@
 package main
 
 import (
-    "database/sql"
     "encoding/json"
     "fmt"
     "io/ioutil"
     "log"
     "net"
     "net/http"
-    "net/url"
     "regexp"
-    "strconv"
     "strings"
     "sync"
     "time"
-
-    _ "github.com/lib/pq"
 )
 
 type Settings struct {
-    DbHost      string `json:"db_host"`
-    DbPort      int    `json:"db_port"`
-    DbUser      string `json:"db_user"`
-    DbPass      string `json:"db_pass"`
-    DbName      string `json:"db_name"`
-    ListenPort  int    `json:"listen_port"`
-    Debug       bool   `json:"debug"`
-    IngestHost  string `json:"ingest_host"`
-    IngestPort  int    `json:"ingest_port"`
-}
-
-type Receiver struct {
-    ID          int        `json:"id"`
-    LastUpdated time.Time  `json:"lastupdated"`
-    Description string     `json:"description"`
-    Latitude    float64    `json:"latitude"`
-    Longitude   float64    `json:"longitude"`
-    Name        string     `json:"name"`
-    URL         *string    `json:"url,omitempty"`
-}
-
-type ReceiverInput struct {
-    Description string   `json:"description"`
-    Latitude    float64  `json:"latitude"`
-    Longitude   float64  `json:"longitude"`
-    Name        string   `json:"name"`
-    URL         *string  `json:"url,omitempty"`
-}
-
-type ReceiverPatch struct {
-    Description *string   `json:"description,omitempty"`
-    Latitude    *float64  `json:"latitude,omitempty"`
-    Longitude   *float64  `json:"longitude,omitempty"`
-    Name        *string   `json:"name,omitempty"`
-    URL         *string   `json:"url,omitempty"`
+    DbHost     string `json:"db_host"`
+    DbPort     int    `json:"db_port"`
+    DbUser     string `json:"db_user"`
+    DbPass     string `json:"db_pass"`
+    DbName     string `json:"db_name"`
+    ListenPort int    `json:"listen_port"`
+    Debug      bool   `json:"debug"`
+    IngestHost string `json:"ingest_host"`
+    IngestPort int    `json:"ingest_port"`
 }
 
 // FullMetrics mirrors the parts of the JSON we filter by source IP.
@@ -87,7 +56,6 @@ type ResponseMetrics struct {
 }
 
 var (
-    db            *sql.DB
     settings      Settings
     metricsLock   sync.RWMutex
     latestMetrics interface{}
@@ -106,40 +74,8 @@ func main() {
     // Start background ingestion of metrics
     go ingestMetricsLoop()
 
-    // Connect to Postgres
-    connStr := fmt.Sprintf(
-        "host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-        settings.DbHost, settings.DbPort, settings.DbUser, settings.DbPass, settings.DbName,
-    )
-    db, err = sql.Open("postgres", connStr)
-    if err != nil {
-        log.Fatalf("Failed to open database: %v", err)
-    }
-    defer db.Close()
-    if err = db.Ping(); err != nil {
-        log.Fatalf("Unable to connect to database: %v", err)
-    }
-
-    createSchema()
-
-    // Public API: list receivers
-    http.HandleFunc("/receivers", func(w http.ResponseWriter, r *http.Request) {
-        if r.Method != http.MethodGet {
-            w.WriteHeader(http.StatusMethodNotAllowed)
-            return
-        }
-        handleListReceivers(w, r)
-    })
-
-    // Admin API: full CRUD
-    http.HandleFunc("/admin/receivers", adminReceiversHandler)
-    http.HandleFunc("/admin/receivers/", adminReceiverHandler)
-
-    // Serve static files for admin UI
-    http.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))))
-
-    // Latest ingested metrics
-    http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+    // Public API: metrics ingestion and retrieval (now /metrics/ingester)
+    http.HandleFunc("/metrics/ingester", func(w http.ResponseWriter, r *http.Request) {
         metricsLock.RLock()
         defer metricsLock.RUnlock()
         if latestMetrics == nil {
@@ -163,8 +99,11 @@ func main() {
         w.Write(masked)
     })
 
-    // Metrics by source IP uses the request source
+    // Handle /metrics/bysource (this logic is intact)
     http.HandleFunc("/metrics/bysource", handleMetricsBySource)
+
+    // Serve static files for /metrics/ from the 'web' directory
+    http.Handle("/metrics/", http.StripPrefix("/metrics/", http.FileServer(http.Dir("web"))))
 
     addr := fmt.Sprintf(":%d", settings.ListenPort)
     log.Printf("Server listening on %s", addr)
@@ -203,20 +142,18 @@ func ingestMetricsLoop() {
     }
 }
 
-// handleMetricsBySource filters latestMetrics for the request's source IP
-// and returns a JSON including that IP as "ip_address" plus the flat metrics.
+// --- Public listing of latest metrics ---
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
     // Determine client IP: prefer X-Forwarded-For, else RemoteAddr
-    // 1) Override via query parameter?
     ip := r.URL.Query().Get("ipaddress")
 
     if ip == "" {
-        // 2) Else check X-Forwarded-For
+        // 1) Else check X-Forwarded-For
         if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
             parts := strings.Split(xff, ",")
             ip = strings.TrimSpace(parts[0])
         } else {
-            // 3) Fallback to RemoteAddr
+            // 2) Fallback to RemoteAddr
             host, _, err := net.SplitHostPort(r.RemoteAddr)
             if err != nil {
                 ip = r.RemoteAddr
@@ -285,297 +222,4 @@ func findCount[T any](slice []T, ip string) int {
         }
     }
     return 0
-}
-
-func createSchema() {
-    _, err := db.Exec(`
-        CREATE TABLE IF NOT EXISTS receivers (
-            id SERIAL PRIMARY KEY,
-            lastupdated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            description VARCHAR(30) NOT NULL,
-            latitude DOUBLE PRECISION NOT NULL,
-            longitude DOUBLE PRECISION NOT NULL,
-            name VARCHAR(15) NOT NULL,
-            url TEXT
-        );
-    `)
-    if err != nil {
-        log.Fatalf("Error creating table: %v", err)
-    }
-    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_receivers_id ON receivers(id);`)
-    if err != nil {
-        log.Fatalf("Error creating index: %v", err)
-    }
-    _, err = db.Exec(`
-        SELECT setval(
-            pg_get_serial_sequence('receivers','id'),
-            COALESCE(MAX(id), 1),
-            true
-        ) FROM receivers;
-    `)
-    if err != nil {
-        log.Fatalf("Error syncing receivers_id_seq: %v", err)
-    }
-}
-
-// --- Public listing only ---
-func handleListReceivers(w http.ResponseWriter, r *http.Request) {
-    rows, err := db.Query(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url
-        FROM receivers ORDER BY id
-    `)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    defer rows.Close()
-
-    var list []Receiver
-    for rows.Next() {
-        var rec Receiver
-        if err := rows.Scan(
-            &rec.ID, &rec.LastUpdated, &rec.Description,
-            &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL,
-        ); err != nil {
-            http.Error(w, err.Error(), http.StatusInternalServerError)
-            return
-        }
-        list = append(list, rec)
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(list)
-}
-
-// --- Admin handlers (full CRUD) ---
-func adminReceiversHandler(w http.ResponseWriter, r *http.Request) {
-    switch r.Method {
-    case http.MethodGet:
-        handleListReceivers(w, r)
-    case http.MethodPost:
-        handleCreateReceiver(w, r)
-    default:
-        w.WriteHeader(http.StatusMethodNotAllowed)
-    }
-}
-
-func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
-    parts := strings.Split(r.URL.Path, "/")
-    if len(parts) < 4 {
-        w.WriteHeader(http.StatusBadRequest)
-        return
-    }
-    id, err := strconv.Atoi(parts[3])
-    if err != nil {
-        w.WriteHeader(http.StatusBadRequest)
-        return
-    }
-    switch r.Method {
-    case http.MethodGet:
-        handleGetReceiver(w, r, id)
-    case http.MethodPut:
-        handlePutReceiver(w, r, id)
-    case http.MethodPatch:
-        handlePatchReceiver(w, r, id)
-    case http.MethodDelete:
-        handleDeleteReceiver(w, r, id)
-    default:
-        w.WriteHeader(http.StatusMethodNotAllowed)
-    }
-}
-
-func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
-    var input ReceiverInput
-    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
-    }
-    rec := Receiver{
-        Description: input.Description,
-        Latitude:    input.Latitude,
-        Longitude:   input.Longitude,
-        Name:        input.Name,
-        URL:         input.URL,
-    }
-    if err := validateReceiver(rec); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    err := db.QueryRow(`
-        INSERT INTO receivers (description, latitude, longitude, name, url)
-        VALUES ($1,$2,$3,$4,$5)
-        RETURNING id, lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL).
-        Scan(&rec.ID, &rec.LastUpdated)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(rec)
-}
-
-func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    var rec Receiver
-    err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url
-        FROM receivers WHERE id = $1
-    `, id).Scan(
-        &rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL,
-    )
-    if err == sql.ErrNoRows {
-        w.WriteHeader(http.StatusNotFound)
-        return
-    } else if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(rec)
-}
-
-func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    var input ReceiverInput
-    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
-    }
-    rec := Receiver{
-        ID:          id,
-        Description: input.Description,
-        Latitude:    input.Latitude,
-        Longitude:   input.Longitude,
-        Name:        input.Name,
-        URL:         input.URL,
-    }
-    if err := validateReceiver(rec); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    err := db.QueryRow(`
-        INSERT INTO receivers (id, description, latitude, longitude, name, url)
-        VALUES ($1,$2,$3,$4,$5,$6)
-        ON CONFLICT (id) DO UPDATE
-          SET description = EXCLUDED.description,
-              latitude    = EXCLUDED.latitude,
-              longitude   = EXCLUDED.longitude,
-              name        = EXCLUDED.name,
-              url         = EXCLUDED.url,
-              lastupdated = NOW()
-        RETURNING lastupdated
-    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL).
-        Scan(&rec.LastUpdated)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(rec)
-}
-
-func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    var patch ReceiverPatch
-    if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
-    }
-
-    var rec Receiver
-    err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url
-        FROM receivers WHERE id = $1
-    `, id).Scan(
-        &rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL,
-    )
-    if err == sql.ErrNoRows {
-        w.WriteHeader(http.StatusNotFound)
-        return
-    } else if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    if patch.Description != nil {
-        rec.Description = *patch.Description
-    }
-    if patch.Latitude != nil {
-        rec.Latitude = *patch.Latitude
-    }
-    if patch.Longitude != nil {
-        rec.Longitude = *patch.Longitude
-    }
-    if patch.Name != nil {
-        rec.Name = *patch.Name
-    }
-    if patch.URL != nil {
-        rec.URL = patch.URL
-    }
-
-    if err := validateReceiver(rec); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    err = db.QueryRow(`
-        UPDATE receivers
-           SET description = $1,
-               latitude    = $2,
-               longitude   = $3,
-               name        = $4,
-               url         = $5,
-               lastupdated = NOW()
-         WHERE id = $6
-         RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.ID).
-        Scan(&rec.LastUpdated)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(rec)
-}
-
-func handleDeleteReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    res, err := db.Exec(`DELETE FROM receivers WHERE id = $1`, id)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    n, _ := res.RowsAffected()
-    if n == 0 {
-        w.WriteHeader(http.StatusNotFound)
-        return
-    }
-    w.WriteHeader(http.StatusNoContent)
-}
-
-func validateReceiver(r Receiver) error {
-    if len(r.Description) > 30 {
-        return fmt.Errorf("description must be ≤30 characters")
-    }
-    if len(r.Name) > 15 {
-        return fmt.Errorf("name must be ≤15 characters")
-    }
-    if r.Latitude < -90 || r.Latitude > 90 {
-        return fmt.Errorf("latitude must be between -90 and 90")
-    }
-    if r.Longitude < -180 || r.Longitude > 180 {
-        return fmt.Errorf("longitude must be between -180 and 180")
-    }
-    if r.URL != nil && *r.URL != "" {
-        if _, err := url.ParseRequestURI(*r.URL); err != nil {
-            return fmt.Errorf("invalid URL")
-        }
-    }
-    return nil
 }
