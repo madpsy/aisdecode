@@ -110,6 +110,11 @@
     .distance-col {
       display: none;
     }
+
+    /* highlight selected table row */
+    #summaryBody tr.selected {
+      background-color: #d0e8ff;
+    }
   </style>
 </head>
 <body>
@@ -127,6 +132,16 @@
   <div class="doughnut-wrapper">
     <canvas id="typeDoughnut" class="doughnut-chart"></canvas>
     <div id="map"></div>
+  </div>
+
+  <!-- **Filter box** -->
+  <div style="margin: 12px 0;">
+    <input
+      type="text"
+      id="filterInput"
+      placeholder="Filter by MMSI or Name"
+      style="padding:6px; width:250px;"
+    />
   </div>
 
   <table id="summaryTable">
@@ -201,6 +216,17 @@
     let selectedReceiverLatLng = null,
         distancePolyline = null,
         distanceLabel = null;
+
+    // **Filter term & row‐highlight helpers**
+    let filterTerm = '';
+    function clearSelectedRow() {
+      const prev = document.querySelector('#summaryBody tr.selected');
+      if (prev) prev.classList.remove('selected');
+    }
+    function highlightRow(uid) {
+      const row = document.getElementById('row-' + uid);
+      if (row) row.classList.add('selected');
+    }
 
     // Haversine distance in km
     function haversineDistance(lat1, lon1, lat2, lon2) {
@@ -305,6 +331,11 @@
       // clear receiver selection & any line
       selectedReceiverLatLng = null;
       clearDistanceLine();
+
+      // clear filter
+      filterTerm = '';
+      document.getElementById('filterInput').value = '';
+
       updateSummaryTable();
 
       // update URL
@@ -339,6 +370,7 @@
       if(e.key === 'Enter') applyOverride(document.getElementById('ipInput').value.trim());
     };
 
+    // sorting
     document.querySelectorAll('#summaryTable th').forEach(th=>{
       th.onclick = ()=>{
         const f = th.dataset.field;
@@ -352,6 +384,13 @@
       };
     });
 
+    // **filter handler**
+    document.getElementById('filterInput').addEventListener('input', e=>{
+      filterTerm = e.target.value.trim().toLowerCase();
+      currentPage = 1;
+      updateSummaryTable();
+    });
+
     // Initialize map, overlay, and receivers
     function initMap(){
       map = L.map('map').setView([0,0],2);
@@ -362,6 +401,7 @@
       map.on('click', () => {
         updateOverlay(null);
         clearDistanceLine();
+        clearSelectedRow();  // ← unhighlight on map‐click
       });
 
       // create and append overlay
@@ -407,12 +447,11 @@
             });
 
             dot.on('click', function(e){
-              // ← this was added
               L.DomEvent.stopPropagation(e);
               selectedReceiverLatLng = e.latlng;
               clearDistanceLine();
               updateOverlay(e.latlng);
-              updateSummaryTable(); // ← this was added
+              updateSummaryTable();
             });
           });
         })
@@ -437,6 +476,9 @@
 
     // Focus vessel from table
     function focusVessel(uid){
+      clearSelectedRow();     // ← new
+      highlightRow(uid);      // ← new
+
       Object.values(vesselMarkers).forEach(m => m.closePopup());
       const marker = vesselMarkers[uid];
       if(!marker) return;
@@ -446,9 +488,7 @@
       map.flyTo(marker.getLatLng(), 12);
       marker.fire('mouseover');
       updateOverlay(marker.getLatLng());
-      Object.values(vesselMarkers).forEach(v => v.closePopup());
       marker.fire('mouseover');
-      updateOverlay(marker.getLatLng());
 
       // — draw distance line when a receiver is selected —
       if(selectedReceiverLatLng){
@@ -500,11 +540,13 @@
         } else {
           const m = L.marker([lat,lon], { icon });
 
-          // stop map click from clearing our line
           m.on('click', function(e){
             L.DomEvent.stopPropagation(e);
             updateOverlay(e.latlng);
             m.openPopup();
+
+            clearSelectedRow();    // ← new
+            highlightRow(uid);     // ← new
 
             if(selectedReceiverLatLng){
               clearDistanceLine();
@@ -711,8 +753,7 @@
         el.style.display = showDist ? '' : 'none';
       });
 
-      const tbody = document.getElementById('summaryBody');
-      const allRows = Array.from(seenUserIds)
+      let allRows = Array.from(seenUserIds)
         .filter(uid=>uid.length===9)
         .map(uid=>({
           id: uid,
@@ -720,6 +761,15 @@
           lastTs: lastSeenTs[uid]||new Date(0),
           count: seenCount[uid]||0
         }));
+
+      // **filter**
+      if(filterTerm){
+        allRows = allRows.filter(item=>
+          item.id.includes(filterTerm) ||
+          (item.info.Name||'').toLowerCase().includes(filterTerm)
+        );
+      }
+
       allRows.sort((a,b)=>{
         let cmp;
         if(sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
@@ -741,10 +791,13 @@
         else cmp = a.id.localeCompare(b.id);
         return sortAsc ? cmp : -cmp;
       });
+
       const totalPages = Math.max(1, Math.ceil(allRows.length/rowsPerPage));
       if(currentPage>totalPages) currentPage = totalPages;
       const start = (currentPage-1)*rowsPerPage;
       const pageRows = allRows.slice(start, start+rowsPerPage);
+
+      const tbody = document.getElementById('summaryBody');
       tbody.innerHTML = '';
       pageRows.forEach(item=>{
         const ago = formatAgo(item.lastTs);
@@ -756,7 +809,6 @@
           ? `<td><img src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}" style="width:24px;"/></td>`
           : '<td></td>';
 
-        // distance cell
         let distanceCell = '<td class="distance-col"></td>';
         if(selectedReceiverLatLng && typeof item.info.Latitude==='number' && typeof item.info.Longitude==='number'){
           const d = haversineDistance(
@@ -770,6 +822,7 @@
 
         const status = navigationalStatusMapping[item.info.NavigationalStatus]||'Unknown';
         const tr = document.createElement('tr');
+        tr.id = 'row-' + item.id;              // give each row an id
         tr.innerHTML = `
           <td><a href="#" onclick="focusVessel('${item.id}'); return false;">${item.id}</a></td>
           <td>${item.info.Name||''}</td>
