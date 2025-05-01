@@ -215,6 +215,7 @@
     const cardMetrics  = allMetrics.filter(m => !m.startsWith('window_'));
     const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
     const maxPoints    = 60;
+    let radiusCircles = [];
     let focusedUid = null;
     let overrideIp = '';
     let overlayDisplayed = false;
