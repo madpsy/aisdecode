@@ -738,7 +738,7 @@ function focusVessel(uid){
       if(autoFit && boundsArr.length){
         programmaticFit = true;
         map.once('moveend zoomend', ()=> programmaticFit = false);
-        map.fitBounds(L.latLngBounds(boundsArr), { padding: [20,20] });
+        map.fitBounds(L.latLngBounds(boundsArr), { padding: [30,30] });
       }
     }
 
