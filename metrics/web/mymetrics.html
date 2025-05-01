@@ -55,7 +55,7 @@
       cursor: default;
     }
 
-    /* remove only border & shadow, keep white bg */
+    /* remove only the border & shadow around popups, keep white background */
     .leaflet-popup-content-wrapper {
       background: #fff !important;
       border: none !important;
@@ -248,7 +248,7 @@
       applyOverride(document.getElementById('ipInput').value.trim());
     document.getElementById('ipInput').onkeydown = e => {
       if(e.key === 'Enter') applyOverride(document.getElementById('ipInput').value.trim());
-    };
+    });
 
     document.querySelectorAll('#summaryTable th').forEach(th=>{
       th.onclick = ()=>{
@@ -315,7 +315,7 @@
         } else {
           const m = L.marker([lat,lon], { icon });
 
-          // on hover: show text-only, fetch /state, then add image if valid
+          // on hover: text-only popup, then fetch /state, then add image if valid
           m.on('mouseover', () => {
             const detailsHtml = `
               <div class="state-details" style="line-height:1.2;">
@@ -379,7 +379,7 @@
       }
     }
 
-    // Fetch and update metrics, summary
+    // Fetch & update loop
     async function fetchMetrics(){
       try {
         let url = '/metrics/bysource';
@@ -424,7 +424,7 @@
           updateSummaryTable();
         }
       } catch(e){
-        console.error('Fetch error',e);
+        console.error('Fetch error', e);
       }
     }
 
