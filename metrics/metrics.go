@@ -20,6 +20,7 @@ type Settings struct {
 	IngestPort int    `json:"ingest_port"`
 	InfluxHost string `json:"influx_host"`
 	InfluxPort int    `json:"influx_port"`
+	InfluxDB   string `json:"influx_db"`
 	ListenPort int    `json:"listen_port"`
 	Debug      bool   `json:"debug"`
 }
@@ -69,7 +70,7 @@ var (
 )
 
 func main() {
-	// Load settings.json
+	// 1) Load settings
 	data, err := ioutil.ReadFile("settings.json")
 	if err != nil {
 		log.Fatalf("Error reading settings.json: %v", err)
@@ -78,7 +79,7 @@ func main() {
 		log.Fatalf("Error parsing settings.json: %v", err)
 	}
 
-	// Connect to InfluxDB
+	// 2) Connect to InfluxDB
 	influxURL := fmt.Sprintf("http://%s:%d", settings.InfluxHost, settings.InfluxPort)
 	influxClient, err = client.NewHTTPClient(client.HTTPConfig{Addr: influxURL})
 	if err != nil {
@@ -86,20 +87,39 @@ func main() {
 	}
 	defer influxClient.Close()
 
-	// Start background ingestion loop
+	// 3) Ensure database exists
+	if err := ensureDatabase(settings.InfluxDB); err != nil {
+		log.Fatalf("Could not create InfluxDB database %q: %v", settings.InfluxDB, err)
+	}
+
+	// 4) Start ingest loop
 	go ingestMetricsLoop()
 
-	// Handlers
+	// 5) HTTP handlers
 	http.HandleFunc("/metrics/ingester", metricsIngesterHandler)
 	http.HandleFunc("/metrics/bysource", handleMetricsBySource)
 	http.Handle("/metrics/", http.StripPrefix("/metrics/", http.FileServer(http.Dir("web"))))
 
-	// Listen
+	// 6) Listen
 	addr := fmt.Sprintf(":%d", settings.ListenPort)
 	log.Printf("Server listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
+// ensureDatabase issues CREATE DATABASE if it doesn't already exist.
+func ensureDatabase(db string) error {
+	q := client.NewQuery(fmt.Sprintf("CREATE DATABASE \"%s\"", db), "", "")
+	resp, err := influxClient.Query(q)
+	if err != nil {
+		return err
+	}
+	if resp.Error() != nil {
+		return resp.Error()
+	}
+	return nil
+}
+
+// ingestMetricsLoop polls external /metrics
 func ingestMetricsLoop() {
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 	ticker := time.NewTicker(1 * time.Second)
@@ -129,28 +149,25 @@ func ingestMetricsLoop() {
 	}
 }
 
+// metricsIngesterHandler writes to Influx, then masks and returns JSON
 func metricsIngesterHandler(w http.ResponseWriter, r *http.Request) {
 	metricsLock.RLock()
 	defer metricsLock.RUnlock()
+
 	if latestMetrics == nil {
 		http.Error(w, "no metrics yet", http.StatusNoContent)
 		return
 	}
 
-	// 1) write to InfluxDB
+	// Write to InfluxDB
 	if err := writeMetricsToInfluxDB(latestMetrics); err != nil {
-		log.Printf("Error writing metrics to InfluxDB: %v", err)
+		log.Printf("Error writing to InfluxDB: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	// 2) marshal then mask IPs
-	blob, err := json.Marshal(latestMetrics)
-	if err != nil {
-		log.Printf("Error marshaling metrics: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
+	// Mask IPs in the raw JSON
+	blob, _ := json.Marshal(latestMetrics)
 	re := regexp.MustCompile(`\b(\d{1,3})\.(\d{1,3})\.(\d{1,3}\.\d{1,3})\b`)
 	masked := re.ReplaceAll(blob, []byte("x.x.$3"))
 
@@ -158,6 +175,7 @@ func metricsIngesterHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(masked)
 }
 
+// writeMetricsToInfluxDB unmarshals and writes every field
 func writeMetricsToInfluxDB(metrics interface{}) error {
 	blob, err := json.Marshal(metrics)
 	if err != nil {
@@ -168,7 +186,9 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 		return fmt.Errorf("error parsing FullMetrics: %v", err)
 	}
 
-	bp, err := client.NewBatchPoints(client.BatchPointsConfig{Database: "metrics_db"})
+	bp, err := client.NewBatchPoints(client.BatchPointsConfig{
+		Database: settings.InfluxDB,
+	})
 	if err != nil {
 		return fmt.Errorf("error creating batch points: %v", err)
 	}
@@ -176,13 +196,13 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 	add := func(tags map[string]string, fields map[string]interface{}) {
 		p, err := client.NewPoint("metrics", tags, fields, time.Now())
 		if err != nil {
-			log.Printf("point error tags=%v fields=%v: %v", tags, fields, err)
+			log.Printf("Point error tags=%v fields=%v: %v", tags, fields, err)
 			return
 		}
 		bp.AddPoint(p)
 	}
 
-	// Per-source
+	// --- Per-source ---
 	for _, m := range full.BytesReceivedBySource {
 		add(map[string]string{"source_ip": m.SourceIP, "metric": "bytes_received"},
 			map[string]interface{}{"value": m.Count})
@@ -200,7 +220,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 			map[string]interface{}{"value": m.Count})
 	}
 
-	// Windowed per-source
+	// --- Windowed per-source ---
 	for ip, v := range full.WindowBytesBySource {
 		add(map[string]string{"source_ip": ip, "metric": "window_bytes"},
 			map[string]interface{}{"value": v})
@@ -214,13 +234,13 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 			map[string]interface{}{"value": v})
 	}
 
-	// Deduplicated per-source
+	// --- Deduplicated per-source ---
 	for ip, v := range full.PerDeduplicatedSource {
 		add(map[string]string{"source_ip": ip, "metric": "per_deduplicated"},
 			map[string]interface{}{"value": v})
 	}
 
-	// Per-message
+	// --- Per-message ID ---
 	for mid, v := range full.PerDownsampledMessageID {
 		add(map[string]string{"message_id": mid, "metric": "per_downsampled_message_id"},
 			map[string]interface{}{"value": v})
@@ -230,7 +250,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 			map[string]interface{}{"value": v})
 	}
 
-	// Totals + uptime
+	// --- Totals & Uptime ---
 	for _, t := range []struct {
 		metric string
 		value  int
@@ -242,12 +262,14 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 		{"total_messages_forwarded", full.TotalMessagesForwarded},
 		{"uptime_seconds", full.UptimeSeconds},
 	} {
-		add(map[string]string{"metric": t.metric}, map[string]interface{}{"value": t.value})
+		add(map[string]string{"metric": t.metric},
+			map[string]interface{}{"value": t.value})
 	}
 
 	return influxClient.Write(bp)
 }
 
+// handleMetricsBySource unchanged except inline lookups
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 	ip := r.URL.Query().Get("ipaddress")
 	if ip == "" {
@@ -272,23 +294,11 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	blob, err := json.Marshal(raw)
-	if err != nil {
-		log.Printf("Error marshaling metrics: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
+	blob, _ := json.Marshal(raw)
 	var full FullMetrics
-	if err := json.Unmarshal(blob, &full); err != nil {
-		log.Printf("Error parsing FullMetrics: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
+	json.Unmarshal(blob, &full)
 
 	flat := SimpleMetrics{}
-
-	// Inline lookups:
 	for _, m := range full.BytesReceivedBySource {
 		if m.SourceIP == ip {
 			flat.BytesReceived = m.Count
