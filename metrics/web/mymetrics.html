@@ -654,6 +654,9 @@ function loadReceivers() {
       return r.json();
     })
     .then(receivers => {
+      let closestReceiver = null;
+      let minDistance = Infinity;
+
       receivers.forEach(r => {
         // create the circle marker
         const dot = L.circleMarker([r.latitude, r.longitude], {
@@ -671,56 +674,63 @@ function loadReceivers() {
           className: 'receiver-tooltip'
         });
 
-	dot.on('click', e => {
-	  L.DomEvent.stopPropagation(e);
-	  selectedReceiverLatLng = e.latlng;  // Update the receiver's position
-	  clearDistanceLine();  // Clear any previous distance lines
-	  updateOverlay(e.latlng);
-	  updateReceiverRings(e.latlng);  // Redraw radius rings
-	  updateSummaryTable();
-	
-	  // Update the URL with the receiver ID
-	  const url = new URL(location);
-	  url.searchParams.set('receiver', r.id);
-	  history.replaceState(null, '', url);
-	});
+        dot.on('click', e => {
+          L.DomEvent.stopPropagation(e);
+          selectedReceiverLatLng = e.latlng;  // Update the receiver's position
+          clearDistanceLine();  // Clear any previous distance lines
+          updateOverlay(e.latlng);
+          updateReceiverRings(e.latlng);  // Redraw radius rings
+          updateSummaryTable();
+
+          // Update the URL with the receiver ID
+          const url = new URL(location);
+          url.searchParams.set('receiver', r.id);
+          history.replaceState(null, '', url);
+        });
 
         // store for nearest/override lookup
         receiversList.push({
-          id:   r.id,
+          id: r.id,
           name: r.name,
           marker: dot,
           latlng: L.latLng(r.latitude, r.longitude)
         });
+
+        // Automatically select the closest receiver if no receiver is specified
+        if (!overrideReceiverId) {
+          // Find the first vessel (or any vessel) and calculate distance
+          if (vesselMarkers && Object.keys(vesselMarkers).length > 0) {
+            const firstVessel = vesselMarkers[Object.keys(vesselMarkers)[0]];  // Take the first vessel
+            const vesselLatLng = firstVessel.getLatLng();
+            const distance = haversineDistance(vesselLatLng.lat, vesselLatLng.lng, r.latitude, r.longitude);
+
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestReceiver = r;
+            }
+          }
+        }
       });
 
-      // if the user passed ?receiver= in the URL, force-select it now
-     if (overrideReceiverId) {
-       // coerce to the same type
-       const idToMatch = typeof receiversList[0].id === 'number'
-         ? Number(overrideReceiverId)
-         : overrideReceiverId;
+      // If the closest receiver was found, select it
+      if (closestReceiver) {
+        selectedReceiverLatLng = L.latLng(closestReceiver.latitude, closestReceiver.longitude);
+        updateOverlay(selectedReceiverLatLng);
+        updateReceiverRings(selectedReceiverLatLng);
+        updateSummaryTable();
 
-       const forced = receiversList.find(rx => rx.id === idToMatch);
-       if (forced) {
-         // manually set selection state
-         selectedReceiverLatLng = forced.latlng;
-         updateOverlay(forced.latlng);
-         updateSummaryTable();
+        // Fire the click event programmatically to simulate the receiver selection
+        closestReceiver.marker.fire('click', { latlng: selectedReceiverLatLng });
 
-         // update URL cleanly
-         const url = new URL(location);
-         url.searchParams.set('receiver', forced.id);
-         history.replaceState(null, '', url);
-
-         // fire the click *with* a latlng payload
-         forced.marker.fire('click', { latlng: forced.latlng });
-       }
-     }
-
+        // Update the URL with the receiver ID
+        const url = new URL(location);
+        url.searchParams.set('receiver', closestReceiver.id);
+        history.replaceState(null, '', url);
+      }
     })
     .catch(err => console.error('Failed to load receivers', err));
- }
+}
+
 
     // Vessel icon creation
     function makeIcon(info, color){
