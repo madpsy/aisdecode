@@ -15,7 +15,7 @@
     .card p { margin: 0; font-size: 1.5em; font-weight: bold; }
     .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; margin-bottom: 20px; }
     .chart-container { width: 100%; height: 300px; }
-    .doughnut-container { width: 400px; margin-bottom: 20px; }
+    .doughnut-container { width: 300px; height: 300px; margin-bottom: 20px; }
     table { width: 100%; border-collapse: collapse; margin-top: 20px; }
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
     th { background: #f0f0f0; cursor: pointer; user-select: none; }
@@ -56,7 +56,7 @@
 
   <script>
     const allMetrics = ['bytes_received','messages','failures','deduplicated','window_bytes','window_messages','window_unique_uids'];
-    const cardMetrics = allMetrics.filter(m=>!m.startsWith('window_'));
+    const cardMetrics = ['Unique Vessels', ...allMetrics.filter(m=>!m.startsWith('window_'))];
     const chartMetrics = allMetrics.filter(m=>m.startsWith('window_'));
     const maxPoints = 60;
     let overrideIp = '';
@@ -67,8 +67,7 @@
     const seenUserIds = new Set(), summaryCache = {}, lastSeenTs = {}, seenCount = {};
     let sortField = 'lastSeen', sortAsc = false;
 
-    let typesConfig = null;
-    let typeDoughnut = null;
+    let typesConfig = null, typeDoughnut = null;
 
     function formatNumber(v){
       if(v>=1e6) return +(v/1e6).toFixed(v%1e6===0?0:2)+'M';
@@ -86,7 +85,9 @@
 
     // Build cards
     cardMetrics.forEach(m=>{
-      const c=document.createElement('div'); c.className='card'; c.id=`card-${m}`;
+      const c=document.createElement('div'); c.className='card';
+      const id = m==='Unique Vessels' ? 'unique-vessels' : `card-${m}`;
+      c.id = id;
       c.innerHTML=`<h3>${m.replace(/_/g,' ')}</h3><p>0</p>`;
       cardsContainer.appendChild(c);
     });
@@ -109,7 +110,10 @@
       overrideIp=ip;
       document.getElementById('ipInput').value=ip;
       Object.keys(baselines).forEach(k=>delete baselines[k]);
-      cardMetrics.forEach(m=>document.querySelector(`#card-${m} p`).textContent='0');
+      cardMetrics.forEach(m=>{
+        const sel = m==='Unique Vessels' ? '#unique-vessels p' : `#card-${m} p`;
+        document.querySelector(sel).textContent='0';
+      });
       chartMetrics.forEach(m=>{const c=charts[m];c.data.labels=[];c.data.datasets[0].data=[];c.update();});
       const url=new URL(location);
       ip?url.searchParams.set('ipaddress',ip):url.searchParams.delete('ipaddress');
@@ -151,13 +155,16 @@
         document.getElementById('ip-address').textContent=data.ip_address;
         const lbl=new Date().toLocaleTimeString();
 
-        // cards
-        cardMetrics.forEach(m=>{
+        // update cards
+        // Unique Vessels
+        document.querySelector('#unique-vessels p').textContent = seenUserIds.size;
+
+        cardMetrics.slice(1).forEach(m=>{
           if(baselines[m]===undefined) baselines[m]=data[m];
           document.querySelector(`#card-${m} p`).textContent=formatNumber(data[m]-baselines[m]);
         });
 
-        // charts
+        // update charts
         chartMetrics.forEach(m=>{
           const c=charts[m];
           c.data.labels.push(lbl);
@@ -166,7 +173,7 @@
           c.update();
         });
 
-        // user IDs
+        // process window user IDs
         if(Array.isArray(data.window_user_ids)){
           data.window_user_ids.forEach(uid=>{
             lastSeenTs[uid]=new Date();
@@ -181,13 +188,13 @@
           });
           updateSummaryTable();
         }
-      } catch(e){ console.error('Fetch error',e); }
+      } catch(e){ console.error('Fetch error', e); }
     }
 
     function typeNameFor(val){
       if(!typesConfig) return val;
-      const catId = typesConfig.valueLookup[val];
-      const cat = typesConfig.categories.find(c=>c.id===catId);
+      const catId=typesConfig.valueLookup[val];
+      const cat=typesConfig.categories.find(c=>c.id===catId);
       return cat?cat.name:val;
     }
 
@@ -204,12 +211,11 @@
       if(!typeDoughnut) return;
       const counts = {};
       Array.from(seenUserIds).filter(uid=>uid.length===9).forEach(uid=>{
-        const t = summaryCache[uid]?.Type;
-        const name = typeNameFor(t);
-        counts[name] = (counts[name]||0) + 1;
+        const t=summaryCache[uid]?.Type; const name=typeNameFor(t);
+        counts[name]=(counts[name]||0)+1;
       });
-      typeDoughnut.data.labels = Object.keys(counts);
-      typeDoughnut.data.datasets[0].data = Object.values(counts);
+      typeDoughnut.data.labels=Object.keys(counts);
+      typeDoughnut.data.datasets[0].data=Object.values(counts);
       typeDoughnut.update();
     }
 
@@ -218,25 +224,25 @@
       const arr=Array.from(seenUserIds)
         .filter(uid=>uid.length===9)
         .map(uid=>({
-          id: uid,
-          info: summaryCache[uid]||{},
-          lastTs: lastSeenTs[uid]||new Date(0),
-          count: seenCount[uid]||0
+          id:uid,
+          info:summaryCache[uid]||{},
+          lastTs:lastSeenTs[uid]||new Date(0),
+          count:seenCount[uid]||0
         }));
       arr.sort((a,b)=>{
         let cmp;
-        if(sortField==='lastSeen'){
-          cmp = a.lastTs - b.lastTs;
-        } else {
-          cmp = ('' + a[sortField]).localeCompare('' + b[sortField]);
-        }
-        return sortAsc ? cmp : -cmp;
+        if(sortField==='lastSeen') cmp=a.lastTs-b.lastTs;
+        else if(sortField==='name') cmp=(a.info.Name||'').localeCompare(b.info.Name||'');
+        else if(sortField==='typeName') cmp=typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
+        else if(sortField==='count') cmp=a.count-b.count;
+        else cmp=a.id.localeCompare(b.id);
+        return sortAsc?cmp:-cmp;
       });
-      tbody.innerHTML = '';
+      tbody.innerHTML='';
       arr.forEach(item=>{
-        const ago = formatAgo(item.lastTs);
-        const name = item.info.Name||'';
-        const typeDisp = typeNameFor(item.info.Type);
+        const ago=formatAgo(item.lastTs);
+        const name=item.info.Name||'';
+        const typeDisp=typeNameFor(item.info.Type);
         const tr=document.createElement('tr');
         tr.innerHTML=`
           <td><a href="/?UserID=${item.id}" target="_blank">${item.id}</a></td>
