@@ -286,6 +286,10 @@
 
       // 4) Fire its ‘mouseover’ so your existing popup-binding handler runs
       marker.fire('mouseover');
+      const mapEl = document.getElementById('map');
+      if (mapEl) {
+        mapEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
     function makeIcon(info, color){
       if(info.Sog > 0.5){
