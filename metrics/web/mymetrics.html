@@ -320,6 +320,8 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
+      map.on('click', () => updateOverlay(null));
+
       // create and append overlay
       overlayDiv = document.createElement('div');
       overlayDiv.className = 'latlng-overlay';
@@ -457,6 +459,10 @@
           m.on('click', e => {
             updateOverlay(e.latlng);
             m.openPopup();
+          });
+          // hide overlay when the popup is closed
+          m.on('popupclose', () => {
+            updateOverlay(null);
           });
           m.addTo(map);
           vesselMarkers[uid] = m;
