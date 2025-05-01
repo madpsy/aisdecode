@@ -337,16 +337,9 @@ map.on('moveend', function () {
     }
 
     // Remove existing line + label
-    function clearDistanceLine() {
-      if (distancePolyline) { 
-        map.removeLayer(distancePolyline); 
-        distancePolyline = null; 
-      }
-      if (distanceLabel) { 
-        map.removeLayer(distanceLabel); 
-        distanceLabel = null; 
-      }
-      clearRadiusRings();  // Also clear the radius rings
+    function clearDistanceLine(){
+      if(distancePolyline){ map.removeLayer(distancePolyline); distancePolyline = null; }
+      if(distanceLabel){ map.removeLayer(distanceLabel); distanceLabel = null; }
     }
 
     // Helpers
@@ -496,45 +489,43 @@ map.on('moveend', function () {
       updateSummaryTable();
     });
 
-function initMap(){
-  // Initialize the map
-  map = L.map('map').setView([0,0], 2);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+    // Initialize map, overlay, and receivers
+    function initMap(){
+      map = L.map('map').setView([0,0],2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
 
-  // Ensure map is initialized before interacting with it
-  map.on('click', e => {
-    const tgt = e.originalEvent.target;
+map.on('click', e => {
+  const tgt = e.originalEvent.target;
 
-    // if the click came from a marker icon, popup, or tooltip, ignore it
-    if (
-      tgt.classList.contains('leaflet-marker-icon') ||
-      tgt.classList.contains('leaflet-interactive') ||  // SVG marker
-      tgt.closest('.leaflet-popup') ||
-      tgt.closest('.distance-tooltip')
-    ) {
-      return;
-    }
+  // if the click came from a marker icon, popup, or tooltip, ignore it
+  if (
+    tgt.classList.contains('leaflet-marker-icon') ||
+    tgt.classList.contains('leaflet-interactive') ||  // SVG marker
+    tgt.closest('.leaflet-popup') ||
+    tgt.closest('.distance-tooltip')
+  ) {
+    return;
+  }
 
-    // otherwise clear
-    updateOverlay(null);
-    clearDistanceLine();
-    clearSelectedRow();
-    focusedUid = null;
-  });
-
-  // Create and append overlay for lat/lng display
-  overlayDiv = document.createElement('div');
-  overlayDiv.className = 'latlng-overlay';
-  map.getContainer().appendChild(overlayDiv);
+  // otherwise clear
   updateOverlay(null);
+  clearDistanceLine();
+  clearSelectedRow();
+  focusedUid = null;
+});
 
-  // Call this after map is initialized
-  loadReceivers();
+      // create and append overlay
+      overlayDiv = document.createElement('div');
+      overlayDiv.className = 'latlng-overlay';
+      map.getContainer().appendChild(overlayDiv);
+      updateOverlay(null);
 
-  map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
-}
+      loadReceivers();
+
+      map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
+    }
 
 function updateOverlay(latlng) {
 
