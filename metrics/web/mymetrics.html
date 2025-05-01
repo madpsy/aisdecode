@@ -291,6 +291,7 @@ function getFurthestVesselDistance(latlng) {
 
 // Function to draw rings based on receiver's location
 function drawRadiusRings(latlng) {
+  if (!latlng) return;
   clearRadiusRings();  // Clear existing rings
 
   if (!latlng) return;  // No receiver selected
@@ -787,6 +788,7 @@ function focusVessel(uid){
 function updateMap(){
     const oldVesselCount = Object.keys(vesselMarkers).length;
     const boundsArr = [], newMarkers = {};
+    if (!selectedReceiverLatLng) return;
     let maxDistance = 0;  // Track the furthest distance
 
     seenUserIds.forEach(uid => {
@@ -1091,6 +1093,8 @@ function updateMap(){
       document.querySelectorAll('.distance-col').forEach(el=>{
         el.style.display = showDist ? '' : 'none';
       });
+
+      if (!selectedReceiverLatLng) return
 
       let allRows = Array.from(seenUserIds)
         .filter(uid=>uid.length===9)
