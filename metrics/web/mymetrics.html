@@ -174,11 +174,9 @@
       overrideIp = ip;
       document.getElementById('ipInput').value = ip;
 
-      // reset cards & baselines
       Object.keys(baselines).forEach(k => delete baselines[k]);
       cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
 
-      // reset line charts
       chartMetrics.forEach(m => {
         const c = charts[m];
         c.data.labels = [];
@@ -186,7 +184,6 @@
         c.update();
       });
 
-      // reset summary state & pagination
       seenUserIds.clear();
       Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
       vesselMarkers = {};
@@ -196,7 +193,6 @@
       document.getElementById('summaryBody').innerHTML = '';
       currentPage = 1;
 
-      // reset doughnut
       if(typeDoughnut){
         typeDoughnut.data.labels = [];
         typeDoughnut.data.datasets[0].data = [];
@@ -204,28 +200,22 @@
         typeDoughnut.update();
       }
 
-      // reset map fit & sorting
       autoFit = true;
       sortField = 'lastSeen'; sortAsc = false;
       document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
-
-      // clear pagination controls
       document.getElementById('pagination').innerHTML = '';
 
-      // update URL
       const url = new URL(location);
       ip ? url.searchParams.set('ipaddress', ip) : url.searchParams.delete('ipaddress');
       history.replaceState(null, '', url);
     }
 
     window.addEventListener('DOMContentLoaded', ()=>{
-      // load vessel types
       fetch('/types.json')
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
         .then(json => { typesConfig = json; initDoughnut(); initMap(); })
         .catch(e => console.error('types.json error', e));
 
-      // load MID → country map
       fetch('/mids.json')
         .then(r => r.ok ? r.json() : Promise.reject(r.status))
         .then(json => { midMap = json; })
@@ -246,7 +236,7 @@
     document.querySelectorAll('#summaryTable th').forEach(th=>{
       th.onclick = ()=>{
         const f = th.dataset.field;
-        if(!f) return;  // skip Flag column
+        if(!f) return;
         if(sortField === f) sortAsc = !sortAsc;
         else { sortField = f; sortAsc = true; }
         document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
@@ -295,39 +285,69 @@
         const { Latitude:lat, Longitude:lon } = info;
         if(typeof lat!=='number' || typeof lon!=='number') return;
         boundsArr.push([lat,lon]);
+
         const typeDisp = typeNameFor(info.Type);
         const color    = typeColorsMap[typeDisp] || '#000';
         const icon     = makeIcon(info, color);
-        if(vesselMarkers[uid]){
+
+        if (vesselMarkers[uid]) {
           vesselMarkers[uid].setLatLng([lat,lon]).setIcon(icon);
+          newMarkers[uid] = vesselMarkers[uid];
         } else {
-          const m = L.marker([lat,lon],{icon});
-          m.bindPopup(`
-            <b>MMSI:</b> ${uid}<br/>
-            <b>Name:</b> ${info.Name||''}<br/>
-            <b>Speed:</b> ${info.Sog} kn<br/>
-            <b>Type:</b> ${typeDisp}<br/>
-            <b>Class:</b> ${info.AISClass||''}
-          `,{closeButton:false,autoClose:false});
-          m.on('mouseover',()=>m.openPopup());
-          m.on('mouseout',()=>m.closePopup());
-          m.on('click',()=>m.openPopup());
+          const m = L.marker([lat,lon], { icon });
+
+          // --- NEW: fetch /state/<UserID> on hover and inject ImageURL if present ---
+          m.on('mouseover', async () => {
+            m.bindPopup(`
+              <div id="popup-${uid}">
+                <b>MMSI:</b> ${uid}<br/>
+                <b>Name:</b> ${info.Name || ''}<br/>
+                <b>Speed:</b> ${info.Sog} kn<br/>
+                <b>Type:</b> ${typeDisp}<br/>
+                <b>Class:</b> ${info.AISClass || ''}<br/>
+                <div class="state-image">Loading image…</div>
+              </div>
+            `, { closeButton: false, autoClose: false }).openPopup();
+
+            try {
+              const res = await fetch(`/state/${encodeURIComponent(uid)}`);
+              if (!res.ok) throw new Error(res.status);
+              const state = await res.json();
+              const imgUrl = state.ImageURL;
+              const container = document.querySelector(`#popup-${uid} .state-image`);
+              if (imgUrl) {
+                container.innerHTML = `<img src="${imgUrl}" style="max-width:120px; max-height:80px; display:block; margin-top:8px;" alt="State image"/>`;
+              } else {
+                container.textContent = '';
+              }
+            } catch (e) {
+              console.error(`Failed to load state for ${uid}`, e);
+              document.querySelector(`#popup-${uid} .state-image`).textContent = '';
+            }
+          });
+
+          m.on('mouseout', () => m.closePopup());
+          m.on('click', () => m.openPopup());
+          // ------------------------------------------------------------------------
+
           m.addTo(map);
-          vesselMarkers[uid]=m;
+          vesselMarkers[uid] = m;
+          newMarkers[uid] = m;
         }
-        newMarkers[uid]=vesselMarkers[uid];
       });
-      Object.keys(vesselMarkers).forEach(uid=>{
-        if(!newMarkers[uid]){
+
+      // remove stale markers
+      Object.keys(vesselMarkers).forEach(uid => {
+        if (!newMarkers[uid]) {
           map.removeLayer(vesselMarkers[uid]);
-          delete vesselMarkers[uid];
         }
       });
-      vesselMarkers=newMarkers;
-      if(autoFit && boundsArr.length){
-        programmaticFit=true;
-        map.once('moveend zoomend',()=>programmaticFit=false);
-        map.fitBounds(L.latLngBounds(boundsArr),{padding:[20,20]});
+      vesselMarkers = newMarkers;
+
+      if (autoFit && boundsArr.length) {
+        programmaticFit = true;
+        map.once('moveend zoomend', () => programmaticFit = false);
+        map.fitBounds(L.latLngBounds(boundsArr), { padding: [20,20] });
       }
     }
 
@@ -342,13 +362,11 @@
         document.getElementById('ip-address').textContent = data.ip_address;
         const lbl = new Date().toLocaleTimeString();
 
-        // cards
         cardMetrics.forEach(m=>{
           if(baselines[m]===undefined) baselines[m]=data[m];
           document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m]-baselines[m]);
         });
 
-        // charts
         chartMetrics.forEach(m=>{
           const c = charts[m];
           c.data.labels.push(lbl);
@@ -360,7 +378,6 @@
           c.update();
         });
 
-        // summary
         if(Array.isArray(data.window_user_ids)){
           data.window_user_ids.forEach(uid=>{
             lastSeenTs[uid] = new Date();
@@ -427,13 +444,12 @@
     function renderPagination(totalPages) {
       const container = document.getElementById('pagination');
       container.innerHTML = '';
-      // prev button
       const prev = document.createElement('button');
       prev.textContent = '« Prev';
       prev.disabled = currentPage === 1;
       prev.onclick = () => { currentPage--; updateSummaryTable(); };
       container.appendChild(prev);
-      // page buttons
+
       for (let p = 1; p <= totalPages; p++) {
         const btn = document.createElement('button');
         btn.textContent = p;
@@ -441,7 +457,7 @@
         btn.onclick = () => { currentPage = p; updateSummaryTable(); };
         container.appendChild(btn);
       }
-      // next button
+
       const next = document.createElement('button');
       next.textContent = 'Next »';
       next.disabled = currentPage === totalPages;
@@ -459,7 +475,7 @@
           lastTs: lastSeenTs[uid]||new Date(0),
           count: seenCount[uid]||0
         }));
-      // sort
+
       allRows.sort((a,b)=>{
         let cmp;
         if(sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
@@ -469,6 +485,7 @@
         else cmp = a.id.localeCompare(b.id);
         return sortAsc ? cmp : -cmp;
       });
+
       const totalPages = Math.ceil(allRows.length / rowsPerPage) || 1;
       if (currentPage > totalPages) currentPage = totalPages;
       const start = (currentPage - 1) * rowsPerPage;
