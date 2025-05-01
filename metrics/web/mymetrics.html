@@ -335,6 +335,10 @@ function clearRadiusRings() {
 }
 
 function updateReceiverRings(latlng) {
+  if (!latlng) {
+    console.warn("No receiver selected.");
+    return; // Skip if latlng is not defined
+  }
     clearRadiusRings();  // Clear any existing rings
 
     if (!latlng) return;  // No receiver selected
