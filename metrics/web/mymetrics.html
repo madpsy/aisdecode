@@ -830,33 +830,8 @@ function focusVessel(uid){
         options: {
           responsive: true,
           plugins: {
-            legend: { 
-              position: 'right', 
-              labels: { boxWidth:12 },
-              onClick: (e, legendItem, legend) => {
-                // Get the label of the clicked legend item
-                const label = legendItem.text;
-
-                // Toggle marker visibility based on legend selection
-                toggleMarkersVisibility(label);
-              }
-            },
+            legend: { position: 'right', labels: { boxWidth:12 } },
             centerText: { display: true, text: '' }
-          }
-        }
-      });
-    }
-
-    function toggleMarkersVisibility(label) {
-      Object.values(vesselMarkers).forEach(marker => {
-        const markerType = marker.options.icon.options.className; // Assuming that you are storing the type as className of the icon
-        const typeToShow = label.split(' ')[0]; // Assumes format like "Type (Count)"
-
-        if (markerType === typeToShow) {
-          if (label.includes('Show')) {
-            marker.addTo(map); // Show the marker
-          } else {
-            marker.removeFrom(map); // Hide the marker
           }
         }
       });
