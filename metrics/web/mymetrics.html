@@ -1095,6 +1095,19 @@ m.on('click', function(e) {
       renderPagination(totalPages);
       updateDoughnut();
     }
+// Add event listener for zoom and move events to adjust rings
+map.on('zoomend', function () {
+  if (selectedReceiverLatLng) {
+    drawRadiusRings(selectedReceiverLatLng);  // Redraw rings on zoom
+  }
+});
+
+map.on('moveend', function () {
+  if (selectedReceiverLatLng) {
+    drawRadiusRings(selectedReceiverLatLng);  // Redraw rings on move
+  }
+});
+
   </script>
 </body>
 </html>
