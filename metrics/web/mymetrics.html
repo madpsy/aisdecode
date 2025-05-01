@@ -716,12 +716,17 @@ function loadReceivers() {
       if (overrideReceiverId) {
         const receiver = receiversList.find(r => r.id === overrideReceiverId);
         if (receiver) {
-          // Directly call the receiver's click function
-          selectedReceiverLatLng = receiver.latlng;
-          receiver.marker.fire('click', { latlng: selectedReceiverLatLng });
+          // Log to check if the receiver is being found correctly
+          console.log("Programmatically selecting receiver:", receiver);
 
-          // Programmatically trigger the click event
-          receiver.marker.fire('click');
+          // Directly call the receiver's click handler logic
+          selectedReceiverLatLng = receiver.latlng;
+          updateOverlay(selectedReceiverLatLng);
+          updateReceiverRings(selectedReceiverLatLng);
+          updateSummaryTable();
+
+          // Mimic the logic from the click event (since fire might not trigger everything)
+          receiver.marker.fire('click', { latlng: selectedReceiverLatLng });
         }
       } else if (closestReceiver) {
         // Select the closest receiver if not overridden
@@ -730,7 +735,7 @@ function loadReceivers() {
         updateReceiverRings(selectedReceiverLatLng);
         updateSummaryTable();
 
-        // Programmatically trigger click event for the closest receiver
+        // Mimic the logic from the click event for the closest receiver
         closestReceiver.marker.fire('click', { latlng: selectedReceiverLatLng });
 
         // Update the URL with the receiver ID
