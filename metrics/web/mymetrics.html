@@ -648,6 +648,7 @@ function updateOverlay(latlng) {
 function loadReceivers() {
   // clear any previous receivers
   receiversList = [];
+  
   fetch('/receivers')
     .then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -658,7 +659,7 @@ function loadReceivers() {
       let minDistance = Infinity;
 
       receivers.forEach(r => {
-        // create the circle marker
+        // create the circle marker for each receiver
         const dot = L.circleMarker([r.latitude, r.longitude], {
           radius: 8,
           color: 'red',
@@ -667,16 +668,17 @@ function loadReceivers() {
           weight: 2
         }).addTo(map);
 
-        // tooltip with the RX name
+        // Tooltip with the RX name
         dot.bindTooltip(`${r.name} (RX)`, {
           permanent: true,
           direction: 'top',
           className: 'receiver-tooltip'
         });
 
+        // Click event to select receiver
         dot.on('click', e => {
           L.DomEvent.stopPropagation(e);
-          selectedReceiverLatLng = e.latlng;  // Update the receiver's position
+          selectedReceiverLatLng = e.latlng;  // Update receiver position
           clearDistanceLine();  // Clear any previous distance lines
           updateOverlay(e.latlng);
           updateReceiverRings(e.latlng);  // Redraw radius rings
@@ -688,7 +690,7 @@ function loadReceivers() {
           history.replaceState(null, '', url);
         });
 
-        // store for nearest/override lookup
+        // Store for nearest/override lookup
         receiversList.push({
           id: r.id,
           name: r.name,
@@ -696,18 +698,16 @@ function loadReceivers() {
           latlng: L.latLng(r.latitude, r.longitude)
         });
 
-        // Automatically select the closest receiver if no receiver is specified
-        if (!overrideReceiverId) {
+        // If no receiver query param is set, find the closest receiver
+        if (!overrideReceiverId && Object.keys(vesselMarkers).length > 0) {
           // Find the first vessel (or any vessel) and calculate distance
-          if (vesselMarkers && Object.keys(vesselMarkers).length > 0) {
-            const firstVessel = vesselMarkers[Object.keys(vesselMarkers)[0]];  // Take the first vessel
-            const vesselLatLng = firstVessel.getLatLng();
-            const distance = haversineDistance(vesselLatLng.lat, vesselLatLng.lng, r.latitude, r.longitude);
+          const firstVessel = vesselMarkers[Object.keys(vesselMarkers)[0]];  // Take the first vessel
+          const vesselLatLng = firstVessel.getLatLng();
+          const distance = haversineDistance(vesselLatLng.lat, vesselLatLng.lng, r.latitude, r.longitude);
 
-            if (distance < minDistance) {
-              minDistance = distance;
-              closestReceiver = r;
-            }
+          if (distance < minDistance) {
+            minDistance = distance;
+            closestReceiver = r;
           }
         }
       });
@@ -719,7 +719,7 @@ function loadReceivers() {
         updateReceiverRings(selectedReceiverLatLng);
         updateSummaryTable();
 
-        // Fire the click event programmatically to simulate the receiver selection
+        // Programmatically trigger click event for the closest receiver
         closestReceiver.marker.fire('click', { latlng: selectedReceiverLatLng });
 
         // Update the URL with the receiver ID
@@ -730,6 +730,7 @@ function loadReceivers() {
     })
     .catch(err => console.error('Failed to load receivers', err));
 }
+
 
 
     // Vessel icon creation
