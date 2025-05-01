@@ -450,19 +450,21 @@
       map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
     }
 
-    // Show/hide & update the overlay
 function updateOverlay(latlng) {
+  console.log("updateOverlay called with latlng:", latlng);
+
   if (!overlayDiv) return;
   
   if (!latlng) {
-    overlayDiv.style.display = 'none';  // Hide if no latlng
     console.log("Overlay hidden.");
+    overlayDiv.style.display = 'none';  // Hide overlay if no latlng is provided
   } else {
+    console.log("Overlay shown with latlng:", latlng);
     overlayDiv.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
     overlayDiv.style.display = 'block';  // Show overlay
-    console.log("Overlay displayed with latlng:", latlng);
   }
 }
+
 
     // Fetch & draw receiver markers
 function loadReceivers() {
