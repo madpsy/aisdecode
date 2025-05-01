@@ -832,17 +832,7 @@ function initDoughnut(){
       plugins: {
         legend: { 
           position: 'right', 
-          labels: { boxWidth:12 },
-          onClick: (e, legendItem, legend) => {
-            // First call the default legend click behavior (this will toggle the chart)
-            Chart.defaults.plugins.legend.onClick(e, legendItem, legend);
-
-            // Get the label of the clicked legend item
-            const label = legendItem.text;
-
-            // Toggle marker visibility based on legend selection
-            toggleMarkersVisibility(label);
-          }
+          labels: { boxWidth:12 }
         },
         centerText: { display: true, text: '' }
       }
@@ -850,13 +840,26 @@ function initDoughnut(){
   });
 }
 
-function toggleMarkersVisibility(label) {
+// Function to update the visibility of map markers based on legend visibility
+function updateMarkersFromChart() {
+  // Loop over each dataset in the doughnut chart
+  typeDoughnut.data.datasets[0].data.forEach((_, index) => {
+    const label = typeDoughnut.data.labels[index]; // Get the corresponding label from the chart
+    const datasetVisible = typeDoughnut.isDatasetVisible(index); // Check if the dataset is visible in the chart
+
+    // Update map marker visibility based on dataset visibility
+    toggleMarkersVisibility(label, datasetVisible);
+  });
+}
+
+// Function to toggle marker visibility based on the chart's dataset visibility
+function toggleMarkersVisibility(label, visible) {
   Object.values(vesselMarkers).forEach(marker => {
-    const markerType = marker.options.icon.options.className; // Assuming that you are storing the type as className of the icon
-    const typeToShow = label.split(' ')[0]; // Assumes format like "Type (Count)"
+    const markerType = marker.options.icon.options.className; // Assuming type is in className
+    const typeToShow = label.split(' ')[0]; // Get the type from the legend item
 
     if (markerType === typeToShow) {
-      if (label.includes('Show')) {
+      if (visible) {
         marker.addTo(map); // Show the marker
       } else {
         marker.removeFrom(map); // Hide the marker
@@ -864,6 +867,15 @@ function toggleMarkersVisibility(label) {
     }
   });
 }
+
+// Watch for chart updates and trigger marker visibility change
+typeDoughnut.options.onClick = (e, legendItem, legend) => {
+  // Default Chart.js behavior for the legend click
+  Chart.defaults.plugins.legend.onClick(e, legendItem, legend);
+
+  // After chart update, update the markers visibility
+  updateMarkersFromChart();
+};
 
 
     function updateDoughnut(){
