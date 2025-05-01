@@ -602,6 +602,7 @@ function focusVessel(uid){
           m.on('click', function(e){
             L.DomEvent.stopPropagation(e);
             updateOverlay(e.latlng);
+	    Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
             m.openPopup();
 
             clearSelectedRow();    // ← new
