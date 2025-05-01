@@ -1,11 +1,8 @@
 {
   "ingest_port": 8080,
   "ingest_host": "localhost",
-  "db_host": "localhost",
-  "db_port": 5432,
-  "db_user": "new_user",
-  "db_pass": "password",
-  "db_name": "mydatabase",
+  "influx_host": "localhost",
+  "influx_port": 8088,
   "listen_port": 5133,
   "debug": false
 }

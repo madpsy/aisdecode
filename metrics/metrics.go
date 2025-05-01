@@ -1,225 +1,324 @@
 package main
 
 import (
-    "encoding/json"
-    "fmt"
-    "io/ioutil"
-    "log"
-    "net"
-    "net/http"
-    "regexp"
-    "strings"
-    "sync"
-    "time"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net"
+	"net/http"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	client "github.com/influxdata/influxdb1-client/v2"
 )
 
 type Settings struct {
-    DbHost     string `json:"db_host"`
-    DbPort     int    `json:"db_port"`
-    DbUser     string `json:"db_user"`
-    DbPass     string `json:"db_pass"`
-    DbName     string `json:"db_name"`
-    ListenPort int    `json:"listen_port"`
-    Debug      bool   `json:"debug"`
-    IngestHost string `json:"ingest_host"`
-    IngestPort int    `json:"ingest_port"`
+	IngestHost string `json:"ingest_host"`
+	IngestPort int    `json:"ingest_port"`
+	InfluxHost string `json:"influx_host"`
+	InfluxPort int    `json:"influx_port"`
+	ListenPort int    `json:"listen_port"`
+	Debug      bool   `json:"debug"`
 }
 
-// FullMetrics mirrors the parts of the JSON we filter by source IP.
+// FullMetrics matches the JSON from /metrics
 type FullMetrics struct {
-    BytesReceivedBySource    []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"bytes_received_by_source"`
-    FailuresBySource         []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"failures_by_source"`
-    MessagesBySource         []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"messages_by_source"`
-    PerDeduplicatedSource    map[string]int                                                    `json:"per_deduplicated_source"`
-    WindowBytesBySource      map[string]int                                                    `json:"window_bytes_by_source"`
-    WindowMessagesBySource   map[string]int                                                    `json:"window_messages_by_source"`
-    UniqueMMSIBySource       []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"unique_mmsi_by_source"`
-    WindowUniqueUIDsBySource map[string]int                                                    `json:"window_unique_uids_by_source"`
+	BytesReceivedBySource      []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"bytes_received_by_source"`
+	FailuresBySource           []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"failures_by_source"`
+	MessagesBySource           []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"messages_by_source"`
+	UniqueMMSIBySource         []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"unique_mmsi_by_source"`
+	WindowBytesBySource        map[string]int                                       `json:"window_bytes_by_source"`
+	WindowMessagesBySource     map[string]int                                       `json:"window_messages_by_source"`
+	WindowUniqueUIDsBySource   map[string]int                                       `json:"window_unique_uids_by_source"`
+	PerDeduplicatedSource      map[string]int                                       `json:"per_deduplicated_source"`
+	PerDownsampledMessageID    map[string]int                                       `json:"per_downsampled_message_id"`
+	PerMessageID               map[string]int                                       `json:"per_message_id"`
+	Top25DeduplicatedPerSource []struct{ SourceIP string `json:"source_ip"`; Count int `json:"count"` } `json:"top25_deduplicated_per_source"`
+	TotalBytesForwarded        int                                                  `json:"total_bytes_forwarded"`
+	TotalBytesReceived         int                                                  `json:"total_bytes_received"`
+	TotalFailures              int                                                  `json:"total_failures"`
+	TotalMessages              int                                                  `json:"total_messages"`
+	TotalMessagesForwarded     int                                                  `json:"total_messages_forwarded"`
+	UptimeSeconds              int                                                  `json:"uptime_seconds"`
 }
 
-// SimpleMetrics is the flattened response for a single source
 type SimpleMetrics struct {
-    BytesReceived    int `json:"bytes_received"`
-    Messages         int `json:"messages"`
-    UniqueMMSI       int `json:"unique_mmsi"`
-    Failures         int `json:"failures"`
-    Deduplicated     int `json:"deduplicated"`
-    WindowBytes      int `json:"window_bytes"`
-    WindowMessages   int `json:"window_messages"`
-    WindowUniqueUIDs int `json:"window_unique_uids"`
+	BytesReceived    int `json:"bytes_received"`
+	Messages         int `json:"messages"`
+	UniqueMMSI       int `json:"unique_mmsi"`
+	Failures         int `json:"failures"`
+	Deduplicated     int `json:"deduplicated"`
+	WindowBytes      int `json:"window_bytes"`
+	WindowMessages   int `json:"window_messages"`
+	WindowUniqueUIDs int `json:"window_unique_uids"`
 }
 
-// ResponseMetrics embeds the simple metrics plus the client IP
 type ResponseMetrics struct {
-    IPAddress string `json:"ip_address"`
-    SimpleMetrics
+	IPAddress     string        `json:"ip_address"`
+	SimpleMetrics               // embedded
 }
 
 var (
-    settings      Settings
-    metricsLock   sync.RWMutex
-    latestMetrics interface{}
+	settings      Settings
+	metricsLock   sync.RWMutex
+	latestMetrics interface{}
+	influxClient  client.Client
 )
 
 func main() {
-    // Load settings.json
-    data, err := ioutil.ReadFile("settings.json")
-    if err != nil {
-        log.Fatalf("Error reading settings.json: %v", err)
-    }
-    if err := json.Unmarshal(data, &settings); err != nil {
-        log.Fatalf("Error parsing settings.json: %v", err)
-    }
+	// Load settings.json
+	data, err := ioutil.ReadFile("settings.json")
+	if err != nil {
+		log.Fatalf("Error reading settings.json: %v", err)
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		log.Fatalf("Error parsing settings.json: %v", err)
+	}
 
-    // Start background ingestion of metrics
-    go ingestMetricsLoop()
+	// Connect to InfluxDB
+	influxURL := fmt.Sprintf("http://%s:%d", settings.InfluxHost, settings.InfluxPort)
+	influxClient, err = client.NewHTTPClient(client.HTTPConfig{Addr: influxURL})
+	if err != nil {
+		log.Fatalf("Error creating InfluxDB client: %v", err)
+	}
+	defer influxClient.Close()
 
-    // Public API: metrics ingestion and retrieval (now /metrics/ingester)
-    http.HandleFunc("/metrics/ingester", func(w http.ResponseWriter, r *http.Request) {
-        metricsLock.RLock()
-        defer metricsLock.RUnlock()
-        if latestMetrics == nil {
-            http.Error(w, "no metrics yet", http.StatusNoContent)
-            return
-        }
+	// Start background ingestion loop
+	go ingestMetricsLoop()
 
-        // Marshal the raw metrics to JSON
-        blob, err := json.Marshal(latestMetrics)
-        if err != nil {
-            log.Printf("Error marshaling metrics: %v", err)
-            http.Error(w, "internal error", http.StatusInternalServerError)
-            return
-        }
+	// Handlers
+	http.HandleFunc("/metrics/ingester", metricsIngesterHandler)
+	http.HandleFunc("/metrics/bysource", handleMetricsBySource)
+	http.Handle("/metrics/", http.StripPrefix("/metrics/", http.FileServer(http.Dir("web"))))
 
-        // Mask first two octets of every IPv4 address (e.g. 127.0.0.1 → x.x.0.1)
-        re := regexp.MustCompile(`\b(\d{1,3})\.(\d{1,3})\.(\d{1,3}\.\d{1,3})\b`)
-        masked := re.ReplaceAll(blob, []byte("x.x.$3"))
-
-        w.Header().Set("Content-Type", "application/json")
-        w.Write(masked)
-    })
-
-    // Handle /metrics/bysource (this logic is intact)
-    http.HandleFunc("/metrics/bysource", handleMetricsBySource)
-
-    // Serve static files for /metrics/ from the 'web' directory
-    http.Handle("/metrics/", http.StripPrefix("/metrics/", http.FileServer(http.Dir("web"))))
-
-    addr := fmt.Sprintf(":%d", settings.ListenPort)
-    log.Printf("Server listening on %s", addr)
-    log.Fatal(http.ListenAndServe(addr, nil))
+	// Listen
+	addr := fmt.Sprintf(":%d", settings.ListenPort)
+	log.Printf("Server listening on %s", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
-// ingestMetricsLoop polls /metrics every second with a 5s timeout.
 func ingestMetricsLoop() {
-    client := &http.Client{Timeout: 5 * time.Second}
-    ticker := time.NewTicker(1 * time.Second)
-    defer ticker.Stop()
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
-    for range ticker.C {
-        url := fmt.Sprintf("http://%s:%d/metrics", settings.IngestHost, settings.IngestPort)
-        resp, err := client.Get(url)
-        if err != nil {
-            log.Printf("Error fetching metrics: %v", err)
-            continue
-        }
-        body, err := ioutil.ReadAll(resp.Body)
-        resp.Body.Close()
-        if err != nil {
-            log.Printf("Error reading metrics response: %v", err)
-            continue
-        }
-
-        var m interface{}
-        if err := json.Unmarshal(body, &m); err != nil {
-            log.Printf("Error parsing metrics JSON: %v", err)
-            continue
-        }
-
-        metricsLock.Lock()
-        latestMetrics = m
-        metricsLock.Unlock()
-    }
+	for range ticker.C {
+		url := fmt.Sprintf("http://%s:%d/metrics", settings.IngestHost, settings.IngestPort)
+		resp, err := httpClient.Get(url)
+		if err != nil {
+			log.Printf("Error fetching metrics: %v", err)
+			continue
+		}
+		body, err := ioutil.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			log.Printf("Error reading metrics response: %v", err)
+			continue
+		}
+		var m interface{}
+		if err := json.Unmarshal(body, &m); err != nil {
+			log.Printf("Error parsing metrics JSON: %v", err)
+			continue
+		}
+		metricsLock.Lock()
+		latestMetrics = m
+		metricsLock.Unlock()
+	}
 }
 
-// --- Public listing of latest metrics ---
+func metricsIngesterHandler(w http.ResponseWriter, r *http.Request) {
+	metricsLock.RLock()
+	defer metricsLock.RUnlock()
+	if latestMetrics == nil {
+		http.Error(w, "no metrics yet", http.StatusNoContent)
+		return
+	}
+
+	// 1) write to InfluxDB
+	if err := writeMetricsToInfluxDB(latestMetrics); err != nil {
+		log.Printf("Error writing metrics to InfluxDB: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// 2) marshal then mask IPs
+	blob, err := json.Marshal(latestMetrics)
+	if err != nil {
+		log.Printf("Error marshaling metrics: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	re := regexp.MustCompile(`\b(\d{1,3})\.(\d{1,3})\.(\d{1,3}\.\d{1,3})\b`)
+	masked := re.ReplaceAll(blob, []byte("x.x.$3"))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(masked)
+}
+
+func writeMetricsToInfluxDB(metrics interface{}) error {
+	blob, err := json.Marshal(metrics)
+	if err != nil {
+		return fmt.Errorf("error marshaling metrics: %v", err)
+	}
+	var full FullMetrics
+	if err := json.Unmarshal(blob, &full); err != nil {
+		return fmt.Errorf("error parsing FullMetrics: %v", err)
+	}
+
+	bp, err := client.NewBatchPoints(client.BatchPointsConfig{Database: "metrics_db"})
+	if err != nil {
+		return fmt.Errorf("error creating batch points: %v", err)
+	}
+
+	add := func(tags map[string]string, fields map[string]interface{}) {
+		p, err := client.NewPoint("metrics", tags, fields, time.Now())
+		if err != nil {
+			log.Printf("point error tags=%v fields=%v: %v", tags, fields, err)
+			return
+		}
+		bp.AddPoint(p)
+	}
+
+	// Per-source
+	for _, m := range full.BytesReceivedBySource {
+		add(map[string]string{"source_ip": m.SourceIP, "metric": "bytes_received"},
+			map[string]interface{}{"value": m.Count})
+	}
+	for _, m := range full.FailuresBySource {
+		add(map[string]string{"source_ip": m.SourceIP, "metric": "failures"},
+			map[string]interface{}{"value": m.Count})
+	}
+	for _, m := range full.MessagesBySource {
+		add(map[string]string{"source_ip": m.SourceIP, "metric": "messages"},
+			map[string]interface{}{"value": m.Count})
+	}
+	for _, m := range full.UniqueMMSIBySource {
+		add(map[string]string{"source_ip": m.SourceIP, "metric": "unique_mmsi"},
+			map[string]interface{}{"value": m.Count})
+	}
+
+	// Windowed per-source
+	for ip, v := range full.WindowBytesBySource {
+		add(map[string]string{"source_ip": ip, "metric": "window_bytes"},
+			map[string]interface{}{"value": v})
+	}
+	for ip, v := range full.WindowMessagesBySource {
+		add(map[string]string{"source_ip": ip, "metric": "window_messages"},
+			map[string]interface{}{"value": v})
+	}
+	for ip, v := range full.WindowUniqueUIDsBySource {
+		add(map[string]string{"source_ip": ip, "metric": "window_unique_uids"},
+			map[string]interface{}{"value": v})
+	}
+
+	// Deduplicated per-source
+	for ip, v := range full.PerDeduplicatedSource {
+		add(map[string]string{"source_ip": ip, "metric": "per_deduplicated"},
+			map[string]interface{}{"value": v})
+	}
+
+	// Per-message
+	for mid, v := range full.PerDownsampledMessageID {
+		add(map[string]string{"message_id": mid, "metric": "per_downsampled_message_id"},
+			map[string]interface{}{"value": v})
+	}
+	for mid, v := range full.PerMessageID {
+		add(map[string]string{"message_id": mid, "metric": "per_message_id"},
+			map[string]interface{}{"value": v})
+	}
+
+	// Totals + uptime
+	for _, t := range []struct {
+		metric string
+		value  int
+	}{
+		{"total_bytes_forwarded", full.TotalBytesForwarded},
+		{"total_bytes_received", full.TotalBytesReceived},
+		{"total_failures", full.TotalFailures},
+		{"total_messages", full.TotalMessages},
+		{"total_messages_forwarded", full.TotalMessagesForwarded},
+		{"uptime_seconds", full.UptimeSeconds},
+	} {
+		add(map[string]string{"metric": t.metric}, map[string]interface{}{"value": t.value})
+	}
+
+	return influxClient.Write(bp)
+}
+
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
-    // Determine client IP: prefer X-Forwarded-For, else RemoteAddr
-    ip := r.URL.Query().Get("ipaddress")
+	ip := r.URL.Query().Get("ipaddress")
+	if ip == "" {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			ip = strings.TrimSpace(parts[0])
+		} else {
+			host, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				ip = r.RemoteAddr
+			} else {
+				ip = host
+			}
+		}
+	}
 
-    if ip == "" {
-        // 1) Else check X-Forwarded-For
-        if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-            parts := strings.Split(xff, ",")
-            ip = strings.TrimSpace(parts[0])
-        } else {
-            // 2) Fallback to RemoteAddr
-            host, _, err := net.SplitHostPort(r.RemoteAddr)
-            if err != nil {
-                ip = r.RemoteAddr
-            } else {
-                ip = host
-            }
-        }
-    }
+	metricsLock.RLock()
+	raw := latestMetrics
+	metricsLock.RUnlock()
+	if raw == nil {
+		http.Error(w, "no metrics yet", http.StatusNoContent)
+		return
+	}
 
-    metricsLock.RLock()
-    raw := latestMetrics
-    metricsLock.RUnlock()
-    if raw == nil {
-        http.Error(w, "no metrics yet", http.StatusNoContent)
-        return
-    }
+	blob, err := json.Marshal(raw)
+	if err != nil {
+		log.Printf("Error marshaling metrics: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
-    // Marshal and unmarshal into our FullMetrics struct
-    blob, err := json.Marshal(raw)
-    if err != nil {
-        log.Printf("Error marshaling metrics: %v", err)
-        http.Error(w, "internal error", http.StatusInternalServerError)
-        return
-    }
-    var full FullMetrics
-    if err := json.Unmarshal(blob, &full); err != nil {
-        log.Printf("Error parsing FullMetrics: %v", err)
-        http.Error(w, "internal error", http.StatusInternalServerError)
-        return
-    }
+	var full FullMetrics
+	if err := json.Unmarshal(blob, &full); err != nil {
+		log.Printf("Error parsing FullMetrics: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
-    // Build the flattened metrics for this IP
-    flat := SimpleMetrics{
-        BytesReceived:    findCount(full.BytesReceivedBySource, ip),
-        Messages:         findCount(full.MessagesBySource, ip),
-        UniqueMMSI:       findCount(full.UniqueMMSIBySource, ip),
-        Failures:         findCount(full.FailuresBySource, ip),
-        Deduplicated:     full.PerDeduplicatedSource[ip],
-        WindowBytes:      full.WindowBytesBySource[ip],
-        WindowMessages:   full.WindowMessagesBySource[ip],
-        WindowUniqueUIDs: full.WindowUniqueUIDsBySource[ip],
-    }
+	flat := SimpleMetrics{}
 
-    // Respond with IP + metrics
-    resp := ResponseMetrics{
-        IPAddress:     ip,
-        SimpleMetrics: flat,
-    }
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(resp)
-}
+	// Inline lookups:
+	for _, m := range full.BytesReceivedBySource {
+		if m.SourceIP == ip {
+			flat.BytesReceived = m.Count
+			break
+		}
+	}
+	for _, m := range full.MessagesBySource {
+		if m.SourceIP == ip {
+			flat.Messages = m.Count
+			break
+		}
+	}
+	for _, m := range full.UniqueMMSIBySource {
+		if m.SourceIP == ip {
+			flat.UniqueMMSI = m.Count
+			break
+		}
+	}
+	for _, m := range full.FailuresBySource {
+		if m.SourceIP == ip {
+			flat.Failures = m.Count
+			break
+		}
+	}
+	flat.Deduplicated = full.PerDeduplicatedSource[ip]
+	flat.WindowBytes = full.WindowBytesBySource[ip]
+	flat.WindowMessages = full.WindowMessagesBySource[ip]
+	flat.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[ip]
 
-// findCount extracts the Count for a given IP from a slice of structs.
-func findCount[T any](slice []T, ip string) int {
-    data, _ := json.Marshal(slice)
-    var arr []struct {
-        SourceIP string `json:"source_ip"`
-        Count    int    `json:"count"`
-    }
-    if err := json.Unmarshal(data, &arr); err != nil {
-        return 0
-    }
-    for _, e := range arr {
-        if e.SourceIP == ip {
-            return e.Count
-        }
-    }
-    return 0
+	resp := ResponseMetrics{IPAddress: ip, SimpleMetrics: flat}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
