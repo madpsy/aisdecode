@@ -55,6 +55,7 @@ type Settings struct {
 	Debug       bool   `json:"debug"`
 	PollInterval int   `json:"poll_interval"`
 	ReceiversBaseURL string `json:"receivers_base_url"`
+	MetricsBaseURL string `json:"metrics_base_url"`
         RedisHost string `json:"redis_host"`
         RedisPort int    `json:"redis_port"`
         CacheTime int    `json:"cache_time"`
@@ -1506,14 +1507,18 @@ func setupServer(settings *Settings) {
     mux := http.NewServeMux()
 
     // Reverse-proxy for /receivers and /metrics
-    targetURL, err := url.Parse(conf.ReceiversBaseURL)
+    receiversURL, err := url.Parse(conf.ReceiversBaseURL)
     if err != nil {
         log.Fatalf("invalid receivers_base_url: %v", err)
     }
-    proxy := httputil.NewSingleHostReverseProxy(targetURL)
-    mux.Handle("/receivers", proxy) // receivers JSON endpoint
-    mux.Handle("/metrics",  proxy) // all metrics JSON endpoint
-    mux.Handle("/metrics/",  proxy) // per user metrics JSON endpoints
+    metricsURL, err := url.Parse(conf.MetricsBaseURL)
+    if err != nil {
+        log.Fatalf("invalid metrics_base_url: %v", err)
+    }
+    receiversProxy := httputil.NewSingleHostReverseProxy(receiversURL)
+    metricsURL := httputil.NewSingleHostReverseProxy(receiversURL)
+    mux.Handle("/receivers", receiversProxy) // receivers JSON endpoint
+    mux.Handle("/metrics/",  metricsURL) // per user metrics JSON endpoints
 
     // HTTP API endpoints
     mux.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
