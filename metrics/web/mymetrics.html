@@ -646,7 +646,7 @@ function updateOverlay(latlng) {
 
     // Fetch & draw receiver markers
 function loadReceivers() {
-  // clear any previous receivers
+  // Clear any previous receivers
   receiversList = [];
   
   fetch('/receivers')
@@ -659,7 +659,7 @@ function loadReceivers() {
       let minDistance = Infinity;
 
       receivers.forEach(r => {
-        // create the circle marker for each receiver
+        // Create the circle marker for each receiver
         const dot = L.circleMarker([r.latitude, r.longitude], {
           radius: 8,
           color: 'red',
@@ -716,9 +716,12 @@ function loadReceivers() {
       if (overrideReceiverId) {
         const receiver = receiversList.find(r => r.id === overrideReceiverId);
         if (receiver) {
-          // Programmatically click the receiver
+          // Directly call the receiver's click function
           selectedReceiverLatLng = receiver.latlng;
           receiver.marker.fire('click', { latlng: selectedReceiverLatLng });
+
+          // Programmatically trigger the click event
+          receiver.marker.fire('click');
         }
       } else if (closestReceiver) {
         // Select the closest receiver if not overridden
