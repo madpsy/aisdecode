@@ -55,12 +55,12 @@
       cursor: default;
     }
 
-    /* remove only the border & shadow around popups, keep white background */
+    /* COMPLETELY REMOVE POPUP BORDER, BACKGROUND, AND TIP */
     .leaflet-popup-content-wrapper {
-      background: #fff !important;
+      background: transparent !important;
       border: none !important;
       box-shadow: none !important;
-      padding: 8px !important;
+      padding: 0 !important;
     }
     .leaflet-popup-content {
       margin: 0 !important;
@@ -248,7 +248,7 @@
       applyOverride(document.getElementById('ipInput').value.trim());
     document.getElementById('ipInput').onkeydown = e => {
       if(e.key === 'Enter') applyOverride(document.getElementById('ipInput').value.trim());
-    });
+    };
 
     document.querySelectorAll('#summaryTable th').forEach(th=>{
       th.onclick = ()=>{
@@ -272,7 +272,6 @@
       map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
     }
 
-    // Create ship icon
     function makeIcon(info, color){
       if(info.Sog > 0.5){
         const angle = info.Cog || 0;
@@ -294,7 +293,6 @@
       }
     }
 
-    // Update map markers
     function updateMap(){
       const boundsArr = [], newMarkers = {};
       seenUserIds.forEach(uid=>{
@@ -315,7 +313,7 @@
         } else {
           const m = L.marker([lat,lon], { icon });
 
-          // on hover: text-only popup, then fetch /state, then add image if valid
+          // mouseover: text-only popup, then fetch and add image if valid
           m.on('mouseover', () => {
             const detailsHtml = `
               <div class="state-details" style="line-height:1.2;">
@@ -364,18 +362,15 @@
         }
       });
 
-      // remove old markers
-      Object.keys(vesselMarkers).forEach(uid=>{
-        if(!newMarkers[uid]){
-          map.removeLayer(vesselMarkers[uid]);
-        }
+      Object.keys(vesselMarkers).forEach(uid => {
+        if (!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
       });
       vesselMarkers = newMarkers;
 
-      if(autoFit && boundsArr.length){
+      if (autoFit && boundsArr.length) {
         programmaticFit = true;
-        map.once('moveend zoomend', ()=>programmaticFit=false);
-        map.fitBounds(L.latLngBounds(boundsArr),{padding:[20,20]});
+        map.once('moveend zoomend', () => programmaticFit = false);
+        map.fitBounds(L.latLngBounds(boundsArr), { padding: [20,20] });
       }
     }
 
@@ -383,55 +378,52 @@
     async function fetchMetrics(){
       try {
         let url = '/metrics/bysource';
-        if(overrideIp) url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
+        if (overrideIp) url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
         const r = await fetch(url);
-        if(!r.ok) throw r.status;
+        if (!r.ok) throw r.status;
         const data = await r.json();
         document.getElementById('ip-address').textContent = data.ip_address;
         const lbl = new Date().toLocaleTimeString();
 
-        // update cards
-        cardMetrics.forEach(m=>{
-          if(baselines[m]===undefined) baselines[m]=data[m];
+        cardMetrics.forEach(m => {
+          if (baselines[m]===undefined) baselines[m]=data[m];
           document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m]-baselines[m]);
         });
 
-        // update charts
-        chartMetrics.forEach(m=>{
+        chartMetrics.forEach(m => {
           const c = charts[m];
           c.data.labels.push(lbl);
           c.data.datasets[0].data.push(data[m]);
-          if(c.data.labels.length>maxPoints){
+          if (c.data.labels.length>maxPoints) {
             c.data.labels.shift();
             c.data.datasets[0].data.shift();
           }
           c.update();
         });
 
-        // update summary table data
-        if(Array.isArray(data.window_user_ids)){
-          data.window_user_ids.forEach(uid=>{
+        if (Array.isArray(data.window_user_ids)) {
+          data.window_user_ids.forEach(uid => {
             lastSeenTs[uid] = new Date();
             seenCount[uid] = (seenCount[uid]||0)+1;
-            if(!seenUserIds.has(uid)){
+            if (!seenUserIds.has(uid)) {
               seenUserIds.add(uid);
               fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
-                .then(r=>r.ok?r.json():Promise.reject(r.status))
-                .then(json=>{ summaryCache[uid]=json[uid]||{}; updateSummaryTable(); })
-                .catch(e=>console.error(`summary ${uid} error`,e));
+                .then(r => r.ok ? r.json() : Promise.reject(r.status))
+                .then(json => { summaryCache[uid]=json[uid]||{}; updateSummaryTable(); })
+                .catch(e => console.error(`summary ${uid} error`, e));
             }
           });
           updateSummaryTable();
         }
-      } catch(e){
+      } catch (e) {
         console.error('Fetch error', e);
       }
     }
 
     function typeNameFor(val){
-      if(!typesConfig) return val;
+      if (!typesConfig) return val;
       const catId = typesConfig.valueLookup[val];
-      const cat = typesConfig.categories.find(c=>c.id===catId);
+      const cat = typesConfig.categories.find(c => c.id===catId);
       return cat?cat.name:val;
     }
 
@@ -451,7 +443,7 @@
     }
 
     function updateDoughnut(){
-      if(!typeDoughnut) return;
+      if (!typeDoughnut) return;
       const counts = {};
       Array.from(seenUserIds).filter(uid=>uid.length===9).forEach(uid=>{
         const name = typeNameFor(summaryCache[uid]?.Type);
@@ -536,7 +528,8 @@
         `;
         tbody.appendChild(tr);
       });
-      renderPagination(totalPages);
+      renderPagination(Math.ceil(allRows.length/rowsPerPage));
+      updateDoughnut();
     }
   </script>
 </body>
