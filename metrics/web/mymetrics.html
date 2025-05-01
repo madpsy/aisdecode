@@ -715,7 +715,14 @@ function loadReceivers() {
 
     // trigger click + flash overlay
     if (closest) {
-      closest.marker.fire('click');
+      // explicitly select this RX
+      selectedReceiverLatLng = closest.latlng;
+      // update overlay & table
+      updateOverlay(closest.latlng);
+      updateSummaryTable();
+
+      // fire tooltip & URL update
+      closest.marker.fire('click', { latlng: closest.latlng });
       const ov = document.createElement('div');
       ov.className = 'rx-overlay';
       ov.textContent = `Selected RX ${closest.name}`;
