@@ -69,6 +69,16 @@
       margin: 0 !important;
       padding: 0 !important;
     }
+
+    /* Receiver tooltip styling */
+    .receiver-tooltip {
+      background: white;
+      border: 1px solid #ccc;
+      padding: 2px 6px;
+      border-radius: 4px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+      font-size: 0.9em;
+    }
   </style>
 </head>
 <body>
@@ -276,13 +286,46 @@
       };
     });
 
+    // -- NEW: loadReceivers & integrate them outside of fitBounds --
+    function loadReceivers() {
+      fetch('/receivers')
+        .then(res => {
+          if (!res.ok) throw new Error(res.status);
+          return res.json();
+        })
+        .then(receivers => {
+          receivers.forEach(r => {
+            const dot = L.circleMarker([r.latitude, r.longitude], {
+              radius: 8,
+              color: 'red',
+              fillColor: 'red',
+              fillOpacity: 1,
+              weight: 1
+            }).addTo(map);
+
+            dot.bindTooltip(r.name, {
+              permanent: true,
+              direction: 'top',
+              className: 'receiver-tooltip'
+            });
+          });
+        })
+        .catch(err => console.error('Failed to load receivers', err));
+    }
+
     function initMap(){
       map = L.map('map').setView([0,0],2);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
+
+      // add all of our fixed “receiver” markers
+      loadReceivers();
+
       map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
     }
+
+    // (rest of your existing map/fetchMetrics/updateMap/focusVessel etc. unchanged…)
 
     function focusVessel(uid) {
       Object.values(vesselMarkers).forEach(m => m.closePopup());
