@@ -669,54 +669,57 @@ m.on('click', function(e) {
       const vesselLatLng = m.getLatLng();
       console.log("Vessel's latlng:", vesselLatLng);
 
-      // Calculate the distance between the receiver and the vessel
-      const dist = haversineDistance(
-        selectedReceiverLatLng.lat,
-        selectedReceiverLatLng.lng,
-        vesselLatLng.lat,
-        vesselLatLng.lng
-      ).toFixed(2);
-      console.log("Calculated distance:", dist, "km");
+      if (vesselLatLng) {
+        // Calculate the distance between the receiver and the vessel
+        const dist = haversineDistance(
+          selectedReceiverLatLng.lat,
+          selectedReceiverLatLng.lng,
+          vesselLatLng.lat,
+          vesselLatLng.lng
+        ).toFixed(2);
+        console.log("Calculated distance:", dist, "km");
 
-      // Draw the polyline only if it hasn't been added already
-      distancePolyline = L.polyline(
-        [selectedReceiverLatLng, vesselLatLng],
-        { color: 'blue', weight: 3, opacity: 0.7, zIndex: 1000 }
-      ).addTo(map);
-      console.log("Distance polyline drawn between receiver and vessel.");
+        // Draw the polyline only if it hasn't been added already
+        distancePolyline = L.polyline(
+          [selectedReceiverLatLng, vesselLatLng],
+          { color: 'blue', weight: 3, opacity: 0.7, zIndex: 1000 }
+        ).addTo(map);
+        console.log("Distance polyline drawn between receiver and vessel.");
 
-      polylineAdded = true;  // Mark polyline as added
+        polylineAdded = true;  // Mark polyline as added
+
+        // Calculate the midpoint for the distance label
+        const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
+        const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
+        console.log("Midpoint for distance label calculated:", { midLat, midLng });
+
+        // Add the distance label only if it's not already added
+        if (!tooltipAdded) {
+          distanceLabel = L.tooltip({
+            permanent: true,
+            direction: 'center',
+            className: 'distance-tooltip',
+            zIndex: 1001  // Ensure the label is above the polyline
+          })
+            .setLatLng([midLat, midLng])
+            .setContent(`${dist} km`)
+            .addTo(map);
+          console.log("Distance label created and added to map with content:", `${dist} km`);
+
+          tooltipAdded = true;  // Mark tooltip as added
+        }
+
+        // Fit map bounds to both receiver and vessel markers
+        const bounds = L.latLngBounds([selectedReceiverLatLng, vesselLatLng]);
+        map.fitBounds(bounds, { padding: [30, 30] });
+        console.log("Map zoomed to fit polyline and label.");
+      }
     }
-
-    // Calculate the midpoint for the distance label
-    const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
-    const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
-    console.log("Midpoint for distance label calculated:", { midLat, midLng });
-
-    // Add the distance label only if it's not already added
-    if (!tooltipAdded) {
-      distanceLabel = L.tooltip({
-        permanent: true,
-        direction: 'center',
-        className: 'distance-tooltip',
-        zIndex: 1001  // Ensure the label is above the polyline
-      })
-        .setLatLng([midLat, midLng])
-        .setContent(`${dist} km`)
-        .addTo(map);
-      console.log("Distance label created and added to map with content:", `${dist} km`);
-
-      tooltipAdded = true;  // Mark tooltip as added
-    }
-
-    // Fit map bounds to both receiver and vessel markers
-    const bounds = L.latLngBounds([selectedReceiverLatLng, vesselLatLng]);
-    map.fitBounds(bounds, { padding: [30, 30] });
-    console.log("Map zoomed to fit polyline and label.");
   } else {
     console.log("No receiver selected. Skipping distance calculation.");
   }
 });
+
 
           m.on('mouseover', ()=>{
             const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
