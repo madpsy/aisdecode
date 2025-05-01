@@ -269,7 +269,7 @@
       map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
     }
 
-    // NEW: focus a vessel’s marker and popup
+    // UPDATED: focus and simulate hover to bind & open popup
     function focusVessel(uid) {
       const marker = vesselMarkers[uid];
       if (!marker) return;
@@ -277,7 +277,8 @@
       programmaticFit = true;
       map.once('moveend zoomend', () => programmaticFit = false);
       map.flyTo(marker.getLatLng(), 12);
-      marker.openPopup();
+      // simulate mouseover so your existing popup handler binds & opens it
+      marker.fire('mouseover');
     }
 
     function makeIcon(info, color){
@@ -503,7 +504,7 @@
       allRows.sort((a,b)=>{
         let cmp;
         if (sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
-        else if (sortField==='name') cmp = (a.info.Name||'').localeCompare(b.info.Name||'');
+        else if (sortField==='name') cmp = (a.info.Name||'').localeCompare(a.info.Name||'');
         else if (sortField==='typeName') cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
         else if (sortField==='count') cmp = a.count - b.count;
         else cmp = a.id.localeCompare(b.id);
