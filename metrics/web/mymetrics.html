@@ -214,7 +214,7 @@
     const cardMetrics  = allMetrics.filter(m => !m.startsWith('window_'));
     const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
     const maxPoints    = 60;
-
+    let focusedUid = null;
     let overrideIp = '';
     const charts = {}, baselines = {};
     const cardsContainer = document.getElementById('cards');
@@ -510,28 +510,28 @@ function loadReceivers() {
       });
 
       // if the user passed ?receiver= in the URL, force-select it now
-if (overrideReceiverId) {
-  // coerce to the same type
-  const idToMatch = typeof receiversList[0].id === 'number'
-    ? Number(overrideReceiverId)
-    : overrideReceiverId;
+     if (overrideReceiverId) {
+       // coerce to the same type
+       const idToMatch = typeof receiversList[0].id === 'number'
+         ? Number(overrideReceiverId)
+         : overrideReceiverId;
 
-  const forced = receiversList.find(rx => rx.id === idToMatch);
-  if (forced) {
-    // manually set selection state
-    selectedReceiverLatLng = forced.latlng;
-    updateOverlay(forced.latlng);
-    updateSummaryTable();
+       const forced = receiversList.find(rx => rx.id === idToMatch);
+       if (forced) {
+         // manually set selection state
+         selectedReceiverLatLng = forced.latlng;
+         updateOverlay(forced.latlng);
+         updateSummaryTable();
 
-    // update URL cleanly
-    const url = new URL(location);
-    url.searchParams.set('receiver', forced.id);
-    history.replaceState(null, '', url);
+         // update URL cleanly
+         const url = new URL(location);
+         url.searchParams.set('receiver', forced.id);
+         history.replaceState(null, '', url);
 
-    // fire the click *with* a latlng payload
-    forced.marker.fire('click', { latlng: forced.latlng });
-  }
-}
+         // fire the click *with* a latlng payload
+         forced.marker.fire('click', { latlng: forced.latlng });
+       }
+     }
 
     })
     .catch(err => console.error('Failed to load receivers', err));
@@ -555,6 +555,7 @@ if (overrideReceiverId) {
 
     // Focus vessel from table
 function focusVessel(uid){
+  focusedUid = uid;
   Object.values(vesselMarkers).forEach(m => m.closePopup());
   clearSelectedRow();
   highlightRow(uid);
@@ -624,6 +625,7 @@ function focusVessel(uid){
             updateOverlay(e.latlng);
 	    Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
             m.openPopup();
+	    focusedUid = uid;
 
             clearSelectedRow();    // ← new
             highlightRow(uid);     // ← new
@@ -965,6 +967,10 @@ function focusVessel(uid){
       document.querySelectorAll('.distance-col').forEach(el=>{
         el.style.display = showDist ? 'table-cell' : 'none';
       });
+      if (focusedUid) {
+        const stillThere = document.getElementById('row-' + focusedUid);
+        if (stillThere) stillThere.classList.add('selected');
+      }
       renderPagination(totalPages);
       updateDoughnut();
     }
