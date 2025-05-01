@@ -6,6 +6,7 @@
   <title>Metrics Dashboard</title>
 
   <!-- Chart.js -->
+  <script src="/aton_types.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <!-- Leaflet CSS/JS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
@@ -611,7 +612,7 @@ function focusVessel(uid){
         const { Latitude: lat, Longitude: lon } = info;
         if(typeof lat!=='number' || typeof lon!=='number') return;
         boundsArr.push([lat,lon]);
-        const typeDisp = typeNameFor(info.Type);
+        const typeDisp = typeNameFor(info);
         const color    = typeColorsMap[typeDisp] || '#000';
         const icon     = makeIcon(info, color);
 
@@ -810,11 +811,16 @@ function focusVessel(uid){
       }
     }
 
-    function typeNameFor(val){
-      if(!typesConfig) return val;
-      const catId = typesConfig.valueLookup[val];
-      const cat = typesConfig.categories.find(c=>c.id===catId);
-      return cat ? cat.name : val;
+    function typeNameFor(info) {
+      if (info.AISClass === 'AtoN') {
+        // staticAtoNTypeMapping comes from /aton_types.js
+        return staticAtoNTypeMapping[info.Type] 
+               || `Unknown AtoN (${info.Type})`;
+      }
+      if (!typesConfig) return info.Type;
+      const catId = typesConfig.valueLookup[info.Type];
+      const cat   = typesConfig.categories.find(c=>c.id === catId);
+      return cat ? cat.name : info.Type;
     }
 
     function initDoughnut(){
@@ -835,9 +841,13 @@ function focusVessel(uid){
     function updateDoughnut(){
       if(!typeDoughnut) return;
       const counts = {};
-      Array.from(seenUserIds).filter(uid=>uid.length===9).forEach(uid=>{
-        const name = typeNameFor(summaryCache[uid]?.Type);
-        counts[name] = (counts[name]||0) + 1;
+      Array.from(seenUserIds)
+       .filter(uid=>uid.length===9)
+       .forEach(uid=>{
+         // ✅ pass the full info object
+         const info = summaryCache[uid] || {};
+         const name = typeNameFor(info);
+         counts[name] = (counts[name]||0) + 1;
       });
       const entries = Object.entries(counts);
       typeColorsMap = {};
@@ -901,7 +911,7 @@ function focusVessel(uid){
         let cmp;
         if(sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
         else if(sortField==='name') cmp = (a.info.Name||'').localeCompare(b.info.Name||'');
-        else if(sortField==='typeName') cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
+        else if(sortField==='typeName') cmp = typeNameFor(a.info).localeCompare(typeNameFor(b.info));
         else if(sortField==='status'){
           const sa = navigationalStatusMapping[a.info.NavigationalStatus]||'Unknown';
           const sb = navigationalStatusMapping[b.info.NavigationalStatus]||'Unknown';
@@ -968,7 +978,7 @@ function focusVessel(uid){
         tr.innerHTML = `
           <td><a href="#" onclick="focusVessel('${item.id}'); return false;">${item.id}</a></td>
           <td>${item.info.Name||''}</td>
-          <td title="Type: ${typeNameFor(item.info.Type)}\nStatus: ${status}">${typeNameFor(item.info.Type)}</td>
+          <td title="Type: ${typeNameFor(item.info)}\nStatus: ${status}">${typeNameFor(item.info)}</td>
           <td>${status}</td>
           <td>${item.info.AISClass||''}</td>
           ${flagCell}
