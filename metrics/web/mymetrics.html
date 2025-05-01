@@ -271,16 +271,22 @@
 
     // UPDATED: focus and simulate hover to bind & open popup
     function focusVessel(uid) {
+      // 1) Close all existing marker popups
+      Object.values(vesselMarkers).forEach(m => m.closePopup());
+
+      // 2) Grab the one we want
       const marker = vesselMarkers[uid];
       if (!marker) return;
+
+      // 3) Zoom & pan without re-auto-fitting later
       autoFit = false;
       programmaticFit = true;
       map.once('moveend zoomend', () => programmaticFit = false);
       map.flyTo(marker.getLatLng(), 12);
-      // simulate mouseover so your existing popup handler binds & opens it
+
+      // 4) Fire its ‘mouseover’ so your existing popup-binding handler runs
       marker.fire('mouseover');
     }
-
     function makeIcon(info, color){
       if(info.Sog > 0.5){
         const angle = info.Cog || 0;
