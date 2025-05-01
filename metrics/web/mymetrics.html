@@ -552,7 +552,7 @@ function focusVessel(uid){
     autoFit               = false;
     programmaticFit        = true;
     map.once('moveend zoomend', () => programmaticFit = false);
-    map.fitBounds(bounds, { padding: [20,20] });
+    map.fitBounds(bounds, { padding: [30,30] });
 
     // draw the distance line as before
     clearDistanceLine();
