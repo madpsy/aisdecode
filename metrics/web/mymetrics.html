@@ -204,17 +204,18 @@
       });
     }
 
+    // Icon factory with larger sizes
     function makeIcon(info, color){
       if(info.Sog > 0.5){
         const angle = info.Cog || 0;
         return L.divIcon({
-          html: `<div style="transform: rotate(${angle}deg); font-size:12px; color:${color};">&#9650;</div>`,
-          className:'', iconSize:[12,12]
+          html: `<div style="transform: rotate(${angle}deg); font-size:16px; color:${color};">&#9650;</div>`,
+          className:'', iconSize:[16,16]
         });
       } else {
         return L.divIcon({
-          html: `<div style="width:8px; height:8px; background:${color}; border-radius:50%;"></div>`,
-          className:'', iconSize:[8,8]
+          html: `<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,
+          className:'', iconSize:[12,12]
         });
       }
     }
@@ -373,7 +374,7 @@
       arr.sort((a,b)=>{
         let cmp;
         if(sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
-        else if(sortField==='name') cmp = (a.info.Name||'').localeCompare(b.info.Name||'');
+        else if(sortField==='name') cmp = (a.info.Name||'').localeCompare(a.info.Name||'');
         else if(sortField==='typeName') cmp = typeNameFor(a.info.Type).localeCompare(typeNameFor(b.info.Type));
         else if(sortField==='count') cmp = a.count - b.count;
         else cmp = a.id.localeCompare(b.id);
