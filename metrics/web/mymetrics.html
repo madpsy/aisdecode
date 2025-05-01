@@ -346,9 +346,16 @@ function updateReceiverRings(latlng) {
       fillOpacity: 0.1,
     }).addTo(map);
 
-    // Label the circle with the distance in NM
+    // To place the label on the circumference, offset the position based on angle
+    const angle = Math.PI / 4;  // Label offset angle (45 degrees for this example)
+    const labelLatLng = L.latLng(
+      latlng.lat + (distance * Math.sin(angle) / 1852),  // Adjust the latitude offset
+      latlng.lng + (distance * Math.cos(angle) / 1852)   // Adjust the longitude offset
+    );
+
+    // Label the circle with the distance in NM, positioned on the ring circumference
     const label = L.tooltip({ permanent: true, direction: 'center', className: 'distance-tooltip' })
-      .setLatLng(latlng)
+      .setLatLng(labelLatLng)
       .setContent(`${Math.round(distance)} NM`)
       .addTo(map);
 
