@@ -360,7 +360,7 @@ function updateReceiverRings(latlng) {
         const circle = L.circle(latlng, {
             radius: radiusInMeters,
             color: 'grey',  // Set the ring color to grey
-            weight: 1,      // Make the stroke thinner
+            weight: 2,      // Make the stroke thinner
             opacity: 0.6,   // Adjust the opacity for better visibility
             fillOpacity: 0, // No fill color
         }).addTo(map);
@@ -645,7 +645,7 @@ function loadReceivers() {
           color: 'red',
           fillColor: 'red',
           fillOpacity: 1,
-          weight: 1
+          weight: 2
         }).addTo(map);
 
         // tooltip with the RX name
