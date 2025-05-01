@@ -72,20 +72,19 @@
     Chart.register({
       id: 'centerText',
       beforeDraw(chart) {
-        const center = chart.config.options.plugins.centerText;
-        if (!center?.display) return;
+        const c = chart.config.options.plugins.centerText;
+        if (!c?.display) return;
         const { ctx, chartArea: { left, right, top, bottom } } = chart;
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const fontSize = (bottom - top) / 6;
-        ctx.font = `${fontSize}px sans-serif`;
-        ctx.fillText(center.text, (left + right) / 2, (top + bottom) / 2);
+        ctx.font = `${(bottom - top) / 6}px sans-serif`;
+        ctx.fillText(c.text, (left + right)/2, (top + bottom)/2);
         ctx.restore();
       }
     });
 
-    // Metric definitions
+    // Metrics
     const allMetrics = [
       'bytes_received','messages','failures','deduplicated',
       'window_bytes','window_messages','window_unique_uids'
@@ -104,7 +103,7 @@
     let typesConfig = null, typeDoughnut = null;
 
     // Map state
-    let map, autoFit = true, vesselMarkers = {}, typeColorsMap = {};
+    let map, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
     const colors = [
       'rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)',
       'rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'
@@ -143,14 +142,7 @@
       charts[m] = new Chart(ctx, {
         type: 'line',
         data: { labels: [], datasets: [{ label: lbl, data: [], borderColor: colors[i%colors.length], fill: false }] },
-        options: {
-          animation: false,
-          responsive: true,
-          scales: {
-            x: { title: { display: true, text: 'Time' } },
-            y: {}
-          }
-        }
+        options: { animation: false, responsive: true, scales: { x: { title: { display: true, text: 'Time' } }, y: {} } }
       });
     });
 
@@ -199,16 +191,16 @@
       };
     });
 
-    // Leaflet init
+    // Leaflet initialization
     function initMap(){
       map = L.map('map').setView([0,0],2);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      // only cancel autoFit on real user interaction
-      map.on('movestart zoomstart', e => {
-        if (e.originalEvent) autoFit = false;
+      // cancel autoFit only on real user drag/zoom
+      map.on('movestart zoomstart', () => {
+        if (!programmaticFit) autoFit = false;
       });
     }
 
@@ -246,12 +238,11 @@
           vesselMarkers[uid].setLatLng([lat,lon]).setIcon(icon);
         } else {
           const m = L.marker([lat,lon], { icon });
-          const popupHtml =
-            `<b>MMSI:</b> ${uid}<br/>`+
-            `<b>Name:</b> ${info.Name||''}<br/>`+
-            `<b>Speed:</b> ${info.Sog} kn<br/>`+
-            `<b>Type:</b> ${typeDisp}`;
-          m.bindPopup(popupHtml, { closeButton:false, autoClose:false });
+          const html = `<b>MMSI:</b> ${uid}<br/>
+                        <b>Name:</b> ${info.Name||''}<br/>
+                        <b>Speed:</b> ${info.Sog} kn<br/>
+                        <b>Type:</b> ${typeDisp}`;
+          m.bindPopup(html, { closeButton:false, autoClose:false });
           m.on('mouseover', ()=> m.openPopup());
           m.on('mouseout',  ()=> m.closePopup());
           m.on('click',     ()=> m.openPopup());
@@ -262,6 +253,7 @@
         newMarkers[uid] = vesselMarkers[uid];
       });
 
+      // remove stale
       Object.keys(vesselMarkers).forEach(uid => {
         if (!newMarkers[uid]) {
           map.removeLayer(vesselMarkers[uid]);
@@ -270,7 +262,11 @@
       });
       vesselMarkers = newMarkers;
 
+      // programmatic fitBounds
       if (autoFit && boundsArr.length) {
+        programmaticFit = true;
+        // clear the flag after the fit completes
+        map.once('moveend zoomend', () => { programmaticFit = false; });
         map.fitBounds(L.latLngBounds(boundsArr), { padding:[20,20] });
       }
     }
@@ -286,12 +282,12 @@
         document.getElementById('ip-address').textContent = data.ip_address;
         const lbl = new Date().toLocaleTimeString();
 
-        // update cards
+        // cards
         cardMetrics.forEach(m=>{
           if(baselines[m]===undefined) baselines[m]=data[m];
           document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m]-baselines[m]);
         });
-        // update line charts
+        // charts
         chartMetrics.forEach(m=>{
           const c = charts[m];
           c.data.labels.push(lbl);
@@ -303,7 +299,7 @@
           c.update();
         });
 
-        // handle summary IDs
+        // summary IDs
         if(Array.isArray(data.window_user_ids)){
           data.window_user_ids.forEach(uid=>{
             lastSeenTs[uid] = new Date();
