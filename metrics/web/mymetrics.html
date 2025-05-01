@@ -607,19 +607,19 @@ function loadReceivers() {
           className: 'receiver-tooltip'
         });
 
-        // click handler: select this receiver
-        dot.on('click', e => {
-          L.DomEvent.stopPropagation(e);
-          selectedReceiverLatLng = e.latlng;
-          clearDistanceLine();
-          updateOverlay(e.latlng);
-          updateSummaryTable();
-
-          // update the URL to include ?receiver=<id>
-          const url = new URL(location);
-          url.searchParams.set('receiver', r.id);
-          history.replaceState(null, '', url);
-        });
+	dot.on('click', e => {
+	  L.DomEvent.stopPropagation(e);
+	  selectedReceiverLatLng = e.latlng;  // Update the receiver's position
+	  clearDistanceLine();  // Clear any previous distance lines
+	  updateOverlay(e.latlng);
+	  updateReceiverRings(e.latlng);  // Redraw radius rings
+	  updateSummaryTable();
+	
+	  // Update the URL with the receiver ID
+	  const url = new URL(location);
+	  url.searchParams.set('receiver', r.id);
+	  history.replaceState(null, '', url);
+	});
 
         // store for nearest/override lookup
         receiversList.push({
