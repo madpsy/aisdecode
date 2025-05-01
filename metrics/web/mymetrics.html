@@ -535,50 +535,48 @@ function loadReceivers() {
     }
 
     // Focus vessel from table
-    function focusVessel(uid){
-      clearSelectedRow();     // ← new
-      highlightRow(uid);      // ← new
+function focusVessel(uid){
+  clearSelectedRow();
+  highlightRow(uid);
 
-      Object.values(vesselMarkers).forEach(m => m.closePopup());
-      const marker = vesselMarkers[uid];
-      if(!marker) return;
-      autoFit = false;
-      programmaticFit = true;
-      map.once('moveend zoomend', ()=> programmaticFit = false);
-      map.flyTo(marker.getLatLng(), 12);
-      marker.fire('mouseover');
-      updateOverlay(marker.getLatLng());
-      marker.fire('mouseover');
+  const marker = vesselMarkers[uid];
+  if(!marker) return;
 
-      // — draw distance line when a receiver is selected —
-      if(selectedReceiverLatLng){
-        clearDistanceLine();
-        const vesselLatLng = marker.getLatLng();
-        const dist = haversineDistance(
-          selectedReceiverLatLng.lat,
-          selectedReceiverLatLng.lng,
-          vesselLatLng.lat,
-          vesselLatLng.lng
-        ).toFixed(2);
+  updateOverlay(marker.getLatLng());
 
-        distancePolyline = L.polyline(
-          [ selectedReceiverLatLng, vesselLatLng ],
-          { color: 'blue' }
-        ).addTo(map);
+  // if a receiver is selected: fit to both points
+  if (selectedReceiverLatLng) {
+    const vesselLatLng   = marker.getLatLng();
+    const bounds         = L.latLngBounds([ selectedReceiverLatLng, vesselLatLng ]);
+    autoFit               = false;
+    programmaticFit        = true;
+    map.once('moveend zoomend', () => programmaticFit = false);
+    map.fitBounds(bounds, { padding: [20,20] });
 
-        const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
-        const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
-        distanceLabel = L.tooltip({
-          permanent: true,
-          direction: 'center',
-          className: 'distance-tooltip'
-        })
-          .setLatLng([midLat, midLng])
-          .setContent(`${dist} km`)
-          .addTo(map);
-      }
-      document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    // draw the distance line as before
+    clearDistanceLine();
+    const dist = haversineDistance(
+      selectedReceiverLatLng.lat, selectedReceiverLatLng.lng,
+      vesselLatLng.lat,            vesselLatLng.lng
+    ).toFixed(2);
+    distancePolyline = L.polyline([ selectedReceiverLatLng, vesselLatLng ], { color:'blue' }).addTo(map);
+    const mid = [(selectedReceiverLatLng.lat+vesselLatLng.lat)/2, (selectedReceiverLatLng.lng+vesselLatLng.lng)/2];
+    distanceLabel = L.tooltip({ permanent:true, direction:'center', className:'distance-tooltip' })
+                     .setLatLng(mid)
+                     .setContent(`${dist} km`)
+                     .addTo(map);
+
+  } else {
+    // fallback to just centering on vessel
+    autoFit        = false;
+    programmaticFit = true;
+    map.once('moveend zoomend', () => programmaticFit = false);
+    map.flyTo(marker.getLatLng(), 12);
+  }
+
+  marker.fire('mouseover');
+  document.getElementById('map').scrollIntoView({ behavior:'smooth', block:'start' });
+}
 
     // Update vessel markers & fit bounds
     function updateMap(){
