@@ -40,6 +40,7 @@ type FullMetrics struct {
 	WindowBytesBySource        map[string]int                                       `json:"window_bytes_by_source"`
 	WindowMessagesBySource     map[string]int                                       `json:"window_messages_by_source"`
 	WindowUniqueUIDsBySource   map[string]int                                       `json:"window_unique_uids_by_source"`
+	WindowUserIDsBySource      map[string][]string                                  `json:"window_user_ids_by_source"`
 	PerDeduplicatedSource      map[string]int                                       `json:"per_deduplicated_source"`
 	PerDownsampledMessageID    map[string]int                                       `json:"per_downsampled_message_id"`
 	PerMessageID               map[string]int                                       `json:"per_message_id"`
@@ -84,6 +85,7 @@ type ResponseMetrics struct {
 	IPAddress       string        `json:"ip_address"`
 	SimpleMetrics                // real-time
 	Aggregated     Aggregated    `json:"aggregated"`
+	WindowUserIDs  []string      `json:"window_user_ids"`
 }
 
 var (
@@ -310,6 +312,7 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 	json.Unmarshal(blob, &full)
 
 	rt := SimpleMetrics{}
+	windowIDs := full.WindowUserIDsBySource[ip]
 	for _, m := range full.BytesReceivedBySource {
 		if m.SourceIP == ip {
 			rt.BytesReceived = m.Count
@@ -351,6 +354,7 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 		IPAddress:       ip,
 		SimpleMetrics:   rt,
 		Aggregated:      agg,
+		WindowUserIDs:   windowIDs,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
