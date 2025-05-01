@@ -365,8 +365,8 @@ function updateReceiverRings(latlng) {
             fillOpacity: 0, // No fill color
         }).addTo(map);
 
-        // Calculate the label position (place it at the edge of the ring)
-        const labelLatLng = destinationPoint(latlng, 0, radiusInMeters); // 0 degrees (right side of the circle)
+        // Label the circle with the distance in NM
+        const labelLatLng = destinationPoint(latlng, 90, radiusInMeters); // Place the label to the right of the circle
 
         // Label the circle with the distance in NM
         const label = L.tooltip({ permanent: true, direction: 'center', className: 'distance-tooltip' })
@@ -377,6 +377,7 @@ function updateReceiverRings(latlng) {
         radiusCircles.push({ circle, label });
     });
 }
+
 
     // **Filter term & row‐highlight helpers**
     let filterTerm = '';
