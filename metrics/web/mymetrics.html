@@ -120,6 +120,27 @@
       display: none;
     }
 
+    /* Top-centered RX selection flash message */
+    .rx-overlay {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,123,255,0.9);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-weight: bold;
+      font-size: 1em;
+      z-index: 2000;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .rx-overlay.show {
+      opacity: 1;
+    }
+
     /* highlight selected table row */
     #summaryBody tr.selected {
       background-color: #d0e8ff;
@@ -224,7 +245,9 @@
     // ——— NEW GLOBALS ———
     let selectedReceiverLatLng = null,
         distancePolyline = null,
-        distanceLabel = null;
+        distanceLabel = null,
+        overrideReceiverId = '',
+        receiversList = [];
 
     // **Filter term & row‐highlight helpers**
     let filterTerm = '';
@@ -368,7 +391,8 @@
         .catch(e => console.error('mids.json error', e));
 
       const p = new URLSearchParams(location.search);
-      if(p.has('ipaddress')) applyOverride(p.get('ipaddress'));
+      if (p.has('ipaddress')) applyOverride(p.get('ipaddress'));
+      if (p.has('receiver')) overrideReceiverId = p.get('receiver');
       fetchMetrics();
       setInterval(fetchMetrics, 1000);
     });
@@ -436,36 +460,63 @@
     }
 
     // Fetch & draw receiver markers
-    function loadReceivers(){
-      fetch('/receivers')
-        .then(r => r.ok ? r.json() : Promise.reject(r.status))
-        .then(receivers => {
-          receivers.forEach(r => {
-            const dot = L.circleMarker([r.latitude, r.longitude], {
-              radius: 8,
-              color: 'red',
-              fillColor: 'red',
-              fillOpacity: 1,
-              weight: 1
-            }).addTo(map);
+function loadReceivers() {
+  // clear any previous receivers
+  receiversList = [];
+  fetch('/receivers')
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(receivers => {
+      receivers.forEach(r => {
+        // create the circle marker
+        const dot = L.circleMarker([r.latitude, r.longitude], {
+          radius: 8,
+          color: 'red',
+          fillColor: 'red',
+          fillOpacity: 1,
+          weight: 1
+        }).addTo(map);
 
-            dot.bindTooltip(`${r.name} (RX)`, {
-              permanent: true,
-              direction: 'top',
-              className: 'receiver-tooltip'
-            });
+        // tooltip with the RX name
+        dot.bindTooltip(`${r.name} (RX)`, {
+          permanent: true,
+          direction: 'top',
+          className: 'receiver-tooltip'
+        });
 
-            dot.on('click', function(e){
-              L.DomEvent.stopPropagation(e);
-              selectedReceiverLatLng = e.latlng;
-              clearDistanceLine();
-              updateOverlay(e.latlng);
-              updateSummaryTable();
-            });
-          });
-        })
-        .catch(err => console.error('Failed to load receivers', err));
-    }
+        // click handler: select this receiver
+        dot.on('click', e => {
+          L.DomEvent.stopPropagation(e);
+          selectedReceiverLatLng = e.latlng;
+          clearDistanceLine();
+          updateOverlay(e.latlng);
+          updateSummaryTable();
+
+          // update the URL to include ?receiver=<id>
+          const url = new URL(location);
+          url.searchParams.set('receiver', r.id);
+          history.replaceState(null, '', url);
+        });
+
+        // store for nearest/override lookup
+        receiversList.push({
+          id:   r.id,
+          name: r.name,
+          marker: dot,
+          latlng: L.latLng(r.latitude, r.longitude)
+        });
+      });
+
+      // if the user passed ?receiver= in the URL, force-select it now
+      if (overrideReceiverId) {
+        const forced = receiversList.find(rx => rx.id === overrideReceiverId);
+        if (forced) forced.marker.fire('click');
+      }
+    })
+    .catch(err => console.error('Failed to load receivers', err));
+ }
 
     // Vessel icon creation
     function makeIcon(info, color){
@@ -531,6 +582,7 @@
 
     // Update vessel markers & fit bounds
     function updateMap(){
+      const oldVesselCount = Object.keys(vesselMarkers).length;
       const boundsArr = [], newMarkers = {};
       seenUserIds.forEach(uid=>{
         if(uid.length!==9) return;
@@ -637,7 +689,44 @@
       Object.keys(vesselMarkers).forEach(uid => {
         if(!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
       });
-      vesselMarkers = newMarkers;
++  vesselMarkers = newMarkers;
++
++  // auto‐select nearest RX on first vessel arrival (unless overridden)
++  const newVesselCount = Object.keys(vesselMarkers).length;
++  if (
++    oldVesselCount === 0 &&
++    newVesselCount > 0 &&
++    receiversList.length > 0 &&
++    !overrideReceiverId
++  ) {
++    // pick the very first vessel
++    const firstUid = Object.keys(vesselMarkers)[0];
++    const vesselLatLng = vesselMarkers[firstUid].getLatLng();
++
++    // find closest receiver
++    let closest = null, minDist = Infinity;
++    receiversList.forEach(rx => {
++      const d = haversineDistance(
++        vesselLatLng.lat, vesselLatLng.lng,
++        rx.latlng.lat, rx.latlng.lng
++      );
++      if (d < minDist) { minDist = d; closest = rx; }
++    });
++
++    // trigger click + flash overlay
++    if (closest) {
++      closest.marker.fire('click');
++      const ov = document.createElement('div');
++      ov.className = 'rx-overlay';
++      ov.textContent = `Selected RX ${closest.name}`;
++      document.body.appendChild(ov);
++      requestAnimationFrame(() => ov.classList.add('show'));
++      setTimeout(() => {
++        ov.classList.remove('show');
++        ov.addEventListener('transitionend', () => ov.remove(), { once: true });
++      }, 2000);
++    }
++  }
 
       if(autoFit && boundsArr.length){
         programmaticFit = true;
