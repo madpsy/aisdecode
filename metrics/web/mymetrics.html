@@ -654,87 +654,58 @@ function focusVessel(uid){
           const m = L.marker([lat,lon], { icon });
 
 m.on('click', function(e) {
+  // reset line-drawing state
   polylineAdded = false;
   tooltipAdded  = false;
-  console.log("Vessel marker clicked!");
 
   L.DomEvent.stopPropagation(e);
-  updateOverlay(e.latlng);  // Update overlay with latlng of vessel
-  console.log("Overlay updated with latlng:", e.latlng);
+  updateOverlay(e.latlng);
 
-  // Close any previous popups
+  // close other popups
   Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
-  m.openPopup();
-  console.log("Popup opened for the clicked vessel.");
 
-  // Set focused UID and update the table row
+  // open this one and keep it open
+  m.openPopup({
+    autoClose: false,
+    closeOnClick: false
+  });
+
   focusedUid = uid;
-  console.log("Focused UID set to:", focusedUid);
   clearSelectedRow();
   highlightRow(uid);
 
-  // Proceed with distance calculation if a receiver is selected
   if (selectedReceiverLatLng) {
-    console.log("Receiver selected. Proceeding with distance calculations.");
-    
-    // Clear any existing polyline if it's already added
-    if (!polylineAdded) {
-      clearDistanceLine();  // Clear the existing polyline
-      console.log("Existing distance line cleared.");
+    clearDistanceLine();
+    const vesselLatLng = m.getLatLng();
+    const dist = haversineDistance(
+      selectedReceiverLatLng.lat,
+      selectedReceiverLatLng.lng,
+      vesselLatLng.lat,
+      vesselLatLng.lng
+    ).toFixed(2);
 
-      const vesselLatLng = m.getLatLng();
-      console.log("Vessel's latlng:", vesselLatLng);
+    distancePolyline = L.polyline(
+      [selectedReceiverLatLng, vesselLatLng],
+      { color: 'blue', weight: 3, opacity: 0.7, zIndex: 1000 }
+    ).addTo(map);
 
-      if (vesselLatLng) {
-        // Calculate the distance between the receiver and the vessel
-        const dist = haversineDistance(
-          selectedReceiverLatLng.lat,
-          selectedReceiverLatLng.lng,
-          vesselLatLng.lat,
-          vesselLatLng.lng
-        ).toFixed(2);
-        console.log("Calculated distance:", dist, "km");
+    const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat)/2;
+    const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng)/2;
+    distanceLabel = L.tooltip({
+      permanent: true,
+      direction: 'center',
+      className: 'distance-tooltip',
+      zIndex: 1001
+    })
+      .setLatLng([midLat, midLng])
+      .setContent(`${dist} km`)
+      .addTo(map);
 
-        // Draw the polyline only if it hasn't been added already
-        distancePolyline = L.polyline(
-          [selectedReceiverLatLng, vesselLatLng],
-          { color: 'blue', weight: 3, opacity: 0.7, zIndex: 1000 }
-        ).addTo(map);
-        console.log("Distance polyline drawn between receiver and vessel.");
-
-        polylineAdded = true;  // Mark polyline as added
-
-        // Calculate the midpoint for the distance label
-        const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
-        const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
-        console.log("Midpoint for distance label calculated:", { midLat, midLng });
-
-        // Add the distance label only if it's not already added
-        if (!tooltipAdded) {
-          distanceLabel = L.tooltip({
-            permanent: true,
-            direction: 'center',
-            className: 'distance-tooltip',
-            zIndex: 1001  // Ensure the label is above the polyline
-          })
-            .setLatLng([midLat, midLng])
-            .setContent(`${dist} km`)
-            .addTo(map);
-          console.log("Distance label created and added to map with content:", `${dist} km`);
-
-          tooltipAdded = true;  // Mark tooltip as added
-        }
-
-        // Fit map bounds to both receiver and vessel markers
-        const bounds = L.latLngBounds([selectedReceiverLatLng, vesselLatLng]);
-        map.fitBounds(bounds, { padding: [30, 30] });
-        console.log("Map zoomed to fit polyline and label.");
-      }
-    }
-  } else {
-    console.log("No receiver selected. Skipping distance calculation.");
+    const bounds = L.latLngBounds([selectedReceiverLatLng, vesselLatLng]);
+    map.fitBounds(bounds, { padding: [30, 30] });
   }
 });
+
 
           m.on('mouseover', ()=>{
             const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
