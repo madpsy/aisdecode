@@ -654,6 +654,8 @@ function focusVessel(uid){
           const m = L.marker([lat,lon], { icon });
 
 m.on('click', function(e) {
+  polylineAdded = false;
+  tooltipAdded  = false;
   console.log("Vessel marker clicked!");
 
   L.DomEvent.stopPropagation(e);
