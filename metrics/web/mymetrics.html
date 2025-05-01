@@ -822,8 +822,13 @@ function focusVessel(uid){
       return cat ? cat.name : info.Type;
     }
 
-function initDoughnut(){
-  const ctx = document.getElementById('typeDoughnut').getContext('2d');
+function initDoughnut() {
+  const ctx = document.getElementById('typeDoughnut')?.getContext('2d'); // Safely get the canvas context
+  if (!ctx) {
+    console.error('Doughnut chart element not found!');
+    return;
+  }
+
   typeDoughnut = new Chart(ctx, {
     type: 'doughnut',
     data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
@@ -839,6 +844,10 @@ function initDoughnut(){
     }
   });
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  initDoughnut(); // Initialize the doughnut chart after the DOM is loaded
+});
 
 // Function to update the visibility of map markers based on legend visibility
 function updateMarkersFromChart() {
