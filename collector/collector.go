@@ -439,51 +439,67 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
 
 func createIndexesIfNotExist(db *sql.DB) {
     stmts := []string{
-       // messages table: cover history and state CTE queries
-       `CREATE INDEX IF NOT EXISTS idx_messages_userid_msgid_ts 
-        ON messages(user_id, message_id, timestamp);`,
+        // messages table: cover history and state CTE queries
+        `CREATE INDEX IF NOT EXISTS idx_messages_userid_msgid_ts 
+            ON messages(user_id, message_id, timestamp);`,
 
-       // state table: filter by user and time
-       `CREATE INDEX IF NOT EXISTS idx_state_userid_timestamp 
-        ON state(user_id, timestamp);`,
+        // New index: only include rows where ApplicationID.Valid = true
+        `CREATE INDEX IF NOT EXISTS idx_messages_appid_valid_true
+            ON messages (((packet->'ApplicationID'->>'Valid')::boolean))
+            WHERE ((packet->'ApplicationID'->>'Valid')::boolean) = true;`,
 
-    // state table: filter by time alone
-    `CREATE INDEX IF NOT EXISTS idx_state_timestamp 
-        ON state(timestamp);`,
+        // New functional B‐tree index on user_id, message_id, DAC, FI, with timestamp DESC
+        `CREATE INDEX IF NOT EXISTS idx_messages_userid_msgid_dac_fi_ts
+            ON messages (
+                user_id,
+                message_id,
+                ((packet->'ApplicationID'->>'DesignatedAreaCode')::int),
+                ((packet->'ApplicationID'->>'FunctionIdentifier')::int),
+                timestamp DESC
+            );`,
 
-    // state table: geospatial radius queries
-    `CREATE INDEX IF NOT EXISTS idx_state_geo 
-        ON state 
-        USING GIST (
-            ST_SetSRID(
-                ST_Point(
-                    (packet->>'Longitude')::double precision,
-                    (packet->>'Latitude')::double precision
-                ),
-                4326
-            )
-        );`,
+        // state table: filter by user and time
+        `CREATE INDEX IF NOT EXISTS idx_state_userid_timestamp 
+            ON state(user_id, timestamp);`,
 
-    // enable trigram support for fast ILIKE/%...% searches
-    `CREATE EXTENSION IF NOT EXISTS pg_trgm;`,
+        // state table: filter by time alone
+        `CREATE INDEX IF NOT EXISTS idx_state_timestamp 
+            ON state(timestamp);`,
 
-    // state table: fast ILIKE on JSONB fields and name column
-    `CREATE INDEX IF NOT EXISTS idx_state_name_trgm 
-        ON state 
-        USING GIN ((packet->>'Name') gin_trgm_ops);`,
+        // state table: geospatial radius queries
+        `CREATE INDEX IF NOT EXISTS idx_state_geo 
+            ON state 
+            USING GIST (
+                ST_SetSRID(
+                    ST_Point(
+                        (packet->>'Longitude')::double precision,
+                        (packet->>'Latitude')::double precision
+                    ),
+                    4326
+                )
+            );`,
 
-    `CREATE INDEX IF NOT EXISTS idx_state_callsign_trgm 
-        ON state 
-        USING GIN ((packet->>'CallSign') gin_trgm_ops);`,
+        // enable trigram support for fast ILIKE/%...% searches
+        `CREATE EXTENSION IF NOT EXISTS pg_trgm;`,
 
-    `CREATE INDEX IF NOT EXISTS idx_state_imonumber_trgm 
-        ON state 
-        USING GIN ((packet->>'ImoNumber') gin_trgm_ops);`,
+        // state table: fast ILIKE on JSONB fields and name column
+        `CREATE INDEX IF NOT EXISTS idx_state_name_trgm 
+            ON state 
+            USING GIN ((packet->>'Name') gin_trgm_ops);`,
 
-    `CREATE INDEX IF NOT EXISTS idx_state_namecol_trgm 
-        ON state 
-        USING GIN (name gin_trgm_ops);`,
+        `CREATE INDEX IF NOT EXISTS idx_state_callsign_trgm 
+            ON state 
+            USING GIN ((packet->>'CallSign') gin_trgm_ops);`,
+
+        `CREATE INDEX IF NOT EXISTS idx_state_imonumber_trgm 
+            ON state 
+            USING GIN ((packet->>'ImoNumber') gin_trgm_ops);`,
+
+        `CREATE INDEX IF NOT EXISTS idx_state_namecol_trgm 
+            ON state 
+            USING GIN (name gin_trgm_ops);`,
     }
+
     for _, s := range stmts {
         if _, err := db.Exec(s); err != nil {
             log.Printf("Error creating index: %v", err)
