@@ -223,7 +223,7 @@
 
       // Title with raw IDs
       const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
-      dom.titleDiv.textContent = `${titleText} (Msg ${msgID}, DAC ${dac}, FI ${fi})`;
+      dom.titleDiv.textContent = `${titleText} (ID ${msgID}, DAC ${dac}, FI ${fi})`;
 
       if (!hasBinary) {
         // Show only notice
