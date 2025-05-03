@@ -681,7 +681,6 @@ func (cc *ClientConnection) getWSClient() (*clientSocket.Socket, error) {
     return cli, nil
 }
 
-// latestMessagesHandler serves /latestmessages?UserID=992351516[&MessageID=8&limit=10]
 func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
     q := r.URL.Query()
 
@@ -693,65 +692,106 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 2) Parse & validate optional MessageID
-    messageID := int64(0) // Default to 0 (no filter on message_id)
-    if msgIDStr := q.Get("MessageID"); msgIDStr != "" {
-        msgID, err := strconv.ParseInt(msgIDStr, 10, 64)
-        if err != nil || msgID < 0 {
+    // 2) Parse optional MessageID, DAC, FI
+    var (
+        messageID int64
+        dac       int
+        fi        int
+    )
+    if v := q.Get("MessageID"); v != "" {
+        if x, err := strconv.ParseInt(v, 10, 64); err == nil && x >= 0 {
+            messageID = x
+        } else {
             http.Error(w, "Invalid MessageID", http.StatusBadRequest)
             return
         }
-        messageID = msgID
+    }
+    if v := q.Get("DAC"); v != "" {
+        if x, err := strconv.Atoi(v); err == nil && x >= 0 {
+            dac = x
+        } else {
+            http.Error(w, "Invalid DAC", http.StatusBadRequest)
+            return
+        }
+    }
+    if v := q.Get("FI"); v != "" {
+        if x, err := strconv.Atoi(v); err == nil && x >= 0 {
+            fi = x
+        } else {
+            http.Error(w, "Invalid FI", http.StatusBadRequest)
+            return
+        }
     }
 
     // 3) Parse the optional 'limit' query parameter
-    limit := 1 // Default limit
-    if limitStr := q.Get("limit"); limitStr != "" {
-        parsedLimit, err := strconv.Atoi(limitStr)
-        if err != nil || parsedLimit <= 0 {
+    limit := 1
+    if v := q.Get("limit"); v != "" {
+        if x, err := strconv.Atoi(v); err == nil && x > 0 {
+            if x > 100 {
+                limit = 100
+            } else {
+                limit = x
+            }
+        } else {
             http.Error(w, "Invalid limit value", http.StatusBadRequest)
             return
         }
-        // Cap the limit at 100
-        if parsedLimit > 100 {
-            limit = 100
-        } else {
-            limit = parsedLimit
-        }
     }
 
-    // 4) Build the query based on the presence of MessageID
+    // 4) Build SQL
+    var whereClauses []string
+    whereClauses = append(whereClauses, fmt.Sprintf("user_id = %d", userID))
+    if messageID > 0 {
+        whereClauses = append(whereClauses, fmt.Sprintf("message_id = %d", messageID))
+    }
+    if q.Get("DAC") != "" {
+        whereClauses = append(whereClauses,
+            fmt.Sprintf("(packet->'ApplicationID'->>'DesignatedAreaCode')::int = %d", dac))
+    }
+    if q.Get("FI") != "" {
+        whereClauses = append(whereClauses,
+            fmt.Sprintf("(packet->'ApplicationID'->>'FunctionIdentifier')::int = %d", fi))
+    }
+    where := strings.Join(whereClauses, " AND ")
+
     var query string
-    if messageID == 0 {
-        // No MessageID provided, get latest for each message type
+    if messageID == 0 && q.Get("DAC") == "" && q.Get("FI") == "" {
+        // no filters → distinct on message_id, DAC, FI
         query = fmt.Sprintf(`
-            SELECT DISTINCT ON (message_id)
-                   message_id,
-                   packet,
-                   raw_sentence,
-                   timestamp
-              FROM messages
-             WHERE user_id = %d
-          ORDER BY message_id, timestamp DESC;
-        `, userID)
+            SELECT DISTINCT ON (
+                message_id,
+                (packet->'ApplicationID'->>'DesignatedAreaCode')::int,
+                (packet->'ApplicationID'->>'FunctionIdentifier')::int
+            )
+            message_id,
+            packet,
+            raw_sentence,
+            timestamp
+            FROM messages
+            WHERE %s
+            ORDER BY
+              message_id,
+              (packet->'ApplicationID'->>'DesignatedAreaCode')::int,
+              (packet->'ApplicationID'->>'FunctionIdentifier')::int,
+              timestamp DESC;
+        `, where)
     } else {
-        // MessageID provided, get up to 'limit' for that message type
+        // filtered by some combination → limit N most recent
         query = fmt.Sprintf(`
             SELECT message_id,
                    packet,
                    raw_sentence,
                    timestamp
               FROM messages
-             WHERE user_id = %d AND message_id = %d
+             WHERE %s
           ORDER BY timestamp DESC
              LIMIT %d;
-        `, userID, messageID, limit)
+        `, where, limit)
     }
 
-    // Log the query for debugging
     log.Printf("SQL Query: %s", query)
 
-    // 5) Run the query
+    // 5) Execute
     rows, err := QueryDatabaseForUser(strconv.FormatInt(userID, 10), query)
     if err != nil {
         http.Error(w, fmt.Sprintf("DB error: %v", err), http.StatusInternalServerError)
@@ -759,7 +799,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
     }
     defer rows.Close()
 
-    // 6) Collect results into a slice
+    // 6) Scan into JSON entries
     type entry struct {
         MessageID   int             `json:"MessageID"`
         Timestamp   string          `json:"Timestamp"`
@@ -778,17 +818,14 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             http.Error(w, fmt.Sprintf("Scan error: %v", err), http.StatusInternalServerError)
             return
         }
-
-        // If raw_sent is non-null, take its address; otherwise leave e.RawSentence nil
         if rawSent.Valid {
             e.RawSentence = &rawSent.String
         }
-
         e.Timestamp = ts.UTC().Format(time.RFC3339Nano)
         results = append(results, e)
     }
 
-    // 7) If nothing found, 404 + empty array
+    // 7) Empty → 404 + []
     if len(results) == 0 {
         w.Header().Set("Content-Type", "application/json")
         w.WriteHeader(http.StatusNotFound)
@@ -796,7 +833,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 8) JSON‐encode the slice
+    // 8) JSON‐encode
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(results)
 }
