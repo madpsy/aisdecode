@@ -54,6 +54,7 @@
       width: 100% !important;
       height: 100% !important;
     }
+    .no-binary { font-style: italic; color: #a00; margin: 0.5rem 0; }
   </style>
 
   <!-- Chart.js and date adapter for time scales -->
@@ -74,7 +75,7 @@
     Chart.register(ChartZoom);
     Chart.defaults.elements.point.radius = 1;
 
-    // Use a Map to track one block per MessageID|DAC|FI
+    // Track blocks by MessageID|DAC|FI
     const messageBlocks = new Map();
     let autoRefreshIntervalId = null;
 
@@ -95,13 +96,6 @@
       return res;
     }
 
-    function formatValue(val) {
-      if (typeof val === 'number' && isFinite(val)) {
-        return parseFloat(val.toFixed(4)).toString();
-      }
-      return String(val);
-    }
-
     function humanizeField(field) {
       return field.replace(/[_\.]/g, ' ');
     }
@@ -114,7 +108,7 @@
             ${Object.entries(data).map(([f, v]) =>
               `<tr>
                  <td>${humanizeField(f)}</td>
-                 <td>${formatValue(v)}</td>
+                 <td>${String(v)}</td>
                </tr>`
             ).join('')}
           </tbody>
@@ -123,9 +117,10 @@
 
     async function fetchAndRender(block) {
       const { userID, msgID, dac, fi, asm, initialMsg } = block;
-      const url = `/latestmessages?UserID=${userID}`
-                + `&MessageID=${msgID}&DAC=${dac}&FI=${fi}&limit=100`
-                + `&t=${Date.now()}`;
+      const url =
+        `/latestmessages?UserID=${userID}` +
+        `&MessageID=${msgID}&DAC=${dac}&FI=${fi}&limit=100` +
+        `&t=${Date.now()}`;
       let arr = [];
       try {
         const res = await fetch(url, { cache: 'no-store' });
@@ -133,11 +128,15 @@
       } catch (e) {
         console.error('[AutoRefresh] fetch error', e);
       }
+
+      // Filter to decoded
       const history = arr
         .filter(m => m.Packet?.DecodedBinary)
         .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
 
+      // If none decoded, still show one entry
       block.history = history.length ? history : [initialMsg];
+
       if (!block.dom) createBlockDOM(block);
       updateBlockDOM(block);
     }
@@ -145,7 +144,7 @@
     function createBlockDOM(block) {
       const c = document.createElement('div');
       c.className = 'message';
-      block.dom = { container: c };
+      block.dom = {};
 
       // title
       const titleDiv = document.createElement('div');
@@ -156,35 +155,62 @@
       // timestamp + nav
       const tsDiv = document.createElement('div');
       tsDiv.className = 'ts';
-      const nav = document.createElement('div'); nav.className = 'nav';
-      const btnNewer = document.createElement('button');
-      const btnOlder = document.createElement('button');
-      const counter = document.createElement('div'); counter.className = 'counter';
-      btnNewer.textContent = '◀️'; btnOlder.textContent = '▶️';
-      nav.append(btnNewer, counter, btnOlder);
-      c.append(tsDiv, nav);
+      c.appendChild(tsDiv);
       block.dom.tsDiv = tsDiv;
+
+      const nav = document.createElement('div');
+      nav.className = 'nav';
+      c.appendChild(nav);
+      block.dom.nav = nav;
+
+      const btnNewer = document.createElement('button');
+      btnNewer.textContent = '◀️';
+      nav.appendChild(btnNewer);
       block.dom.btnNewer = btnNewer;
-      block.dom.btnOlder = btnOlder;
+
+      const counter = document.createElement('div');
+      counter.className = 'counter';
+      nav.appendChild(counter);
       block.dom.counter = counter;
 
-      // table
+      const btnOlder = document.createElement('button');
+      btnOlder.textContent = '▶️';
+      nav.appendChild(btnOlder);
+      block.dom.btnOlder = btnOlder;
+
+      btnNewer.onclick = () => {
+        if (block.idx > 0) {
+          block.idx--;
+          updateBlockDOM(block);
+        }
+      };
+      btnOlder.onclick = () => {
+        if (block.idx < block.history.length - 1) {
+          block.idx++;
+          updateBlockDOM(block);
+        }
+      };
+
+      // no-binary notice placeholder
+      const notice = document.createElement('div');
+      notice.className = 'no-binary';
+      c.appendChild(notice);
+      block.dom.notice = notice;
+
+      // table container
       const tableContainer = document.createElement('div');
       tableContainer.className = 'table-container';
       c.appendChild(tableContainer);
       block.dom.tableContainer = tableContainer;
 
-      // chart
+      // chart container
       const chartWrapper = document.createElement('div');
       chartWrapper.className = 'chart-container';
       const canvas = document.createElement('canvas');
       chartWrapper.appendChild(canvas);
       c.appendChild(chartWrapper);
+      block.dom.chartWrapper = chartWrapper;
       block.dom.canvas = canvas;
-
-      // nav click handlers
-      btnNewer.onclick = () => { if (block.idx > 0) { block.idx--; updateBlockDOM(block); } };
-      btnOlder.onclick = () => { if (block.idx < block.history.length - 1) { block.idx++; updateBlockDOM(block); } };
 
       document.getElementById('output').appendChild(c);
     }
@@ -192,12 +218,30 @@
     function updateBlockDOM(block) {
       const { dom, asm, history, idx, msgID, dac, fi } = block;
       const msg = history[idx];
+      const hasBinary = !!msg.Packet?.DecodedBinary;
 
-      // — Title (with ID, DAC, FI)
+      // Title with identifiers
       const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
       dom.titleDiv.textContent = `${titleText} (Msg ${msgID}, DAC ${dac}, FI ${fi})`;
 
-      // — Timestamp & nav
+      if (!hasBinary) {
+        // show only notice
+        dom.notice.textContent = 'Binary data not decoded for this message type.';
+        dom.tsDiv.style.display = 'none';
+        dom.nav.style.display = 'none';
+        dom.tableContainer.style.display = 'none';
+        dom.chartWrapper.style.display = 'none';
+        return;
+      }
+
+      // clear notice, show all
+      dom.notice.textContent = '';
+      dom.tsDiv.style.display = '';
+      dom.nav.style.display = 'flex';
+      dom.tableContainer.style.display = '';
+      dom.chartWrapper.style.display = '';
+
+      // timestamp & nav
       dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
         hour12: false,
         year: 'numeric', month: '2-digit', day: '2-digit',
@@ -207,25 +251,25 @@
       dom.btnOlder.disabled = idx === history.length - 1;
       dom.counter.textContent = `${idx + 1} of ${history.length}`;
 
-      // — Table
-      dom.tableContainer.innerHTML =
-        makeTableHTML(flattenObject(msg.Packet.DecodedBinary));
+      // table
+      dom.tableContainer.innerHTML = makeTableHTML(
+        flattenObject(msg.Packet.DecodedBinary)
+      );
 
-      // — Chart data preparation
-      const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
-      const times   = history.map(m => new Date(m.Timestamp));
-      const fields  = Object.keys(records[0] || {}).filter(f => typeof records[0][f] === 'number');
-      const defaultVisible = new Set(fields.slice(0, 3));
+      // chart
+      const recs = history.map(m => flattenObject(m.Packet.DecodedBinary));
+      const times = history.map(m => new Date(m.Timestamp));
+      const fields = Object.keys(recs[0] || {}).filter(f => typeof recs[0][f] === 'number');
+      const defaultVis = new Set(fields.slice(0, 3));
 
       if (!block.chart) {
-        const datasets = fields.map(field => ({
-          label: humanizeField(field),
-          data: times.map((t, i) => ({ x: t, y: records[i][field] })),
+        const datasets = fields.map(f => ({
+          label: humanizeField(f),
+          data: times.map((t, i) => ({ x: t, y: recs[i][f] })),
           borderWidth: 1,
-          hidden: !defaultVisible.has(field),
-          _fieldKey: field
+          hidden: !defaultVis.has(f),
+          _fieldKey: f
         }));
-
         block.chart = new Chart(dom.canvas.getContext('2d'), {
           type: 'line',
           data: { datasets },
@@ -249,7 +293,8 @@
               zoom: {
                 pan: { enabled: true, mode: 'x' },
                 zoom: {
-                  wheel: { enabled: true }, drag: { enabled: true, backgroundColor: 'rgba(54,162,235,0.3)' },
+                  wheel: { enabled: true },
+                  drag: { enabled: true, backgroundColor: 'rgba(54,162,235,0.3)' },
                   pinch: { enabled: true }, mode: 'x', doubleClickReset: true
                 }
               }
@@ -257,53 +302,48 @@
             interaction: { mode: 'nearest', axis: 'x', intersect: false }
           }
         });
-
         dom.canvas.addEventListener('dblclick', () => block.chart.resetZoom());
       } else {
-        const oldDatasets = block.chart.data.datasets;
-        const newDatasets = fields.map(field => {
-          const existing = oldDatasets.find(ds => ds._fieldKey === field);
-          if (existing) {
-            existing.data = times.map((t, i) => ({ x: t, y: records[i][field] }));
-            return existing;
+        const oldDs = block.chart.data.datasets;
+        const newDs = fields.map(f => {
+          const ex = oldDs.find(d => d._fieldKey === f);
+          if (ex) {
+            ex.data = times.map((t, i) => ({ x: t, y: recs[i][f] }));
+            return ex;
           }
           return {
-            label: humanizeField(field),
-            data: times.map((t, i) => ({ x: t, y: records[i][field] })),
+            label: humanizeField(f),
+            data: times.map((t, i) => ({ x: t, y: recs[i][f] })),
             borderWidth: 1,
-            hidden: !defaultVisible.has(field),
-            _fieldKey: field
+            hidden: !defaultVis.has(f),
+            _fieldKey: f
           };
         });
-
-        block.chart.data.datasets = newDatasets;
+        block.chart.data.datasets = newDs;
         block.chart.update();
       }
     }
 
     function runRefresh() {
-      for (const block of messageBlocks.values()) {
-        fetchAndRender(block);
+      for (const b of messageBlocks.values()) {
+        fetchAndRender(b);
       }
     }
 
-    // Persist & re-hydrate Auto-Refresh state
+    // Auto-Refresh
     const autoCB = document.getElementById('auto-refresh-checkbox');
-    const saved = localStorage.getItem('autoRefreshEnabled');
-    if (saved === 'true') {
+    if (localStorage.getItem('autoRefreshEnabled') === 'true') {
       autoCB.checked = true;
       runRefresh();
       autoRefreshIntervalId = setInterval(runRefresh, 60000);
     }
-    autoCB.addEventListener('change', function(e) {
-      const enabled = e.target.checked;
-      localStorage.setItem('autoRefreshEnabled', enabled);
-      if (enabled) {
+    autoCB.addEventListener('change', e => {
+      localStorage.setItem('autoRefreshEnabled', e.target.checked);
+      if (e.target.checked) {
         runRefresh();
         autoRefreshIntervalId = setInterval(runRefresh, 60000);
-      } else if (autoRefreshIntervalId) {
+      } else {
         clearInterval(autoRefreshIntervalId);
-        autoRefreshIntervalId = null;
       }
     });
 
@@ -317,7 +357,7 @@
         return;
       }
 
-      // Load summary
+      // summary
       let summary;
       try {
         const r = await fetch(`/summary?UserID=${userID}`);
@@ -329,10 +369,9 @@
         return;
       }
       const info = summary[userID] || {};
-      const name = info.Name?.trim() ? info.Name : userID;
-      titleEl.textContent = `Latest Messages for ${name}`;
+      titleEl.textContent = `Latest Messages for ${info.Name?.trim() ? info.Name : userID}`;
 
-      // Load ASM definitions
+      // asm
       let asm;
       try {
         const r = await fetch('/asm.json');
@@ -343,7 +382,7 @@
         return;
       }
 
-      // Initial fetch of latest messages
+      // latestmessages
       let allMsgs;
       try {
         const r = await fetch(`/latestmessages?UserID=${userID}`);
@@ -354,36 +393,31 @@
         return;
       }
 
-      const decoded = allMsgs.filter(m => m.Packet?.DecodedBinary);
-      if (!decoded.length) {
-        output.innerHTML = '<div>No decoded-binary messages available.</div>';
-        return;
-      }
-
-      // Clear and build blocks
+      // build blocks for every combo
       output.innerHTML = '';
       messageBlocks.clear();
-      decoded.forEach(msg => {
-        const dab = msg.Packet.ApplicationID || {};
+      for (const m of allMsgs) {
+        const dab = m.Packet.ApplicationID || {};
         const dac = dab.DesignatedAreaCode;
-        const fi  = dab.FunctionIdentifier;
-        const key = `${msg.MessageID}|${dac}|${fi}`;
+        const fi = dab.FunctionIdentifier;
+        const key = `${m.MessageID}|${dac}|${fi}`;
         if (!messageBlocks.has(key)) {
           messageBlocks.set(key, {
             userID,
-            msgID: msg.MessageID,
-            dac, fi,
+            msgID: m.MessageID,
+            dac,
+            fi,
             asm,
-            initialMsg: msg,
+            initialMsg: m,
             history: [],
             idx: 0,
             dom: null,
             chart: null
           });
         }
-      });
+      }
 
-      // Render all blocks
+      // render
       await Promise.all(Array.from(messageBlocks.values()).map(b => fetchAndRender(b)));
     }
 
