@@ -71,16 +71,15 @@
   <div id="output">Loading messages…</div>
 
   <script>
-    // register zoom plugin & default point size
     Chart.register(ChartZoom);
     Chart.defaults.elements.point.radius = 1;
 
-    const messageBlocks = [];
+    // Use a Map to track one block per MessageID|DAC|FI
+    const messageBlocks = new Map();
     let autoRefreshIntervalId = null;
 
     function getUserID() {
-      const p = new URLSearchParams(window.location.search);
-      const v = p.get('UserID');
+      const v = new URLSearchParams(window.location.search).get('UserID');
       return v && /^\d+$/.test(v) ? v : null;
     }
 
@@ -123,44 +122,35 @@
     }
 
     async function fetchAndRender(block) {
-      const { initialMsg, userID, asm } = block;
+      const { userID, msgID, dac, fi, asm, initialMsg } = block;
       const url = `/latestmessages?UserID=${userID}`
-                + `&MessageID=${initialMsg.MessageID}&limit=100`
+                + `&MessageID=${msgID}&DAC=${dac}&FI=${fi}&limit=100`
                 + `&t=${Date.now()}`;
-      console.log(`[AutoRefresh] fetching ${url}`);
       let arr = [];
       try {
-        const r = await fetch(url, { cache: 'no-store' });
-        if (r.ok) arr = await r.json();
-        else console.warn('[AutoRefresh] non-OK status', r.status);
-      } catch (err) {
-        console.error('[AutoRefresh] fetch error', err);
+        const res = await fetch(url, { cache: 'no-store' });
+        if (res.ok) arr = await res.json();
+      } catch (e) {
+        console.error('[AutoRefresh] fetch error', e);
       }
       const history = arr
         .filter(m => m.Packet?.DecodedBinary)
         .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
-      block.history = history.length ? history : [initialMsg];
 
+      block.history = history.length ? history : [initialMsg];
       if (!block.dom) createBlockDOM(block);
       updateBlockDOM(block);
     }
 
-    async function initHistory(initialMsg, userID, asm) {
-      const block = { initialMsg, userID, asm, history: [], chart: null, idx: 0, dom: null };
-      messageBlocks.push(block);
-      await fetchAndRender(block);
-    }
-
     function createBlockDOM(block) {
-      const container = document.createElement('div');
-      container.className = 'message';
-      block.dom = {};
-      block.dom.container = container;
+      const c = document.createElement('div');
+      c.className = 'message';
+      block.dom = { container: c };
 
       // title
       const titleDiv = document.createElement('div');
       titleDiv.className = 'title';
-      container.appendChild(titleDiv);
+      c.appendChild(titleDiv);
       block.dom.titleDiv = titleDiv;
 
       // timestamp + nav
@@ -172,7 +162,7 @@
       const counter = document.createElement('div'); counter.className = 'counter';
       btnNewer.textContent = '◀️'; btnOlder.textContent = '▶️';
       nav.append(btnNewer, counter, btnOlder);
-      container.append(tsDiv, nav);
+      c.append(tsDiv, nav);
       block.dom.tsDiv = tsDiv;
       block.dom.btnNewer = btnNewer;
       block.dom.btnOlder = btnOlder;
@@ -181,7 +171,7 @@
       // table
       const tableContainer = document.createElement('div');
       tableContainer.className = 'table-container';
-      container.appendChild(tableContainer);
+      c.appendChild(tableContainer);
       block.dom.tableContainer = tableContainer;
 
       // chart
@@ -189,129 +179,124 @@
       chartWrapper.className = 'chart-container';
       const canvas = document.createElement('canvas');
       chartWrapper.appendChild(canvas);
-      container.appendChild(chartWrapper);
+      c.appendChild(chartWrapper);
       block.dom.canvas = canvas;
 
       // nav click handlers
       btnNewer.onclick = () => { if (block.idx > 0) { block.idx--; updateBlockDOM(block); } };
       btnOlder.onclick = () => { if (block.idx < block.history.length - 1) { block.idx++; updateBlockDOM(block); } };
 
-      document.getElementById('output').appendChild(container);
+      document.getElementById('output').appendChild(c);
     }
 
-function updateBlockDOM(block) {
-  const { dom, asm, history, idx } = block;
-  const msg = history[idx];
+    function updateBlockDOM(block) {
+      const { dom, asm, history, idx, msgID, dac, fi } = block;
+      const msg = history[idx];
 
-  // — Title
-  const dac = msg.Packet.ApplicationID.DesignatedAreaCode;
-  const fi  = msg.Packet.ApplicationID.FunctionIdentifier;
-  dom.titleDiv.textContent =
-    asm[msg.MessageID]?.[dac]?.[fi]?.Title || 'Unknown message type';
+      // — Title
+      dom.titleDiv.textContent =
+        asm[msgID]?.[dac]?.[fi]?.Title
+        || `Msg ${msgID} (DAC ${dac}, FI ${fi})`;
 
-  // — Timestamp & nav
-  dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
-    hour12: false,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit'
-  });
-  dom.btnNewer.disabled = idx === 0;
-  dom.btnOlder.disabled = idx === history.length - 1;
-  dom.counter.textContent = `${idx + 1} of ${history.length}`;
+      // — Timestamp & nav
+      dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
+        hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+      dom.btnNewer.disabled = idx === 0;
+      dom.btnOlder.disabled = idx === history.length - 1;
+      dom.counter.textContent = `${idx + 1} of ${history.length}`;
 
-  // — Table
-  dom.tableContainer.innerHTML =
-    makeTableHTML(flattenObject(msg.Packet.DecodedBinary));
+      // — Table
+      dom.tableContainer.innerHTML =
+        makeTableHTML(flattenObject(msg.Packet.DecodedBinary));
 
-  // — Build the raw arrays
-  const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
-  const times   = history.map(m => new Date(m.Timestamp));
-  const fields  = Object.keys(records[0]).filter(f => typeof records[0][f] === 'number');
-  const defaultVisible = new Set(fields.slice(0, 3));
+      // — Build the raw arrays
+      const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
+      const times   = history.map(m => new Date(m.Timestamp));
+      const fields  = Object.keys(records[0] || {}).filter(f => typeof records[0][f] === 'number');
+      const defaultVisible = new Set(fields.slice(0, 3));
 
-  // — Create or update datasets, reusing existing instances to keep `.hidden`
-  let datasets;
-  if (!block.chart) {
-    // First‐time creation
-    datasets = fields.map(field => ({
-      label:    humanizeField(field),
-      data:     times.map((t, i) => ({ x: t, y: records[i][field] })),
-      borderWidth: 1,
-      hidden:   !defaultVisible.has(field),
-      _fieldKey: field
-    }));
+      // — Create or update datasets, reusing existing instances to keep `.hidden`
+      if (!block.chart) {
+        const datasets = fields.map(field => ({
+          label:    humanizeField(field),
+          data:     times.map((t, i) => ({ x: t, y: records[i][field] })),
+          borderWidth: 1,
+          hidden:   !defaultVisible.has(field),
+          _fieldKey: field
+        }));
 
-    block.chart = new Chart(dom.canvas.getContext('2d'), {
-      type: 'line',
-      data: { datasets },
-      options: {
-        animation: false,
-        maintainAspectRatio: false,
-        scales: {
-          x: {
-            type: 'time',
-            time: {
-              tooltipFormat: 'HH:mm:ss',
-              displayFormats: { hour: 'HH:mm', minute: 'HH:mm' }
+        block.chart = new Chart(dom.canvas.getContext('2d'), {
+          type: 'line',
+          data: { datasets },
+          options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                type: 'time',
+                time: {
+                  tooltipFormat: 'HH:mm:ss',
+                  displayFormats: { hour: 'HH:mm', minute: 'HH:mm' }
+                },
+                ticks: { autoSkip: true, maxRotation: 0 }
+              },
+              y: { beginAtZero: false }
             },
-            ticks: { autoSkip: true, maxRotation: 0 }
-          },
-          y: { beginAtZero: false }
-        },
-        plugins: {
-          legend: {
-            position: 'bottom',
-            labels: { boxWidth: 8, padding: 8, font: { size: 10 } }
-          },
-          tooltip: { mode: 'index', intersect: false },
-          zoom: {
-            pan: { enabled: true, mode: 'x' },
-            zoom: {
-              wheel: { enabled: true },
-              drag: { enabled: true, backgroundColor: 'rgba(54,162,235,0.3)' },
-              pinch: { enabled: true },
-              mode: 'x',
-              doubleClickReset: true
-            }
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: { boxWidth: 8, padding: 8, font: { size: 10 } }
+              },
+              tooltip: { mode: 'index', intersect: false },
+              zoom: {
+                pan: { enabled: true, mode: 'x' },
+                zoom: {
+                  wheel: { enabled: true },
+                  drag: { enabled: true, backgroundColor: 'rgba(54,162,235,0.3)' },
+                  pinch: { enabled: true },
+                  mode: 'x',
+                  doubleClickReset: true
+                }
+              }
+            },
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
           }
-        },
-        interaction: { mode: 'nearest', axis: 'x', intersect: false }
+        });
+
+        // double-click to reset zoom
+        dom.canvas.addEventListener('dblclick', () => block.chart.resetZoom());
+      } else {
+        const oldDatasets = block.chart.data.datasets;
+        const newDatasets = fields.map(field => {
+          const existing = oldDatasets.find(ds => ds._fieldKey === field);
+          if (existing) {
+            existing.data = times.map((t, i) => ({ x: t, y: records[i][field] }));
+            return existing;
+          }
+          return {
+            label:    humanizeField(field),
+            data:     times.map((t, i) => ({ x: t, y: records[i][field] })),
+            borderWidth: 1,
+            hidden:   !defaultVisible.has(field),
+            _fieldKey: field
+          };
+        });
+
+        block.chart.data.datasets = newDatasets;
+        block.chart.update();
       }
-    });
-
-    // double-click to reset zoom
-    dom.canvas.addEventListener('dblclick', () => block.chart.resetZoom());
-
-  } else {
-    // Subsequent refreshes: find & update existing datasets
-    const oldDatasets = block.chart.data.datasets;
-    datasets = fields.map(field => {
-      const existing = oldDatasets.find(ds => ds._fieldKey === field);
-      if (existing) {
-        existing.data = times.map((t, i) => ({ x: t, y: records[i][field] }));
-        return existing;
-      }
-      // brand-new field
-      return {
-        label:    humanizeField(field),
-        data:     times.map((t, i) => ({ x: t, y: records[i][field] })),
-        borderWidth: 1,
-        hidden:   !defaultVisible.has(field),
-        _fieldKey: field
-      };
-    });
-
-    // replace the array and redraw
-    block.chart.data.datasets = datasets;
-    block.chart.update();
-  }
-}
+    }
 
     function runRefresh() {
-      messageBlocks.forEach(block => fetchAndRender(block));
+      for (const block of messageBlocks.values()) {
+        fetchAndRender(block);
+      }
     }
 
-    // — Persist & re-hydrate Auto-Refresh state —
+    // Persist & re-hydrate Auto-Refresh state
     const autoCB = document.getElementById('auto-refresh-checkbox');
     const saved = localStorage.getItem('autoRefreshEnabled');
     if (saved === 'true') {
@@ -330,7 +315,6 @@ function updateBlockDOM(block) {
         autoRefreshIntervalId = null;
       }
     });
-    // —————————————————————————————
 
     async function main() {
       const userID = getUserID();
@@ -342,6 +326,7 @@ function updateBlockDOM(block) {
         return;
       }
 
+      // Load summary
       let summary;
       try {
         const r = await fetch(`/summary?UserID=${userID}`);
@@ -356,6 +341,7 @@ function updateBlockDOM(block) {
       const name = info.Name?.trim() ? info.Name : userID;
       titleEl.textContent = `Latest Messages for ${name}`;
 
+      // Load ASM definitions
       let asm;
       try {
         const r = await fetch('/asm.json');
@@ -366,6 +352,7 @@ function updateBlockDOM(block) {
         return;
       }
 
+      // Initial fetch of latest messages (one per message_id|DAC|FI)
       let allMsgs;
       try {
         const r = await fetch(`/latestmessages?UserID=${userID}`);
@@ -381,10 +368,32 @@ function updateBlockDOM(block) {
         output.innerHTML = '<div>No decoded-binary messages available.</div>';
         return;
       }
-      output.innerHTML = '';
-      messageBlocks.length = 0;
 
-      await Promise.all(decoded.map(msg => initHistory(msg, userID, asm)));
+      // Clear and build blocks
+      output.innerHTML = '';
+      messageBlocks.clear();
+      decoded.forEach(msg => {
+        const dab = msg.Packet.ApplicationID || {};
+        const dac = dab.DesignatedAreaCode;
+        const fi  = dab.FunctionIdentifier;
+        const key = `${msg.MessageID}|${dac}|${fi}`;
+        if (!messageBlocks.has(key)) {
+          messageBlocks.set(key, {
+            userID,
+            msgID: msg.MessageID,
+            dac, fi,
+            asm,
+            initialMsg: msg,
+            history: [],
+            idx: 0,
+            dom: null,
+            chart: null
+          });
+        }
+      });
+
+      // Render all blocks
+      await Promise.all(Array.from(messageBlocks.values()).map(b => fetchAndRender(b)));
     }
 
     main();
