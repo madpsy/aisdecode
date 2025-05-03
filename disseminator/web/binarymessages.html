@@ -193,10 +193,9 @@
       const { dom, asm, history, idx, msgID, dac, fi } = block;
       const msg = history[idx];
 
-      // — Title
-      dom.titleDiv.textContent =
-        asm[msgID]?.[dac]?.[fi]?.Title
-        || `Msg ${msgID} (DAC ${dac}, FI ${fi})`;
+      // — Title (with ID, DAC, FI)
+      const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
+      dom.titleDiv.textContent = `${titleText} (Msg ${msgID}, DAC ${dac}, FI ${fi})`;
 
       // — Timestamp & nav
       dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
@@ -212,19 +211,18 @@
       dom.tableContainer.innerHTML =
         makeTableHTML(flattenObject(msg.Packet.DecodedBinary));
 
-      // — Build the raw arrays
+      // — Chart data preparation
       const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
       const times   = history.map(m => new Date(m.Timestamp));
       const fields  = Object.keys(records[0] || {}).filter(f => typeof records[0][f] === 'number');
       const defaultVisible = new Set(fields.slice(0, 3));
 
-      // — Create or update datasets, reusing existing instances to keep `.hidden`
       if (!block.chart) {
         const datasets = fields.map(field => ({
-          label:    humanizeField(field),
-          data:     times.map((t, i) => ({ x: t, y: records[i][field] })),
+          label: humanizeField(field),
+          data: times.map((t, i) => ({ x: t, y: records[i][field] })),
           borderWidth: 1,
-          hidden:   !defaultVisible.has(field),
+          hidden: !defaultVisible.has(field),
           _fieldKey: field
         }));
 
@@ -246,19 +244,13 @@
               y: { beginAtZero: false }
             },
             plugins: {
-              legend: {
-                position: 'bottom',
-                labels: { boxWidth: 8, padding: 8, font: { size: 10 } }
-              },
+              legend: { position: 'bottom', labels: { boxWidth: 8, padding: 8, font: { size: 10 } } },
               tooltip: { mode: 'index', intersect: false },
               zoom: {
                 pan: { enabled: true, mode: 'x' },
                 zoom: {
-                  wheel: { enabled: true },
-                  drag: { enabled: true, backgroundColor: 'rgba(54,162,235,0.3)' },
-                  pinch: { enabled: true },
-                  mode: 'x',
-                  doubleClickReset: true
+                  wheel: { enabled: true }, drag: { enabled: true, backgroundColor: 'rgba(54,162,235,0.3)' },
+                  pinch: { enabled: true }, mode: 'x', doubleClickReset: true
                 }
               }
             },
@@ -266,7 +258,6 @@
           }
         });
 
-        // double-click to reset zoom
         dom.canvas.addEventListener('dblclick', () => block.chart.resetZoom());
       } else {
         const oldDatasets = block.chart.data.datasets;
@@ -277,10 +268,10 @@
             return existing;
           }
           return {
-            label:    humanizeField(field),
-            data:     times.map((t, i) => ({ x: t, y: records[i][field] })),
+            label: humanizeField(field),
+            data: times.map((t, i) => ({ x: t, y: records[i][field] })),
             borderWidth: 1,
-            hidden:   !defaultVisible.has(field),
+            hidden: !defaultVisible.has(field),
             _fieldKey: field
           };
         });
@@ -352,7 +343,7 @@
         return;
       }
 
-      // Initial fetch of latest messages (one per message_id|DAC|FI)
+      // Initial fetch of latest messages
       let allMsgs;
       try {
         const r = await fetch(`/latestmessages?UserID=${userID}`);
