@@ -21,18 +21,26 @@
     .card p { margin: 0; font-size: 1.5em; font-weight: bold; }
     .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; margin-bottom: 20px; }
     .chart-container { width: 100%; height: 300px; }
-    .doughnut-wrapper {
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
-      gap: 20px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-    }
-    .doughnut-wrapper > * {
-      flex: 1 1 300px;   /* grow/shrink, but not below ~300px */
-    }
-    
+.doughnut-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  justify-content: center;
+}
+
+.doughnut-container {
+  flex: 1 1 200px;       /* shrink no smaller than 200px */
+  max-width: 300px;      /* optional cap on large screens */
+  aspect-ratio: 1 / 1;   /* always square */
+  position: relative;
+}
+
+.doughnut-container canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+}
     #map {
       width: 100%;
       max-width: 100%;
@@ -170,7 +178,9 @@
   <div class="charts" id="charts"></div>
 
   <div class="doughnut-wrapper">
-    <canvas id="typeDoughnut" class="doughnut-chart"></canvas>
+    <div class="doughnut-container">
+      <canvas id="typeDoughnut" class="doughnut-chart"></canvas>
+    </div>
     <div id="map"></div>
   </div>
 
@@ -880,8 +890,7 @@ m.on('click', function(e) {
         data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
         options: {
           responsive: true,
-	  maintainAspectRatio: true,
-	  aspectRatio: 1,
+	  maintainAspectRatio: false,
           plugins: {
             legend: { position: 'right', labels: { boxWidth:12 } },
             centerText: { display: true, text: '' }
