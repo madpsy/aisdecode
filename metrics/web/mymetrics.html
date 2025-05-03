@@ -13,10 +13,11 @@
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <style>
+  /* BASIC RESET */
   body { font-family: Arial, sans-serif; margin: 20px; }
   .controls { margin-bottom: 20px; }
 
-  /* CARDS: use CSS Grid so they fill in two+ columns on narrow screens */
+  /* CARDS: 2+ columns on mobile, stretch on desktop */
   .cards {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -28,19 +29,22 @@
     border: 1px solid #ddd;
     border-radius: 8px;
     padding: 16px;
-    /* min-width no longer needed */
     text-align: center;
   }
   .card h3 { margin: 0 0 8px; font-size: 1em; color: #333; }
   .card p  { margin: 0; font-size: 1.5em; font-weight: bold; }
 
+  /* LINE CHARTS: auto-fit 150px minimum so mobile shows two per row */
   .charts {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 20px;
     margin-bottom: 20px;
   }
-  .chart-container { width: 100%; height: 300px; }
+  .chart-container {
+    width: 100%;
+    height: 300px;
+  }
 
   /* DOUGHNUT + MAP WRAPPER */
   .doughnut-wrapper {
@@ -49,11 +53,10 @@
     gap: 20px;
     justify-content: center;
   }
-
   .doughnut-container {
-    flex: 1 1 200px;       /* shrink no smaller than 200px */
-    max-width: 300px;      /* optional cap on large screens */
-    aspect-ratio: 1 / 1;   /* always square */
+    flex: 1 1 200px;
+    max-width: 300px;
+    aspect-ratio: 1 / 1;
     position: relative;
   }
   .doughnut-container canvas {
@@ -62,7 +65,6 @@
     width: 100%;
     height: 100%;
   }
-
   #map {
     flex: 1 1 300px;
     min-width: 300px;
@@ -70,6 +72,7 @@
     position: relative;
   }
 
+  /* TABLE & PAGINATION */
   table {
     width: 100%;
     border-collapse: collapse;
@@ -112,6 +115,7 @@
     cursor: default;
   }
 
+  /* POPUPS & FLAGS */
   .leaflet-popup-content-wrapper {
     border: none !important;
     box-shadow: none !important;
@@ -126,7 +130,6 @@
     margin: 0 !important;
     padding: 0 !important;
   }
-
   .flag-img {
     width: 30px;
     height: auto;
@@ -136,7 +139,7 @@
     display: block;
   }
 
-  /* Receiver tooltip styling */
+  /* RECEIVER TOOLTIP */
   .receiver-tooltip {
     background: white;
     border: 1px solid #ccc;
@@ -146,7 +149,7 @@
     font-size: 0.9em;
   }
 
-  /* Lat/Lng overlay centered at top of map */
+  /* LAT/LNG OVERLAY */
   .latlng-overlay {
     position: absolute;
     top: 10px;
@@ -163,7 +166,7 @@
     z-index: 1000;
   }
 
-  /* Distance label */
+  /* DISTANCE LABEL */
   .distance-tooltip {
     background-color: rgba(255,255,255,0.9);
     border: 1px solid #333;
@@ -171,11 +174,9 @@
     border-radius: 4px;
     font-weight: bold;
   }
-
-  /* Hide distance column until a receiver is selected */
   .distance-col { display: none; }
 
-  /* Top-centered RX selection flash message */
+  /* RX OVERLAY FLASH */
   .rx-overlay {
     position: fixed;
     top: 20px;
@@ -194,11 +195,12 @@
   }
   .rx-overlay.show { opacity: 1; }
 
-  /* highlight selected table row */
+  /* HIGHLIGHT SELECTED ROW */
   #summaryBody tr.selected {
     background-color: #d0e8ff;
   }
 </style>
+
 
 </head>
 <body>
