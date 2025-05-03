@@ -27,9 +27,18 @@
       justify-content: center;
       gap: 20px;
       margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .doughnut-wrapper > * {
+      flex: 1 1 300px;   /* grow/shrink, but not below ~300px */
     }
     canvas.doughnut-chart { width: 400px !important; height: 400px !important; }
-    #map { width: 600px !important; height: 400px !important; position: relative; }
+    #map {
+      width: 100%;
+      max-width: 100%;
+      height: 300px;
+      position: relative;
+    }
     table { width: 100%; border-collapse: collapse; margin-top: 20px; }
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
     th { background: #f0f0f0; cursor: pointer; user-select: none; }
@@ -434,6 +443,9 @@
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
+
+   setTimeout(() => map.invalidateSize(), 0);
+   window.addEventListener('resize', () => map.invalidateSize());
 
 map.on('click', e => {
   const tgt = e.originalEvent.target;
