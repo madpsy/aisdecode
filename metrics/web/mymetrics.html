@@ -880,6 +880,8 @@ m.on('click', function(e) {
         data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
         options: {
           responsive: true,
+	  maintainAspectRatio: true,
+	  aspectRatio: 1,
           plugins: {
             legend: { position: 'right', labels: { boxWidth:12 } },
             centerText: { display: true, text: '' }
