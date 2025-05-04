@@ -168,13 +168,16 @@
         <label>Fields
           <select multiple size="4" class="fields-select"></select>
         </label>
-        <button class="apply-range">Refresh</button>
+        <button class="apply-range">Get</button>
+        <button class="reset-range">Reset</button>
       `;
       c.appendChild(controls);
       block.dom.startInput    = controls.querySelector('.start-input');
       block.dom.endInput      = controls.querySelector('.end-input');
       block.dom.fieldsSelect  = controls.querySelector('.fields-select');
       block.dom.applyRangeBtn = controls.querySelector('.apply-range');
+      block.dom.resetRangeBtn = controls.querySelector('.reset-range');
+
       block.dom.applyRangeBtn.onclick = () => {
         block.start = block.dom.startInput.value
           ? new Date(block.dom.startInput.value).toISOString()
@@ -186,6 +189,16 @@
           block.dom.fieldsSelect.selectedOptions
         ).map(o => o.value);
         block.idx = 0;
+        fetchAndRender(block);
+      };
+
+      block.dom.resetRangeBtn.onclick = () => {
+        block.start = block.end = null;
+        block.aggregateFields = [];
+        block.idx = 0;
+        block.dom.startInput.value = '';
+        block.dom.endInput.value = '';
+        block.dom.fieldsSelect.selectedIndex = -1;
         fetchAndRender(block);
       };
 
@@ -239,7 +252,6 @@
         return;
       }
 
-      // aggregated
       if (isAgg) {
         dom.notice.textContent = '';
         dom.tsDiv.style.display = dom.nav.style.display =
@@ -250,11 +262,15 @@
         const aliases = aggregateFields.map(p =>
           p.split('.').map(s => s.toLowerCase()).join('_') + '_avg'
         );
-        const datasets = aliases.map(alias => ({
-          label: humanizeField(alias),
-          data: times.map((t,i) => ({ x: t, y: history[i][alias] })),
-          borderWidth: 1
-        }));
+        const datasets = aliases.map(alias => {
+          // drop "decodedbinary_" prefix for display
+          const label = humanizeField(alias.replace(/^decodedbinary_/, ''));
+          return {
+            label,
+            data: times.map((t,i) => ({ x: t, y: history[i][alias] })),
+            borderWidth: 1
+          };
+        });
 
         if (dom.chart) dom.chart.destroy();
         dom.chart = new Chart(dom.canvas.getContext('2d'), {
@@ -284,71 +300,71 @@
             interaction: { mode: 'nearest', axis: 'x', intersect: false }
           }
         });
-        return;
-      }
 
-      // raw
-      dom.notice.textContent = '';
-      dom.tsDiv.style.display = '';
-      dom.nav.style.display = 'flex';
-      dom.tableContainer.style.display = '';
-      dom.chartWrapper.style.display = '';
+      } else {
+        // raw mode
+        dom.notice.textContent = '';
+        dom.tsDiv.style.display = '';
+        dom.nav.style.display = 'flex';
+        dom.tableContainer.style.display = '';
+        dom.chartWrapper.style.display = '';
 
-      dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
-        hour12: false,
-        year:'numeric', month:'2-digit', day:'2-digit',
-        hour:'2-digit', minute:'2-digit', second:'2-digit'
-      });
-      dom.btnNewer.disabled = idx===0;
-      dom.btnOlder.disabled = idx===history.length-1;
-      dom.counter.textContent = `${idx+1} of ${history.length}`;
+        dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
+          hour12: false,
+          year:'numeric', month:'2-digit', day:'2-digit',
+          hour:'2-digit', minute:'2-digit', second:'2-digit'
+        });
+        dom.btnNewer.disabled = idx===0;
+        dom.btnOlder.disabled = idx===history.length-1;
+        dom.counter.textContent = `${idx+1} of ${history.length}`;
 
-      dom.tableContainer.innerHTML = makeTableHTML(
-        flattenObject(msg.Packet.DecodedBinary)
-      );
+        dom.tableContainer.innerHTML = makeTableHTML(
+          flattenObject(msg.Packet.DecodedBinary)
+        );
 
-      const records = history.map(m=>flattenObject(m.Packet.DecodedBinary));
-      const timesArr = history.map(m=>new Date(m.Timestamp));
-      const fields = Object.keys(records[0]||{}).filter(f=>typeof records[0][f]==='number');
-      const defaultVis = new Set(fields.slice(0,3));
+        const records = history.map(m=>flattenObject(m.Packet.DecodedBinary));
+        const timesArr = history.map(m=>new Date(m.Timestamp));
+        const fields = Object.keys(records[0]||{}).filter(f=>typeof records[0][f]==='number');
+        const defaultVis = new Set(fields.slice(0,3));
 
-      if (dom.chart) dom.chart.destroy();
-      const datasets = fields.map(f=>({
-        label: humanizeField(f),
-        data: timesArr.map((t,i)=>({ x:t, y:records[i][f] })),
-        borderWidth:1,
-        hidden:!defaultVis.has(f),
-        _fieldKey:f
-      }));
+        if (dom.chart) dom.chart.destroy();
+        const datasets = fields.map(f=>({
+          label: humanizeField(f),
+          data: timesArr.map((t,i)=>({ x:t, y:records[i][f] })),
+          borderWidth:1,
+          hidden:!defaultVis.has(f),
+          _fieldKey:f
+        }));
 
-      dom.chart = new Chart(dom.canvas.getContext('2d'), {
-        type:'line',
-        data:{datasets},
-        options:{
-          animation:false,
-          maintainAspectRatio:false,
-          scales:{
-            x:{
-              type:'time',
-              time:{
-                tooltipFormat:'HH:mm:ss',
-                displayFormats:{ hour:'HH:mm', minute:'HH:mm' }
+        dom.chart = new Chart(dom.canvas.getContext('2d'), {
+          type:'line',
+          data:{datasets},
+          options:{
+            animation:false,
+            maintainAspectRatio:false,
+            scales:{
+              x:{
+                type:'time',
+                time:{
+                  tooltipFormat:'HH:mm:ss',
+                  displayFormats:{ hour:'HH:mm', minute:'HH:mm' }
+                },
+                ticks:{ autoSkip:true, maxRotation:0 }
               },
-              ticks:{ autoSkip:true, maxRotation:0 }
+              y:{ beginAtZero:false }
             },
-            y:{ beginAtZero:false }
-          },
-          plugins:{
-            legend:{ position:'bottom' },
-            zoom:{
-              pan:{ enabled:true, mode:'x' },
-              zoom:{ wheel:{ enabled:true }, drag:{ enabled:true }, mode:'x' }
-            }
-          },
-          interaction:{ mode:'nearest', axis:'x', intersect:false }
-        }
-      });
-      dom.canvas.addEventListener('dblclick', () => dom.chart.resetZoom());
+            plugins:{
+              legend:{ position:'bottom' },
+              zoom:{
+                pan:{ enabled:true, mode:'x' },
+                zoom:{ wheel:{ enabled:true }, drag:{ enabled:true }, mode:'x' }
+              }
+            },
+            interaction:{ mode:'nearest', axis:'x', intersect:false }
+          }
+        });
+        dom.canvas.addEventListener('dblclick', () => dom.chart.resetZoom());
+      }
     }
 
     function runRefresh() {
