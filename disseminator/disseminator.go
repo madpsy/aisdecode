@@ -756,30 +756,43 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             return
         }
     }
-    // ensure endTime defaults to now if not set
     if endTime.IsZero() {
         endTime = now
     }
 
-    // 5) Determine bucket size (truncUnit) from range param
-    //    but do NOT override startTime/endTime if both were provided
-    var truncUnit string
+    // 5) Auto‐granularity for aggregation
     rangeParam := strings.ToLower(q.Get("range"))
-    switch rangeParam {
-    case "day":
-        truncUnit = "minute"
-    case "week":
-        truncUnit = "hour"
-    case "month":
-        truncUnit = "day"
-    case "year":
-        truncUnit = "month"
-    default:
-        // YYYY-MM or nothing
-        truncUnit = "minute"
+    var truncUnit string
+    if rangeParam == "" && !startTime.IsZero() && !endTime.IsZero() {
+        // pick based on window length
+        diff := endTime.Sub(startTime)
+        switch {
+        case diff <= 24*time.Hour:
+            truncUnit = "minute"
+        case diff <= 7*24*time.Hour:
+            truncUnit = "hour"
+        case diff <= 31*24*time.Hour:
+            truncUnit = "day"
+        default:
+            truncUnit = "month"
+        }
+    } else {
+        // explicit range overrides
+        switch rangeParam {
+        case "day":
+            truncUnit = "minute"
+        case "week":
+            truncUnit = "hour"
+        case "month":
+            truncUnit = "day"
+        case "year":
+            truncUnit = "month"
+        default:
+            truncUnit = "minute"
+        }
     }
 
-    // 6) If neither start nor end were explicitly set, apply the preset window
+    // 6) If neither start nor end were set, apply preset window
     if q.Get("start") == "" && q.Get("end") == "" {
         switch rangeParam {
         case "day":
@@ -791,8 +804,6 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             startTime = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
         case "year":
             startTime = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
-        default:
-            // no preset window, leave startTime zero
         }
     }
 
@@ -811,7 +822,6 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
     // 8) Aggregation branch
     if len(aggs) > 0 {
-        // build SELECT list
         bucketCol := fmt.Sprintf("date_trunc('%s', timestamp) AS bucket", truncUnit)
         var exprs []string
         for _, a := range aggs {
@@ -840,7 +850,6 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         }
         defer rows.Close()
 
-        // scan results
         nulls := make([]sql.NullFloat64, len(aggs))
         scanTargets := []interface{}{new(time.Time)}
         for i := range nulls {
@@ -873,7 +882,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 9) Fallback: original “latest” logic + optional time filters
+    // 9) Fallback: original latest/limit logic + time filters
     var where []string
     where = append(where, fmt.Sprintf("user_id = %d", userID))
     if messageID > 0 {
