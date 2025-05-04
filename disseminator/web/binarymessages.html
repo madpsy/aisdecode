@@ -91,7 +91,6 @@
     Chart.register(ChartZoom);
     Chart.defaults.elements.point.radius = 1;
 
-    // Map of blocks keyed by "MessageID|DAC|FI"
     const messageBlocks = new Map();
     let autoRefreshIntervalId = null;
 
@@ -133,8 +132,6 @@
 
     async function fetchAndRender(block) {
       const { userID, msgID, dac, fi, asm, initialMsg, start, end, aggregateFields } = block;
-
-      // Build URL parameters
       const params = new URLSearchParams({
         UserID:    userID,
         MessageID: msgID,
@@ -142,13 +139,10 @@
         FI:        fi,
         t:         Date.now(),
       });
-      // default limit for raw mode
-      if (!aggregateFields || !aggregateFields.length) {
-        params.set('limit', 100);
-      }
+      if (!aggregateFields.length) params.set('limit', 100);
       if (start) params.set('start', start);
       if (end)   params.set('end',   end);
-      if (aggregateFields && aggregateFields.length) {
+      if (aggregateFields.length) {
         params.set('aggregateFields', aggregateFields.join(','));
       }
       const url = `/latestmessages?${params.toString()}`;
@@ -161,28 +155,27 @@
         console.error('[fetchAndRender] fetch error', e);
       }
 
-      // Keep only decoded packets
       const history = arr
-        .filter(m => m.Packet?.DecodedBinary)
-        .sort((a, b) => new Date(b.Timestamp || b.timestamp) - new Date(a.Timestamp || a.timestamp));
+        .filter(m => m.Packet?.DecodedBinary || m.decodedbinary_air_temp_c_avg !== undefined)
+        .sort((a, b) => {
+          const ta = new Date(a.Timestamp || a.timestamp);
+          const tb = new Date(b.Timestamp || b.timestamp);
+          return tb - ta;
+        });
 
-      // If none decoded, still show the initial message
       block.history = history.length ? history : [initialMsg];
 
-      // Create DOM on first run
       if (!block.dom) createBlockDOM(block);
 
-      // Populate fields-select on first run
-      if (block.dom.fieldsSelect &&
-          !block.dom.fieldsSelect.options.length &&
-          initialMsg.Packet?.DecodedBinary) {
+      // populate fields-select once
+      if (block.dom.fieldsSelect && !block.dom.fieldsSelect.options.length && initialMsg.Packet?.DecodedBinary) {
         const flat = flattenObject(initialMsg.Packet.DecodedBinary);
         Object.entries(flat)
-          .filter(([, val]) => typeof val === 'number')
-          .forEach(([field]) => {
+          .filter(([, v]) => typeof v === 'number')
+          .forEach(([f]) => {
             const opt = document.createElement('option');
-            opt.value = `DecodedBinary.${field}`;
-            opt.textContent = humanizeField(field);
+            opt.value = `DecodedBinary.${f}`;
+            opt.textContent = humanizeField(f);
             block.dom.fieldsSelect.appendChild(opt);
           });
       }
@@ -195,17 +188,13 @@
       c.className = 'message';
       block.dom = {};
 
-      // time & field selector controls
+      // time & field selector
       const controls = document.createElement('div');
       controls.className = 'time-controls';
       controls.innerHTML = `
-        <label>From
-          <input type="datetime-local" class="start-input" />
-        </label>
-        <label>To
-          <input type="datetime-local" class="end-input" />
-        </label>
-        <label>Aggregate fields
+        <label>From <input type="datetime-local" class="start-input" /></label>
+        <label>To   <input type="datetime-local" class="end-input" /></label>
+        <label>Fields
           <select multiple size="4" class="fields-select"></select>
         </label>
         <button class="apply-range">Refresh</button>
@@ -215,7 +204,6 @@
       block.dom.endInput      = controls.querySelector('.end-input');
       block.dom.fieldsSelect  = controls.querySelector('.fields-select');
       block.dom.applyRangeBtn = controls.querySelector('.apply-range');
-
       block.dom.applyRangeBtn.onclick = () => {
         block.start = block.dom.startInput.value
           ? new Date(block.dom.startInput.value).toISOString()
@@ -230,65 +218,29 @@
         fetchAndRender(block);
       };
 
-      // Title
+      // title, timestamp, nav, notice, table, chart…
       const titleDiv = document.createElement('div');
-      titleDiv.className = 'title';
-      c.appendChild(titleDiv);
-      block.dom.titleDiv = titleDiv;
+      titleDiv.className = 'title'; c.appendChild(titleDiv); block.dom.titleDiv = titleDiv;
+      const tsDiv    = document.createElement('div');
+      tsDiv.className = 'ts';    c.appendChild(tsDiv);    block.dom.tsDiv = tsDiv;
 
-      // Timestamp
-      const tsDiv = document.createElement('div');
-      tsDiv.className = 'ts';
-      c.appendChild(tsDiv);
-      block.dom.tsDiv = tsDiv;
-
-      // Nav
       const nav = document.createElement('div');
-      nav.className = 'nav';
-      c.appendChild(nav);
-      block.dom.nav = nav;
-
+      nav.className = 'nav';      c.appendChild(nav);      block.dom.nav = nav;
       const btnNewer = document.createElement('button');
-      btnNewer.textContent = '◀️';
-      nav.appendChild(btnNewer);
-      block.dom.btnNewer = btnNewer;
-
+      btnNewer.textContent = '◀️';nav.appendChild(btnNewer);block.dom.btnNewer = btnNewer;
       const counter = document.createElement('div');
-      counter.className = 'counter';
-      nav.appendChild(counter);
-      block.dom.counter = counter;
-
+      counter.className = 'counter';nav.appendChild(counter);block.dom.counter = counter;
       const btnOlder = document.createElement('button');
-      btnOlder.textContent = '▶️';
-      nav.appendChild(btnOlder);
-      block.dom.btnOlder = btnOlder;
+      btnOlder.textContent = '▶️';nav.appendChild(btnOlder);block.dom.btnOlder = btnOlder;
+      btnNewer.onclick = () => { if (block.idx>0) { block.idx--; updateBlockDOM(block); } };
+      btnOlder.onclick = () => { if (block.idx<block.history.length-1) { block.idx++; updateBlockDOM(block); } };
 
-      btnNewer.onclick = () => {
-        if (block.idx > 0) {
-          block.idx--;
-          updateBlockDOM(block);
-        }
-      };
-      btnOlder.onclick = () => {
-        if (block.idx < block.history.length - 1) {
-          block.idx++;
-          updateBlockDOM(block);
-        }
-      };
-
-      // "not decoded" notice
       const notice = document.createElement('div');
-      notice.className = 'no-binary';
-      c.appendChild(notice);
-      block.dom.notice = notice;
+      notice.className = 'no-binary'; c.appendChild(notice); block.dom.notice = notice;
 
-      // Table container
       const tableContainer = document.createElement('div');
-      tableContainer.className = 'table-container';
-      c.appendChild(tableContainer);
-      block.dom.tableContainer = tableContainer;
+      tableContainer.className = 'table-container'; c.appendChild(tableContainer); block.dom.tableContainer = tableContainer;
 
-      // Chart container
       const chartWrapper = document.createElement('div');
       chartWrapper.className = 'chart-container';
       const canvas = document.createElement('canvas');
@@ -304,18 +256,15 @@
       const { dom, asm, history, idx, msgID, dac, fi, aggregateFields } = block;
       const msg = history[idx];
       const hasBinary = !!msg.Packet?.DecodedBinary;
+      const isAgg = aggregateFields.length>0;
 
-      const isAgg = Array.isArray(aggregateFields) && aggregateFields.length > 0;
-
-      // Title
-      const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
+      const titleText = asm[msgID]?.[dac]?.[fi]?.Title||'Unknown';
       dom.titleDiv.textContent = `${titleText} (ID ${msgID}, DAC ${dac}, FI ${fi})`
-        + (isAgg ? ' — aggregated' : '');
+        + (isAgg?' — aggregated':'');
 
       if (!hasBinary) {
-        dom.notice.textContent = 'Binary data not decoded for this message type.';
-        dom.tsDiv.style.display = 'none';
-        dom.nav.style.display = 'none';
+        dom.notice.textContent = 'Binary data not decoded';
+        dom.tsDiv.style.display = dom.nav.style.display =
         dom.tableContainer.style.display = 'none';
         dom.chartWrapper.style.display = 'none';
         return;
@@ -324,49 +273,51 @@
       // aggregated mode
       if (isAgg) {
         dom.notice.textContent = '';
-        dom.tsDiv.style.display = 'none';
-        dom.nav.style.display = 'none';
+        dom.tsDiv.style.display = dom.nav.style.display =
         dom.tableContainer.style.display = 'none';
         dom.chartWrapper.style.display = '';
 
-        // build chart from aggregated history[]
+        // prepare data
         const times = history.map(m => new Date(m.timestamp));
-        const aliases = aggregateFields.map(p =>
-          p.split('.').map(s => s.toLowerCase()).join('_') + '_avg'
+        const aliases = aggregateFields.map(p=>
+          p.split('.').map(s=>s.toLowerCase()).join('_')+'_avg'
         );
-        const datasets = aliases.map(alias => ({
+        const datasets = aliases.map(alias=>({
           label: humanizeField(alias),
-          data: times.map((t,i) => ({ x: t, y: history[i][alias] })),
-          borderWidth: 1,
+          data: times.map((t,i)=>({x:t,y:history[i][alias]})),
+          borderWidth:1
         }));
 
-        if (!dom.chart) {
-          dom.chart = new Chart(dom.canvas.getContext('2d'), {
-            type: 'line',
-            data: { datasets },
-            options: {
-              animation: false,
-              maintainAspectRatio: false,
-              scales: {
-                x: {
-                  type: 'time',
-                  time: { tooltipFormat: 'HH:mm:ss', displayFormats: { minute: 'HH:mm' } },
+        // destroy old chart if any
+        if (dom.chart) dom.chart.destroy();
+
+        dom.chart = new Chart(dom.canvas.getContext('2d'), {
+          type:'line',
+          data:{datasets},
+          options:{
+            animation:false,
+            maintainAspectRatio:false,
+            scales:{
+              x:{
+                type:'time',
+                time:{
+                  tooltipFormat:'HH:mm:ss',
+                  displayFormats:{hour:'HH:mm',minute:'HH:mm'}
                 },
-                y: { beginAtZero: false }
+                ticks:{autoSkip:true,maxRotation:0}
               },
-              plugins: {
-                legend: { position: 'bottom' },
-                zoom: {
-                  pan: { enabled: true, mode: 'x' },
-                  zoom: { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
-                }
+              y:{beginAtZero:false}
+            },
+            plugins:{
+              legend:{position:'bottom'},
+              zoom:{
+                pan:{enabled:true,mode:'x'},
+                zoom:{wheel:{enabled:true},drag:{enabled:true},mode:'x'}
               }
-            }
-          });
-        } else {
-          dom.chart.data.datasets = datasets;
-          dom.chart.update();
-        }
+            },
+            interaction:{mode:'nearest',axis:'x',intersect:false}
+          }
+        });
         return;
       }
 
@@ -378,172 +329,149 @@
       dom.chartWrapper.style.display = '';
 
       dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
-        hour12: false,
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit'
+        hour12:false,
+        year:'numeric',month:'2-digit',day:'2-digit',
+        hour:'2-digit',minute:'2-digit',second:'2-digit'
       });
-      dom.btnNewer.disabled = idx === 0;
-      dom.btnOlder.disabled = idx === history.length - 1;
-      dom.counter.textContent = `${idx + 1} of ${history.length}`;
+      dom.btnNewer.disabled = idx===0;
+      dom.btnOlder.disabled = idx===history.length-1;
+      dom.counter.textContent = `${idx+1} of ${history.length}`;
 
       dom.tableContainer.innerHTML = makeTableHTML(
         flattenObject(msg.Packet.DecodedBinary)
       );
 
-      const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
-      const timesArr = history.map(m => new Date(m.Timestamp));
-      const fields = Object.keys(records[0] || {}).filter(f => typeof records[0][f] === 'number');
-      const defaultVis = new Set(fields.slice(0, 3));
+      const records = history.map(m=>flattenObject(m.Packet.DecodedBinary));
+      const timesArr = history.map(m=>new Date(m.Timestamp));
+      const fields = Object.keys(records[0]||{}).filter(f=>typeof records[0][f]==='number');
+      const defaultVis = new Set(fields.slice(0,3));
 
-      if (!block.chart) {
-        const datasets = fields.map(f => ({
-          label: humanizeField(f),
-          data: timesArr.map((t, i) => ({ x: t, y: records[i][f] })),
-          borderWidth: 1,
-          hidden: !defaultVis.has(f),
-          _fieldKey: f
-        }));
-        block.chart = new Chart(dom.canvas.getContext('2d'), {
-          type: 'line',
-          data: { datasets },
-          options: {
-            animation: false,
-            maintainAspectRatio: false,
-            scales: {
-              x: { type: 'time', time: { tooltipFormat: 'HH:mm:ss' } },
-              y: { beginAtZero: false }
+      // destroy old chart before recreating
+      if (dom.chart) dom.chart.destroy();
+
+      const datasets = fields.map(f=>({
+        label:humanizeField(f),
+        data:timesArr.map((t,i)=>({x:t,y:records[i][f]})),
+        borderWidth:1,
+        hidden:!defaultVis.has(f),
+        _fieldKey:f
+      }));
+
+      dom.chart = new Chart(dom.canvas.getContext('2d'), {
+        type:'line',
+        data:{datasets},
+        options:{
+          animation:false,
+          maintainAspectRatio:false,
+          scales:{
+            x:{
+              type:'time',
+              time:{
+                tooltipFormat:'HH:mm:ss',
+                displayFormats:{hour:'HH:mm',minute:'HH:mm'}
+              },
+              ticks:{autoSkip:true,maxRotation:0}
             },
-            plugins: {
-              legend: { position: 'bottom' },
-              zoom: {
-                pan: { enabled: true, mode: 'x' },
-                zoom: { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
-              }
+            y:{beginAtZero:false}
+          },
+          plugins:{
+            legend:{position:'bottom'},
+            zoom:{
+              pan:{enabled:true,mode:'x'},
+              zoom:{wheel:{enabled:true},drag:{enabled:true},mode:'x'}
             }
-          }
-        });
-        dom.canvas.addEventListener('dblclick', () => block.chart.resetZoom());
-      } else {
-        const oldDs = block.chart.data.datasets;
-        const newDs = fields.map(f => {
-          const ex = oldDs.find(d => d._fieldKey === f);
-          if (ex) {
-            ex.data = timesArr.map((t, i) => ({ x: t, y: records[i][f] }));
-            return ex;
-          }
-          return {
-            label: humanizeField(f),
-            data: timesArr.map((t, i) => ({ x: t, y: records[i][f] })),
-            borderWidth: 1,
-            hidden: !defaultVis.has(f),
-            _fieldKey: f
-          };
-        });
-        block.chart.data.datasets = newDs;
-        block.chart.update();
-      }
+          },
+          interaction:{mode:'nearest',axis:'x',intersect:false}
+        }
+      });
+      dom.canvas.addEventListener('dblclick',()=>dom.chart.resetZoom());
     }
 
-    function runRefresh() {
-      for (const b of messageBlocks.values()) {
-        fetchAndRender(b);
-      }
+    function runRefresh(){
+      for(const b of messageBlocks.values()) fetchAndRender(b);
     }
 
     const autoCB = document.getElementById('auto-refresh-checkbox');
-    if (localStorage.getItem('autoRefreshEnabled') === 'true') {
-      autoCB.checked = true;
+    if(localStorage.getItem('autoRefreshEnabled')==='true'){
+      autoCB.checked=true;
       runRefresh();
-      autoRefreshIntervalId = setInterval(runRefresh, 60000);
+      autoRefreshIntervalId=setInterval(runRefresh,60000);
     }
-    autoCB.addEventListener('change', e => {
-      localStorage.setItem('autoRefreshEnabled', e.target.checked);
-      if (e.target.checked) {
+    autoCB.addEventListener('change',e=>{
+      localStorage.setItem('autoRefreshEnabled',e.target.checked);
+      if(e.target.checked){
         runRefresh();
-        autoRefreshIntervalId = setInterval(runRefresh, 60000);
-      } else {
-        clearInterval(autoRefreshIntervalId);
-      }
+        autoRefreshIntervalId=setInterval(runRefresh,60000);
+      } else clearInterval(autoRefreshIntervalId);
     });
 
-    async function main() {
-      const userID = getUserID();
-      const titleEl = document.getElementById('main-title');
-      const output  = document.getElementById('output');
-      if (!userID) {
-        titleEl.textContent = 'Error';
-        output.innerHTML = '<div class="error">Invalid or missing numeric UserID parameter.</div>';
+    async function main(){
+      const userID=getUserID();
+      const titleEl=document.getElementById('main-title');
+      const output=document.getElementById('output');
+      if(!userID){
+        titleEl.textContent='Error';
+        output.innerHTML='<div class="error">Invalid or missing numeric UserID parameter.</div>';
         return;
       }
-
       let summary;
-      try {
-        const r = await fetch(`/summary?UserID=${userID}`);
-        if (!r.ok) throw '';
-        summary = await r.json();
-      } catch {
-        titleEl.textContent = 'Error';
-        output.innerHTML = '<div class="error">Failed to load summary</div>';
+      try{
+        const r=await fetch(`/summary?UserID=${userID}`);
+        if(!r.ok) throw '';
+        summary=await r.json();
+      }catch{
+        titleEl.textContent='Error';
+        output.innerHTML='<div class="error">Failed to load summary</div>';
         return;
       }
-      const info = summary[userID] || {};
-      titleEl.textContent = `Latest Messages for ${info.Name?.trim() ? info.Name : userID}`;
-
+      const info=summary[userID]||{};
+      titleEl.textContent=`Latest Messages for ${info.Name?.trim()?info.Name:userID}`;
       let asm;
-      try {
-        const r = await fetch('/asm.json');
-        if (!r.ok) throw '';
-        asm = await r.json();
-      } catch {
-        output.innerHTML = '<div class="error">Failed to load asm.json</div>';
+      try{
+        const r=await fetch('/asm.json');
+        if(!r.ok) throw '';
+        asm=await r.json();
+      }catch{
+        output.innerHTML='<div class="error">Failed to load asm.json</div>';
         return;
       }
-
       let allMsgs;
-      try {
-        const r = await fetch(`/latestmessages?UserID=${userID}`);
-        if (r.status !== 200) throw '';
-        allMsgs = await r.json();
-      } catch {
-        output.innerHTML = '<div class="error">Vessel Not Found</div>';
+      try{
+        const r=await fetch(`/latestmessages?UserID=${userID}`);
+        if(r.status!==200) throw '';
+        allMsgs=await r.json();
+      }catch{
+        output.innerHTML='<div class="error">Vessel Not Found</div>';
         return;
       }
-
-      const validMsgs = allMsgs.filter(m => m.Packet?.ApplicationID?.Valid);
-      if (!validMsgs.length) {
-        output.innerHTML = '<div>No valid message types available.</div>';
+      const validMsgs=allMsgs.filter(m=>m.Packet?.ApplicationID?.Valid);
+      if(!validMsgs.length){
+        output.innerHTML='<div>No valid message types available.</div>';
         return;
       }
-
-      output.innerHTML = '';
+      output.innerHTML='';
       messageBlocks.clear();
-      validMsgs.forEach(m => {
-        const dab = m.Packet.ApplicationID;
-        const dac = dab.DesignatedAreaCode;
-        const fi  = dab.FunctionIdentifier;
-        const key = `${m.MessageID}|${dac}|${fi}`;
-        if (!messageBlocks.has(key)) {
-          messageBlocks.set(key, {
+      validMsgs.forEach(m=>{
+        const dab=m.Packet.ApplicationID;
+        const dac=dab.DesignatedAreaCode;
+        const fi=dab.FunctionIdentifier;
+        const key=`${m.MessageID}|${dac}|${fi}`;
+        if(!messageBlocks.has(key)){
+          messageBlocks.set(key,{
             userID,
-            msgID: m.MessageID,
-            dac,
-            fi,
+            msgID:m.MessageID,
+            dac,fi,
             asm,
-            initialMsg: m,
-            history: [],
-            idx: 0,
-            dom: null,
-            chart: null,
-            start: null,
-            end: null,
-            aggregateFields: []
+            initialMsg:m,
+            history:[],idx:0,
+            dom:null,chart:null,
+            start:null,end:null,
+            aggregateFields:[]
           });
         }
       });
-
-      await Promise.all(Array.from(messageBlocks.values()).map(b => fetchAndRender(b)));
+      await Promise.all(Array.from(messageBlocks.values()).map(b=>fetchAndRender(b)));
     }
-
     main();
   </script>
 </body>
