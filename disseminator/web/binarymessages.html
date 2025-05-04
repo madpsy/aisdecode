@@ -9,6 +9,12 @@
     .error { color: red; font-weight: bold; }
     .message { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
     .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
+    .title-details {
+      font-weight: normal;
+      font-size: 0.9rem;
+      margin-top: 0.2rem;
+      color: #555;
+    }
     .ts { font-size: 0.9rem; color: #555; margin-bottom: 0.3rem; }
     .nav { display: flex; align-items: center; margin-bottom: 0.8rem; }
     .nav button {
@@ -173,12 +179,16 @@
   c.className = 'message';
   block.dom = {};
 
-  // Create the title div and append it first
+  // Create the title div and append it
   const titleDiv = document.createElement('div');
   titleDiv.className = 'title';
   c.appendChild(titleDiv);
   block.dom.titleDiv = titleDiv;
-
+  // Create the details div for ID/DAC/FI
+  const detailsDiv = document.createElement('div');
+  detailsDiv.className = 'title-details';
+  c.appendChild(detailsDiv);
+  block.dom.detailsDiv = detailsDiv;
   // Now create the controls (time selectors and related buttons)
   const controls = document.createElement('div');
   controls.className = 'time-controls';
@@ -300,8 +310,11 @@
       const isAgg = aggregateFields.length > 0;
 
       const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
-      dom.titleDiv.textContent = `${titleText} (ID ${msgID}, DAC ${dac}, FI ${fi})`
-        + (isAgg ? ' — Aggregated' : '');
+      // main title
+      dom.titleDiv.textContent = titleText + (isAgg ? ' — Aggregated' : '');
+      // details on new line, not bold
+      dom.detailsDiv.textContent = `(ID ${msgID}, DAC ${dac}, FI ${fi})`;
+
 
       // common time-axis config
       const timeOpts = {
