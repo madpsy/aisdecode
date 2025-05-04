@@ -738,38 +738,41 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // 4) Parse time-range: presets, month-year, or explicit start/end
+    // 4) Parse time‐range: presets, YYYY-MM, or explicit start/end
     now := time.Now().UTC()
     var startTime, endTime time.Time
     var truncUnit string
 
-    rangeParam := strings.ToLower(q.Get("range"))
-    switch rangeParam {
-    case "today":
+    switch strings.ToLower(q.Get("range")) {
+    case "day":
+        // today → minute buckets
         startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
         endTime = now
         truncUnit = "minute"
     case "week":
+        // start of current week → hourly buckets
         weekday := int(now.Weekday())
         startTime = time.Date(now.Year(), now.Month(), now.Day()-weekday, 0, 0, 0, 0, time.UTC)
         endTime = now
         truncUnit = "hour"
     case "month":
+        // first of month → daily buckets
         startTime = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
         endTime = now
         truncUnit = "day"
     case "year":
+        // first of year → monthly buckets
         startTime = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
         endTime = now
         truncUnit = "month"
     default:
         // try "YYYY-MM"
-        if m, err := time.Parse("2006-01", rangeParam); err == nil {
-            startTime = m
-            endTime = m.AddDate(0, 1, 0)
+        if m, err := time.Parse("2006-01", q.Get("range")); err == nil {
+            startTime = m.UTC()
+            endTime = startTime.AddDate(0, 1, 0)
             truncUnit = "day"
         } else {
-            // explicit start/end
+            // explicit start/end fallback
             if v := q.Get("start"); v != "" {
                 if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
                     startTime = t.UTC()
@@ -786,13 +789,11 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
                     return
                 }
             }
-            // default trunc if not set
             if truncUnit == "" {
                 truncUnit = "minute"
             }
         }
     }
-    // make sure endTime is set
     if endTime.IsZero() {
         endTime = now
     }
@@ -810,15 +811,14 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // 6) If aggregate requested → bucket & avg
+    // 6) Aggregation branch
     if len(aggs) > 0 {
-        // build bucket + aggregates
+        // build SELECT
         timeBucket := fmt.Sprintf("date_trunc('%s', timestamp) AS bucket", truncUnit)
-        var aggExprs []string
-        for _, a := range aggs {
-            aggExprs = append(aggExprs, a.expr)
+        exprs := make([]string, len(aggs))
+        for i, a := range aggs {
+            exprs[i] = a.expr
         }
-
         query := fmt.Sprintf(`
             SELECT
               %s,
@@ -829,33 +829,33 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
               AND timestamp <= '%s'
             GROUP BY bucket
             ORDER BY bucket ASC;
-        `, timeBucket, strings.Join(aggExprs, ",\n  "),
-            userID,
+        `, timeBucket, strings.Join(exprs, ", "), userID,
             startTime.Format(time.RFC3339Nano),
             endTime.Format(time.RFC3339Nano),
         )
         log.Printf("SQL Query: %s", query)
 
-        rows, err := QueryDatabaseForUser(strconv.FormatInt(userID, 10), query)
+        rows, err := QueryDatabaseForUser(userIDStr, query)
         if err != nil {
             http.Error(w, fmt.Sprintf("DB error: %v", err), http.StatusInternalServerError)
             return
         }
         defer rows.Close()
 
-        // prepare scanners
+        // prepare scanning
         nulls := make([]sql.NullFloat64, len(aggs))
-        scanTargets := []interface{}{new(time.Time)}
+        scanTgts := make([]interface{}, 0, len(aggs)+1)
+        scanTgts = append(scanTgts, new(time.Time))
         for i := range nulls {
-            scanTargets = append(scanTargets, &nulls[i])
+            scanTgts = append(scanTgts, &nulls[i])
         }
 
-        // results
+        // collect results
         var out []map[string]interface{}
         for rows.Next() {
             var bucket time.Time
-            scanTargets[0] = &bucket
-            if err := rows.Scan(scanTargets...); err != nil {
+            scanTgts[0] = &bucket
+            if err := rows.Scan(scanTgts...); err != nil {
                 http.Error(w, fmt.Sprintf("Scan error: %v", err), http.StatusInternalServerError)
                 return
             }
@@ -877,7 +877,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 7) No aggregate → original “latest” functionality, plus time filters
+    // 7) No‐aggregate branch: build WHERE with optional filters
     var whereClauses []string
     whereClauses = append(whereClauses, fmt.Sprintf("user_id = %d", userID))
     if messageID > 0 {
@@ -903,12 +903,12 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
     var query string
     if messageID == 0 && q.Get("DAC") == "" && q.Get("FI") == "" {
-        // distinct-on branch
+        // distinct‐on
         query = fmt.Sprintf(`
             SELECT DISTINCT ON (
-                message_id,
-                (packet->'ApplicationID'->>'DesignatedAreaCode')::int,
-                (packet->'ApplicationID'->>'FunctionIdentifier')::int
+              message_id,
+              (packet->'ApplicationID'->>'DesignatedAreaCode')::int,
+              (packet->'ApplicationID'->>'FunctionIdentifier')::int
             )
               message_id,
               packet,
@@ -923,22 +923,22 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
               timestamp DESC;
         `, where)
     } else {
-        // filtered, limited branch
+        // filtered + limit
         query = fmt.Sprintf(`
-            SELECT message_id,
-                   packet,
-                   raw_sentence,
-                   timestamp
-              FROM messages
-             WHERE %s
-          ORDER BY timestamp DESC
-             LIMIT %d;
+            SELECT
+              message_id,
+              packet,
+              raw_sentence,
+              timestamp
+            FROM messages
+            WHERE %s
+            ORDER BY timestamp DESC
+            LIMIT %d;
         `, where, limit)
     }
-
     log.Printf("SQL Query: %s", query)
 
-    rows, err := QueryDatabaseForUser(strconv.FormatInt(userID, 10), query)
+    rows, err := QueryDatabaseForUser(userIDStr, query)
     if err != nil {
         http.Error(w, fmt.Sprintf("DB error: %v", err), http.StatusInternalServerError)
         return
