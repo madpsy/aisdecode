@@ -55,6 +55,22 @@
       height: 100% !important;
     }
     .no-binary { font-style: italic; color: #a00; margin: 0.5rem 0; }
+
+    /* new controls styling */
+    .message .time-controls {
+      display: flex;
+      gap: 1rem;
+      align-items: baseline;
+      margin-bottom: 0.6rem;
+      font-size: 0.9rem;
+    }
+    .message .time-controls label {
+      display: flex;
+      flex-direction: column;
+    }
+    .message .time-controls select {
+      min-width: 8em;
+    }
   </style>
 
   <!-- Chart.js and date adapter for time scales -->
@@ -116,28 +132,61 @@
     }
 
     async function fetchAndRender(block) {
-      const { userID, msgID, dac, fi, asm, initialMsg } = block;
-      const url =
-        `/latestmessages?UserID=${userID}` +
-        `&MessageID=${msgID}&DAC=${dac}&FI=${fi}&limit=100` +
-        `&t=${Date.now()}`;
+      const { userID, msgID, dac, fi, asm, initialMsg, start, end, aggregateFields } = block;
+
+      // Build URL parameters
+      const params = new URLSearchParams({
+        UserID:    userID,
+        MessageID: msgID,
+        DAC:       dac,
+        FI:        fi,
+        t:         Date.now(),
+      });
+      // default limit for raw mode
+      if (!aggregateFields || !aggregateFields.length) {
+        params.set('limit', 100);
+      }
+      if (start) params.set('start', start);
+      if (end)   params.set('end',   end);
+      if (aggregateFields && aggregateFields.length) {
+        params.set('aggregateFields', aggregateFields.join(','));
+      }
+      const url = `/latestmessages?${params.toString()}`;
+
       let arr = [];
       try {
         const res = await fetch(url, { cache: 'no-store' });
         if (res.ok) arr = await res.json();
       } catch (e) {
-        console.error('[AutoRefresh] fetch error', e);
+        console.error('[fetchAndRender] fetch error', e);
       }
 
       // Keep only decoded packets
       const history = arr
         .filter(m => m.Packet?.DecodedBinary)
-        .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+        .sort((a, b) => new Date(b.Timestamp || b.timestamp) - new Date(a.Timestamp || a.timestamp));
 
       // If none decoded, still show the initial message
       block.history = history.length ? history : [initialMsg];
 
+      // Create DOM on first run
       if (!block.dom) createBlockDOM(block);
+
+      // Populate fields-select on first run
+      if (block.dom.fieldsSelect &&
+          !block.dom.fieldsSelect.options.length &&
+          initialMsg.Packet?.DecodedBinary) {
+        const flat = flattenObject(initialMsg.Packet.DecodedBinary);
+        Object.entries(flat)
+          .filter(([, val]) => typeof val === 'number')
+          .forEach(([field]) => {
+            const opt = document.createElement('option');
+            opt.value = field;
+            opt.textContent = humanizeField(field);
+            block.dom.fieldsSelect.appendChild(opt);
+          });
+      }
+
       updateBlockDOM(block);
     }
 
@@ -145,6 +194,41 @@
       const c = document.createElement('div');
       c.className = 'message';
       block.dom = {};
+
+      // time & field selector controls
+      const controls = document.createElement('div');
+      controls.className = 'time-controls';
+      controls.innerHTML = `
+        <label>From
+          <input type="datetime-local" class="start-input" />
+        </label>
+        <label>To
+          <input type="datetime-local" class="end-input" />
+        </label>
+        <label>Aggregate fields
+          <select multiple size="4" class="fields-select"></select>
+        </label>
+        <button class="apply-range">Refresh</button>
+      `;
+      c.appendChild(controls);
+      block.dom.startInput    = controls.querySelector('.start-input');
+      block.dom.endInput      = controls.querySelector('.end-input');
+      block.dom.fieldsSelect  = controls.querySelector('.fields-select');
+      block.dom.applyRangeBtn = controls.querySelector('.apply-range');
+
+      block.dom.applyRangeBtn.onclick = () => {
+        block.start = block.dom.startInput.value
+          ? new Date(block.dom.startInput.value).toISOString()
+          : null;
+        block.end   = block.dom.endInput.value
+          ? new Date(block.dom.endInput.value).toISOString()
+          : null;
+        block.aggregateFields = Array.from(
+          block.dom.fieldsSelect.selectedOptions
+        ).map(o => o.value);
+        block.idx = 0;
+        fetchAndRender(block);
+      };
 
       // Title
       const titleDiv = document.createElement('div');
@@ -217,16 +301,18 @@
     }
 
     function updateBlockDOM(block) {
-      const { dom, asm, history, idx, msgID, dac, fi } = block;
+      const { dom, asm, history, idx, msgID, dac, fi, aggregateFields } = block;
       const msg = history[idx];
       const hasBinary = !!msg.Packet?.DecodedBinary;
 
-      // Title with raw IDs
+      const isAgg = Array.isArray(aggregateFields) && aggregateFields.length > 0;
+
+      // Title
       const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
-      dom.titleDiv.textContent = `${titleText} (ID ${msgID}, DAC ${dac}, FI ${fi})`;
+      dom.titleDiv.textContent = `${titleText} (ID ${msgID}, DAC ${dac}, FI ${fi})`
+        + (isAgg ? ' — aggregated' : '');
 
       if (!hasBinary) {
-        // Show only notice
         dom.notice.textContent = 'Binary data not decoded for this message type.';
         dom.tsDiv.style.display = 'none';
         dom.nav.style.display = 'none';
@@ -235,14 +321,62 @@
         return;
       }
 
-      // Clear notice, show UI
+      // aggregated mode
+      if (isAgg) {
+        dom.notice.textContent = '';
+        dom.tsDiv.style.display = 'none';
+        dom.nav.style.display = 'none';
+        dom.tableContainer.style.display = 'none';
+        dom.chartWrapper.style.display = '';
+
+        // build chart from aggregated history[]
+        const times = history.map(m => new Date(m.timestamp));
+        const aliases = aggregateFields.map(p =>
+          p.split('.').map(s => s.toLowerCase()).join('_') + '_avg'
+        );
+        const datasets = aliases.map(alias => ({
+          label: humanizeField(alias),
+          data: times.map((t,i) => ({ x: t, y: history[i][alias] })),
+          borderWidth: 1,
+        }));
+
+        if (!dom.chart) {
+          dom.chart = new Chart(dom.canvas.getContext('2d'), {
+            type: 'line',
+            data: { datasets },
+            options: {
+              animation: false,
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  type: 'time',
+                  time: { tooltipFormat: 'HH:mm:ss', displayFormats: { minute: 'HH:mm' } },
+                },
+                y: { beginAtZero: false }
+              },
+              plugins: {
+                legend: { position: 'bottom' },
+                zoom: {
+                  pan: { enabled: true, mode: 'x' },
+                  zoom: { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
+                }
+              }
+            }
+          });
+        } else {
+          dom.chart.data.datasets = datasets;
+          dom.chart.update();
+        }
+        return;
+      }
+
+      // raw mode
       dom.notice.textContent = '';
       dom.tsDiv.style.display = '';
       dom.nav.style.display = 'flex';
       dom.tableContainer.style.display = '';
       dom.chartWrapper.style.display = '';
 
-      // Timestamp & nav
       dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
         hour12: false,
         year: 'numeric', month: '2-digit', day: '2-digit',
@@ -252,21 +386,19 @@
       dom.btnOlder.disabled = idx === history.length - 1;
       dom.counter.textContent = `${idx + 1} of ${history.length}`;
 
-      // Table
       dom.tableContainer.innerHTML = makeTableHTML(
         flattenObject(msg.Packet.DecodedBinary)
       );
 
-      // Chart
       const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
-      const times   = history.map(m => new Date(m.Timestamp));
-      const fields  = Object.keys(records[0] || {}).filter(f => typeof records[0][f] === 'number');
+      const timesArr = history.map(m => new Date(m.Timestamp));
+      const fields = Object.keys(records[0] || {}).filter(f => typeof records[0][f] === 'number');
       const defaultVis = new Set(fields.slice(0, 3));
 
       if (!block.chart) {
         const datasets = fields.map(f => ({
           label: humanizeField(f),
-          data: times.map((t, i) => ({ x: t, y: records[i][f] })),
+          data: timesArr.map((t, i) => ({ x: t, y: records[i][f] })),
           borderWidth: 1,
           hidden: !defaultVis.has(f),
           _fieldKey: f
@@ -278,31 +410,16 @@
             animation: false,
             maintainAspectRatio: false,
             scales: {
-              x: {
-                type: 'time',
-                time: {
-                  tooltipFormat: 'HH:mm:ss',
-                  displayFormats: { hour: 'HH:mm', minute: 'HH:mm' }
-                },
-                ticks: { autoSkip: true, maxRotation: 0 }
-              },
+              x: { type: 'time', time: { tooltipFormat: 'HH:mm:ss' } },
               y: { beginAtZero: false }
             },
             plugins: {
-              legend: { position: 'bottom', labels: { boxWidth: 8, padding: 8, font: { size: 10 } } },
-              tooltip: { mode: 'index', intersect: false },
+              legend: { position: 'bottom' },
               zoom: {
                 pan: { enabled: true, mode: 'x' },
-                zoom: {
-                  wheel: { enabled: true },
-                  drag: { enabled: true, backgroundColor: 'rgba(54,162,235,0.3)' },
-                  pinch: { enabled: true },
-                  mode: 'x',
-                  doubleClickReset: true
-                }
+                zoom: { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
               }
-            },
-            interaction: { mode: 'nearest', axis: 'x', intersect: false }
+            }
           }
         });
         dom.canvas.addEventListener('dblclick', () => block.chart.resetZoom());
@@ -311,12 +428,12 @@
         const newDs = fields.map(f => {
           const ex = oldDs.find(d => d._fieldKey === f);
           if (ex) {
-            ex.data = times.map((t, i) => ({ x: t, y: records[i][f] }));
+            ex.data = timesArr.map((t, i) => ({ x: t, y: records[i][f] }));
             return ex;
           }
           return {
             label: humanizeField(f),
-            data: times.map((t, i) => ({ x: t, y: records[i][f] })),
+            data: timesArr.map((t, i) => ({ x: t, y: records[i][f] })),
             borderWidth: 1,
             hidden: !defaultVis.has(f),
             _fieldKey: f
@@ -333,7 +450,6 @@
       }
     }
 
-    // Auto-refresh checkbox
     const autoCB = document.getElementById('auto-refresh-checkbox');
     if (localStorage.getItem('autoRefreshEnabled') === 'true') {
       autoCB.checked = true;
@@ -360,7 +476,6 @@
         return;
       }
 
-      // Load summary
       let summary;
       try {
         const r = await fetch(`/summary?UserID=${userID}`);
@@ -374,7 +489,6 @@
       const info = summary[userID] || {};
       titleEl.textContent = `Latest Messages for ${info.Name?.trim() ? info.Name : userID}`;
 
-      // Load ASM
       let asm;
       try {
         const r = await fetch('/asm.json');
@@ -385,7 +499,6 @@
         return;
       }
 
-      // Fetch all latest messages
       let allMsgs;
       try {
         const r = await fetch(`/latestmessages?UserID=${userID}`);
@@ -396,14 +509,12 @@
         return;
       }
 
-      // Only show blocks for messages where ApplicationID.Valid===true
       const validMsgs = allMsgs.filter(m => m.Packet?.ApplicationID?.Valid);
       if (!validMsgs.length) {
         output.innerHTML = '<div>No valid message types available.</div>';
         return;
       }
 
-      // Build blocks
       output.innerHTML = '';
       messageBlocks.clear();
       validMsgs.forEach(m => {
@@ -422,12 +533,14 @@
             history: [],
             idx: 0,
             dom: null,
-            chart: null
+            chart: null,
+            start: null,
+            end: null,
+            aggregateFields: []
           });
         }
       });
 
-      // Render all
       await Promise.all(Array.from(messageBlocks.values()).map(b => fetchAndRender(b)));
     }
 
