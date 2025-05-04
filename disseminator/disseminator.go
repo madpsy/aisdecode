@@ -760,11 +760,11 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         endTime = now
     }
 
-    // 5) Auto‐granularity for aggregation
+    // 5) Auto‐granularity (or explicit range param)
     rangeParam := strings.ToLower(q.Get("range"))
     var truncUnit string
     if rangeParam == "" && !startTime.IsZero() && !endTime.IsZero() {
-        // pick based on window length
+        // auto‐pick by window length
         diff := endTime.Sub(startTime)
         switch {
         case diff <= 24*time.Hour:
@@ -777,7 +777,6 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             truncUnit = "month"
         }
     } else {
-        // explicit range overrides
         switch rangeParam {
         case "day":
             truncUnit = "minute"
@@ -792,7 +791,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // 6) If neither start nor end were set, apply preset window
+    // 6) If no explicit start/end, apply preset
     if q.Get("start") == "" && q.Get("end") == "" {
         switch rangeParam {
         case "day":
@@ -820,13 +819,14 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // 8) Aggregation branch
+    // 8) Aggregation branch with a 2000‐row cap
     if len(aggs) > 0 {
         bucketCol := fmt.Sprintf("date_trunc('%s', timestamp) AS bucket", truncUnit)
         var exprs []string
         for _, a := range aggs {
             exprs = append(exprs, a.expr)
         }
+
         query := fmt.Sprintf(`
             SELECT
               %s,
@@ -836,7 +836,8 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
               AND timestamp >= '%s'
               AND timestamp <= '%s'
             GROUP BY bucket
-            ORDER BY bucket ASC;
+            ORDER BY bucket ASC
+            LIMIT 2000;
         `, bucketCol, strings.Join(exprs, ", "), userID,
             startTime.Format(time.RFC3339Nano),
             endTime.Format(time.RFC3339Nano),
@@ -856,7 +857,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             scanTargets = append(scanTargets, &nulls[i])
         }
 
-        out := make([]map[string]interface{}, 0)
+        var out []map[string]interface{}
         for rows.Next() {
             var bucket time.Time
             scanTargets[0] = &bucket
