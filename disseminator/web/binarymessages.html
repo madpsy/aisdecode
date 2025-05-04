@@ -38,15 +38,22 @@
       width: 100% !important; height: 100% !important;
     }
 
+    /* wrapable controls */
     .message .time-controls {
-      display: flex; gap: 1rem; align-items: baseline;
+      display: flex; flex-wrap: wrap; gap: 1rem; align-items: baseline;
       margin-bottom: 0.6rem; font-size: 0.9rem;
     }
     .message .time-controls label {
       display: flex; flex-direction: column;
+      flex: 1 1 150px;
     }
-    .message .time-controls select {
-      min-width: 8em;
+    .message .time-controls select,
+    .message .time-controls input {
+      min-width: 100%;
+    }
+    .message .time-controls button {
+      flex: 0 0 auto;
+      margin-top: 1.8rem;
     }
   </style>
 
@@ -131,10 +138,8 @@
       const isAgg = aggregateFields.length > 0;
       let history;
       if (isAgg) {
-        // aggregated JSON: array of { timestamp, field_avg }
         history = arr;
       } else {
-        // raw JSON: array of entry with Packet.DecodedBinary
         history = arr
           .filter(m => m.Packet?.DecodedBinary)
           .sort((a, b) =>
@@ -296,6 +301,24 @@
       dom.titleDiv.textContent = `${titleText} (ID ${msgID}, DAC ${dac}, FI ${fi})`
         + (isAgg ? ' — aggregated' : '');
 
+      // common time-axis config
+      const timeOpts = {
+        type: 'time',
+        time: {
+          tooltipFormat: 'yyyy-MM-dd HH:mm:ss',
+          displayFormats: {
+            millisecond: 'HH:mm:ss',
+            second: 'HH:mm:ss',
+            minute: 'HH:mm',
+            hour: 'yyyy-MM-dd HH:mm',
+            day: 'yyyy-MM-dd',
+            month: 'yyyy-MM',
+            year: 'yyyy'
+          }
+        },
+        ticks: { autoSkip: true, maxRotation: 0 }
+      };
+
       if (isAgg) {
         dom.notice.textContent = '';
         dom.tsDiv.style.display = dom.nav.style.display =
@@ -322,17 +345,7 @@
           options: {
             animation: false,
             maintainAspectRatio: false,
-            scales: {
-              x: {
-                type: 'time',
-                time: {
-                  tooltipFormat: 'HH:mm:ss',
-                  displayFormats: { hour: 'HH:mm', minute: 'HH:mm' }
-                },
-                ticks: { autoSkip: true, maxRotation: 0 }
-              },
-              y: { beginAtZero: false }
-            },
+            scales: { x: timeOpts, y: { beginAtZero: false } },
             plugins: {
               legend: { position: 'bottom' },
               zoom: {
@@ -384,17 +397,7 @@
           options:{
             animation:false,
             maintainAspectRatio:false,
-            scales:{
-              x:{
-                type:'time',
-                time:{
-                  tooltipFormat:'HH:mm:ss',
-                  displayFormats:{ hour:'HH:mm', minute:'HH:mm' }
-                },
-                ticks:{ autoSkip:true, maxRotation:0 }
-              },
-              y:{ beginAtZero:false }
-            },
+            scales:{ x: timeOpts, y:{ beginAtZero:false } },
             plugins:{
               legend:{ position:'bottom' },
               zoom:{
