@@ -300,7 +300,7 @@
       const isAgg = aggregateFields.length > 0;
 
       const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
-      dom.titleDiv.textContent = `${titleText} (ID ${msgID}, DAC ${dac}, FI ${fi})`
+      dom.titleDiv.textContent = `${titleText}<br>(ID ${msgID}, DAC ${dac}, FI ${fi})`
         + (isAgg ? ' — Aggregated' : '');
 
       // common time-axis config
