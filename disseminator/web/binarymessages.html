@@ -169,128 +169,130 @@
     }
 
     function createBlockDOM(block) {
-      const c = document.createElement('div');
-      c.className = 'message';
-      block.dom = {};
+  const c = document.createElement('div');
+  c.className = 'message';
+  block.dom = {};
 
-      const controls = document.createElement('div');
-      controls.className = 'time-controls';
-      controls.innerHTML = `
-        <label>From <input type="datetime-local" class="start-input"/></label>
-        <label>To   <input type="datetime-local" class="end-input"/></label>
-        <label>Fields
-          <select multiple size="4" class="fields-select"></select>
-        </label>
-        <label>Granularity
-          <select class="range-select">
-            <option value="">Auto</option>
-            <option value="day">Day</option>
-            <option value="week">Week</option>
-            <option value="month">Month</option>
-            <option value="year">Year</option>
-          </select>
-        </label>
-        <button class="apply-range">Get</button>
-        <button class="reset-range">Reset</button>
-      `;
-      c.appendChild(controls);
-      block.dom.startInput    = controls.querySelector('.start-input');
-      block.dom.endInput      = controls.querySelector('.end-input');
-      block.dom.fieldsSelect  = controls.querySelector('.fields-select');
-      block.dom.rangeSelect   = controls.querySelector('.range-select');
-      block.dom.applyRangeBtn = controls.querySelector('.apply-range');
-      block.dom.resetRangeBtn = controls.querySelector('.reset-range');
+  // Create the title div and append it first
+  const titleDiv = document.createElement('div');
+  titleDiv.className = 'title';
+  c.appendChild(titleDiv);
+  block.dom.titleDiv = titleDiv;
 
-      block.dom.applyRangeBtn.onclick = () => {
-        block.start = block.dom.startInput.value
-          ? new Date(block.dom.startInput.value).toISOString()
-          : null;
-        block.end   = block.dom.endInput.value
-          ? new Date(block.dom.endInput.value).toISOString()
-          : null;
-        block.aggregateFields = Array.from(
-          block.dom.fieldsSelect.selectedOptions
-        ).map(o => o.value);
-        block.range = block.dom.rangeSelect.value;
-        block.idx = 0;
-        fetchAndRender(block);
-      };
+  // Now create the controls (time selectors and related buttons)
+  const controls = document.createElement('div');
+  controls.className = 'time-controls';
+  controls.innerHTML = `
+    <label>From <input type="datetime-local" class="start-input"/></label>
+    <label>To   <input type="datetime-local" class="end-input"/></label>
+    <label>Fields
+      <select multiple size="4" class="fields-select"></select>
+    </label>
+    <label>Granularity
+      <select class="range-select">
+        <option value="">Auto</option>
+        <option value="day">Day</option>
+        <option value="week">Week</option>
+        <option value="month">Month</option>
+        <option value="year">Year</option>
+      </select>
+    </label>
+    <button class="apply-range">Get</button>
+    <button class="reset-range">Reset</button>
+  `;
+  c.appendChild(controls);
+  block.dom.startInput    = controls.querySelector('.start-input');
+  block.dom.endInput      = controls.querySelector('.end-input');
+  block.dom.fieldsSelect  = controls.querySelector('.fields-select');
+  block.dom.rangeSelect   = controls.querySelector('.range-select');
+  block.dom.applyRangeBtn = controls.querySelector('.apply-range');
+  block.dom.resetRangeBtn = controls.querySelector('.reset-range');
 
-      block.dom.resetRangeBtn.onclick = () => {
-        block.start = block.end = null;
-        block.aggregateFields = [];
-        block.range = '';
-        block.idx = 0;
-        block.dom.startInput.value = '';
-        block.dom.endInput.value = '';
-        block.dom.fieldsSelect.selectedIndex = -1;
-        block.dom.rangeSelect.value = '';
-        fetchAndRender(block);
-      };
+  block.dom.applyRangeBtn.onclick = () => {
+    block.start = block.dom.startInput.value
+      ? new Date(block.dom.startInput.value).toISOString()
+      : null;
+    block.end   = block.dom.endInput.value
+      ? new Date(block.dom.endInput.value).toISOString()
+      : null;
+    block.aggregateFields = Array.from(
+      block.dom.fieldsSelect.selectedOptions
+    ).map(o => o.value);
+    block.range = block.dom.rangeSelect.value;
+    block.idx = 0;
+    fetchAndRender(block);
+  };
 
-      const titleDiv = document.createElement('div');
-      titleDiv.className = 'title';
-      c.appendChild(titleDiv);
-      block.dom.titleDiv = titleDiv;
+  block.dom.resetRangeBtn.onclick = () => {
+    block.start = block.end = null;
+    block.aggregateFields = [];
+    block.range = '';
+    block.idx = 0;
+    block.dom.startInput.value = '';
+    block.dom.endInput.value = '';
+    block.dom.fieldsSelect.selectedIndex = -1;
+    block.dom.rangeSelect.value = '';
+    fetchAndRender(block);
+  };
 
-      const tsDiv = document.createElement('div');
-      tsDiv.className = 'ts';
-      c.appendChild(tsDiv);
-      block.dom.tsDiv = tsDiv;
+  const tsDiv = document.createElement('div');
+  tsDiv.className = 'ts';
+  c.appendChild(tsDiv);
+  block.dom.tsDiv = tsDiv;
 
-      const nav = document.createElement('div');
-      nav.className = 'nav';
-      c.appendChild(nav);
-      block.dom.nav = nav;
+  const nav = document.createElement('div');
+  nav.className = 'nav';
+  c.appendChild(nav);
+  block.dom.nav = nav;
 
-      const btnNewer = document.createElement('button');
-      btnNewer.textContent = '◀️';
-      nav.appendChild(btnNewer);
-      block.dom.btnNewer = btnNewer;
+  const btnNewer = document.createElement('button');
+  btnNewer.textContent = '◀️';
+  nav.appendChild(btnNewer);
+  block.dom.btnNewer = btnNewer;
 
-      const counter = document.createElement('div');
-      counter.className = 'counter';
-      nav.appendChild(counter);
-      block.dom.counter = counter;
+  const counter = document.createElement('div');
+  counter.className = 'counter';
+  nav.appendChild(counter);
+  block.dom.counter = counter;
 
-      const btnOlder = document.createElement('button');
-      btnOlder.textContent = '▶️';
-      nav.appendChild(btnOlder);
-      block.dom.btnOlder = btnOlder;
+  const btnOlder = document.createElement('button');
+  btnOlder.textContent = '▶️';
+  nav.appendChild(btnOlder);
+  block.dom.btnOlder = btnOlder;
 
-      btnNewer.onclick = () => {
-        if (block.idx > 0) {
-          block.idx--;
-          updateBlockDOM(block);
-        }
-      };
-      btnOlder.onclick = () => {
-        if (block.idx < block.history.length - 1) {
-          block.idx++;
-          updateBlockDOM(block);
-        }
-      };
-
-      const notice = document.createElement('div');
-      notice.className = 'no-binary';
-      c.appendChild(notice);
-      block.dom.notice = notice;
-
-      const tableContainer = document.createElement('div');
-      tableContainer.className = 'table-container';
-      c.appendChild(tableContainer);
-      block.dom.tableContainer = tableContainer;
-
-      const chartWrapper = document.createElement('div');
-      chartWrapper.className = 'chart-container';
-      const canvas = document.createElement('canvas');
-      chartWrapper.appendChild(canvas);
-      c.appendChild(chartWrapper);
-      block.dom.chartWrapper = chartWrapper;
-      block.dom.canvas = canvas;
-
-      document.getElementById('output').appendChild(c);
+  btnNewer.onclick = () => {
+    if (block.idx > 0) {
+      block.idx--;
+      updateBlockDOM(block);
     }
+  };
+  btnOlder.onclick = () => {
+    if (block.idx < block.history.length - 1) {
+      block.idx++;
+      updateBlockDOM(block);
+    }
+  };
+
+  const notice = document.createElement('div');
+  notice.className = 'no-binary';
+  c.appendChild(notice);
+  block.dom.notice = notice;
+
+  const tableContainer = document.createElement('div');
+  tableContainer.className = 'table-container';
+  c.appendChild(tableContainer);
+  block.dom.tableContainer = tableContainer;
+
+  const chartWrapper = document.createElement('div');
+  chartWrapper.className = 'chart-container';
+  const canvas = document.createElement('canvas');
+  chartWrapper.appendChild(canvas);
+  c.appendChild(chartWrapper);
+  block.dom.chartWrapper = chartWrapper;
+  block.dom.canvas = canvas;
+
+  document.getElementById('output').appendChild(c);
+}
 
     function updateBlockDOM(block) {
       const { dom, asm, history, idx, msgID, dac, fi, aggregateFields } = block;
