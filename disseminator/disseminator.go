@@ -847,7 +847,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             scanTargets = append(scanTargets, &nulls[i])
         }
 
-        var out []map[string]interface{}
+        out := make([]map[string]interface{}, 0)
         for rows.Next() {
             var bucket time.Time
             scanTargets[0] = &bucket
