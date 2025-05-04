@@ -181,7 +181,7 @@
           .filter(([, val]) => typeof val === 'number')
           .forEach(([field]) => {
             const opt = document.createElement('option');
-            opt.value = field;
+            opt.value = `DecodedBinary.${field}`;
             opt.textContent = humanizeField(field);
             block.dom.fieldsSelect.appendChild(opt);
           });
