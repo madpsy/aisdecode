@@ -842,7 +842,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             startTime.Format(time.RFC3339Nano),
             endTime.Format(time.RFC3339Nano),
         )
-        log.Printf("SQL Query: %s", query)
+        // log.Printf("SQL Query: %s", query)
 
         rows, err := QueryDatabaseForUser(userIDStr, query)
         if err != nil {
@@ -940,7 +940,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             LIMIT %d;
         `, whereClause, limit)
     }
-    log.Printf("SQL Query: %s", query)
+    // log.Printf("SQL Query: %s", query)
 
     rows, err := QueryDatabaseForUser(userIDStr, query)
     if err != nil {
