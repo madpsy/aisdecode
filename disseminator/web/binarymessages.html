@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>AIS Latest Messages Viewer</title>
   <style>
@@ -38,7 +38,6 @@
       width: 100% !important; height: 100% !important;
     }
 
-    /* time/field controls */
     .message .time-controls {
       display: flex; gap: 1rem; align-items: baseline;
       margin-bottom: 0.6rem; font-size: 0.9rem;
@@ -51,10 +50,8 @@
     }
   </style>
 
-  <!-- Chart.js and date adapter for time scales -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-  <!-- Zoom & Pan plugin -->
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 </head>
 <body>
@@ -106,7 +103,7 @@
     }
 
     async function fetchAndRender(block) {
-      const { userID, msgID, dac, fi, asm, initialMsg, start, end, aggregateFields } = block;
+      const { userID, msgID, dac, fi, asm, initialMsg, start, end, aggregateFields, range } = block;
       const params = new URLSearchParams({
         UserID:    userID,
         MessageID: msgID,
@@ -117,6 +114,7 @@
       if (!aggregateFields.length) params.set('limit', 100);
       if (start) params.set('start', start);
       if (end)   params.set('end',   end);
+      if (range) params.set('range', range);
       if (aggregateFields.length) {
         params.set('aggregateFields', aggregateFields.join(','));
       }
@@ -130,9 +128,19 @@
         console.error('[fetchAndRender] fetch error', e);
       }
 
-      const history = arr
-        .filter(m => m.Packet?.DecodedBinary || aggregateFields.length)
-        .sort((a, b) => new Date(b.Timestamp || b.timestamp) - new Date(a.Timestamp || a.timestamp));
+      const isAgg = aggregateFields.length > 0;
+      let history;
+      if (isAgg) {
+        // aggregated JSON: array of { timestamp, field_avg }
+        history = arr;
+      } else {
+        // raw JSON: array of entry with Packet.DecodedBinary
+        history = arr
+          .filter(m => m.Packet?.DecodedBinary)
+          .sort((a, b) =>
+            new Date(b.Timestamp) - new Date(a.Timestamp)
+          );
+      }
 
       block.history = history.length ? history : [initialMsg];
 
@@ -168,6 +176,15 @@
         <label>Fields
           <select multiple size="4" class="fields-select"></select>
         </label>
+        <label>Granularity
+          <select class="range-select">
+            <option value="">Auto</option>
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+            <option value="year">Year</option>
+          </select>
+        </label>
         <button class="apply-range">Get</button>
         <button class="reset-range">Reset</button>
       `;
@@ -175,6 +192,7 @@
       block.dom.startInput    = controls.querySelector('.start-input');
       block.dom.endInput      = controls.querySelector('.end-input');
       block.dom.fieldsSelect  = controls.querySelector('.fields-select');
+      block.dom.rangeSelect   = controls.querySelector('.range-select');
       block.dom.applyRangeBtn = controls.querySelector('.apply-range');
       block.dom.resetRangeBtn = controls.querySelector('.reset-range');
 
@@ -188,6 +206,7 @@
         block.aggregateFields = Array.from(
           block.dom.fieldsSelect.selectedOptions
         ).map(o => o.value);
+        block.range = block.dom.rangeSelect.value;
         block.idx = 0;
         fetchAndRender(block);
       };
@@ -195,34 +214,67 @@
       block.dom.resetRangeBtn.onclick = () => {
         block.start = block.end = null;
         block.aggregateFields = [];
+        block.range = '';
         block.idx = 0;
         block.dom.startInput.value = '';
         block.dom.endInput.value = '';
         block.dom.fieldsSelect.selectedIndex = -1;
+        block.dom.rangeSelect.value = '';
         fetchAndRender(block);
       };
 
       const titleDiv = document.createElement('div');
-      titleDiv.className = 'title'; c.appendChild(titleDiv); block.dom.titleDiv = titleDiv;
+      titleDiv.className = 'title';
+      c.appendChild(titleDiv);
+      block.dom.titleDiv = titleDiv;
+
       const tsDiv = document.createElement('div');
-      tsDiv.className = 'ts'; c.appendChild(tsDiv); block.dom.tsDiv = tsDiv;
+      tsDiv.className = 'ts';
+      c.appendChild(tsDiv);
+      block.dom.tsDiv = tsDiv;
 
       const nav = document.createElement('div');
-      nav.className = 'nav'; c.appendChild(nav); block.dom.nav = nav;
+      nav.className = 'nav';
+      c.appendChild(nav);
+      block.dom.nav = nav;
+
       const btnNewer = document.createElement('button');
-      btnNewer.textContent = '◀️'; nav.appendChild(btnNewer); block.dom.btnNewer = btnNewer;
+      btnNewer.textContent = '◀️';
+      nav.appendChild(btnNewer);
+      block.dom.btnNewer = btnNewer;
+
       const counter = document.createElement('div');
-      counter.className = 'counter'; nav.appendChild(counter); block.dom.counter = counter;
+      counter.className = 'counter';
+      nav.appendChild(counter);
+      block.dom.counter = counter;
+
       const btnOlder = document.createElement('button');
-      btnOlder.textContent = '▶️'; nav.appendChild(btnOlder); block.dom.btnOlder = btnOlder;
-      btnNewer.onclick = () => { if (block.idx>0) { block.idx--; updateBlockDOM(block); } };
-      btnOlder.onclick = () => { if (block.idx<block.history.length-1) { block.idx++; updateBlockDOM(block); } };
+      btnOlder.textContent = '▶️';
+      nav.appendChild(btnOlder);
+      block.dom.btnOlder = btnOlder;
+
+      btnNewer.onclick = () => {
+        if (block.idx > 0) {
+          block.idx--;
+          updateBlockDOM(block);
+        }
+      };
+      btnOlder.onclick = () => {
+        if (block.idx < block.history.length - 1) {
+          block.idx++;
+          updateBlockDOM(block);
+        }
+      };
 
       const notice = document.createElement('div');
-      notice.className = 'no-binary'; c.appendChild(notice); block.dom.notice = notice;
+      notice.className = 'no-binary';
+      c.appendChild(notice);
+      block.dom.notice = notice;
 
       const tableContainer = document.createElement('div');
-      tableContainer.className = 'table-container'; c.appendChild(tableContainer); block.dom.tableContainer = tableContainer;
+      tableContainer.className = 'table-container';
+      c.appendChild(tableContainer);
+      block.dom.tableContainer = tableContainer;
 
       const chartWrapper = document.createElement('div');
       chartWrapper.className = 'chart-container';
@@ -238,19 +290,11 @@
     function updateBlockDOM(block) {
       const { dom, asm, history, idx, msgID, dac, fi, aggregateFields } = block;
       const msg = history[idx];
-      const hasBinary = !!msg.Packet?.DecodedBinary;
       const isAgg = aggregateFields.length > 0;
 
       const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
       dom.titleDiv.textContent = `${titleText} (ID ${msgID}, DAC ${dac}, FI ${fi})`
         + (isAgg ? ' — aggregated' : '');
-
-      if (!hasBinary) {
-        dom.notice.textContent = 'Binary data not decoded for this type.';
-        dom.tsDiv.style.display = dom.nav.style.display =
-          dom.tableContainer.style.display = dom.chartWrapper.style.display = 'none';
-        return;
-      }
 
       if (isAgg) {
         dom.notice.textContent = '';
@@ -263,7 +307,6 @@
           p.split('.').map(s => s.toLowerCase()).join('_') + '_avg'
         );
         const datasets = aliases.map(alias => {
-          // drop "decodedbinary_" prefix for display
           const label = humanizeField(alias.replace(/^decodedbinary_/, ''));
           return {
             label,
@@ -302,7 +345,6 @@
         });
 
       } else {
-        // raw mode
         dom.notice.textContent = '';
         dom.tsDiv.style.display = '';
         dom.nav.style.display = 'flex';
@@ -450,7 +492,7 @@
             history:[], idx:0,
             dom:null, chart:null,
             start:null, end:null,
-            aggregateFields:[]
+            aggregateFields:[], range:''
           });
         }
       });
