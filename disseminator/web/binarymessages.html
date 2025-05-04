@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>AIS Latest Messages Viewer</title>
   <style>
     body { font-family: sans-serif; margin: 2rem; }
@@ -12,61 +12,39 @@
     .ts { font-size: 0.9rem; color: #555; margin-bottom: 0.3rem; }
     .nav { display: flex; align-items: center; margin-bottom: 0.8rem; }
     .nav button {
-      background: none;
-      border: none;
-      font-size: 1.2rem;
-      margin: 0 0.3rem;
-      cursor: pointer;
-      transition: opacity 0.2s;
+      background: none; border: none;
+      font-size: 1.2rem; margin: 0 0.3rem;
+      cursor: pointer; transition: opacity 0.2s;
     }
-    .nav button:disabled {
-      color: #bbb;
-      cursor: default;
-      opacity: 0.4;
-    }
-    .nav .counter {
-      font-size: 0.9rem;
-      color: #333;
-      min-width: 3em;
-      text-align: center;
-    }
-    .table-container { overflow-x: auto; }
+    .nav button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
+    .nav .counter { font-size: 0.9rem; color: #333; min-width: 3em; text-align: center; }
+
+    .table-container { overflow-x: auto; margin-bottom: 1rem; }
     table {
-      border-collapse: collapse;
-      table-layout: auto;
-      margin-top: 0.5rem;
-      white-space: nowrap;
+      border-collapse: collapse; table-layout: auto;
+      white-space: nowrap; width: 100%;
     }
     th, td {
-      border: 1px solid #ccc;
-      padding: 0.4rem 0.6rem;
-      text-align: left;
-      vertical-align: top;
+      border: 1px solid #ccc; padding: 0.4rem 0.6rem;
+      text-align: left; vertical-align: top;
     }
     th { background: #f0f0f0; }
-    .message .chart-container {
-      position: relative;
-      width: 100%;
-      height: 300px;
-      margin-top: 1rem;
-    }
-    .message .chart-container canvas {
-      width: 100% !important;
-      height: 100% !important;
-    }
     .no-binary { font-style: italic; color: #a00; margin: 0.5rem 0; }
 
-    /* new controls styling */
+    .message .chart-container {
+      position: relative; width: 100%; height: 300px; margin-top: 1rem;
+    }
+    .message .chart-container canvas {
+      width: 100% !important; height: 100% !important;
+    }
+
+    /* time/field controls */
     .message .time-controls {
-      display: flex;
-      gap: 1rem;
-      align-items: baseline;
-      margin-bottom: 0.6rem;
-      font-size: 0.9rem;
+      display: flex; gap: 1rem; align-items: baseline;
+      margin-bottom: 0.6rem; font-size: 0.9rem;
     }
     .message .time-controls label {
-      display: flex;
-      flex-direction: column;
+      display: flex; flex-direction: column;
     }
     .message .time-controls select {
       min-width: 8em;
@@ -76,7 +54,7 @@
   <!-- Chart.js and date adapter for time scales -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-  <!-- Zoom & Pan plugin for Chart.js -->
+  <!-- Zoom & Pan plugin -->
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 </head>
 <body>
@@ -121,10 +99,7 @@
           <thead><tr><th>Field</th><th>Value</th></tr></thead>
           <tbody>
             ${Object.entries(data).map(([f, v]) =>
-              `<tr>
-                <td>${humanizeField(f)}</td>
-                <td>${String(v)}</td>
-              </tr>`
+              `<tr><td>${humanizeField(f)}</td><td>${String(v)}</td></tr>`
             ).join('')}
           </tbody>
         </table>`;
@@ -156,19 +131,16 @@
       }
 
       const history = arr
-        .filter(m => m.Packet?.DecodedBinary || m.decodedbinary_air_temp_c_avg !== undefined)
-        .sort((a, b) => {
-          const ta = new Date(a.Timestamp || a.timestamp);
-          const tb = new Date(b.Timestamp || b.timestamp);
-          return tb - ta;
-        });
+        .filter(m => m.Packet?.DecodedBinary || aggregateFields.length)
+        .sort((a, b) => new Date(b.Timestamp || b.timestamp) - new Date(a.Timestamp || a.timestamp));
 
       block.history = history.length ? history : [initialMsg];
 
       if (!block.dom) createBlockDOM(block);
 
-      // populate fields-select once
-      if (block.dom.fieldsSelect && !block.dom.fieldsSelect.options.length && initialMsg.Packet?.DecodedBinary) {
+      if (block.dom.fieldsSelect &&
+          !block.dom.fieldsSelect.options.length &&
+          initialMsg.Packet?.DecodedBinary) {
         const flat = flattenObject(initialMsg.Packet.DecodedBinary);
         Object.entries(flat)
           .filter(([, v]) => typeof v === 'number')
@@ -188,12 +160,11 @@
       c.className = 'message';
       block.dom = {};
 
-      // time & field selector
       const controls = document.createElement('div');
       controls.className = 'time-controls';
       controls.innerHTML = `
-        <label>From <input type="datetime-local" class="start-input" /></label>
-        <label>To   <input type="datetime-local" class="end-input" /></label>
+        <label>From <input type="datetime-local" class="start-input"/></label>
+        <label>To   <input type="datetime-local" class="end-input"/></label>
         <label>Fields
           <select multiple size="4" class="fields-select"></select>
         </label>
@@ -218,20 +189,19 @@
         fetchAndRender(block);
       };
 
-      // title, timestamp, nav, notice, table, chart…
       const titleDiv = document.createElement('div');
       titleDiv.className = 'title'; c.appendChild(titleDiv); block.dom.titleDiv = titleDiv;
-      const tsDiv    = document.createElement('div');
-      tsDiv.className = 'ts';    c.appendChild(tsDiv);    block.dom.tsDiv = tsDiv;
+      const tsDiv = document.createElement('div');
+      tsDiv.className = 'ts'; c.appendChild(tsDiv); block.dom.tsDiv = tsDiv;
 
       const nav = document.createElement('div');
-      nav.className = 'nav';      c.appendChild(nav);      block.dom.nav = nav;
+      nav.className = 'nav'; c.appendChild(nav); block.dom.nav = nav;
       const btnNewer = document.createElement('button');
-      btnNewer.textContent = '◀️';nav.appendChild(btnNewer);block.dom.btnNewer = btnNewer;
+      btnNewer.textContent = '◀️'; nav.appendChild(btnNewer); block.dom.btnNewer = btnNewer;
       const counter = document.createElement('div');
-      counter.className = 'counter';nav.appendChild(counter);block.dom.counter = counter;
+      counter.className = 'counter'; nav.appendChild(counter); block.dom.counter = counter;
       const btnOlder = document.createElement('button');
-      btnOlder.textContent = '▶️';nav.appendChild(btnOlder);block.dom.btnOlder = btnOlder;
+      btnOlder.textContent = '▶️'; nav.appendChild(btnOlder); block.dom.btnOlder = btnOlder;
       btnNewer.onclick = () => { if (block.idx>0) { block.idx--; updateBlockDOM(block); } };
       btnOlder.onclick = () => { if (block.idx<block.history.length-1) { block.idx++; updateBlockDOM(block); } };
 
@@ -256,72 +226,68 @@
       const { dom, asm, history, idx, msgID, dac, fi, aggregateFields } = block;
       const msg = history[idx];
       const hasBinary = !!msg.Packet?.DecodedBinary;
-      const isAgg = aggregateFields.length>0;
+      const isAgg = aggregateFields.length > 0;
 
-      const titleText = asm[msgID]?.[dac]?.[fi]?.Title||'Unknown';
+      const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
       dom.titleDiv.textContent = `${titleText} (ID ${msgID}, DAC ${dac}, FI ${fi})`
-        + (isAgg?' — aggregated':'');
+        + (isAgg ? ' — aggregated' : '');
 
       if (!hasBinary) {
-        dom.notice.textContent = 'Binary data not decoded';
+        dom.notice.textContent = 'Binary data not decoded for this type.';
         dom.tsDiv.style.display = dom.nav.style.display =
-        dom.tableContainer.style.display = 'none';
-        dom.chartWrapper.style.display = 'none';
+          dom.tableContainer.style.display = dom.chartWrapper.style.display = 'none';
         return;
       }
 
-      // aggregated mode
+      // aggregated
       if (isAgg) {
         dom.notice.textContent = '';
         dom.tsDiv.style.display = dom.nav.style.display =
-        dom.tableContainer.style.display = 'none';
+          dom.tableContainer.style.display = 'none';
         dom.chartWrapper.style.display = '';
 
-        // prepare data
         const times = history.map(m => new Date(m.timestamp));
-        const aliases = aggregateFields.map(p=>
-          p.split('.').map(s=>s.toLowerCase()).join('_')+'_avg'
+        const aliases = aggregateFields.map(p =>
+          p.split('.').map(s => s.toLowerCase()).join('_') + '_avg'
         );
-        const datasets = aliases.map(alias=>({
+        const datasets = aliases.map(alias => ({
           label: humanizeField(alias),
-          data: times.map((t,i)=>({x:t,y:history[i][alias]})),
-          borderWidth:1
+          data: times.map((t,i) => ({ x: t, y: history[i][alias] })),
+          borderWidth: 1
         }));
 
-        // destroy old chart if any
         if (dom.chart) dom.chart.destroy();
-
         dom.chart = new Chart(dom.canvas.getContext('2d'), {
-          type:'line',
-          data:{datasets},
-          options:{
-            animation:false,
-            maintainAspectRatio:false,
-            scales:{
-              x:{
-                type:'time',
-                time:{
-                  tooltipFormat:'HH:mm:ss',
-                  displayFormats:{hour:'HH:mm',minute:'HH:mm'}
+          type: 'line',
+          data: { datasets },
+          options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                type: 'time',
+                time: {
+                  tooltipFormat: 'HH:mm:ss',
+                  displayFormats: { hour: 'HH:mm', minute: 'HH:mm' }
                 },
-                ticks:{autoSkip:true,maxRotation:0}
+                ticks: { autoSkip: true, maxRotation: 0 }
               },
-              y:{beginAtZero:false}
+              y: { beginAtZero: false }
             },
-            plugins:{
-              legend:{position:'bottom'},
-              zoom:{
-                pan:{enabled:true,mode:'x'},
-                zoom:{wheel:{enabled:true},drag:{enabled:true},mode:'x'}
+            plugins: {
+              legend: { position: 'bottom' },
+              zoom: {
+                pan: { enabled: true, mode: 'x' },
+                zoom: { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
               }
             },
-            interaction:{mode:'nearest',axis:'x',intersect:false}
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
           }
         });
         return;
       }
 
-      // raw mode
+      // raw
       dom.notice.textContent = '';
       dom.tsDiv.style.display = '';
       dom.nav.style.display = 'flex';
@@ -329,9 +295,9 @@
       dom.chartWrapper.style.display = '';
 
       dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
-        hour12:false,
-        year:'numeric',month:'2-digit',day:'2-digit',
-        hour:'2-digit',minute:'2-digit',second:'2-digit'
+        hour12: false,
+        year:'numeric', month:'2-digit', day:'2-digit',
+        hour:'2-digit', minute:'2-digit', second:'2-digit'
       });
       dom.btnNewer.disabled = idx===0;
       dom.btnOlder.disabled = idx===history.length-1;
@@ -346,12 +312,10 @@
       const fields = Object.keys(records[0]||{}).filter(f=>typeof records[0][f]==='number');
       const defaultVis = new Set(fields.slice(0,3));
 
-      // destroy old chart before recreating
       if (dom.chart) dom.chart.destroy();
-
       const datasets = fields.map(f=>({
-        label:humanizeField(f),
-        data:timesArr.map((t,i)=>({x:t,y:records[i][f]})),
+        label: humanizeField(f),
+        data: timesArr.map((t,i)=>({ x:t, y:records[i][f] })),
         borderWidth:1,
         hidden:!defaultVis.has(f),
         _fieldKey:f
@@ -368,108 +332,113 @@
               type:'time',
               time:{
                 tooltipFormat:'HH:mm:ss',
-                displayFormats:{hour:'HH:mm',minute:'HH:mm'}
+                displayFormats:{ hour:'HH:mm', minute:'HH:mm' }
               },
-              ticks:{autoSkip:true,maxRotation:0}
+              ticks:{ autoSkip:true, maxRotation:0 }
             },
-            y:{beginAtZero:false}
+            y:{ beginAtZero:false }
           },
           plugins:{
-            legend:{position:'bottom'},
+            legend:{ position:'bottom' },
             zoom:{
-              pan:{enabled:true,mode:'x'},
-              zoom:{wheel:{enabled:true},drag:{enabled:true},mode:'x'}
+              pan:{ enabled:true, mode:'x' },
+              zoom:{ wheel:{ enabled:true }, drag:{ enabled:true }, mode:'x' }
             }
           },
-          interaction:{mode:'nearest',axis:'x',intersect:false}
+          interaction:{ mode:'nearest', axis:'x', intersect:false }
         }
       });
-      dom.canvas.addEventListener('dblclick',()=>dom.chart.resetZoom());
+      dom.canvas.addEventListener('dblclick', () => dom.chart.resetZoom());
     }
 
-    function runRefresh(){
-      for(const b of messageBlocks.values()) fetchAndRender(b);
+    function runRefresh() {
+      for (const b of messageBlocks.values()) fetchAndRender(b);
     }
 
     const autoCB = document.getElementById('auto-refresh-checkbox');
-    if(localStorage.getItem('autoRefreshEnabled')==='true'){
-      autoCB.checked=true;
+    if (localStorage.getItem('autoRefreshEnabled')==='true') {
+      autoCB.checked = true;
       runRefresh();
-      autoRefreshIntervalId=setInterval(runRefresh,60000);
+      autoRefreshIntervalId = setInterval(runRefresh,60000);
     }
-    autoCB.addEventListener('change',e=>{
-      localStorage.setItem('autoRefreshEnabled',e.target.checked);
-      if(e.target.checked){
+    autoCB.addEventListener('change', e => {
+      localStorage.setItem('autoRefreshEnabled', e.target.checked);
+      if (e.target.checked) {
         runRefresh();
-        autoRefreshIntervalId=setInterval(runRefresh,60000);
-      } else clearInterval(autoRefreshIntervalId);
+        autoRefreshIntervalId = setInterval(runRefresh,60000);
+      } else {
+        clearInterval(autoRefreshIntervalId);
+      }
     });
 
-    async function main(){
-      const userID=getUserID();
-      const titleEl=document.getElementById('main-title');
-      const output=document.getElementById('output');
-      if(!userID){
+    async function main() {
+      const userID = getUserID();
+      const titleEl = document.getElementById('main-title');
+      const output  = document.getElementById('output');
+      if (!userID) {
         titleEl.textContent='Error';
         output.innerHTML='<div class="error">Invalid or missing numeric UserID parameter.</div>';
         return;
       }
+
       let summary;
-      try{
-        const r=await fetch(`/summary?UserID=${userID}`);
-        if(!r.ok) throw '';
-        summary=await r.json();
-      }catch{
+      try {
+        const r = await fetch(`/summary?UserID=${userID}`);
+        if (!r.ok) throw '';
+        summary = await r.json();
+      } catch {
         titleEl.textContent='Error';
         output.innerHTML='<div class="error">Failed to load summary</div>';
         return;
       }
-      const info=summary[userID]||{};
+      const info = summary[userID]||{};
       titleEl.textContent=`Latest Messages for ${info.Name?.trim()?info.Name:userID}`;
+
       let asm;
-      try{
-        const r=await fetch('/asm.json');
-        if(!r.ok) throw '';
-        asm=await r.json();
-      }catch{
+      try {
+        const r = await fetch('/asm.json');
+        if (!r.ok) throw '';
+        asm = await r.json();
+      } catch {
         output.innerHTML='<div class="error">Failed to load asm.json</div>';
         return;
       }
+
       let allMsgs;
-      try{
-        const r=await fetch(`/latestmessages?UserID=${userID}`);
-        if(r.status!==200) throw '';
-        allMsgs=await r.json();
-      }catch{
+      try {
+        const r = await fetch(`/latestmessages?UserID=${userID}`);
+        if (r.status!==200) throw '';
+        allMsgs = await r.json();
+      } catch {
         output.innerHTML='<div class="error">Vessel Not Found</div>';
         return;
       }
-      const validMsgs=allMsgs.filter(m=>m.Packet?.ApplicationID?.Valid);
-      if(!validMsgs.length){
+
+      const validMsgs = allMsgs.filter(m=>m.Packet?.ApplicationID?.Valid);
+      if (!validMsgs.length) {
         output.innerHTML='<div>No valid message types available.</div>';
         return;
       }
+
       output.innerHTML='';
       messageBlocks.clear();
       validMsgs.forEach(m=>{
-        const dab=m.Packet.ApplicationID;
-        const dac=dab.DesignatedAreaCode;
-        const fi=dab.FunctionIdentifier;
-        const key=`${m.MessageID}|${dac}|${fi}`;
-        if(!messageBlocks.has(key)){
+        const dab = m.Packet.ApplicationID;
+        const key = `${m.MessageID}|${dab.DesignatedAreaCode}|${dab.FunctionIdentifier}`;
+        if (!messageBlocks.has(key)) {
           messageBlocks.set(key,{
-            userID,
-            msgID:m.MessageID,
-            dac,fi,
-            asm,
-            initialMsg:m,
-            history:[],idx:0,
-            dom:null,chart:null,
-            start:null,end:null,
+            userID, msgID:m.MessageID,
+            dac:dab.DesignatedAreaCode,
+            fi:dab.FunctionIdentifier,
+            asm, initialMsg:m,
+            history:[], idx:0,
+            dom:null, chart:null,
+            start:null, end:null,
             aggregateFields:[]
           });
         }
       });
+
       await Promise.all(Array.from(messageBlocks.values()).map(b=>fetchAndRender(b)));
     }
     main();
