@@ -374,7 +374,14 @@
             maintainAspectRatio: false,
             scales: { x: timeOpts, y: { beginAtZero: false } },
             plugins: {
-              legend: { position: 'bottom' },
+              legend: {
+	    	position: 'bottom',
+	        labels: {
+	        boxWidth: 8,         // smaller color swatches
+	        padding: 4,          // tighter spacing
+	        font: { size: 8 }    // smaller text
+	        }
+	      },
               zoom: {
                 pan: { enabled: true, mode: 'x' },
                 zoom: { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
