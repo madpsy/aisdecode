@@ -348,9 +348,12 @@
         dom.tsDiv.style.display = dom.nav.style.display =
           dom.tableContainer.style.display = 'none';
         dom.chartWrapper.style.display = '';
-
         const times = history.map(m => new Date(m.timestamp));
-        const aliases = aggregateFields.map(p =>
+        const sortedAgg = aggregateFields.slice().sort((a, b) =>
+          a.localeCompare(b)
+        );
+
+        const aliases = sortedAgg.map(p =>
           p.split('.').map(s => s.toLowerCase()).join('_') + '_avg'
         );
         const datasets = aliases.map(alias => {
