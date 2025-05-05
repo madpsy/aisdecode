@@ -435,7 +435,15 @@
             maintainAspectRatio:false,
             scales:{ x: timeOpts, y:{ beginAtZero:false } },
             plugins:{
-              legend:{ position:'bottom' },
+               legend:{
+                 position:'bottom',
+                 labels:{
+                   boxWidth:11,
+                   boxHeight:7,
+                   padding:4,
+                   font:{ size:11 }
+                 }
+               },
               zoom:{
                 pan:{ enabled:true, mode:'x' },
                 zoom:{ wheel:{ enabled:true }, drag:{ enabled:true }, mode:'x' }
