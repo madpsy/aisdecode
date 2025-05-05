@@ -162,14 +162,19 @@
           !block.dom.fieldsSelect.options.length &&
           initialMsg.Packet?.DecodedBinary) {
         const flat = flattenObject(initialMsg.Packet.DecodedBinary);
-        Object.entries(flat)
+
+        const numericFields = Object.entries(flat)
           .filter(([, v]) => typeof v === 'number')
-          .forEach(([f]) => {
-            const opt = document.createElement('option');
-            opt.value = `DecodedBinary.${f}`;
-            opt.textContent = humanizeField(f);
-            block.dom.fieldsSelect.appendChild(opt);
-          });
+          .map(([f]) => f);
+
+        numericFields.sort((a, b) => a.localeCompare(b));
+
+        numericFields.forEach(f => {
+          const opt = document.createElement('option');
+          opt.value = `DecodedBinary.${f}`;
+          opt.textContent = humanizeField(f);
+          block.dom.fieldsSelect.appendChild(opt);
+        });
       }
 
       updateBlockDOM(block);
