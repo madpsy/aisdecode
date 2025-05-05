@@ -105,11 +105,14 @@
     }
 
     function makeTableHTML(data) {
+      const entries = Object.entries(data)
+        .sort(([a], [b]) => a.localeCompare(b));
+
       return `
         <table>
           <thead><tr><th>Field</th><th>Value</th></tr></thead>
           <tbody>
-            ${Object.entries(data).map(([f, v]) =>
+            ${entries.map(([f, v]) =>
               `<tr><td>${humanizeField(f)}</td><td>${String(v)}</td></tr>`
             ).join('')}
           </tbody>
