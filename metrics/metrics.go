@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +56,15 @@ type FullMetrics struct {
 	TotalMessages              int                                                  `json:"total_messages"`
 	TotalMessagesForwarded     int                                                  `json:"total_messages_forwarded"`
 	UptimeSeconds              int                                                  `json:"uptime_seconds"`
+
+	// New ingestions
+	MemoryStats struct {
+		AllocBytes     int `json:"alloc_bytes"`
+		HeapAllocBytes int `json:"heap_alloc_bytes"`
+		SysBytes       int `json:"sys_bytes"`
+		NumGC          int `json:"num_gc"`
+	} `json:"memory_stats"`
+	TotalClients int `json:"total_clients"`
 }
 
 type SimpleMetrics struct {
@@ -98,11 +108,12 @@ type ResponseMetrics struct {
 
 // metricConfig drives each series we expose in /metrics/historic
 type metricConfig struct {
-	Key       string // JSON key & Influx metric tag
+	Key       string // JSON key & Influx "metric" tag
 	Func      string // Influx function: SUM, MEAN, LAST
 	ValueType string // "int", "float", or "string"
 }
 
+// All the metrics we expose in /metrics/historic
 var metricConfigs = []metricConfig{
 	{"bytes_received", "SUM", "int"},
 	{"bytes_per_sec", "MEAN", "float"},
@@ -123,7 +134,7 @@ var metricConfigs = []metricConfig{
 	{"num_gc", "SUM", "int"},
 	{"ratio_forwarded_to_received", "MEAN", "float"},
 	{"window_unique_uids", "MEAN", "float"},
-	{"window_user_ids", "LAST", "string"},
+	{"window_user_ids", "LAST", "string"}, // comma-joined IDs
 }
 
 // genericPoint for arbitrary timestamped values
@@ -188,7 +199,6 @@ func main() {
 	http.HandleFunc("/metrics/historic", historicMetricsHandler)
 	http.Handle("/metrics/", http.StripPrefix("/metrics/", http.FileServer(http.Dir("web"))))
 
-	// Serve
 	addr := fmt.Sprintf(":%d", settings.ListenPort)
 	log.Printf("Server listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
@@ -282,7 +292,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 		bp.AddPoint(pt)
 	}
 
-	// Original per-source, windowed, per-message, totals & uptime…
+	// Per-source, windowed, per-message, totals & uptime
 	for _, m := range full.BytesReceivedBySource {
 		add(map[string]string{"source_ip": m.SourceIP, "metric": "bytes_received"},
 			map[string]interface{}{"value": m.Count})
@@ -312,6 +322,10 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 		add(map[string]string{"source_ip": ip, "metric": "window_unique_uids"},
 			map[string]interface{}{"value": v})
 	}
+	for ip, uids := range full.WindowUserIDsBySource {
+		add(map[string]string{"source_ip": ip, "metric": "window_user_ids"},
+			map[string]interface{}{"value": strings.Join(uids, ",")})
+	}
 
 	for ip, v := range full.PerDeduplicatedSource {
 		add(map[string]string{"source_ip": ip, "metric": "per_deduplicated"},
@@ -333,9 +347,16 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 		{"total_messages", full.TotalMessages},
 		{"total_messages_forwarded", full.TotalMessagesForwarded},
 		{"uptime_seconds", full.UptimeSeconds},
+		{"total_clients", full.TotalClients},
 	} {
 		add(map[string]string{"metric": t.metric}, map[string]interface{}{"value": t.value})
 	}
+
+	// Memory stats
+	add(map[string]string{"metric": "alloc_bytes"}, map[string]interface{}{"value": full.MemoryStats.AllocBytes})
+	add(map[string]string{"metric": "heap_alloc_bytes"}, map[string]interface{}{"value": full.MemoryStats.HeapAllocBytes})
+	add(map[string]string{"metric": "sys_bytes"}, map[string]interface{}{"value": full.MemoryStats.SysBytes})
+	add(map[string]string{"metric": "num_gc"}, map[string]interface{}{"value": full.MemoryStats.NumGC})
 
 	return influxClient.Write(bp)
 }
@@ -364,6 +385,8 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 	json.Unmarshal(blob, &full)
 
 	rt := SimpleMetrics{}
+	windowIDs := full.WindowUserIDsBySource[ip]
+
 	for _, m := range full.BytesReceivedBySource {
 		if m.SourceIP == ip {
 			rt.BytesReceived = m.Count
@@ -388,7 +411,6 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 	rt.WindowBytes = full.WindowBytesBySource[ip]
 	rt.WindowMessages = full.WindowMessagesBySource[ip]
 	rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[ip]
-	windowIDs := full.WindowUserIDsBySource[ip]
 
 	cacheKey := fmt.Sprintf("agg:%s", ip)
 	var agg Aggregated
@@ -491,7 +513,8 @@ func queryTimeSeriesGeneric(cfg metricConfig, ip *string, interval string, from,
          ORDER BY time ASC
     `, cfg.Func, strings.Join(where, " AND "), interval, fill)
 
-	res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ms"))
+	// Request nanosecond precision
+	res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ns"))
 	if err != nil {
 		return nil, err
 	}
@@ -503,28 +526,30 @@ func queryTimeSeriesGeneric(cfg metricConfig, ip *string, interval string, from,
 	pts := make([]genericPoint, 0, len(series.Values))
 
 	for _, row := range series.Values {
-		// timestamp
+		// parse timestamp (nanoseconds)
 		var ts time.Time
 		switch v := row[0].(type) {
-		case string:
-			ts, _ = time.Parse(time.RFC3339Nano, v)
 		case json.Number:
 			if ns, e := v.Int64(); e == nil {
 				ts = time.Unix(0, ns)
 			}
 		case float64:
+			// JSON numbers from Influx can be float64
 			ts = time.Unix(0, int64(v))
 		case int64:
 			ts = time.Unix(0, v)
+		case string:
+			ts, _ = time.Parse(time.RFC3339Nano, v)
 		default:
 			continue
 		}
 
-		// value
+		// parse value
 		var val interface{}
+		raw := row[1]
 		switch cfg.ValueType {
 		case "int":
-			switch x := row[1].(type) {
+			switch x := raw.(type) {
 			case json.Number:
 				v, _ := x.Int64(); val = v
 			case float64:
@@ -533,7 +558,7 @@ func queryTimeSeriesGeneric(cfg metricConfig, ip *string, interval string, from,
 				val = x
 			}
 		case "float":
-			switch x := row[1].(type) {
+			switch x := raw.(type) {
 			case json.Number:
 				v, _ := x.Float64(); val = v
 			case float64:
@@ -542,7 +567,7 @@ func queryTimeSeriesGeneric(cfg metricConfig, ip *string, interval string, from,
 				val = float64(x)
 			}
 		case "string":
-			if s, ok := row[1].(string); ok {
+			if s, ok := raw.(string); ok {
 				val = s
 			}
 		}
@@ -572,23 +597,25 @@ func historicMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	interval := pickInterval(from, to)
-	series := make(map[string]interface{}, len(metricConfigs))
 
+	series := make(map[string]interface{}, len(metricConfigs))
 	for _, cfg := range metricConfigs {
 		pts, err := queryTimeSeriesGeneric(cfg, ipPtr, interval, from, to)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		series[cfg.Key] = pts
+		if pts != nil {
+			series[cfg.Key] = pts
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(struct {
-		IP       *string               `json:"ip,omitempty"`
-		From     time.Time             `json:"from"`
-		To       time.Time             `json:"to"`
-		Interval string                `json:"interval"`
+		IP       *string                `json:"ip,omitempty"`
+		From     time.Time              `json:"from"`
+		To       time.Time              `json:"to"`
+		Interval string                 `json:"interval"`
 		Series   map[string]interface{} `json:"series"`
 	}{
 		IP:       ipPtr,
