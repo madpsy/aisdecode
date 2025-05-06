@@ -56,8 +56,6 @@
       text-align:left;vertical-align:top;
     }
     th { background:#f0f0f0; }
-    th.sortable { cursor:pointer; }
-    th .arrow { margin-left:4px; font-size:0.8em; }
 
     .raw-sentence {
       margin-top:.5rem;padding:.5rem;
@@ -107,7 +105,7 @@
   </div>
 
   <div class="download-row" id="download-row" style="display:none;">
-    <button id="download-csv">Download CSV</button>
+    <button id="download-csv">Download CSV</button>
     <label><input type="checkbox" id="include-raw"/> Include Sentences</label>
   </div>
 
@@ -128,7 +126,7 @@
   <div id="individual-view">
     <div class="nav">
       <button id="prev">◀️</button>
-      <div class="counter" id="counter">0 of 0</div>
+      <div class="counter" id="counter">0 of 0</div>
       <button id="next">▶️</button>
     </div>
     <div id="single-table"></div>
@@ -176,302 +174,313 @@
       });
       return html + '</tbody></table>';
     }
-
-    // Sort configuration
-    let sortConfig = { field: null, direction: 'asc' };
-
-    // Build range table with sortable headers
     function makeRangeHTML(rows, fields) {
-      let html = '<table><thead><tr>'
-               + '<th class="sortable" data-field="Timestamp">Timestamp<span class="arrow"></span></th>';
-      fields.forEach(f => {
-        html += `<th class="sortable" data-field="${f}">${humanize(f)}<span class="arrow"></span></th>`;
-      });
+      let html = '<table><thead><tr><th>Timestamp</th>';
+      fields.forEach(f => { html += `<th>${humanize(f)}</th>`; });
       html += '<th>Sentences</th></tr></thead><tbody>';
-      rows.forEach((r,i) => {
+      rows.forEach((r, i) => {
         const flat = flatten(r.Packet);
-        html += '<tr>'
-             + `<td>${new Date(r.Timestamp).toLocaleString([], {
-                  hour12:false,year:'numeric',month:'2-digit',
-                  day:'2-digit',hour:'2-digit',minute:'2-digit',
-                  second:'2-digit'})}</td>`;
+        html += '<tr>';
+        html += `<td>${new Date(r.Timestamp).toLocaleString([], {
+          hour12:false, year:'numeric', month:'2-digit',
+          day:'2-digit', hour:'2-digit', minute:'2-digit',
+          second:'2-digit'
+        })}</td>`;
         fields.forEach(f => {
-          html += `<td>${flat[f]!=null?flat[f]:''}</td>`;
+          html += `<td>${flat[f] != null ? flat[f] : ''}</td>`;
         });
-        html += `<td><button class="view" data-i="${i}">View</button></td>`
-             + '</tr>';
+        html += `<td><button class="view" data-i="${i}">View</button></td>`;
+        html += '</tr>';
       });
       return html + '</tbody></table>';
     }
-    function attachSortHandlers() {
-      document.querySelectorAll('#range-table th.sortable').forEach(th=>{
-        th.onclick = ()=>{
-          const field = th.dataset.field;
-          if (sortConfig.field === field) {
-            sortConfig.direction = sortConfig.direction==='asc' ? 'desc' : 'asc';
-          } else {
-            sortConfig.field = field;
-            sortConfig.direction = 'asc';
-          }
-          rangeData.sort((a,b)=>{
-            const aV = field==='Timestamp'
-              ? new Date(a.Timestamp).getTime()
-              : Number(flatten(a.Packet)[field]);
-            const bV = field==='Timestamp'
-              ? new Date(b.Timestamp).getTime()
-              : Number(flatten(b.Packet)[field]);
-            return sortConfig.direction==='asc'? aV-bV : bV-aV;
-          });
-          document.querySelectorAll('#range-table .arrow').forEach(sp=>sp.textContent='');
-          th.querySelector('.arrow').textContent = sortConfig.direction==='asc'? '▲':'▼';
-          renderPage();
-        };
-      });
-    }
-
-    // CSV export helper
     function toCSV(rows, fields, includeRaw) {
       const header = ['Timestamp', ...fields];
       if (includeRaw) header.push('RawSentence');
       const lines = [header.join(',')];
       rows.forEach(r => {
-        const flat = flatten(r.Packet),
-              ts = new Date(r.Timestamp).toISOString(),
-              vals = fields.map(f =>
-                flat[f]!=null
-                  ? `"${String(flat[f]).replace(/"/g,'""')}"`
-                  : ''
-              );
+        const flat = flatten(r.Packet);
+        const ts = new Date(r.Timestamp).toISOString();
+        const vals = fields.map(f => {
+          const v = flat[f];
+          return v != null ? `"${String(v).replace(/"/g,'""')}"` : '';
+        });
         if (includeRaw) {
-          vals.push(`"${r.RawSentence.replace(/"/g,'""')}"`);
+          const raw = `"${r.RawSentence.replace(/"/g,'""')}"`;
+          lines.push([ts, ...vals, raw].join(','));
+        } else {
+          lines.push([ts, ...vals].join(','));
         }
-        lines.push([ts, ...vals].join(','));
       });
       return lines.join('\n');
     }
 
-    (async()=>{
-      const userID     = qsParam('UserID'),
-            msgID      = qsParam('MessageID'),
-            errorEl    = document.getElementById('error'),
-            mainTitle  = document.getElementById('main-title'),
-            subTitle   = document.getElementById('sub-title'),
-            typeDiv    = document.getElementById('type-selector'),
-            typeSelect = document.getElementById('message-type-select'),
-            startInput = document.getElementById('start'),
-            endInput   = document.getElementById('end'),
-            fieldsSel  = document.getElementById('fields'),
-            resultsAs  = document.getElementById('results-as'),
-            applyBtn   = document.getElementById('apply'),
-            resetBtn   = document.getElementById('reset'),
-            downloadRow= document.getElementById('download-row'),
-            downloadBtn= document.getElementById('download-csv'),
-            includeRaw = document.getElementById('include-raw'),
-            pagination = document.getElementById('pagination-row'),
-            viewInfo   = document.getElementById('view-info'),
-            rowsSel    = document.getElementById('rows-per-page'),
-            pagePrev   = document.getElementById('page-prev'),
-            pageNext   = document.getElementById('page-next'),
-            indDiv     = document.getElementById('individual-view'),
-            rngDiv     = document.getElementById('range-view'),
-            singleTbl  = document.getElementById('single-table'),
-            singleRaw  = document.getElementById('single-raw'),
-            prevBtn    = document.getElementById('prev'),
-            nextBtn    = document.getElementById('next'),
-            counterDiv = document.getElementById('counter'),
-            rangeTbl   = document.getElementById('range-table'),
-            chartCont  = document.getElementById('chart-container'),
-            chartCanvas= document.getElementById('range-chart');
+    (async () => {
+      const userID        = qsParam('UserID'),
+            msgID         = qsParam('MessageID'),
+            errorEl       = document.getElementById('error'),
+            mainTitle     = document.getElementById('main-title'),
+            subTitle      = document.getElementById('sub-title'),
+            typeDiv       = document.getElementById('type-selector'),
+            typeSelect    = document.getElementById('message-type-select'),
+            startInput    = document.getElementById('start'),
+            endInput      = document.getElementById('end'),
+            fieldsSel     = document.getElementById('fields'),
+            resultsAs     = document.getElementById('results-as'),
+            applyBtn      = document.getElementById('apply'),
+            resetBtn      = document.getElementById('reset'),
+            downloadRow   = document.getElementById('download-row'),
+            downloadBtn   = document.getElementById('download-csv'),
+            includeRaw    = document.getElementById('include-raw'),
+            paginationRow = document.getElementById('pagination-row'),
+            viewInfo      = document.getElementById('view-info'),
+            rowsPerPageSel= document.getElementById('rows-per-page'),
+            pagePrev      = document.getElementById('page-prev'),
+            pageNext      = document.getElementById('page-next'),
+            indDiv        = document.getElementById('individual-view'),
+            rngDiv        = document.getElementById('range-view'),
+            singleTbl     = document.getElementById('single-table'),
+            singleRaw     = document.getElementById('single-raw'),
+            prevBtn       = document.getElementById('prev'),
+            nextBtn       = document.getElementById('next'),
+            counterDiv    = document.getElementById('counter'),
+            rangeTbl      = document.getElementById('range-table'),
+            chartCont     = document.getElementById('chart-container'),
+            chartCanvas   = document.getElementById('range-chart');
 
       if (!userID) {
-        mainTitle.textContent='Error';
-        errorEl.textContent='Missing UserID in URL.';
+        mainTitle.textContent = 'Error';
+        errorEl.textContent = 'Missing UserID in URL.';
         return;
       }
 
-      // Load summary
       try {
-        const res = await fetch(`/summary?UserID=${userID}`,{cache:'no-store'}),
-              sum = await res.json();
-        mainTitle.textContent=`Latest Messages for ${sum[userID]?.Name.trim()||userID}`;
+        const res = await fetch(`/summary?UserID=${userID}`, { cache:'no-store' });
+        const sum = await res.json();
+        mainTitle.textContent = `Latest Messages for ${sum[userID]?.Name.trim()||userID}`;
       } catch {
-        mainTitle.textContent=`Latest Messages for ${userID}`;
+        mainTitle.textContent = `Latest Messages for ${userID}`;
       }
 
-      // Load types selector
-      let available=[]; 
+      let available = [];
       try {
-        const st = await (await fetch(`/state/${userID}`,{cache:'no-store'})).json();
+        const r = await fetch(`/state/${userID}`, { cache:'no-store' });
+        const st = await r.json();
         available = st.MessageTypes||[];
-      } catch{}
-      let typeMap={}; 
+      } catch {}
+
+      let typeMap = {};
       try {
-        typeMap = await (await fetch('/message_types.json',{cache:'no-store'})).json();
-      } catch{}
-      available.forEach(t=>{
-        const o=new Option(`${typeMap[t]||'Msg '+t} (ID ${t})`, t);
-        if (`${t}`===msgID) o.selected=true;
+        typeMap = await (await fetch('/message_types.json', { cache:'no-store' })).json();
+      } catch {}
+
+      available.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t;
+        o.textContent = `${typeMap[t]||'Msg '+t} (ID ${t})`;
+        if (String(t)===msgID) o.selected=true;
         typeSelect.append(o);
       });
       if (available.length) {
         typeDiv.style.display='';
-        typeSelect.onchange=()=>{
+        typeSelect.onchange = () => {
           setSearch(new URLSearchParams({UserID:userID,MessageID:typeSelect.value}));
         };
       }
-      if (msgID) subTitle.textContent=`${typeMap[msgID]||'Message '+msgID} (ID ${msgID})`;
 
-      // Fetch recent messages
-      let allMsgs=[]; 
+      if (msgID) {
+        subTitle.textContent = `${typeMap[msgID]||'Message '+msgID} (ID ${msgID})`;
+      }
+
+      let allMsgs = [];
       try {
-        allMsgs = await (await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`,{cache:'no-store'})).json();
+        allMsgs = await (await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, {cache:'no-store'})).json();
       } catch {
-        errorEl.textContent='Failed to load messages.';
+        errorEl.textContent = 'Failed to load messages.';
         return;
       }
       if (!allMsgs.length) {
-        errorEl.textContent='No messages found.';
+        errorEl.textContent = 'No messages found.';
         return;
       }
 
-      // Populate numeric fields
-      const baseFlat = flatten(allMsgs[0].Packet),
-            numericFields = Object.entries(baseFlat).filter(([,v])=>typeof v==='number').map(([k])=>k).sort();
-      numericFields.forEach(f=>{
-        fieldsSel.append(new Option(humanize(f), f));
+      const baseFlat = flatten(allMsgs[0].Packet);
+      const numericFields = Object.entries(baseFlat)
+        .filter(([,v])=>typeof v==='number')
+        .map(([k])=>k).sort();
+      numericFields.forEach(f => {
+        const o = document.createElement('option');
+        o.value = f;
+        o.textContent = humanize(f);
+        fieldsSel.append(o);
       });
 
-      // Individual view
-      let idx=0;
-      function renderInd(){
-        const m=allMsgs[idx];
-        counterDiv.textContent=`${idx+1} of ${allMsgs.length}`;
-        singleTbl.innerHTML=makeSingleHTML(m);
-        singleRaw.textContent=m.RawSentence;
-        prevBtn.disabled=idx===0;
-        nextBtn.disabled=idx===allMsgs.length-1;
+      let idx = 0;
+      function renderInd() {
+        const m = allMsgs[idx];
+        counterDiv.textContent = `${idx+1} of ${allMsgs.length}`;
+        singleTbl.innerHTML = makeSingleHTML(m);
+        singleRaw.textContent = m.RawSentence;
+        prevBtn.disabled = idx===0;
+        nextBtn.disabled = idx===allMsgs.length-1;
       }
-      prevBtn.onclick=()=>{idx>0&&(idx--,renderInd())};
-      nextBtn.onclick=()=>{idx<allMsgs.length-1&&(idx++,renderInd())};
+      prevBtn.onclick = () => idx>0&&(idx--,renderInd());
+      nextBtn.onclick = () => idx<allMsgs.length-1&&(idx++ ,renderInd());
       renderInd();
 
-      // Range view state
-      let rangeData=[], currentPage=1, rowsPerPage=parseInt(rowsSel.value,10), selectedFields=[];
+      let rangeData = [], currentPage=1, rowsPerPage=parseInt(rowsPerPageSel.value,10), selectedFields=[];
 
-      function renderPage(){
-        const start=(currentPage-1)*rowsPerPage,
-              end=Math.min(rangeData.length,start+rowsPerPage),
-              pageRows=rangeData.slice(start,end);
-        rangeTbl.innerHTML=makeRangeHTML(pageRows,selectedFields);
-        attachSortHandlers();
-        viewInfo.textContent=`Viewing ${start+1}–${end} of ${rangeData.length}`;
-        pagePrev.disabled=currentPage===1;
-        pageNext.disabled=end===rangeData.length;
+      function renderPage() {
+        const start = (currentPage-1)*rowsPerPage;
+        const end   = Math.min(rangeData.length, start+rowsPerPage);
+        const pageRows = rangeData.slice(start,end);
+        rangeTbl.innerHTML = makeRangeHTML(pageRows,selectedFields);
+        viewInfo.textContent = `Viewing ${start+1}–${end} of ${rangeData.length}`;
+        pagePrev.disabled = currentPage===1;
+        pageNext.disabled = end===rangeData.length;
         rangeTbl.querySelectorAll('button.view').forEach(btn=>{
-          const i=+btn.dataset.i;
-          btn.onclick=()=>alert(rangeData[start+i].RawSentence);
+          const i = parseInt(btn.dataset.i,10);
+          btn.onclick = ()=>alert(rangeData[start+i].RawSentence);
         });
       }
 
-      rowsSel.onchange=()=>{
-        rowsPerPage=parseInt(rowsSel.value,10);
+      rowsPerPageSel.onchange = () => {
+        rowsPerPage = parseInt(rowsPerPageSel.value,10);
         currentPage=1;
         renderPage();
       };
-      pagePrev.onclick=()=>{ if(currentPage>1){currentPage--;renderPage()} };
-      pageNext.onclick=()=>{ if(currentPage*rowsPerPage<rangeData.length){currentPage++;renderPage()} };
+      pagePrev.onclick = () => { if(currentPage>1){ currentPage--; renderPage(); } };
+      pageNext.onclick = () => { if(currentPage*rowsPerPage<rangeData.length){ currentPage++; renderPage(); } };
 
-      // Show table vs graph
-      function showTable(){
-        chartCont.style.display='none';
-        pagination.style.display='';
+      let chartInst = null;
+      function showTable() {
+        chartCont.style.display = 'none';
+        rangeTbl.style.display = '';
+        paginationRow.style.display = '';
         renderPage();
       }
-      function showGraph(){
-        rangeTbl.style.display='none';
-        pagination.style.display='none';
-        chartCont.style.display='';
-        const ctx=chartCanvas.getContext('2d');
+      function showGraph() {
+        rangeTbl.style.display = 'none';
+        chartCont.style.display = '';
+        paginationRow.style.display = 'none';
+
+        const ctx = chartCanvas.getContext('2d');
+        const datasets = selectedFields.map(f => ({
+          label: humanize(f),
+          data: rangeData.map(r => ({
+            x: new Date(r.Timestamp),
+            y: flatten(r.Packet)[f]
+          })),
+          borderWidth: 1,
+          fill: false
+        }));
+
         if (chartInst) chartInst.destroy();
-        chartInst=new Chart(ctx,{
-          type:'line',
-          data:{ datasets:selectedFields.map(f=>({
-            label:humanize(f),
-            data:rangeData.map(r=>({x:new Date(r.Timestamp), y:flatten(r.Packet)[f]})),
-            borderWidth:1, fill:false
-          }))},
-          options:{
-            animation:false, maintainAspectRatio:false,
-            scales:{
-              x:{ type:'time', time:{minUnit:'second',
-                displayFormats:{second:'HH:mm:ss',minute:'HH:mm',hour:'yyyy-MM-dd HH:mm',day:'yyyy-MM-dd'}},
-                ticks:{autoSkip:false,maxRotation:0,maxTicksLimit:10}},
-              y:{ beginAtZero:false }
-            },
-            interaction:{mode:'nearest',axis:'x',intersect:false},
-            plugins:{
-              tooltip:{callbacks:{title(items){
-                return new Date(items[0].parsed.x).toLocaleString([],{
-                  hour12:false,year:'numeric',month:'2-digit',
-                  day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'
-                });
-              }}},
-              zoom:{pan:{enabled:true,mode:'x'},zoom:{wheel:{enabled:true},drag:{enabled:true},mode:'x'}}
+        chartInst = new Chart(ctx, {
+          type: 'line',
+          data: { datasets },
+          options: {
+            animation: false,
+            maintainAspectRatio: false,
+	    scales: {
+    	      x: {
+    	    type: 'time',
+    	    time: {
+	      // unit: 'hour',               ← removed!
+	      minUnit: 'second',           // never coarser than seconds
+	      displayFormats: {
+	        millisecond: 'HH:mm:ss.SSS',
+	        second:      'HH:mm:ss',
+	        minute:      'HH:mm',
+	        hour:        'yyyy-MM-dd HH:mm',
+	        day:         'yyyy-MM-dd'
+	      },
+	      tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
+	    },
+	    ticks: {
+	      autoSkip: false,
+	      maxRotation: 0,
+	      maxTicksLimit: 10           // optional: cap total ticks
+	    }
+	  },
+	  y: { beginAtZero: false }
+	},
+            interaction: { mode: 'nearest', axis: 'x', intersect: false },
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  title: items => {
+                    const d = items[0].parsed.x;
+                    return new Date(d).toLocaleString([], {
+                      hour12: false,
+                      year:'numeric', month:'2-digit', day:'2-digit',
+                      hour:'2-digit', minute:'2-digit', second:'2-digit'
+                    });
+                  }
+                }
+              },
+              zoom: {
+                pan:    { enabled: true, mode: 'x' },
+                zoom:   { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
+              }
             }
           }
         });
-        chartCanvas.ondblclick=()=>chartInst.resetZoom();
-      }
-      let chartInst=null;
 
-      resultsAs.onchange=()=>{
-        if (rngDiv.style.display!=='none') {
-          resultsAs.value==='table'? showTable() : showGraph();
+        chartCanvas.addEventListener('dblclick', () => {
+          if (chartInst) chartInst.resetZoom();
+        });
+      }
+
+      resultsAs.onchange = () => {
+        if (rngDiv.style.display !== 'none') {
+          resultsAs.value === 'table' ? showTable() : showGraph();
         }
       };
 
-      // Apply search
-      applyBtn.onclick=async()=>{
-        const s=startInput.value, e=endInput.value;
-        selectedFields=Array.from(fieldsSel.selectedOptions).map(o=>o.value);
-        if(!s||!e||!selectedFields.length){
+      applyBtn.onclick = async () => {
+        const s = startInput.value, e = endInput.value;
+        selectedFields = Array.from(fieldsSel.selectedOptions).map(o=>o.value);
+        if (!s || !e || !selectedFields.length) {
           return alert('Select From, To, and at least one field.');
         }
-        const params=new URLSearchParams({
-          UserID:userID,
-          MessageID:msgID,
-          start:new Date(s).toISOString(),
-          end:new Date(e).toISOString(),
-          limit:'2000'
+        const params = new URLSearchParams({
+          UserID: userID,
+          MessageID: msgID,
+          start: new Date(s).toISOString(),
+          end:   new Date(e).toISOString(),
+          limit: '2000'
         });
-        try{
-          rangeData=await (await fetch(`/latestmessages?${params}`,{cache:'no-store'})).json();
-        }catch{
+        try {
+          rangeData = await (await fetch(`/latestmessages?${params}`, {cache:'no-store'})).json();
+        } catch {
           return alert('Failed to fetch range.');
         }
-        downloadBtn.onclick=()=>{
-          const csv=toCSV(rangeData,selectedFields,includeRaw.checked),
-                blob=new Blob([csv],{type:'text/csv'}),
-                url=URL.createObjectURL(blob),
-                a=document.createElement('a');
-          a.href=url; a.download=`messages_${userID}_${msgID}.csv`;
-          a.click(); URL.revokeObjectURL(url);
+        downloadBtn.onclick = () => {
+          const csv = toCSV(rangeData, selectedFields, includeRaw.checked);
+          const blob = new Blob([csv], {type:'text/csv'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `messages_${userID}_${msgID}.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
         };
-        downloadRow.style.display='';
-        indDiv.style.display='none';
-        rngDiv.style.display='';
-        resultsAs.value==='table'? showTable() : showGraph();
+        downloadRow.style.display = '';
+        indDiv.style.display = 'none';
+        rngDiv.style.display = '';
+        if (resultsAs.value === 'table') showTable();
+        else showGraph();
       };
 
-      // Reset
-      resetBtn.onclick=()=>{
-        startInput.value='';
-        endInput.value='';
-        fieldsSel.selectedIndex=-1;
-        downloadRow.style.display='none';
-        pagination.style.display='none';
-        rngDiv.style.display='none';
-        indDiv.style.display='';
+      resetBtn.onclick = () => {
+        startInput.value = '';
+        endInput.value = '';
+        fieldsSel.selectedIndex = -1;
+        downloadRow.style.display = 'none';
+        paginationRow.style.display = 'none';
+        rngDiv.style.display = 'none';
+        indDiv.style.display = '';
       };
     })();
   </script>
