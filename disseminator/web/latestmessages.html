@@ -33,6 +33,18 @@
       color: #bbb; cursor: default; opacity: 0.4;
     }
 
+    /* force fields onto its own line */
+    .fields-row {
+      display: flex;
+      margin-bottom: 0.6rem;
+      font-size: 0.9rem;
+    }
+    .fields-row label {
+      flex: 1 1 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
     .nav { display: flex; align-items: center; margin-bottom: 0.8rem; }
     .nav button {
       background: none; border: none;
@@ -61,6 +73,17 @@
       font-family: monospace;
       white-space: pre-wrap;
     }
+
+    #download-csv {
+      display: none;
+      margin-bottom: 1rem;
+      padding: 0.4rem 0.8rem;
+      border: 1px solid #ccc;
+      background: #fafafa;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
   </style>
 </head>
 <body>
@@ -77,13 +100,20 @@
       To
       <input type="datetime-local" id="end"/>
     </label>
+    <button id="apply">Show Range</button>
+    <button id="reset">Reset</button>
+  </div>
+
+  <!-- Fields on its own line -->
+  <div class="message fields-row">
     <label>
       Fields
       <select multiple size="4" id="fields"></select>
     </label>
-    <button id="apply">Show Range</button>
-    <button id="reset">Reset</button>
   </div>
+
+  <!-- CSV download button -->
+  <a id="download-csv">Download CSV</a>
 
   <div id="individual-view">
     <div class="nav">
@@ -147,12 +177,28 @@
       return html + '</tbody></table>';
     }
 
+    function toCSV(rows, fields) {
+      const header = ['Timestamp', ...fields];
+      const lines = [header.join(',')];
+      rows.forEach(r => {
+        const flat = flatten(r.Packet);
+        const ts = new Date(r.Timestamp).toISOString();
+        const vals = fields.map(f => {
+          const v = flat[f];
+          return v != null ? `"${String(v).replace(/"/g,'""')}"` : '';
+        });
+        lines.push([ts, ...vals].join(','));
+      });
+      return lines.join('\n');
+    }
+
     (async () => {
       const userID = qsParam('UserID'),
             msgID  = qsParam('MessageID'),
             errEl  = document.getElementById('error'),
             mainT  = document.getElementById('main-title'),
-            subT   = document.getElementById('sub-title');
+            subT   = document.getElementById('sub-title'),
+            downloadLink = document.getElementById('download-csv');
 
       if (!userID || !msgID) {
         mainT.textContent = 'Error';
@@ -160,7 +206,7 @@
         return;
       }
 
-      // Vessel name
+      // Vessel name lookup
       try {
         const r = await fetch(`/summary?UserID=${userID}`, { cache: 'no-store' });
         const summary = await r.json();
@@ -170,14 +216,14 @@
         mainT.textContent = `Latest Messages for ${userID}`;
       }
 
-      // Message type title
+      // Message type subtitle
       let typeMap = {};
       try {
         typeMap = await (await fetch('/message_types.json', { cache: 'no-store' })).json();
       } catch {}
-      subT.textContent = `${typeMap[msgID] || 'Message ' + msgID} (ID ${msgID})`;
+      subT.textContent = `${typeMap[msgID] || ('Message ' + msgID)} (ID ${msgID})`;
 
-      // Last 100 messages
+      // Fetch last 100 messages
       let allMsgs = [];
       try {
         allMsgs = await (await fetch(
@@ -193,7 +239,7 @@
         return;
       }
 
-      // Fields selector
+      // Populate fields selector
       const firstFlat = flatten(allMsgs[0].Packet),
             numeric   = Object.entries(firstFlat)
               .filter(([,v]) => typeof v === 'number')
@@ -227,7 +273,7 @@
       nextB.onclick = () => idx<allMsgs.length-1 && (idx++, renderIndividual());
       renderIndividual();
 
-      // Range view logic
+      // Range view
       const applyB = document.getElementById('apply'),
             resetB = document.getElementById('reset'),
             indV   = document.getElementById('individual-view'),
@@ -235,11 +281,11 @@
             rngT   = document.getElementById('range-table');
 
       applyB.onclick = async () => {
-        const s   = document.getElementById('start').value,
-              e   = document.getElementById('end').value,
-              sel = Array.from(fieldsSel.selectedOptions).map(o => o.value);
+        const start = document.getElementById('start').value,
+              end   = document.getElementById('end').value,
+              sel   = Array.from(fieldsSel.selectedOptions).map(o => o.value);
 
-        if (!s || !e || !sel.length) {
+        if (!start || !end || !sel.length) {
           alert('Please select From, To, and at least one field.');
           return;
         }
@@ -247,8 +293,8 @@
         const params = new URLSearchParams({
           UserID: userID,
           MessageID: msgID,
-          start: new Date(s).toISOString(),
-          end:   new Date(e).toISOString(),
+          start: new Date(start).toISOString(),
+          end:   new Date(end).toISOString(),
           limit: '100'
         });
 
@@ -268,6 +314,13 @@
           btn.onclick = () => alert(data[btn.dataset.i].RawSentence);
         });
 
+        // Show Download CSV
+        const csv = toCSV(data, sel);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        downloadLink.href = URL.createObjectURL(blob);
+        downloadLink.download = `messages_${userID}_${msgID}.csv`;
+        downloadLink.style.display = '';
+
         indV.style.display = 'none';
         rngV.style.display = '';
       };
@@ -277,9 +330,25 @@
         document.getElementById('end').value   = '';
         fieldsSel.selectedIndex = -1;
         rngT.innerHTML = '';
+        downloadLink.style.display = 'none';
         rngV.style.display = 'none';
         indV.style.display = '';
       };
+
+      function toCSV(rows, fields) {
+        const header = ['Timestamp', ...fields];
+        const lines = [header.join(',')];
+        rows.forEach(r => {
+          const flat = flatten(r.Packet);
+          const ts = new Date(r.Timestamp).toISOString();
+          const vals = fields.map(f => {
+            const v = flat[f];
+            return v != null ? `"${String(v).replace(/"/g,'""')}"` : '';
+          });
+          lines.push([ts, ...vals].join(','));
+        });
+        return lines.join('\n');
+      }
     })();
   </script>
 </body>
