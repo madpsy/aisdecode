@@ -1823,7 +1823,7 @@ function createPopupContent(data) {
 
   if (data.UserID) {
     const midData = lookupMidByUserID(data.UserID);
-    addLine(lines, "Country", midData.country);
+    addLine(lines, "Flag", midData.country);
   }
 
   addLine(lines, "Destination", data.Destination && data.Destination.trim() !== "" ? data.Destination : null);
