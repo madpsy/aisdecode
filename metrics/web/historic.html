@@ -40,16 +40,27 @@
   document.addEventListener('DOMContentLoaded', () => {
     const fromInput = document.getElementById('from');
     const toInput   = document.getElementById('to');
-    // const ipInput   = document.getElementById('ip');
     const loadBtn   = document.getElementById('loadBtn');
     const ctx       = document.getElementById('metricsChart').getContext('2d');
     let metricsChart;
 
-    // initialize inputs to last 1 hour
+    // helper: format a Date as "YYYY-MM-DDTHH:MM" in local time
+    function toLocalDateTimeString(d) {
+      const pad = n => String(n).padStart(2,'0');
+      return (
+        d.getFullYear() + '-' +
+        pad(d.getMonth()+1) + '-' +
+        pad(d.getDate()) + 'T' +
+        pad(d.getHours())   + ':' +
+        pad(d.getMinutes())
+      );
+    }
+
+    // initialize inputs to last 1 hour (local)
     const now = new Date();
     const oneHourAgo = new Date(now.getTime() - 60*60*1000);
-    fromInput.value = oneHourAgo.toISOString().slice(0,16);
-    toInput.value   = now.toISOString().slice(0,16);
+    fromInput.value = toLocalDateTimeString(oneHourAgo);
+    toInput.value   = toLocalDateTimeString(now);
 
     loadBtn.addEventListener('click', loadData);
     loadData();
@@ -57,9 +68,7 @@
     async function loadData() {
       const fromIso = new Date(fromInput.value).toISOString();
       const toIso   = new Date(toInput.value).toISOString();
-      // const ip      = ipInput.value.trim();
       let url = `/metrics/historic?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`;
-      // if (ip) url += `&ip=${encodeURIComponent(ip)}`;
 
       try {
         const res = await fetch(url);
@@ -67,22 +76,23 @@
         const { interval, series } = await res.json();
 
         // assume all series share the same timestamps
-        const refSeries = series[Object.keys(series)[0]] || [];
+        const keys = Object.keys(series);
+        const refSeries = keys.length ? series[keys[0]] : [];
         const labels = refSeries.map(pt =>
           new Date(pt.timestamp).toLocaleString()
         );
 
-        const datasets = Object.entries(series).map(([metric, data], i) => ({
+        const datasets = keys.map((metric, i) => ({
           label: metric,
-          data: data.map(pt => pt.value),
+          data: series[metric].map(pt => pt.value),
           borderWidth: 2,
           fill: false,
-          // you can customize colors here if you like:
-          // borderColor: ['red','blue','green','purple'][i]
+          // optional: assign colors here if desired
+          // borderColor: ['red','blue','green','purple'][i % 4]
         }));
 
         if (metricsChart) {
-          metricsChart.data.labels = labels;
+          metricsChart.data.labels   = labels;
           metricsChart.data.datasets = datasets;
           metricsChart.options.scales.x.title.text = `Time (${interval} buckets)`;
           metricsChart.update();
@@ -99,13 +109,13 @@
                 },
                 y: {
                   display: true,
-                  title: { display: true, text: 'Count' }
+                  title: { display: true, text: 'Value' }
                 }
               },
               interaction: {
                 mode: 'index',
                 intersect: false
-              },
+              }
             }
           });
         }
