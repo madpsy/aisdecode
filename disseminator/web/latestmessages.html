@@ -38,6 +38,7 @@
 
     .download-row {
       margin-bottom: 1rem;
+      display: flex; align-items: center; gap: 0.5rem;
     }
     .download-row button {
       background: none; border: 1px solid #ccc;
@@ -98,6 +99,10 @@
 
   <div class="download-row" id="download-row" style="display:none;">
     <button id="download-csv">Download CSV</button>
+    <label>
+      <input type="checkbox" id="include-raw" checked/>
+      Include RawSentence
+    </label>
   </div>
 
   <div id="individual-view">
@@ -162,22 +167,24 @@
       return html + '</tbody></table>';
     }
 
-    // CSV now includes RawSentence column
-    function toCSV(rows, fields) {
-      const header = ['Timestamp', ...fields, 'RawSentence'];
+    // CSV generation with optional raw column
+    function toCSV(rows, fields, includeRaw) {
+      const header = ['Timestamp', ...fields];
+      if (includeRaw) header.push('RawSentence');
       const lines = [header.join(',')];
       rows.forEach(r => {
         const flat = flatten(r.Packet);
         const ts = new Date(r.Timestamp).toISOString();
         const vals = fields.map(f => {
           const v = flat[f];
-          return v != null
-            ? `"${String(v).replace(/"/g,'""')}"`
-            : '';
+          return v != null ? `"${String(v).replace(/"/g,'""')}"` : '';
         });
-        // escape RawSentence
-        const raw = `"${r.RawSentence.replace(/"/g,'""')}"`;
-        lines.push([ts, ...vals, raw].join(','));
+        if (includeRaw) {
+          const raw = `"${r.RawSentence.replace(/"/g,'""')}"`;
+          lines.push([ts, ...vals, raw].join(','));
+        } else {
+          lines.push([ts, ...vals].join(','));
+        }
       });
       return lines.join('\n');
     }
@@ -189,7 +196,8 @@
             mainT  = document.getElementById('main-title'),
             subT   = document.getElementById('sub-title'),
             downloadRow = document.getElementById('download-row'),
-            downloadBtn = document.getElementById('download-csv');
+            downloadBtn = document.getElementById('download-csv'),
+            includeRaw = document.getElementById('include-raw');
 
       if (!userID || !msgID) {
         mainT.textContent = 'Error';
@@ -305,9 +313,9 @@
           btn.onclick = () => alert(data[btn.dataset.i].RawSentence);
         });
 
-        // Show Download CSV with RawSentence
+        // Show CSV download
         downloadBtn.onclick = () => {
-          const csv = toCSV(data, sel);
+          const csv = toCSV(data, sel, includeRaw.checked);
           const blob = new Blob([csv], { type: 'text/csv' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -331,7 +339,6 @@
         rngV.style.display = 'none';
         indV.style.display = '';
       };
-
     })();
   </script>
 </body>
