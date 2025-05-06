@@ -131,6 +131,10 @@
       <div class="counter" id="counter">0 of 0</div>
       <button id="next">▶️</button>
     </div>
+    <div id="single-timestamp" style="font-size:0.9rem; color:#555; margin-bottom:0.4rem;"></div>
+
+    <div id="single-table"></div>
+    <div class="raw-sentence" id="single-raw"></div>
     <div id="single-table"></div>
     <div class="raw-sentence" id="single-raw"></div>
   </div>
@@ -306,12 +310,31 @@
       let idx = 0;
       function renderInd() {
         const m = allMsgs[idx];
+      
+        // 1) Update counter
         counterDiv.textContent = `${idx+1} of ${allMsgs.length}`;
-        singleTbl.innerHTML = makeSingleHTML(m);
+      
+        // 2) NEW: Show the formatted timestamp
+        const ts = new Date(m.Timestamp).toLocaleString([], {
+          hour12: false,
+          year:   'numeric',
+          month:  '2-digit',
+          day:    '2-digit',
+          hour:   '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+        document.getElementById('single-timestamp').textContent = ts;
+      
+        // 3) Render the packet table & raw sentence
+        singleTbl.innerHTML  = makeSingleHTML(m);
         singleRaw.textContent = m.RawSentence;
-        prevBtn.disabled = idx===0;
-        nextBtn.disabled = idx===allMsgs.length-1;
+      
+        // 4) Enable/disable prev-next buttons
+        prevBtn.disabled = idx === 0;
+        nextBtn.disabled = idx === allMsgs.length - 1;
       }
+
       prevBtn.onclick = () => idx>0&&(idx--,renderInd());
       nextBtn.onclick = () => idx<allMsgs.length-1&&(idx++ ,renderInd());
       renderInd();
