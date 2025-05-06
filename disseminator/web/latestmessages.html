@@ -66,9 +66,10 @@
     #chart-container { position:relative;width:100%;height:400px;margin-bottom:1rem; }
   </style>
 
-  <!-- Chart.js and date-fns adapter -->
+  <!-- Chart.js, date-fns adapter, and zoom plugin -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 </head>
 <body>
   <h1 id="main-title">Loading…</h1>
@@ -140,7 +141,7 @@
   </div>
 
   <script>
-    // Utility functions (qsParam, setSearch, flatten, humanize, etc.)
+    Chart.register(ChartZoom);
 
     function qsParam(name) {
       const v = new URLSearchParams(location.search).get(name);
@@ -180,7 +181,7 @@
       rows.forEach((r, i) => {
         const flat = flatten(r.Packet);
         html += '<tr>';
-        html += `<td>${new Date(r.Timestamp).toLocaleString([], {hour12:false})}</td>`;
+        html += `<td>${new Date(r.Timestamp).toLocaleString([], {hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})}</td>`;
         fields.forEach(f => {
           html += `<td>${flat[f] != null ? flat[f] : ''}</td>`;
         });
@@ -211,7 +212,6 @@
     }
 
     (async () => {
-      // DOM references
       const userID      = qsParam('UserID'),
             msgID       = qsParam('MessageID'),
             errorEl     = document.getElementById('error'),
@@ -244,14 +244,12 @@
             chartCont   = document.getElementById('chart-container'),
             chartCanvas = document.getElementById('range-chart');
 
-      // Validate UserID
       if (!userID) {
         mainTitle.textContent = 'Error';
         errorEl.textContent = 'Missing UserID in URL.';
         return;
       }
 
-      // Fetch vessel name for main title
       try {
         const res = await fetch(`/summary?UserID=${userID}`, { cache:'no-store' });
         const sum = await res.json();
@@ -260,7 +258,6 @@
         mainTitle.textContent = `Latest Messages for ${userID}`;
       }
 
-      // Fetch available message types
       let available = [];
       try {
         const r = await fetch(`/state/${userID}`, { cache:'no-store' });
@@ -268,13 +265,11 @@
         available = st.MessageTypes||[];
       } catch {}
 
-      // Load message type map
       let typeMap = {};
       try {
         typeMap = await (await fetch('/message_types.json', { cache:'no-store' })).json();
       } catch {}
 
-      // Populate type selector
       available.forEach(t => {
         const o = document.createElement('option');
         o.value = t;
@@ -293,7 +288,6 @@
         subTitle.textContent = `${typeMap[msgID]||'Message '+msgID} (ID ${msgID})`;
       }
 
-      // Fetch last 100 messages for individual view
       let allMsgs = [];
       try {
         allMsgs = await (await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, {cache:'no-store'})).json();
@@ -306,7 +300,6 @@
         return;
       }
 
-      // Populate fields multi-select
       const baseFlat = flatten(allMsgs[0].Packet);
       const numericFields = Object.entries(baseFlat)
         .filter(([,v])=>typeof v==='number')
@@ -318,7 +311,6 @@
         fieldsSel.append(o);
       });
 
-      // Individual view pagination
       let idx = 0;
       function renderInd() {
         const m = allMsgs[idx];
@@ -329,13 +321,11 @@
         nextBtn.disabled = idx===allMsgs.length-1;
       }
       prevBtn.onclick = () => idx>0&&(idx--,renderInd());
-      nextBtn.onclick = () => idx<allMsgs.length-1&&(idx++,renderInd());
+      nextBtn.onclick = () => idx<allMsgs.length-1&&(idx++ ,renderInd());
       renderInd();
 
-      // Range & pagination state
       let rangeData = [], currentPage=1, rowsPerPage=parseInt(rowsPerPageSel.value,10), selectedFields=[];
 
-      // Render a page of results
       function renderPage() {
         const start = (currentPage-1)*rowsPerPage;
         const end   = Math.min(rangeData.length, start+rowsPerPage);
@@ -344,84 +334,115 @@
         viewInfo.textContent = `Viewing ${start+1}–${end} of ${rangeData.length}`;
         pagePrev.disabled = currentPage===1;
         pageNext.disabled = end===rangeData.length;
-        // Wire up view buttons
         rangeTbl.querySelectorAll('button.view').forEach(btn=>{
           const i = parseInt(btn.dataset.i,10);
           btn.onclick = ()=>alert(rangeData[start+i].RawSentence);
         });
       }
 
-      // Change rows-per-page
       rowsPerPageSel.onchange = () => {
         rowsPerPage = parseInt(rowsPerPageSel.value,10);
         currentPage=1;
         renderPage();
       };
-      pagePrev.onclick = ()=>{ if(currentPage>1){ currentPage--; renderPage(); } };
-      pageNext.onclick = ()=>{ if(currentPage*rowsPerPage<rangeData.length){ currentPage++; renderPage(); } };
+      pagePrev.onclick = () => { if(currentPage>1){ currentPage--; renderPage(); } };
+      pageNext.onclick = () => { if(currentPage*rowsPerPage<rangeData.length){ currentPage++; renderPage(); } };
 
-      // Chart.js instance
       let chartInst = null;
       function showTable() {
-        chartCont.style.display='none';
-        rangeTbl.style.display='';
-	paginationRow.style.display = '';
+        chartCont.style.display = 'none';
+        rangeTbl.style.display = '';
+        paginationRow.style.display = '';
         renderPage();
       }
       function showGraph() {
-        rangeTbl.style.display='none';
-        chartCont.style.display='';
-	paginationRow.style.display = 'none';
+        rangeTbl.style.display = 'none';
+        chartCont.style.display = '';
+        paginationRow.style.display = 'none';
+
         const ctx = chartCanvas.getContext('2d');
-        const datasets = selectedFields.map(f=>({
+        const datasets = selectedFields.map(f => ({
           label: humanize(f),
-          data: rangeData.map(r=>({x:new Date(r.Timestamp),y:flatten(r.Packet)[f]})),
-          borderWidth:1, fill:false
+          data: rangeData.map(r => ({
+            x: new Date(r.Timestamp),
+            y: flatten(r.Packet)[f]
+          })),
+          borderWidth: 1,
+          fill: false
         }));
-        if(chartInst) chartInst.destroy();
-        chartInst = new Chart(ctx,{
-          type:'line',
-          data:{datasets},
-          options:{
-            scales:{
-              x:{type:'time',time:{unit:'hour',displayFormats:{hour:'MMM d HH:mm'}}},
-              y:{beginAtZero:false}
+
+        if (chartInst) chartInst.destroy();
+        chartInst = new Chart(ctx, {
+          type: 'line',
+          data: { datasets },
+          options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                type: 'time',
+                time: {
+                  unit: 'hour',
+                  displayFormats: { hour: 'MMM d HH:mm' },
+                  tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
+                }
+              },
+              y: { beginAtZero: false }
             },
-            interaction:{mode:'nearest',axis:'x',intersect:false}
+            interaction: { mode: 'nearest', axis: 'x', intersect: false },
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  title: items => {
+                    const d = items[0].parsed.x;
+                    return new Date(d).toLocaleString([], {
+                      hour12: false,
+                      year:'numeric', month:'2-digit', day:'2-digit',
+                      hour:'2-digit', minute:'2-digit', second:'2-digit'
+                    });
+                  }
+                }
+              },
+              zoom: {
+                pan:    { enabled: true, mode: 'x' },
+                zoom:   { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
+              }
+            }
           }
+        });
+
+        chartCanvas.addEventListener('dblclick', () => {
+          if (chartInst) chartInst.resetZoom();
         });
       }
 
-      resultsAs.onchange = ()=>{
-        if(rngDiv.style.display!=='none') {
-          if(resultsAs.value==='table') showTable();
-          else showGraph();
+      resultsAs.onchange = () => {
+        if (rngDiv.style.display !== 'none') {
+          resultsAs.value === 'table' ? showTable() : showGraph();
         }
       };
 
-      // Perform Search
-      applyBtn.onclick = async ()=>{
+      applyBtn.onclick = async () => {
         const s = startInput.value, e = endInput.value;
         selectedFields = Array.from(fieldsSel.selectedOptions).map(o=>o.value);
-        if(!s||!e||!selectedFields.length) {
+        if (!s || !e || !selectedFields.length) {
           return alert('Select From, To, and at least one field.');
         }
         const params = new URLSearchParams({
-          UserID:userID,
-          MessageID:msgID,
-          start:new Date(s).toISOString(),
-          end:new Date(e).toISOString(),
-          limit:'2000'
+          UserID: userID,
+          MessageID: msgID,
+          start: new Date(s).toISOString(),
+          end:   new Date(e).toISOString(),
+          limit: '2000'
         });
         try {
           rangeData = await (await fetch(`/latestmessages?${params}`, {cache:'no-store'})).json();
         } catch {
           return alert('Failed to fetch range.');
         }
-        // CSV download handler
-        downloadBtn.onclick = ()=>{
-          const csv = toCSV(rangeData,selectedFields,includeRaw.checked);
-          const blob = new Blob([csv],{type:'text/csv'});
+        downloadBtn.onclick = () => {
+          const csv = toCSV(rangeData, selectedFields, includeRaw.checked);
+          const blob = new Blob([csv], {type:'text/csv'});
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
@@ -429,22 +450,21 @@
           a.click();
           URL.revokeObjectURL(url);
         };
-        downloadRow.style.display='';
-        paginationRow.style.display='';
-        indDiv.style.display='none';
-        rngDiv.style.display='';
-        if(resultsAs.value==='table') showTable(); else showGraph();
+        downloadRow.style.display = '';
+        indDiv.style.display = 'none';
+        rngDiv.style.display = '';
+        if (resultsAs.value === 'table') showTable();
+        else showGraph();
       };
 
-      // Reset
-      resetBtn.onclick = ()=>{
-        startInput.value='';
-        endInput.value='';
-        fieldsSel.selectedIndex=-1;
-        downloadRow.style.display='none';
-        paginationRow.style.display='none';
-        rngDiv.style.display='none';
-        indDiv.style.display='';
+      resetBtn.onclick = () => {
+        startInput.value = '';
+        endInput.value = '';
+        fieldsSel.selectedIndex = -1;
+        downloadRow.style.display = 'none';
+        paginationRow.style.display = 'none';
+        rngDiv.style.display = 'none';
+        indDiv.style.display = '';
       };
     })();
   </script>
