@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Metrics Dashboard</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
+    .controls { margin-bottom: 1rem; }
+    label { margin-right: 1rem; }
+    canvas { width: 100%; height: 400px; }
+  </style>
+</head>
+<body>
+
+  <h1>Historic Metrics</h1>
+
+  <div class="controls">
+    <label>
+      From:
+      <input type="datetime-local" id="from">
+    </label>
+    <label>
+      To:
+      <input type="datetime-local" id="to">
+    </label>
+    <!--
+    <label>
+      IP (optional):
+      <input type="text" id="ip" placeholder="1.2.3.4">
+    </label>
+    -->
+    <button id="loadBtn">Load</button>
+  </div>
+
+  <canvas id="metricsChart"></canvas>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const fromInput = document.getElementById('from');
+    const toInput   = document.getElementById('to');
+    // const ipInput   = document.getElementById('ip');
+    const loadBtn   = document.getElementById('loadBtn');
+    const ctx       = document.getElementById('metricsChart').getContext('2d');
+    let metricsChart;
+
+    // initialize inputs to last 1 hour
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60*60*1000);
+    fromInput.value = oneHourAgo.toISOString().slice(0,16);
+    toInput.value   = now.toISOString().slice(0,16);
+
+    loadBtn.addEventListener('click', loadData);
+    loadData();
+
+    async function loadData() {
+      const fromIso = new Date(fromInput.value).toISOString();
+      const toIso   = new Date(toInput.value).toISOString();
+      // const ip      = ipInput.value.trim();
+      let url = `/metrics/historic?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`;
+      // if (ip) url += `&ip=${encodeURIComponent(ip)}`;
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(await res.text());
+        const { interval, series } = await res.json();
+
+        // assume all series share the same timestamps
+        const refSeries = series[Object.keys(series)[0]] || [];
+        const labels = refSeries.map(pt =>
+          new Date(pt.timestamp).toLocaleString()
+        );
+
+        const datasets = Object.entries(series).map(([metric, data], i) => ({
+          label: metric,
+          data: data.map(pt => pt.value),
+          borderWidth: 2,
+          fill: false,
+          // you can customize colors here if you like:
+          // borderColor: ['red','blue','green','purple'][i]
+        }));
+
+        if (metricsChart) {
+          metricsChart.data.labels = labels;
+          metricsChart.data.datasets = datasets;
+          metricsChart.options.scales.x.title.text = `Time (${interval} buckets)`;
+          metricsChart.update();
+        } else {
+          metricsChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+              responsive: true,
+              scales: {
+                x: {
+                  display: true,
+                  title: { display: true, text: `Time (${interval} buckets)` }
+                },
+                y: {
+                  display: true,
+                  title: { display: true, text: 'Count' }
+                }
+              },
+              interaction: {
+                mode: 'index',
+                intersect: false
+              },
+            }
+          });
+        }
+
+      } catch (err) {
+        alert("Error loading data: " + err.message);
+        console.error(err);
+      }
+    }
+  });
+  </script>
+
+</body>
+</html>
