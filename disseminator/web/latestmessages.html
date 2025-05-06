@@ -578,16 +578,20 @@
           return alert('Failed to fetch range.');
         }
 
-        downloadBtn.onclick = () => {
-          const csv = toCSV(rangeData, selectedFields, includeRaw.checked);
-          const blob = new Blob([csv], {type:'text/csv'});
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `messages_${userID}_${msgID}.csv`;
-          a.click();
-          URL.revokeObjectURL(url);
-        };
+  downloadBtn.onclick = () => {
+    if (!rangeData || !rangeData.length) {
+      return alert('No data to download—run a search first.');
+    }
+    const csv = toCSV(rangeData, selectedFields, includeRaw.checked);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `messages_${userID}_${msgID}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
         downloadRow.style.display = '';
         indDiv.style.display = 'none';
         rngDiv.style.display = '';
