@@ -365,11 +365,13 @@
       function showTable() {
         chartCont.style.display='none';
         rangeTbl.style.display='';
+	paginationRow.style.display = '';
         renderPage();
       }
       function showGraph() {
         rangeTbl.style.display='none';
         chartCont.style.display='';
+	paginationRow.style.display = 'none';
         const ctx = chartCanvas.getContext('2d');
         const datasets = selectedFields.map(f=>({
           label: humanize(f),
