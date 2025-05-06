@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"io/ioutil"
 	"log"
 	"net"
@@ -417,16 +418,16 @@ func pickInterval(from, to time.Time) string {
 }
 
 func queryTimeSeries(ip *string, field, interval string, from, to time.Time) ([]HistoricSeriesPoint, error) {
-	var where []string
-	where = append(where, fmt.Sprintf("time >= '%s' AND time <= '%s'",
-		from.UTC().Format(time.RFC3339Nano),
-		to.UTC().Format(time.RFC3339Nano)))
-	where = append(where, fmt.Sprintf(`"metric" = '%s'`, field))
-	if ip != nil && *ip != "" {
-		where = append(where, fmt.Sprintf(`"source_ip" = '%s'`, *ip))
-	}
+    var where []string
+    where = append(where, fmt.Sprintf("time >= '%s' AND time <= '%s'",
+        from.UTC().Format(time.RFC3339Nano),
+        to.UTC().Format(time.RFC3339Nano)))
+    where = append(where, fmt.Sprintf(`"metric" = '%s'`, field))
+    if ip != nil && *ip != "" {
+        where = append(where, fmt.Sprintf(`"source_ip" = '%s'`, *ip))
+    }
 
-	influxQL := fmt.Sprintf(`
+    influxQL := fmt.Sprintf(`
         SELECT SUM("value")
         FROM "metrics"
         WHERE %s
@@ -434,32 +435,53 @@ func queryTimeSeries(ip *string, field, interval string, from, to time.Time) ([]
         ORDER BY time ASC
     `, strings.Join(where, " AND "), interval)
 
-	q := client.NewQuery(influxQL, settings.InfluxDB, "ns")
-	res, err := influxClient.Query(q)
-	if err != nil {
-		return nil, err
-	}
-	if res.Error() != nil || len(res.Results[0].Series) == 0 {
-		return nil, nil
-	}
+    q := client.NewQuery(influxQL, settings.InfluxDB, "ns")
+    res, err := influxClient.Query(q)
+    if err != nil {
+        return nil, err
+    }
+    if res.Error() != nil || len(res.Results[0].Series) == 0 {
+        return nil, nil
+    }
 
-	series := res.Results[0].Series[0]
-	pts := make([]HistoricSeriesPoint, 0, len(series.Values))
-	for _, row := range series.Values {
-		t, err := time.Parse(time.RFC3339Nano, row[0].(string))
-		if err != nil {
-			continue
-		}
-		var v int64
-		switch num := row[1].(type) {
-		case json.Number:
-			v, _ = num.Int64()
-		case float64:
-			v = int64(num)
-		}
-		pts = append(pts, HistoricSeriesPoint{Timestamp: t, Value: v})
-	}
-	return pts, nil
+    series := res.Results[0].Series[0]
+    pts := make([]HistoricSeriesPoint, 0, len(series.Values))
+    for _, row := range series.Values {
+        // Normalize the time value to a string
+        rawTime := row[0]
+        var timeStr string
+        switch tval := rawTime.(type) {
+        case string:
+            timeStr = tval
+        case json.Number:
+            timeStr = tval.String()
+        default:
+            timeStr = fmt.Sprint(tval)
+        }
+
+        t, err := time.Parse(time.RFC3339Nano, timeStr)
+        if err != nil {
+            continue
+        }
+
+        // Normalize the value to int64
+        var v int64
+        switch num := row[1].(type) {
+        case json.Number:
+            v, _ = num.Int64()
+        case float64:
+            v = int64(num)
+        case int64:
+            v = num
+        default:
+            if tmp, err := strconv.ParseInt(fmt.Sprint(num), 10, 64); err == nil {
+                v = tmp
+            }
+        }
+
+        pts = append(pts, HistoricSeriesPoint{Timestamp: t, Value: v})
+    }
+    return pts, nil
 }
 
 func historicMetricsHandler(w http.ResponseWriter, r *http.Request) {
