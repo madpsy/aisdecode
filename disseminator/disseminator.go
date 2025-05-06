@@ -1709,7 +1709,7 @@ func setupServer(settings *Settings) {
     mux.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
     	summaryHandler(w, r, conf)
     })
-    mux.HandleFunc("/state/", userStateHandler)
+    mux.HandleFunc("/state", userStateHandler)
     mux.HandleFunc("/history/", historyHandler)
     mux.HandleFunc("/search", searchHandler)
     mux.HandleFunc("/latestmessages", latestMessagesHandler)
