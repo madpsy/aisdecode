@@ -181,7 +181,11 @@
       rows.forEach((r, i) => {
         const flat = flatten(r.Packet);
         html += '<tr>';
-        html += `<td>${new Date(r.Timestamp).toLocaleString([], {hour12:false,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})}</td>`;
+        html += `<td>${new Date(r.Timestamp).toLocaleString([], {
+          hour12:false, year:'numeric', month:'2-digit',
+          day:'2-digit', hour:'2-digit', minute:'2-digit',
+          second:'2-digit'
+        })}</td>`;
         fields.forEach(f => {
           html += `<td>${flat[f] != null ? flat[f] : ''}</td>`;
         });
@@ -212,37 +216,37 @@
     }
 
     (async () => {
-      const userID      = qsParam('UserID'),
-            msgID       = qsParam('MessageID'),
-            errorEl     = document.getElementById('error'),
-            mainTitle   = document.getElementById('main-title'),
-            subTitle    = document.getElementById('sub-title'),
-            typeDiv     = document.getElementById('type-selector'),
-            typeSelect  = document.getElementById('message-type-select'),
-            startInput  = document.getElementById('start'),
-            endInput    = document.getElementById('end'),
-            fieldsSel   = document.getElementById('fields'),
-            resultsAs   = document.getElementById('results-as'),
-            applyBtn    = document.getElementById('apply'),
-            resetBtn    = document.getElementById('reset'),
-            downloadRow = document.getElementById('download-row'),
-            downloadBtn = document.getElementById('download-csv'),
-            includeRaw  = document.getElementById('include-raw'),
+      const userID        = qsParam('UserID'),
+            msgID         = qsParam('MessageID'),
+            errorEl       = document.getElementById('error'),
+            mainTitle     = document.getElementById('main-title'),
+            subTitle      = document.getElementById('sub-title'),
+            typeDiv       = document.getElementById('type-selector'),
+            typeSelect    = document.getElementById('message-type-select'),
+            startInput    = document.getElementById('start'),
+            endInput      = document.getElementById('end'),
+            fieldsSel     = document.getElementById('fields'),
+            resultsAs     = document.getElementById('results-as'),
+            applyBtn      = document.getElementById('apply'),
+            resetBtn      = document.getElementById('reset'),
+            downloadRow   = document.getElementById('download-row'),
+            downloadBtn   = document.getElementById('download-csv'),
+            includeRaw    = document.getElementById('include-raw'),
             paginationRow = document.getElementById('pagination-row'),
-            viewInfo    = document.getElementById('view-info'),
-            rowsPerPageSel = document.getElementById('rows-per-page'),
-            pagePrev    = document.getElementById('page-prev'),
-            pageNext    = document.getElementById('page-next'),
-            indDiv      = document.getElementById('individual-view'),
-            rngDiv      = document.getElementById('range-view'),
-            singleTbl   = document.getElementById('single-table'),
-            singleRaw   = document.getElementById('single-raw'),
-            prevBtn     = document.getElementById('prev'),
-            nextBtn     = document.getElementById('next'),
-            counterDiv  = document.getElementById('counter'),
-            rangeTbl    = document.getElementById('range-table'),
-            chartCont   = document.getElementById('chart-container'),
-            chartCanvas = document.getElementById('range-chart');
+            viewInfo      = document.getElementById('view-info'),
+            rowsPerPageSel= document.getElementById('rows-per-page'),
+            pagePrev      = document.getElementById('page-prev'),
+            pageNext      = document.getElementById('page-next'),
+            indDiv        = document.getElementById('individual-view'),
+            rngDiv        = document.getElementById('range-view'),
+            singleTbl     = document.getElementById('single-table'),
+            singleRaw     = document.getElementById('single-raw'),
+            prevBtn       = document.getElementById('prev'),
+            nextBtn       = document.getElementById('next'),
+            counterDiv    = document.getElementById('counter'),
+            rangeTbl      = document.getElementById('range-table'),
+            chartCont     = document.getElementById('chart-container'),
+            chartCanvas   = document.getElementById('range-chart');
 
       if (!userID) {
         mainTitle.textContent = 'Error';
@@ -383,8 +387,19 @@
                 type: 'time',
                 time: {
                   unit: 'hour',
-                  displayFormats: { hour: 'MMM d HH:mm' },
+                  minUnit: 'second',
+                  displayFormats: {
+                    millisecond: 'HH:mm:ss.SSS',
+                    second:      'HH:mm:ss',
+                    minute:      'HH:mm',
+                    hour:        'yyyy-MM-dd HH:mm',
+                    day:         'yyyy-MM-dd'
+                  },
                   tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
+                },
+                ticks: {
+                  autoSkip: false,
+                  maxRotation: 0
                 }
               },
               y: { beginAtZero: false }
