@@ -56,8 +56,6 @@
       text-align:left;vertical-align:top;
     }
     th { background:#f0f0f0; }
-    th.sortable { cursor: pointer; }
-    th .arrow { margin-left:4px; font-size:0.8em; }
 
     .raw-sentence {
       margin-top:.5rem;padding:.5rem;
@@ -107,7 +105,7 @@
   </div>
 
   <div class="download-row" id="download-row" style="display:none;">
-    <button id="download-csv">Download CSV</button>
+    <button id="download-csv">Download CSV</button>
     <label><input type="checkbox" id="include-raw"/> Include Sentences</label>
   </div>
 
@@ -128,7 +126,7 @@
   <div id="individual-view">
     <div class="nav">
       <button id="prev">◀️</button>
-      <div class="counter" id="counter">0 of 0</div>
+      <div class="counter" id="counter">0 of 0</div>
       <button id="next">▶️</button>
     </div>
     <div id="single-table"></div>
@@ -144,10 +142,6 @@
 
   <script>
     Chart.register(ChartZoom);
-
-    // Shared state for sorting
-    let rangeData = [];
-    let sortConfig = { field: null, direction: 'asc' };
 
     function qsParam(name) {
       const v = new URLSearchParams(location.search).get(name);
@@ -181,11 +175,8 @@
       return html + '</tbody></table>';
     }
     function makeRangeHTML(rows, fields) {
-      let html = '<table><thead><tr>' +
-        '<th class="sortable" data-field="Timestamp">Timestamp<span class="arrow"></span></th>';
-      fields.forEach(f => {
-        html += `<th class="sortable" data-field="${f}">${humanize(f)}<span class="arrow"></span></th>`;
-      });
+      let html = '<table><thead><tr><th>Timestamp</th>';
+      fields.forEach(f => { html += `<th>${humanize(f)}</th>`; });
       html += '<th>Sentences</th></tr></thead><tbody>';
       rows.forEach((r, i) => {
         const flat = flatten(r.Packet);
@@ -203,43 +194,23 @@
       });
       return html + '</tbody></table>';
     }
-    function attachSortHandlers() {
-      document.querySelectorAll('#range-table th.sortable').forEach(th => {
-        th.onclick = () => {
-          const field = th.dataset.field;
-          if (sortConfig.field === field) {
-            sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
-          } else {
-            sortConfig.field = field;
-            sortConfig.direction = 'asc';
-          }
-          rangeData.sort((a, b) => {
-            const aV = field === 'Timestamp'
-              ? new Date(a.Timestamp).getTime()
-              : Number(flatten(a.Packet)[field]);
-            const bV = field === 'Timestamp'
-              ? new Date(b.Timestamp).getTime()
-              : Number(flatten(b.Packet)[field]);
-            return sortConfig.direction === 'asc' ? aV - bV : bV - aV;
-          });
-          document.querySelectorAll('#range-table .arrow').forEach(sp => sp.textContent = '');
-          th.querySelector('.arrow').textContent = sortConfig.direction === 'asc' ? '▲' : '▼';
-          renderPage();
-        };
-      });
-    }
     function toCSV(rows, fields, includeRaw) {
       const header = ['Timestamp', ...fields];
       if (includeRaw) header.push('RawSentence');
       const lines = [header.join(',')];
       rows.forEach(r => {
-        const flat = flatten(r.Packet),
-              ts   = new Date(r.Timestamp).toISOString(),
-              vals = fields.map(f =>
-                flat[f] != null ? `"${String(flat[f]).replace(/"/g,'""')}"` : ''
-              );
-        if (includeRaw) vals.push(`"${r.RawSentence.replace(/"/g,'""')}"`);
-        lines.push([ts, ...vals].join(','));
+        const flat = flatten(r.Packet);
+        const ts = new Date(r.Timestamp).toISOString();
+        const vals = fields.map(f => {
+          const v = flat[f];
+          return v != null ? `"${String(v).replace(/"/g,'""')}"` : '';
+        });
+        if (includeRaw) {
+          const raw = `"${r.RawSentence.replace(/"/g,'""')}"`;
+          lines.push([ts, ...vals, raw].join(','));
+        } else {
+          lines.push([ts, ...vals].join(','));
+        }
       });
       return lines.join('\n');
     }
@@ -263,7 +234,7 @@
             includeRaw    = document.getElementById('include-raw'),
             paginationRow = document.getElementById('pagination-row'),
             viewInfo      = document.getElementById('view-info'),
-            rowsSel       = document.getElementById('rows-per-page'),
+            rowsPerPageSel= document.getElementById('rows-per-page'),
             pagePrev      = document.getElementById('page-prev'),
             pageNext      = document.getElementById('page-next'),
             indDiv        = document.getElementById('individual-view'),
@@ -293,7 +264,8 @@
 
       let available = [];
       try {
-        const st = await (await fetch(`/state/${userID}`, { cache:'no-store' })).json();
+        const r = await fetch(`/state/${userID}`, { cache:'no-store' });
+        const st = await r.json();
         available = st.MessageTypes||[];
       } catch {}
 
@@ -303,7 +275,9 @@
       } catch {}
 
       available.forEach(t => {
-        const o = new Option(`${typeMap[t]||'Msg '+t} (ID ${t})`, t);
+        const o = document.createElement('option');
+        o.value = t;
+        o.textContent = `${typeMap[t]||'Msg '+t} (ID ${t})`;
         if (String(t)===msgID) o.selected=true;
         typeSelect.append(o);
       });
@@ -313,17 +287,14 @@
           setSearch(new URLSearchParams({UserID:userID,MessageID:typeSelect.value}));
         };
       }
+
       if (msgID) {
         subTitle.textContent = `${typeMap[msgID]||'Message '+msgID} (ID ${msgID})`;
       }
 
-      // fetch recent messages
       let allMsgs = [];
       try {
-        allMsgs = await (await fetch(
-          `/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`,
-          { cache:'no-store' }
-        )).json();
+        allMsgs = await (await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, {cache:'no-store'})).json();
       } catch {
         errorEl.textContent = 'Failed to load messages.';
         return;
@@ -333,15 +304,17 @@
         return;
       }
 
-      // populate numeric fields
       const baseFlat = flatten(allMsgs[0].Packet);
       const numericFields = Object.entries(baseFlat)
-        .filter(([,v]) => typeof v === 'number')
-        .map(([k]) => k)
-        .sort();
-      numericFields.forEach(f => fieldsSel.append(new Option(humanize(f), f)));
+        .filter(([,v])=>typeof v==='number')
+        .map(([k])=>k).sort();
+      numericFields.forEach(f => {
+        const o = document.createElement('option');
+        o.value = f;
+        o.textContent = humanize(f);
+        fieldsSel.append(o);
+      });
 
-      // individual view
       let idx = 0;
       function renderInd() {
         const m = allMsgs[idx];
@@ -351,88 +324,87 @@
         prevBtn.disabled = idx===0;
         nextBtn.disabled = idx===allMsgs.length-1;
       }
-      prevBtn.onclick = () => idx>0 && (idx--, renderInd());
-      nextBtn.onclick = () => idx<allMsgs.length-1 && (idx++, renderInd());
+      prevBtn.onclick = () => idx>0&&(idx--,renderInd());
+      nextBtn.onclick = () => idx<allMsgs.length-1&&(idx++ ,renderInd());
       renderInd();
 
-      // range view state
-      let currentPage = 1,
-          rowsPerPage = parseInt(rowsSel.value, 10),
-          selectedFields = [],
-          chartInst = null;
+      let rangeData = [], currentPage=1, rowsPerPage=parseInt(rowsPerPageSel.value,10), selectedFields=[];
 
       function renderPage() {
-        const start = (currentPage - 1) * rowsPerPage;
-        const end = Math.min(rangeData.length, start + rowsPerPage);
-        const pageRows = rangeData.slice(start, end);
-        rangeTbl.innerHTML = makeRangeHTML(pageRows, selectedFields);
-        attachSortHandlers();
+        const start = (currentPage-1)*rowsPerPage;
+        const end   = Math.min(rangeData.length, start+rowsPerPage);
+        const pageRows = rangeData.slice(start,end);
+        rangeTbl.innerHTML = makeRangeHTML(pageRows,selectedFields);
         viewInfo.textContent = `Viewing ${start+1}–${end} of ${rangeData.length}`;
         pagePrev.disabled = currentPage===1;
         pageNext.disabled = end===rangeData.length;
-        rangeTbl.querySelectorAll('button.view').forEach(btn => {
-          const i = +btn.dataset.i;
-          btn.onclick = () => alert(rangeData[start+i].RawSentence);
+        rangeTbl.querySelectorAll('button.view').forEach(btn=>{
+          const i = parseInt(btn.dataset.i,10);
+          btn.onclick = ()=>alert(rangeData[start+i].RawSentence);
         });
       }
 
-      rowsSel.onchange = () => {
-        rowsPerPage = parseInt(rowsSel.value, 10);
-        currentPage = 1;
+      rowsPerPageSel.onchange = () => {
+        rowsPerPage = parseInt(rowsPerPageSel.value,10);
+        currentPage=1;
         renderPage();
       };
-      pagePrev.onclick = () => { if (currentPage > 1) { currentPage--; renderPage(); }};
-      pageNext.onclick = () => { if (currentPage * rowsPerPage < rangeData.length) { currentPage++; renderPage(); }};
+      pagePrev.onclick = () => { if(currentPage>1){ currentPage--; renderPage(); } };
+      pageNext.onclick = () => { if(currentPage*rowsPerPage<rangeData.length){ currentPage++; renderPage(); } };
 
+      let chartInst = null;
       function showTable() {
         chartCont.style.display = 'none';
+        rangeTbl.style.display = '';
         paginationRow.style.display = '';
         renderPage();
       }
       function showGraph() {
         rangeTbl.style.display = 'none';
-        paginationRow.style.display = 'none';
         chartCont.style.display = '';
+        paginationRow.style.display = 'none';
+
         const ctx = chartCanvas.getContext('2d');
+        const datasets = selectedFields.map(f => ({
+          label: humanize(f),
+          data: rangeData.map(r => ({
+            x: new Date(r.Timestamp),
+            y: flatten(r.Packet)[f]
+          })),
+          borderWidth: 1,
+          fill: false
+        }));
+
         if (chartInst) chartInst.destroy();
         chartInst = new Chart(ctx, {
           type: 'line',
-          data: {
-            datasets: selectedFields.map(f => ({
-              label: humanize(f),
-              data: rangeData.map(r => ({
-                x: new Date(r.Timestamp),
-                y: flatten(r.Packet)[f]
-              })),
-              borderWidth: 1,
-              fill: false
-            }))
-          },
+          data: { datasets },
           options: {
             animation: false,
             maintainAspectRatio: false,
-            scales: {
-              x: {
-                type: 'time',
-                time: {
-                  minUnit: 'second',
-                  displayFormats: {
-                    millisecond: 'HH:mm:ss.SSS',
-                    second:      'HH:mm:ss',
-                    minute:      'HH:mm',
-                    hour:        'yyyy-MM-dd HH:mm',
-                    day:         'yyyy-MM-dd'
-                  },
-                  tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
-                },
-                ticks: {
-                  autoSkip: false,
-                  maxRotation: 0,
-                  maxTicksLimit: 10
-                }
-              },
-              y: { beginAtZero: false }
-            },
+	    scales: {
+    	      x: {
+    	    type: 'time',
+    	    time: {
+	      // unit: 'hour',               ← removed!
+	      minUnit: 'second',           // never coarser than seconds
+	      displayFormats: {
+	        millisecond: 'HH:mm:ss.SSS',
+	        second:      'HH:mm:ss',
+	        minute:      'HH:mm',
+	        hour:        'yyyy-MM-dd HH:mm',
+	        day:         'yyyy-MM-dd'
+	      },
+	      tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
+	    },
+	    ticks: {
+	      autoSkip: false,
+	      maxRotation: 0,
+	      maxTicksLimit: 10           // optional: cap total ticks
+	    }
+	  },
+	  y: { beginAtZero: false }
+	},
             interaction: { mode: 'nearest', axis: 'x', intersect: false },
             plugins: {
               tooltip: {
@@ -454,7 +426,10 @@
             }
           }
         });
-        chartCanvas.ondblclick = () => chartInst.resetZoom();
+
+        chartCanvas.addEventListener('dblclick', () => {
+          if (chartInst) chartInst.resetZoom();
+        });
       }
 
       resultsAs.onchange = () => {
@@ -463,10 +438,9 @@
         }
       };
 
-      // apply search
       applyBtn.onclick = async () => {
         const s = startInput.value, e = endInput.value;
-        selectedFields = Array.from(fieldsSel.selectedOptions).map(o => o.value);
+        selectedFields = Array.from(fieldsSel.selectedOptions).map(o=>o.value);
         if (!s || !e || !selectedFields.length) {
           return alert('Select From, To, and at least one field.');
         }
@@ -478,13 +452,13 @@
           limit: '2000'
         });
         try {
-          rangeData = await (await fetch(`/latestmessages?${params}`, { cache:'no-store' })).json();
+          rangeData = await (await fetch(`/latestmessages?${params}`, {cache:'no-store'})).json();
         } catch {
           return alert('Failed to fetch range.');
         }
         downloadBtn.onclick = () => {
           const csv = toCSV(rangeData, selectedFields, includeRaw.checked);
-          const blob = new Blob([csv], { type:'text/csv' });
+          const blob = new Blob([csv], {type:'text/csv'});
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
@@ -495,10 +469,10 @@
         downloadRow.style.display = '';
         indDiv.style.display = 'none';
         rngDiv.style.display = '';
-        resultsAs.value === 'table' ? showTable() : showGraph();
+        if (resultsAs.value === 'table') showTable();
+        else showGraph();
       };
 
-      // reset
       resetBtn.onclick = () => {
         startInput.value = '';
         endInput.value = '';
