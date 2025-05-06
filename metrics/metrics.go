@@ -266,7 +266,7 @@ func metricsIngesterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeMetricsToInfluxDB(metrics interface{}) error {
-    // Marshal back into our FullMetrics struct
+    // Marshal into FullMetrics
     blob, err := json.Marshal(metrics)
     if err != nil {
         return err
@@ -276,7 +276,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
         return err
     }
 
-    // Prepare a new batch
+    // Create batch
     bp, err := client.NewBatchPoints(client.BatchPointsConfig{
         Database: settings.InfluxDB,
     })
@@ -284,7 +284,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
         return err
     }
 
-    // Helper to add numeric points into "metrics" measurement
+    // Helper for numeric “metrics” writes
     add := func(tags map[string]string, fields map[string]interface{}) {
         pt, err := client.NewPoint("metrics", tags, fields, time.Now())
         if err != nil {
@@ -294,7 +294,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
         bp.AddPoint(pt)
     }
 
-    // --- Per-source counts ---
+    // --- 1) Per-source ---
     for _, m := range full.BytesReceivedBySource {
         add(map[string]string{"source_ip": m.SourceIP, "metric": "bytes_received"},
             map[string]interface{}{"value": m.Count})
@@ -312,7 +312,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
             map[string]interface{}{"value": m.Count})
     }
 
-    // --- Windowed counts ---
+    // --- 2) Windowed per-source ---
     for ip, v := range full.WindowBytesBySource {
         add(map[string]string{"source_ip": ip, "metric": "window_bytes"},
             map[string]interface{}{"value": v})
@@ -326,7 +326,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
             map[string]interface{}{"value": v})
     }
 
-    // --- Deduplicated / per-message counts ---
+    // --- 3) Deduplicated / per-message ---
     for ip, v := range full.PerDeduplicatedSource {
         add(map[string]string{"source_ip": ip, "metric": "per_deduplicated"},
             map[string]interface{}{"value": v})
@@ -340,11 +340,8 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
             map[string]interface{}{"value": v})
     }
 
-    // --- Totals & uptime & clients ---
-    totals := []struct {
-        metric string
-        value  int
-    }{
+    // --- 4) Totals, uptime, clients ---
+    totals := []struct{ metric string; value int }{
         {"total_bytes_forwarded", full.TotalBytesForwarded},
         {"total_bytes_received", full.TotalBytesReceived},
         {"total_failures", full.TotalFailures},
@@ -357,19 +354,19 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
         add(map[string]string{"metric": t.metric}, map[string]interface{}{"value": t.value})
     }
 
-    // --- Memory stats ---
+    // --- 5) Memory stats ---
     add(map[string]string{"metric": "alloc_bytes"}, map[string]interface{}{"value": full.MemoryStats.AllocBytes})
     add(map[string]string{"metric": "heap_alloc_bytes"}, map[string]interface{}{"value": full.MemoryStats.HeapAllocBytes})
     add(map[string]string{"metric": "sys_bytes"}, map[string]interface{}{"value": full.MemoryStats.SysBytes})
     add(map[string]string{"metric": "num_gc"}, map[string]interface{}{"value": full.MemoryStats.NumGC})
 
-    // --- Windowed UID lists into separate measurement ---
+    // --- 6) WINDOWED UID LISTS — into their own measurement ---
     for ip, uids := range full.WindowUserIDsBySource {
         idList := strings.Join(uids, ",")
         pt, err := client.NewPoint(
-            "metrics_user_ids",               // new measurement
-            map[string]string{"source_ip": ip},
-            map[string]interface{}{"uids": idList}, // string field
+            "metrics_user_ids",                  // new measurement
+            map[string]string{"source_ip": ip},  
+            map[string]interface{}{"uids": idList}, 
             time.Now(),
         )
         if err != nil {
@@ -379,7 +376,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
         }
     }
 
-    // Write all points in one batch
+    // Write batch
     return influxClient.Write(bp)
 }
 
