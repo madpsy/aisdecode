@@ -727,7 +727,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
     if v := q.Get("limit"); v != "" {
         if x, err := strconv.Atoi(v); err == nil && x > 0 {
             if x > 100 {
-                limit = 100
+                limit = 2000
             } else {
                 limit = x
             }
