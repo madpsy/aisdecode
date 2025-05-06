@@ -435,55 +435,81 @@ func queryTimeSeries(ip *string, field, interval string, from, to time.Time) ([]
         ORDER BY time ASC
     `, strings.Join(where, " AND "), interval)
 
-    q := client.NewQuery(influxQL, settings.InfluxDB, "ns")
+    // Use millisecond precision to match typical point writes
+    q := client.NewQuery(influxQL, settings.InfluxDB, "ms")
     res, err := influxClient.Query(q)
-    if res != nil && len(res.Results) > 0 {
-        log.Printf("Influx returned: %+v", res.Results[0])
-    }
     if err != nil {
         return nil, err
     }
-    if res.Error() != nil || len(res.Results[0].Series) == 0 {
+    if res.Error() != nil || len(res.Results) == 0 || len(res.Results[0].Series) == 0 {
         return nil, nil
     }
 
     series := res.Results[0].Series[0]
     pts := make([]HistoricSeriesPoint, 0, len(series.Values))
+
     for _, row := range series.Values {
-        // Normalize the time value to a string
+        // --- Parse the timestamp ---
         rawTime := row[0]
-        var timeStr string
-        switch tval := rawTime.(type) {
+        var t time.Time
+
+        switch v := rawTime.(type) {
         case string:
-            timeStr = tval
-        case json.Number:
-            timeStr = tval.String()
-        default:
-            timeStr = fmt.Sprint(tval)
-        }
+            // RFC3339Nano string
+            parsed, err := time.Parse(time.RFC3339Nano, v)
+            if err != nil {
+                continue
+            }
+            t = parsed
 
-        t, err := time.Parse(time.RFC3339Nano, timeStr)
-        if err != nil {
-            continue
-        }
-
-        // Normalize the value to int64
-        var v int64
-        switch num := row[1].(type) {
         case json.Number:
-            v, _ = num.Int64()
+            // Numeric string → nanoseconds
+            if ns, err := v.Int64(); err == nil {
+                t = time.Unix(0, ns)
+            } else {
+                continue
+            }
+
         case float64:
-            v = int64(num)
+            // Client may unmarshal as float64
+            t = time.Unix(0, int64(v))
+
         case int64:
-            v = num
+            t = time.Unix(0, v)
+
         default:
-            if tmp, err := strconv.ParseInt(fmt.Sprint(num), 10, 64); err == nil {
-                v = tmp
+            // Fallback: try parsing as string
+            s := fmt.Sprint(v)
+            if parsed, err := time.Parse(time.RFC3339Nano, s); err == nil {
+                t = parsed
+            } else {
+                continue
             }
         }
 
-        pts = append(pts, HistoricSeriesPoint{Timestamp: t, Value: v})
+        // --- Parse the value ---
+        var val int64
+        switch num := row[1].(type) {
+        case json.Number:
+            if x, err := num.Int64(); err == nil {
+                val = x
+            }
+        case float64:
+            val = int64(num)
+        case int64:
+            val = num
+        default:
+            if x, err := strconv.ParseInt(fmt.Sprint(num), 10, 64); err == nil {
+                val = x
+            }
+        }
+
+        pts = append(pts, HistoricSeriesPoint{
+            Timestamp: t,
+            Value:     val,
+        })
     }
+
     return pts, nil
 }
 
