@@ -345,9 +345,21 @@
         });
       }
 
-      // Initialize with full list, then apply default based on dropdown
-      buildFieldSelector(allFields);
-      resultsAs.onchange();
+      // Attach handler for when Results-as changes
+      resultsAs.onchange = () => {
+        const list = resultsAs.value === 'graph' ? numericOnly : allFields;
+        buildFieldSelector(list);
+        if (rngDiv.style.display !== 'none') {
+          resultsAs.value === 'table' ? showTable() : showGraph();
+        }
+      };
+
+      // Initial build based on current selection
+      buildFieldSelector(
+        resultsAs.value === 'graph' ? numericOnly : allFields
+      );
+
+
 
       // Individual-message view
       let idx = 0;
