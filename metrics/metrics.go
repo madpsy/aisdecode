@@ -515,114 +515,43 @@ func pickInterval(from, to time.Time) string {
 	}
 }
 
-func queryTimeSeriesGeneric(cfg metricConfig, ip *string, interval string, from, to time.Time) ([]genericPoint, error) {
-	where := []string{
-		fmt.Sprintf("time >= '%s' AND time <= '%s'",
-			from.UTC().Format(time.RFC3339Nano),
-			to.UTC().Format(time.RFC3339Nano)),
-		fmt.Sprintf(`"metric" = '%s'`, cfg.Key),
-	}
-	if ip != nil && *ip != "" {
-		where = append(where, fmt.Sprintf(`"source_ip" = '%s'`, *ip))
-	}
-
-	fill := "0"
-	if cfg.ValueType == "string" {
-		fill = "previous"
-	}
-
-	influxQL := fmt.Sprintf(`
-        SELECT %s("value") FROM "metrics"
-         WHERE %s
-         GROUP BY time(%s) fill(%s)
-         ORDER BY time ASC
-    `, cfg.Func, strings.Join(where, " AND "), interval, fill)
-
-        // Request millisecond precision (so the client returns manageable timestamps)
-        res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ms"))
-	if err != nil {
-		return nil, err
-	}
-	if res.Error() != nil || len(res.Results) == 0 || len(res.Results[0].Series) == 0 {
-		return nil, nil
-	}
-
-	series := res.Results[0].Series[0]
-	pts := make([]genericPoint, 0, len(series.Values))
-
-	for _, row := range series.Values {
-		// parse timestamp (nanoseconds)
-		var ts time.Time
-		switch v := row[0].(type) {
-		case json.Number:
-			if ns, e := v.Int64(); e == nil {
-				ts = time.Unix(0, ns)
-			}
-		case float64:
-			// JSON numbers from Influx can be float64
-			ts = time.Unix(0, int64(v))
-		case int64:
-			ts = time.Unix(0, v)
-		case string:
-			ts, _ = time.Parse(time.RFC3339Nano, v)
-		default:
-			continue
-		}
-
-		// parse value
-		var val interface{}
-		raw := row[1]
-		switch cfg.ValueType {
-		case "int":
-			switch x := raw.(type) {
-			case json.Number:
-				v, _ := x.Int64(); val = v
-			case float64:
-				val = int64(x)
-			case int64:
-				val = x
-			}
-		case "float":
-			switch x := raw.(type) {
-			case json.Number:
-				v, _ := x.Float64(); val = v
-			case float64:
-				val = x
-			case int64:
-				val = float64(x)
-			}
-		case "string":
-			if s, ok := raw.(string); ok {
-				val = s
-			}
-		}
-
-		pts = append(pts, genericPoint{Timestamp: ts, Value: val})
-	}
-
-	return pts, nil
-}
-
-// Helper specifically for the window_user_ids series
-func queryUserIDsTimeSeries(ip *string, interval string, from, to time.Time) ([]genericPoint, error) {
-    // Build WHERE clauses
+// queryTimeSeriesGeneric fetches any numeric or string series out of the "metrics" measurement
+// using millisecond precision for the time column.
+func queryTimeSeriesGeneric(
+    cfg metricConfig,
+    ip *string,
+    interval string,
+    from, to time.Time,
+) ([]genericPoint, error) {
+    // 1) Build WHERE clauses
     where := []string{
         fmt.Sprintf("time >= '%s' AND time <= '%s'",
             from.UTC().Format(time.RFC3339Nano),
             to.UTC().Format(time.RFC3339Nano)),
+        fmt.Sprintf(`"metric" = '%s'`, cfg.Key),
     }
     if ip != nil && *ip != "" {
         where = append(where, fmt.Sprintf(`"source_ip" = '%s'`, *ip))
     }
-    // InfluxQL against the new measurement + field
-    influxQL := fmt.Sprintf(`
-        SELECT LAST("uids")
-          FROM "metrics_user_ids"
-         WHERE %s
-      GROUP BY time(%s) fill(previous)
-      ORDER BY time ASC
-    `, strings.Join(where, " AND "), interval)
 
+    // 2) Construct the InfluxQL
+    fill := "0"
+    if cfg.ValueType == "string" {
+        fill = "previous"
+    }
+    influxQL := fmt.Sprintf(`
+        SELECT %s("value") FROM "metrics"
+         WHERE %s
+         GROUP BY time(%s) fill(%s)
+         ORDER BY time ASC
+    `,
+        cfg.Func,
+        strings.Join(where, " AND "),
+        interval,
+        fill,
+    )
+
+    // 3) Query with millisecond time precision
     res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ms"))
     if err != nil {
         return nil, err
@@ -633,30 +562,145 @@ func queryUserIDsTimeSeries(ip *string, interval string, from, to time.Time) ([]
 
     series := res.Results[0].Series[0]
     pts := make([]genericPoint, 0, len(series.Values))
+
+    // 4) Parse each row
     for _, row := range series.Values {
-        // parse timestamp
+        // --- Timestamp (row[0]) comes back in milliseconds ---
         var ts time.Time
         switch v := row[0].(type) {
         case json.Number:
-            if ns, e := v.Int64(); e == nil {
-                ts = time.Unix(0, ns)
+            if ms, e := v.Int64(); e == nil {
+                ts = time.Unix(0, ms*int64(time.Millisecond))
+            } else {
+                continue
             }
         case float64:
-            ts = time.Unix(0, int64(v))
+            ts = time.Unix(0, int64(v)*int64(time.Millisecond))
         case int64:
-            ts = time.Unix(0, v)
+            ts = time.Unix(0, v*int64(time.Millisecond))
         case string:
-            ts, _ = time.Parse(time.RFC3339Nano, v)
+            t, e := time.Parse(time.RFC3339Nano, v)
+            if e != nil {
+                continue
+            }
+            ts = t
         default:
             continue
         }
-        // parse string value
+
+        // --- Value (row[1]) ---
+        var val interface{}
+        raw := row[1]
+        switch cfg.ValueType {
+        case "int":
+            switch x := raw.(type) {
+            case json.Number:
+                if i, e := x.Int64(); e == nil {
+                    val = i
+                }
+            case float64:
+                val = int64(x)
+            case int64:
+                val = x
+            }
+        case "float":
+            switch x := raw.(type) {
+            case json.Number:
+                if f, e := x.Float64(); e == nil {
+                    val = f
+                }
+            case float64:
+                val = x
+            case int64:
+                val = float64(x)
+            }
+        case "string":
+            if s, ok := raw.(string); ok {
+                val = s
+            }
+        }
+
+        pts = append(pts, genericPoint{Timestamp: ts, Value: val})
+    }
+
+    return pts, nil
+}
+
+// queryUserIDsTimeSeries fetches the comma-joined UID lists out of the
+// separate "metrics_user_ids" measurement, again using millisecond precision.
+func queryUserIDsTimeSeries(
+    ip *string,
+    interval string,
+    from, to time.Time,
+) ([]genericPoint, error) {
+    // 1) Build WHERE clauses
+    where := []string{
+        fmt.Sprintf("time >= '%s' AND time <= '%s'",
+            from.UTC().Format(time.RFC3339Nano),
+            to.UTC().Format(time.RFC3339Nano)),
+    }
+    if ip != nil && *ip != "" {
+        where = append(where, fmt.Sprintf(`"source_ip" = '%s'`, *ip))
+    }
+
+    // 2) InfluxQL for the "uids" field
+    influxQL := fmt.Sprintf(`
+        SELECT LAST("uids")
+          FROM "metrics_user_ids"
+         WHERE %s
+      GROUP BY time(%s) fill(previous)
+      ORDER BY time ASC
+    `,
+        strings.Join(where, " AND "),
+        interval,
+    )
+
+    // 3) Query with millisecond precision
+    res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ms"))
+    if err != nil {
+        return nil, err
+    }
+    if res.Error() != nil || len(res.Results) == 0 || len(res.Results[0].Series) == 0 {
+        return nil, nil
+    }
+
+    series := res.Results[0].Series[0]
+    pts := make([]genericPoint, 0, len(series.Values))
+
+    // 4) Parse each row
+    for _, row := range series.Values {
+        // Timestamp in ms
+        var ts time.Time
+        switch v := row[0].(type) {
+        case json.Number:
+            if ms, e := v.Int64(); e == nil {
+                ts = time.Unix(0, ms*int64(time.Millisecond))
+            } else {
+                continue
+            }
+        case float64:
+            ts = time.Unix(0, int64(v)*int64(time.Millisecond))
+        case int64:
+            ts = time.Unix(0, v*int64(time.Millisecond))
+        case string:
+            t, e := time.Parse(time.RFC3339Nano, v)
+            if e != nil {
+                continue
+            }
+            ts = t
+        default:
+            continue
+        }
+
+        // The UIDs field is always a string
         var val interface{}
         if s, ok := row[1].(string); ok {
             val = s
         }
+
         pts = append(pts, genericPoint{Timestamp: ts, Value: val})
     }
+
     return pts, nil
 }
 
