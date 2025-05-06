@@ -437,6 +437,9 @@ func queryTimeSeries(ip *string, field, interval string, from, to time.Time) ([]
 
     q := client.NewQuery(influxQL, settings.InfluxDB, "ns")
     res, err := influxClient.Query(q)
+    if res != nil && len(res.Results) > 0 {
+        log.Printf("Influx returned: %+v", res.Results[0])
+    }
     if err != nil {
         return nil, err
     }
