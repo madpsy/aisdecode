@@ -37,7 +37,15 @@
       text-align: left; vertical-align: top;
     }
     th { background: #f0f0f0; }
-    .raw-sentence { font-style: italic; margin-top: 0.5rem; color: #555; }
+    .raw-sentence { 
+      margin-top: 0.5rem; 
+      padding: 0.5rem; 
+      background: #f9f9f9; 
+      border: 1px solid #eee; 
+      border-radius: 4px; 
+      font-family: monospace; 
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
@@ -79,14 +87,13 @@
   </div>
 
   <script>
-    // Utils
     function qsParam(name) {
       const v = new URLSearchParams(window.location.search).get(name);
       return v && /^\d+$/.test(v) ? v : null;
     }
     function flatten(obj, prefix = '', out = {}) {
       for (const [k, v] of Object.entries(obj || {})) {
-        const key = prefix ? prefix + '.' + k : k;
+        const key = prefix ? `${prefix}.${k}` : k;
         if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
           flatten(v, key, out);
         } else {
@@ -99,7 +106,6 @@
       return f.replace(/[_\.]/g, ' ');
     }
 
-    // Create HTML for one record table + raw
     function makeSingleHTML(msg) {
       const flat = flatten(msg.Packet);
       let html = '<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
@@ -110,7 +116,6 @@
       return html;
     }
 
-    // Create HTML for range table
     function makeRangeHTML(rows, fields) {
       let html = '<table><thead><tr><th>Timestamp</th>';
       fields.forEach(f => html += `<th>${humanize(f)}</th>`);
@@ -140,19 +145,18 @@
         return;
       }
 
-      // Load message types once
+      // Load message types
       let typeMap = {};
       try {
         const r = await fetch('/message_types.json', {cache:'no-store'});
         typeMap = await r.json();
-      } catch {
-        // fallback to raw ID
-      }
+      } catch {}
+
       const titleText = typeMap[msgID] || `Message ${msgID}`;
       mainT.textContent = `History for User ${userID}`;
       subT.textContent  = `${titleText} (ID ${msgID})`;
 
-      // Fetch last 100 for individual view
+      // Fetch last 100
       let allMsgs = [];
       try {
         const r = await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, {cache:'no-store'});
@@ -166,7 +170,7 @@
         return;
       }
 
-      // Populate fields selector from first packet
+      // Populate fields
       const firstFlat = flatten(allMsgs[0].Packet);
       const numeric   = Object.entries(firstFlat)
         .filter(([,v]) => typeof v === 'number')
@@ -179,7 +183,7 @@
         fieldsSel.append(o);
       });
 
-      // Individual view logic
+      // Individual view
       let idx = 0;
       const prevBtn = document.getElementById('prev');
       const nextBtn = document.getElementById('next');
@@ -199,7 +203,7 @@
       nextBtn.onclick = ()=>{ if(idx<allMsgs.length-1){ idx++; renderIndividual(); } };
       renderIndividual();
 
-      // Range view logic
+      // Range view
       const applyBtn = document.getElementById('apply');
       const resetBtn = document.getElementById('reset');
       const indView  = document.getElementById('individual-view');
@@ -215,7 +219,8 @@
           return;
         }
         const params = new URLSearchParams({
-          UserID, MessageID: msgID,
+          UserID: userID,
+          MessageID: msgID,
           start: new Date(start).toISOString(),
           end:   new Date(end).toISOString(),
           limit: 100
