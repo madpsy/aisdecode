@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AIS Message History Viewer</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; }
+    .error { color: red; font-weight: bold; }
+    .controls { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+    .controls label { display: flex; flex-direction: column; flex: 1 1 150px; }
+    .controls select, .controls input { min-width: 100%; }
+    .controls button { align-self: flex-end; padding: 0.5em 1em; }
+    .nav { display: flex; align-items: center; gap: 0.5em; margin-bottom: 1em; }
+    .nav button { padding: 0.3em 0.6em; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
+    th { background: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <h1 id="title">Loading…</h1>
+  <div id="error" class="error"></div>
+
+  <div class="controls">
+    <label>
+      From
+      <input type="datetime-local" id="start"/>
+    </label>
+    <label>
+      To
+      <input type="datetime-local" id="end"/>
+    </label>
+    <label>
+      Fields
+      <select id="fields" multiple size="4"></select>
+    </label>
+    <button id="apply">Show Range</button>
+    <button id="reset">Reset</button>
+  </div>
+
+  <div id="individual-view">
+    <div class="nav">
+      <button id="prev">◀️</button>
+      <span id="counter">0 of 0</span>
+      <button id="next">▶️</button>
+    </div>
+    <div id="single-table"></div>
+  </div>
+
+  <div id="range-view" style="display:none;">
+    <div id="range-table"></div>
+  </div>
+
+  <script>
+    // Helpers
+    function qsParam(name) {
+      const p = new URLSearchParams(window.location.search).get(name);
+      return p && /^\d+$/.test(p) ? p : null;
+    }
+    function flatten(obj, prefix = '', out = {}) {
+      for (let [k, v] of Object.entries(obj)) {
+        const key = prefix ? prefix + '.' + k : k;
+        if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+          flatten(v, key, out);
+        } else {
+          out[key] = v;
+        }
+      }
+      return out;
+    }
+    function humanize(f) {
+      return f.replace(/[_\.]/g, ' ');
+    }
+    function makeSingleTable(data) {
+      const flat = flatten(data.Packet.DecodedBinary || {});
+      let html = '<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
+      Object.keys(flat).sort().forEach(k => {
+        html += `<tr><td>${humanize(k)}</td><td>${flat[k]}</td></tr>`;
+      });
+      html += '</tbody></table>';
+      return html;
+    }
+    function makeRangeTable(rows, fields) {
+      let html = '<table><thead><tr><th>Timestamp</th>';
+      fields.forEach(f => html += `<th>${humanize(f)}</th>`);
+      html += '</tr></thead><tbody>';
+      rows.forEach(r => {
+        html += '<tr>';
+        html += `<td>${new Date(r.Timestamp).toLocaleString([], {hour12:false})}</td>`;
+        const flat = flatten(r.Packet.DecodedBinary || {});
+        fields.forEach(f => {
+          html += `<td>${flat[f] != null ? flat[f] : ''}</td>`;
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      return html;
+    }
+
+    // Main
+    (async function(){
+      const userID = qsParam('UserID');
+      const msgID  = qsParam('MessageID');
+      const errEl  = document.getElementById('error');
+      const title  = document.getElementById('title');
+      if (!userID || !msgID) {
+        errEl.textContent = 'Error: URL must include numeric UserID and MessageID parameters.';
+        title.textContent = 'Error';
+        return;
+      }
+      title.textContent = `History for User ${userID}, Message ${msgID}`;
+
+      // Fetch last 100 messages on load
+      let allMsgs = [];
+      async function loadAll() {
+        const url = `/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`;
+        const res = await fetch(url, {cache:'no-store'});
+        if (!res.ok) throw new Error('Fetch failed');
+        return res.json();
+      }
+      try {
+        allMsgs = await loadAll();
+      } catch (e) {
+        errEl.textContent = 'Failed to load messages.';
+        return;
+      }
+      if (!allMsgs.length) {
+        errEl.textContent = 'No messages found.';
+        return;
+      }
+
+      // Populate fields selector
+      const firstFlat = flatten(allMsgs[0].Packet.DecodedBinary || {});
+      const numeric = Object.entries(firstFlat)
+        .filter(([,v]) => typeof v==='number')
+        .map(([k]) => k)
+        .sort();
+      const fieldsSel = document.getElementById('fields');
+      numeric.forEach(f => {
+        const o = document.createElement('option');
+        o.value = f;
+        o.textContent = humanize(f);
+        fieldsSel.append(o);
+      });
+
+      // Individual view state
+      let idx = 0;
+      const prevBtn = document.getElementById('prev');
+      const nextBtn = document.getElementById('next');
+      const counter = document.getElementById('counter');
+      const singleT = document.getElementById('single-table');
+      function renderIndividual() {
+        const msg = allMsgs[idx];
+        counter.textContent = `${idx+1} of ${allMsgs.length}`;
+        singleT.innerHTML = makeSingleTable(msg);
+        prevBtn.disabled = idx === 0;
+        nextBtn.disabled = idx === allMsgs.length - 1;
+      }
+      prevBtn.onclick = ()=>{ if(idx>0){ idx--; renderIndividual(); } };
+      nextBtn.onclick = ()=>{ if(idx<allMsgs.length-1){ idx++; renderIndividual(); } };
+      renderIndividual();
+
+      // Range view
+      const applyBtn = document.getElementById('apply');
+      const resetBtn = document.getElementById('reset');
+      const indView = document.getElementById('individual-view');
+      const rngView = document.getElementById('range-view');
+      const rngTable = document.getElementById('range-table');
+
+      applyBtn.onclick = async () => {
+        const start = document.getElementById('start').value;
+        const end   = document.getElementById('end').value;
+        const sel   = Array.from(fieldsSel.selectedOptions).map(o=>o.value);
+        if (!start || !end || !sel.length) {
+          alert('Please pick both From, To, AND at least one field.');
+          return;
+        }
+        // Fetch range
+        const params = new URLSearchParams({
+          UserID: userID,
+          MessageID: msgID,
+          start: new Date(start).toISOString(),
+          end:   new Date(end).toISOString(),
+          limit: 100
+        });
+        const res = await fetch(`/latestmessages?${params.toString()}`, {cache:'no-store'});
+        if (!res.ok) { alert('Fetch failed'); return; }
+        const data = await res.json();
+        if (!data.length) {
+          rngTable.innerHTML = '<p>No records in that range.</p>';
+        } else {
+          rngTable.innerHTML = makeRangeTable(data, sel);
+        }
+        indView.style.display = 'none';
+        rngView.style.display = '';
+      };
+
+      resetBtn.onclick = () => {
+        document.getElementById('start').value = '';
+        document.getElementById('end').value   = '';
+        fieldsSel.selectedIndex = -1;
+        rngTable.innerHTML = '';
+        rngView.style.display = 'none';
+        indView.style.display = '';
+      };
+    })();
+  </script>
+</body>
+</html>
