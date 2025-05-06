@@ -7,22 +7,47 @@
   <style>
     body { font-family: sans-serif; margin: 2rem; }
     .error { color: red; font-weight: bold; }
-    .controls { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+    .message { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
+    .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
+    .title-details {
+      font-weight: normal;
+      font-size: 0.9rem;
+      margin-top: 0.2rem;
+      margin-bottom: 0.5rem;
+      color: #555;
+    }
+    .controls { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; margin-bottom: 1rem; font-size: 0.9rem; }
     .controls label { display: flex; flex-direction: column; flex: 1 1 150px; }
     .controls select, .controls input { min-width: 100%; }
-    .controls button { align-self: flex-end; padding: 0.5em 1em; }
-    .nav { display: flex; align-items: center; gap: 0.5em; margin-bottom: 1em; }
-    .nav button { padding: 0.3em 0.6em; }
-    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-    th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
+    .controls button { flex: 0 0 auto; margin-top: 1.2rem; padding: 0.5em 1em; }
+    .nav { display: flex; align-items: center; margin-bottom: 0.8rem; }
+    .nav button {
+      background: none; border: none;
+      font-size: 1.2rem; margin: 0 0.3rem;
+      cursor: pointer; transition: opacity 0.2s;
+    }
+    .nav button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
+    .nav .counter { font-size: 0.9rem; color: #333; min-width: 3em; text-align: center; }
+    table {
+      border-collapse: collapse; table-layout: auto;
+      white-space: nowrap; width: 100%;
+    }
+    th, td {
+      border: 1px solid #ccc; padding: 0.4rem 0.6rem;
+      text-align: left; vertical-align: top;
+    }
     th { background: #f0f0f0; }
+    .raw-sentence { font-style: italic; margin-top: 0.5rem; color: #555; }
   </style>
 </head>
 <body>
-  <h1 id="title">Loading…</h1>
-  <div id="error" class="error"></div>
+  <div class="message">
+    <div class="title" id="main-title">Loading…</div>
+    <div class="title-details" id="sub-title"></div>
+    <div id="error" class="error"></div>
+  </div>
 
-  <div class="controls">
+  <div class="message controls">
     <label>
       From
       <input type="datetime-local" id="start"/>
@@ -33,7 +58,7 @@
     </label>
     <label>
       Fields
-      <select id="fields" multiple size="4"></select>
+      <select multiple size="4" id="fields"></select>
     </label>
     <button id="apply">Show Range</button>
     <button id="reset">Reset</button>
@@ -42,10 +67,11 @@
   <div id="individual-view">
     <div class="nav">
       <button id="prev">◀️</button>
-      <span id="counter">0 of 0</span>
+      <div class="counter" id="counter">0 of 0</div>
       <button id="next">▶️</button>
     </div>
     <div id="single-table"></div>
+    <div class="raw-sentence" id="single-raw"></div>
   </div>
 
   <div id="range-view" style="display:none;">
@@ -53,13 +79,13 @@
   </div>
 
   <script>
-    // Helpers
+    // Utils
     function qsParam(name) {
-      const p = new URLSearchParams(window.location.search).get(name);
-      return p && /^\d+$/.test(p) ? p : null;
+      const v = new URLSearchParams(window.location.search).get(name);
+      return v && /^\d+$/.test(v) ? v : null;
     }
     function flatten(obj, prefix = '', out = {}) {
-      for (let [k, v] of Object.entries(obj)) {
+      for (const [k, v] of Object.entries(obj || {})) {
         const key = prefix ? prefix + '.' + k : k;
         if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
           flatten(v, key, out);
@@ -72,8 +98,10 @@
     function humanize(f) {
       return f.replace(/[_\.]/g, ' ');
     }
-    function makeSingleTable(data) {
-      const flat = flatten(data.Packet.DecodedBinary || {});
+
+    // Create HTML for one record table + raw
+    function makeSingleHTML(msg) {
+      const flat = flatten(msg.Packet);
       let html = '<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
       Object.keys(flat).sort().forEach(k => {
         html += `<tr><td>${humanize(k)}</td><td>${flat[k]}</td></tr>`;
@@ -81,47 +109,55 @@
       html += '</tbody></table>';
       return html;
     }
-    function makeRangeTable(rows, fields) {
+
+    // Create HTML for range table
+    function makeRangeHTML(rows, fields) {
       let html = '<table><thead><tr><th>Timestamp</th>';
       fields.forEach(f => html += `<th>${humanize(f)}</th>`);
-      html += '</tr></thead><tbody>';
+      html += '<th>RawSentence</th></tr></thead><tbody>';
       rows.forEach(r => {
+        const flat = flatten(r.Packet);
         html += '<tr>';
         html += `<td>${new Date(r.Timestamp).toLocaleString([], {hour12:false})}</td>`;
-        const flat = flatten(r.Packet.DecodedBinary || {});
-        fields.forEach(f => {
-          html += `<td>${flat[f] != null ? flat[f] : ''}</td>`;
-        });
+        fields.forEach(f => html += `<td>${flat[f] != null ? flat[f] : ''}</td>`);
+        html += `<td><pre style="margin:0">${r.RawSentence}</pre></td>`;
         html += '</tr>';
       });
       html += '</tbody></table>';
       return html;
     }
 
-    // Main
     (async function(){
       const userID = qsParam('UserID');
       const msgID  = qsParam('MessageID');
       const errEl  = document.getElementById('error');
-      const title  = document.getElementById('title');
+      const mainT  = document.getElementById('main-title');
+      const subT   = document.getElementById('sub-title');
+
       if (!userID || !msgID) {
-        errEl.textContent = 'Error: URL must include numeric UserID and MessageID parameters.';
-        title.textContent = 'Error';
+        mainT.textContent = 'Error';
+        errEl.textContent  = 'URL must include numeric UserID and MessageID.';
         return;
       }
-      title.textContent = `History for User ${userID}, Message ${msgID}`;
 
-      // Fetch last 100 messages on load
-      let allMsgs = [];
-      async function loadAll() {
-        const url = `/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`;
-        const res = await fetch(url, {cache:'no-store'});
-        if (!res.ok) throw new Error('Fetch failed');
-        return res.json();
-      }
+      // Load message types once
+      let typeMap = {};
       try {
-        allMsgs = await loadAll();
-      } catch (e) {
+        const r = await fetch('/message_types.json', {cache:'no-store'});
+        typeMap = await r.json();
+      } catch {
+        // fallback to raw ID
+      }
+      const titleText = typeMap[msgID] || `Message ${msgID}`;
+      mainT.textContent = `History for User ${userID}`;
+      subT.textContent  = `${titleText} (ID ${msgID})`;
+
+      // Fetch last 100 for individual view
+      let allMsgs = [];
+      try {
+        const r = await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, {cache:'no-store'});
+        allMsgs = await r.json();
+      } catch {
         errEl.textContent = 'Failed to load messages.';
         return;
       }
@@ -130,30 +166,32 @@
         return;
       }
 
-      // Populate fields selector
-      const firstFlat = flatten(allMsgs[0].Packet.DecodedBinary || {});
-      const numeric = Object.entries(firstFlat)
-        .filter(([,v]) => typeof v==='number')
+      // Populate fields selector from first packet
+      const firstFlat = flatten(allMsgs[0].Packet);
+      const numeric   = Object.entries(firstFlat)
+        .filter(([,v]) => typeof v === 'number')
         .map(([k]) => k)
         .sort();
       const fieldsSel = document.getElementById('fields');
       numeric.forEach(f => {
         const o = document.createElement('option');
-        o.value = f;
-        o.textContent = humanize(f);
+        o.value = f; o.textContent = humanize(f);
         fieldsSel.append(o);
       });
 
-      // Individual view state
+      // Individual view logic
       let idx = 0;
       const prevBtn = document.getElementById('prev');
       const nextBtn = document.getElementById('next');
       const counter = document.getElementById('counter');
       const singleT = document.getElementById('single-table');
+      const singleR = document.getElementById('single-raw');
+
       function renderIndividual() {
         const msg = allMsgs[idx];
         counter.textContent = `${idx+1} of ${allMsgs.length}`;
-        singleT.innerHTML = makeSingleTable(msg);
+        singleT.innerHTML   = makeSingleHTML(msg);
+        singleR.textContent = msg.RawSentence;
         prevBtn.disabled = idx === 0;
         nextBtn.disabled = idx === allMsgs.length - 1;
       }
@@ -161,11 +199,11 @@
       nextBtn.onclick = ()=>{ if(idx<allMsgs.length-1){ idx++; renderIndividual(); } };
       renderIndividual();
 
-      // Range view
+      // Range view logic
       const applyBtn = document.getElementById('apply');
       const resetBtn = document.getElementById('reset');
-      const indView = document.getElementById('individual-view');
-      const rngView = document.getElementById('range-view');
+      const indView  = document.getElementById('individual-view');
+      const rngView  = document.getElementById('range-view');
       const rngTable = document.getElementById('range-table');
 
       applyBtn.onclick = async () => {
@@ -173,24 +211,27 @@
         const end   = document.getElementById('end').value;
         const sel   = Array.from(fieldsSel.selectedOptions).map(o=>o.value);
         if (!start || !end || !sel.length) {
-          alert('Please pick both From, To, AND at least one field.');
+          alert('Please select From, To, and at least one field.');
           return;
         }
-        // Fetch range
         const params = new URLSearchParams({
-          UserID: userID,
-          MessageID: msgID,
+          UserID, MessageID: msgID,
           start: new Date(start).toISOString(),
           end:   new Date(end).toISOString(),
           limit: 100
         });
-        const res = await fetch(`/latestmessages?${params.toString()}`, {cache:'no-store'});
-        if (!res.ok) { alert('Fetch failed'); return; }
-        const data = await res.json();
+        let data = [];
+        try {
+          const r = await fetch(`/latestmessages?${params}`, {cache:'no-store'});
+          data = await r.json();
+        } catch {
+          alert('Failed to fetch range.');
+          return;
+        }
         if (!data.length) {
           rngTable.innerHTML = '<p>No records in that range.</p>';
         } else {
-          rngTable.innerHTML = makeRangeTable(data, sel);
+          rngTable.innerHTML = makeRangeHTML(data, sel);
         }
         indView.style.display = 'none';
         rngView.style.display = '';
