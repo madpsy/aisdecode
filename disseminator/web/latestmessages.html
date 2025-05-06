@@ -382,28 +382,29 @@
           options: {
             animation: false,
             maintainAspectRatio: false,
-            scales: {
-              x: {
-                type: 'time',
-                time: {
-                  unit: 'hour',
-                  minUnit: 'second',
-                  displayFormats: {
-                    millisecond: 'HH:mm:ss.SSS',
-                    second:      'HH:mm:ss',
-                    minute:      'HH:mm',
-                    hour:        'yyyy-MM-dd HH:mm',
-                    day:         'yyyy-MM-dd'
-                  },
-                  tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
-                },
-                ticks: {
-                  autoSkip: false,
-                  maxRotation: 0
-                }
-              },
-              y: { beginAtZero: false }
-            },
+	    scales: {
+    	      x: {
+    	    type: 'time',
+    	    time: {
+	      // unit: 'hour',               ← removed!
+	      minUnit: 'second',           // never coarser than seconds
+	      displayFormats: {
+	        millisecond: 'HH:mm:ss.SSS',
+	        second:      'HH:mm:ss',
+	        minute:      'HH:mm',
+	        hour:        'yyyy-MM-dd HH:mm',
+	        day:         'yyyy-MM-dd'
+	      },
+	      tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
+	    },
+	    ticks: {
+	      autoSkip: false,
+	      maxRotation: 0,
+	      maxTicksLimit: 10           // optional: cap total ticks
+	    }
+	  },
+	  y: { beginAtZero: false }
+	},
             interaction: { mode: 'nearest', axis: 'x', intersect: false },
             plugins: {
               tooltip: {
