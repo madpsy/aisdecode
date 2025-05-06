@@ -111,7 +111,8 @@
     // Initialize DataTable with explicit column definitions
     table = $('#stateTable').DataTable({
       responsive: true,
-      pageLength: 100,
+      pageLength: 10,
+      lengthMenu: [ [10, 25, 50, 100], [10, 25, 50, 100] ]
       dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>" +
            "<'row'<'col-sm-12'tr>>" +
            "<'row'<'col-sm-5'i><'col-sm-7'p>>",
