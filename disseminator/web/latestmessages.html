@@ -7,6 +7,7 @@
   <style>
     body { font-family: sans-serif; margin: 2rem; }
     .error { color: red; font-weight: bold; }
+
     .message { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
     .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
     .title-details {
@@ -14,15 +15,27 @@
       margin-top: 0.2rem; margin-bottom: 0.5rem; color: #555;
     }
 
-    .controls { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; margin-bottom: 1rem; font-size: 0.9rem; }
-    .controls label { display: flex; flex-direction: column; flex: 1 1 150px; }
-    .controls select, .controls input { min-width: 100%; }
-    .controls button {
+    .message .time-controls {
+      display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start;
+      margin-bottom: 0.6rem; font-size: 0.9rem;
+    }
+    .message .time-controls label {
+      display: flex; flex-direction: column;
+      flex: 1 1 150px;
+    }
+    .message .time-controls select,
+    .message .time-controls input {
+      min-width: 100%;
+    }
+    .message .time-controls button {
       background: none; border: none;
       font-size: 1.2rem; cursor: pointer;
-      padding: 0.3em 0.6em; transition: opacity 0.2s;
+      flex: 0 0 auto; margin-top: 1.2rem;
+      transition: opacity 0.2s;
     }
-    .controls button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
+    .message .time-controls button:disabled {
+      color: #bbb; cursor: default; opacity: 0.4;
+    }
 
     .nav { display: flex; align-items: center; margin-bottom: 0.8rem; }
     .nav button {
@@ -61,20 +74,27 @@
     <div id="error" class="error"></div>
   </div>
 
-  <div class="message controls">
-    <label>From <input type="datetime-local" id="start"/></label>
-    <label>To   <input type="datetime-local" id="end"/></label>
-    <label>Fields
+  <div class="message time-controls">
+    <label>
+      From
+      <input type="datetime-local" id="start"/>
+    </label>
+    <label>
+      To
+      <input type="datetime-local" id="end"/>
+    </label>
+    <label>
+      Fields
       <select multiple size="4" id="fields"></select>
     </label>
-    <button id="apply">Show Range</button>
+    <button id="apply">Show Range</button>
     <button id="reset">Reset</button>
   </div>
 
   <div id="individual-view">
     <div class="nav">
       <button id="prev">◀️</button>
-      <div class="counter" id="counter">0 of 0</div>
+      <div class="counter" id="counter">0 of 0</div>
       <button id="next">▶️</button>
     </div>
     <div id="single-table"></div>
@@ -86,8 +106,8 @@
   </div>
 
   <script>
-    function qsParam(n) {
-      const v = new URLSearchParams(window.location.search).get(n);
+    function qsParam(name) {
+      const v = new URLSearchParams(window.location.search).get(name);
       return v && /^\d+$/.test(v) ? v : null;
     }
     function flatten(o,p='',out={}) {
@@ -135,7 +155,6 @@
         return;
       }
 
-      // message type lookup
       let typeMap={};
       try{
         typeMap=await (await fetch('/message_types.json',{cache:'no-store'})).json();
@@ -144,7 +163,6 @@
       mainT.textContent=`History for User ${userID}`;
       subT.textContent=`${typeMap[msgID]||'Message '+msgID} (ID ${msgID})`;
 
-      // load last 100
       let allMsgs=[];
       try{
         allMsgs=await (await fetch(
@@ -160,7 +178,6 @@
         return;
       }
 
-      // fields selector
       const firstFlat=flatten(allMsgs[0].Packet),
             numeric=Object.entries(firstFlat)
               .filter(([,v])=>typeof v==='number')
@@ -171,7 +188,6 @@
         o.value=o.textContent=f; fieldsSel.append(o);
       });
 
-      // individual view
       let idx=0;
       const prevB=document.getElementById('prev'),
             nextB=document.getElementById('next'),
@@ -180,7 +196,7 @@
             singleR=document.getElementById('single-raw');
       function renderInd(){
         const m=allMsgs[idx];
-        cnt.textContent=`${idx+1} of ${allMsgs.length}`;
+        cnt.textContent=`${idx+1} of ${allMsgs.length}`;
         singleT.innerHTML=makeSingleHTML(m);
         singleR.textContent=m.RawSentence;
         prevB.disabled=idx===0;
@@ -190,7 +206,6 @@
       nextB.onclick=()=>{ if(idx<allMsgs.length-1){ idx++; renderInd(); } };
       renderInd();
 
-      // range view
       const applyB=document.getElementById('apply'),
             resetB=document.getElementById('reset'),
             indV=document.getElementById('individual-view'),
@@ -214,15 +229,11 @@
         let data=[];
         try{ data=await (await fetch(`/latestmessages?${params}`,{cache:'no-store'})).json(); }
         catch{ alert('Fetch failed'); return; }
-        rngT.innerHTML = data.length
-          ? makeRangeHTML(data,sel)
-          : '<p>No records in that range.</p>';
-
-        // wire up view buttons
+        rngT.innerHTML = data.length ? makeRangeHTML(data,sel) : '<p>No records.</p>';
+        // wire "View" buttons
         rngT.querySelectorAll('button.view').forEach(btn=>{
           btn.onclick=()=> alert(data[btn.dataset.i].RawSentence);
         });
-
         indV.style.display='none';
         rngV.style.display='';
       };
