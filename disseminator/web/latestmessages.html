@@ -106,145 +106,191 @@
   </div>
 
   <script>
+    // Query-string helper
     function qsParam(name) {
       const v = new URLSearchParams(window.location.search).get(name);
       return v && /^\d+$/.test(v) ? v : null;
     }
-    function flatten(o,p='',out={}) {
-      for (const [k,v] of Object.entries(o||{})) {
-        const key = p ? p+'.'+k : k;
-        if (v!=null && typeof v==='object' && !Array.isArray(v)) flatten(v,key,out);
-        else out[key]=v;
-      }
-      return out;
-    }
-    function humanize(f){ return f.replace(/[_\.]/g,' '); }
 
-    function makeSingleHTML(msg){
+    // Flatten nested objects
+    function flatten(obj, prefix = '', res = {}) {
+      for (const [k, v] of Object.entries(obj || {})) {
+        const key = prefix ? `${prefix}.${k}` : k;
+        if (v != null && typeof v === 'object' && !Array.isArray(v)) {
+          flatten(v, key, res);
+        } else {
+          res[key] = v;
+        }
+      }
+      return res;
+    }
+
+    function humanize(field) {
+      return field.replace(/[_\.]/g, ' ');
+    }
+
+    // Make HTML for individual-message table
+    function makeSingleHTML(msg) {
       const flat = flatten(msg.Packet);
-      let h = '<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
-      Object.keys(flat).sort().forEach(k=>{
-        h+=`<tr><td>${humanize(k)}</td><td>${flat[k]}</td></tr>`;
+      let html = '<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
+      Object.keys(flat).sort().forEach(k => {
+        html += `<tr><td>${humanize(k)}</td><td>${flat[k]}</td></tr>`;
       });
-      return h+'</tbody></table>';
+      return html + '</tbody></table>';
     }
 
-    function makeRangeHTML(rows,fields){
-      let h = '<table><thead><tr><th>Timestamp</th>';
-      fields.forEach(f=>h+=`<th>${humanize(f)}</th>`);
-      h+='<th>Sentences</th></tr></thead><tbody>';
-      rows.forEach((r,i)=>{
-        const flat=flatten(r.Packet);
-        h+='<tr>';
-        h+=`<td>${new Date(r.Timestamp).toLocaleString([], {hour12:false})}</td>`;
-        fields.forEach(f=>h+=`<td>${flat[f]!=null?flat[f]:''}</td>`);
-        h+=`<td><button class="view" data-i="${i}">View</button></td>`;
-        h+='</tr>';
+    // Make HTML for range table
+    function makeRangeHTML(rows, fields) {
+      let html = '<table><thead><tr><th>Timestamp</th>';
+      fields.forEach(f => html += `<th>${humanize(f)}</th>`);
+      html += '<th>Sentences</th></tr></thead><tbody>';
+      rows.forEach((r, i) => {
+        const flat = flatten(r.Packet);
+        html += '<tr>';
+        html += `<td>${new Date(r.Timestamp).toLocaleString([], {hour12:false})}</td>`;
+        fields.forEach(f => {
+          html += `<td>${flat[f] != null ? flat[f] : ''}</td>`;
+        });
+        html += `<td><button class="view" data-i="${i}">View</button></td>`;
+        html += '</tr>';
       });
-      return h+'</tbody></table>';
+      return html + '</tbody></table>';
     }
 
-    (async()=>{
-      const userID=qsParam('UserID'), msgID=qsParam('MessageID');
-      const err=document.getElementById('error'),
-            mainT=document.getElementById('main-title'),
-            subT=document.getElementById('sub-title');
-      if(!userID||!msgID){
-        mainT.textContent='Error';
-        err.textContent='URL needs numeric UserID and MessageID.';
+    (async () => {
+      const userID = qsParam('UserID'),
+            msgID  = qsParam('MessageID'),
+            errEl  = document.getElementById('error'),
+            mainT  = document.getElementById('main-title'),
+            subT   = document.getElementById('sub-title');
+
+      if (!userID || !msgID) {
+        mainT.textContent = 'Error';
+        errEl.textContent = 'URL must include numeric UserID and MessageID.';
         return;
       }
 
-      let typeMap={};
-      try{
-        typeMap=await (await fetch('/message_types.json',{cache:'no-store'})).json();
-      }catch{}
-
-      mainT.textContent=`History for User ${userID}`;
-      subT.textContent=`${typeMap[msgID]||'Message '+msgID} (ID ${msgID})`;
-
-      let allMsgs=[];
-      try{
-        allMsgs=await (await fetch(
-          `/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`,
-          {cache:'no-store'}
-        )).json();
-      }catch{
-        err.textContent='Failed to load messages.';
-        return;
-      }
-      if(!allMsgs.length){
-        err.textContent='No messages found.';
-        return;
+      // Fetch vessel name
+      try {
+        const res = await fetch(`/summary?UserID=${userID}`, { cache: 'no-store' });
+        const summary = await res.json();
+        const vessel = summary[userID]?.Name.trim() || userID;
+        mainT.textContent = `History for ${vessel}`;
+      } catch {
+        mainT.textContent = `History for ${userID}`;
       }
 
-      const firstFlat=flatten(allMsgs[0].Packet),
-            numeric=Object.entries(firstFlat)
-              .filter(([,v])=>typeof v==='number')
-              .map(([k])=>k).sort(),
-            fieldsSel=document.getElementById('fields');
-      numeric.forEach(f=>{
-        const o=document.createElement('option');
-        o.value=o.textContent=f; fieldsSel.append(o);
+      // Fetch message types
+      let typeMap = {};
+      try {
+        const r = await fetch('/message_types.json', { cache: 'no-store' });
+        typeMap = await r.json();
+      } catch {}
+
+      subT.textContent = `${typeMap[msgID] || 'Message ' + msgID} (ID ${msgID})`;
+
+      // Fetch last 100 messages
+      let allMsgs = [];
+      try {
+        const r = await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, { cache: 'no-store' });
+        allMsgs = await r.json();
+      } catch {
+        errEl.textContent = 'Failed to load messages.';
+        return;
+      }
+      if (!allMsgs.length) {
+        errEl.textContent = 'No messages found.';
+        return;
+      }
+
+      // Populate numeric fields selector
+      const firstFlat = flatten(allMsgs[0].Packet),
+            numeric   = Object.entries(firstFlat)
+              .filter(([,v]) => typeof v === 'number')
+              .map(([k]) => k)
+              .sort(),
+            fieldsSel = document.getElementById('fields');
+      numeric.forEach(f => {
+        const o = document.createElement('option');
+        o.value = f;
+        o.textContent = humanize(f);
+        fieldsSel.append(o);
       });
 
-      let idx=0;
-      const prevB=document.getElementById('prev'),
-            nextB=document.getElementById('next'),
-            cnt=document.getElementById('counter'),
-            singleT=document.getElementById('single-table'),
-            singleR=document.getElementById('single-raw');
-      function renderInd(){
-        const m=allMsgs[idx];
-        cnt.textContent=`${idx+1} of ${allMsgs.length}`;
-        singleT.innerHTML=makeSingleHTML(m);
-        singleR.textContent=m.RawSentence;
-        prevB.disabled=idx===0;
-        nextB.disabled=idx===allMsgs.length-1;
+      // Individual view setup
+      let idx = 0;
+      const prevB    = document.getElementById('prev'),
+            nextB    = document.getElementById('next'),
+            counter  = document.getElementById('counter'),
+            singleT  = document.getElementById('single-table'),
+            singleR  = document.getElementById('single-raw');
+
+      function renderIndividual() {
+        const msg = allMsgs[idx];
+        counter.textContent = `${idx+1} of ${allMsgs.length}`;
+        singleT.innerHTML   = makeSingleHTML(msg);
+        singleR.textContent = msg.RawSentence;
+        prevB.disabled = idx === 0;
+        nextB.disabled = idx === allMsgs.length - 1;
       }
-      prevB.onclick=()=>{ if(idx>0){ idx--; renderInd(); } };
-      nextB.onclick=()=>{ if(idx<allMsgs.length-1){ idx++; renderInd(); } };
-      renderInd();
+      prevB.onclick = () => idx>0 && (idx--, renderIndividual());
+      nextB.onclick = () => idx<allMsgs.length-1 && (idx++, renderIndividual());
+      renderIndividual();
 
-      const applyB=document.getElementById('apply'),
-            resetB=document.getElementById('reset'),
-            indV=document.getElementById('individual-view'),
-            rngV=document.getElementById('range-view'),
-            rngT=document.getElementById('range-table');
+      // Range view logic
+      const applyB = document.getElementById('apply'),
+            resetB = document.getElementById('reset'),
+            indV   = document.getElementById('individual-view'),
+            rngV   = document.getElementById('range-view'),
+            rngT   = document.getElementById('range-table');
 
-      applyB.onclick=async()=>{
-        const s=document.getElementById('start').value,
-              e=document.getElementById('end').value,
-              sel=Array.from(fieldsSel.selectedOptions).map(o=>o.value);
-        if(!s||!e||!sel.length){
-          alert('Select From, To, and ≥1 field.');
+      applyB.onclick = async () => {
+        const s   = document.getElementById('start').value,
+              e   = document.getElementById('end').value,
+              sel = Array.from(fieldsSel.selectedOptions).map(o => o.value);
+
+        if (!s || !e || !sel.length) {
+          alert('Please select From, To, and at least one field.');
           return;
         }
-        const params=new URLSearchParams({
-          UserID:userID, MessageID:msgID,
-          start:new Date(s).toISOString(),
-          end:  new Date(e).toISOString(),
-          limit:100
+
+        const params = new URLSearchParams({
+          UserID: userID,
+          MessageID: msgID,
+          start: new Date(s).toISOString(),
+          end:   new Date(e).toISOString(),
+          limit: '100'
         });
-        let data=[];
-        try{ data=await (await fetch(`/latestmessages?${params}`,{cache:'no-store'})).json(); }
-        catch{ alert('Fetch failed'); return; }
-        rngT.innerHTML = data.length ? makeRangeHTML(data,sel) : '<p>No records.</p>';
-        // wire "View" buttons
-        rngT.querySelectorAll('button.view').forEach(btn=>{
-          btn.onclick=()=> alert(data[btn.dataset.i].RawSentence);
+
+        let data = [];
+        try {
+          const r = await fetch(`/latestmessages?${params}`, { cache: 'no-store' });
+          data = await r.json();
+        } catch {
+          alert('Failed to fetch range.');
+          return;
+        }
+
+        rngT.innerHTML = data.length
+          ? makeRangeHTML(data, sel)
+          : '<p>No records in that range.</p>';
+
+        // Wire up each "View" button
+        rngT.querySelectorAll('button.view').forEach(btn => {
+          btn.onclick = () => alert(data[btn.dataset.i].RawSentence);
         });
-        indV.style.display='none';
-        rngV.style.display='';
+
+        indV.style.display = 'none';
+        rngV.style.display = '';
       };
 
-      resetB.onclick=()=>{
-        document.getElementById('start').value='';
-        document.getElementById('end').value='';
-        fieldsSel.selectedIndex=-1;
-        rngT.innerHTML='';
-        rngV.style.display='none';
-        indV.style.display='';
+      resetB.onclick = () => {
+        document.getElementById('start').value = '';
+        document.getElementById('end').value   = '';
+        fieldsSel.selectedIndex = -1;
+        rngT.innerHTML = '';
+        rngV.style.display = 'none';
+        indV.style.display = '';
       };
     })();
   </script>
