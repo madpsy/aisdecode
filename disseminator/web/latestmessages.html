@@ -138,21 +138,16 @@
   </div>
 
   <script>
-    // Read numeric query param
     function qsParam(name) {
       const v = new URLSearchParams(window.location.search).get(name);
       return v && /^\d+$/.test(v) ? v : null;
     }
-
-    // Replace URL search and reload
     function setSearch(params) {
       const u = new URL(window.location.href);
       u.search = params.toString();
       window.location.href = u;
     }
-
-    // Deep-flatten packet object
-    function flatten(obj, prefix='', res={}) {
+    function flatten(obj, prefix = '', res = {}) {
       for (const [k, v] of Object.entries(obj || {})) {
         const key = prefix ? `${prefix}.${k}` : k;
         if (v != null && typeof v === 'object' && !Array.isArray(v)) {
@@ -163,15 +158,10 @@
       }
       return res;
     }
+    function humanize(f) { return f.replace(/[_\.]/g, ' '); }
 
-    // Turn snake.case to human text
-    function humanize(field) {
-      return field.replace(/[_\.]/g, ' ');
-    }
-
-    // Build HTML table for single message
-    function makeSingleHTML(msg) {
-      const flat = flatten(msg.Packet);
+    function makeSingleHTML(m) {
+      const flat = flatten(m.Packet);
       let html = '<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
       Object.keys(flat).sort().forEach(k => {
         html += `<tr><td>${humanize(k)}</td><td>${flat[k]}</td></tr>`;
@@ -179,7 +169,6 @@
       return html + '</tbody></table>';
     }
 
-    // Build HTML table for a page of range
     function makeRangeHTML(rows, fields) {
       let html = '<table><thead><tr><th>Timestamp</th>';
       fields.forEach(f => {
@@ -199,7 +188,6 @@
       return html + '</tbody></table>';
     }
 
-    // Generate CSV text
     function toCSV(rows, fields, includeRaw) {
       const header = ['Timestamp', ...fields];
       if (includeRaw) header.push('RawSentence');
@@ -258,7 +246,7 @@
         return;
       }
 
-      // Fetch vessel name
+      // Vessel name
       try {
         const res = await fetch(`/summary?UserID=${userID}`, {cache:'no-store'});
         const summary = await res.json();
@@ -268,7 +256,7 @@
         mainTitle.textContent = `Latest Messages for ${userID}`;
       }
 
-      // Load available message types
+      // Message types
       let available = [];
       try {
         const res = await fetch(`/state/${userID}`, {cache:'no-store'});
@@ -276,13 +264,11 @@
         available = st.MessageTypes || [];
       } catch {}
 
-      // Load translation map
       let typeMap = {};
       try {
         typeMap = await (await fetch('/message_types.json', {cache:'no-store'})).json();
       } catch {}
 
-      // Populate type dropdown
       available.forEach(t => {
         const opt = document.createElement('option');
         opt.value = t;
@@ -298,12 +284,11 @@
         };
       }
 
-      // Subtitle
       if (msgID) {
         subTitle.textContent = `${typeMap[msgID] || 'Message ' + msgID} (ID ${msgID})`;
       }
 
-      // Fetch last 100 for individual view
+      // Individual messages (limit 100)
       let allMsgs = [];
       try {
         allMsgs = await (await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, {cache:'no-store'})).json();
@@ -316,7 +301,7 @@
         return;
       }
 
-      // Fill fields selector
+      // Fields selector
       const firstFlat = flatten(allMsgs[0].Packet);
       const numericFields = Object.entries(firstFlat)
         .filter(([,v]) => typeof v === 'number')
@@ -329,7 +314,7 @@
         fieldsSelect.append(o);
       });
 
-      // Individual view pagination
+      // Individual view
       let idx = 0;
       function renderIndividual() {
         const msg = allMsgs[idx];
@@ -343,22 +328,23 @@
       nextBtn.onclick = () => idx<allMsgs.length-1 && (++idx, renderIndividual());
       renderIndividual();
 
-      // Range + Pagination state
+      // Range and pagination
       let rangeData = [];
       let currentPage = 1;
       let rowsPerPage = parseInt(rowsPerPageSel.value, 10);
+      let selectedFields = [];
 
       function renderPage() {
         const start = (currentPage - 1) * rowsPerPage;
         const end = Math.min(rangeData.length, start + rowsPerPage);
         const pageRows = rangeData.slice(start, end);
-        rangeTable.innerHTML = makeRangeHTML(pageRows, numericFields);
+        rangeTable.innerHTML = makeRangeHTML(pageRows, selectedFields);
         viewInfo.textContent = `Viewing ${start+1}–${end} of ${rangeData.length}`;
         pagePrevBtn.disabled = currentPage === 1;
         pageNextBtn.disabled = end === rangeData.length;
         rangeTable.querySelectorAll('button.view').forEach(btn => {
-          const idxOnPage = parseInt(btn.dataset.i, 10);
-          btn.onclick = () => alert(rangeData[(currentPage-1)*rowsPerPage + idxOnPage].RawSentence);
+          const i = parseInt(btn.dataset.i, 10);
+          btn.onclick = () => alert(rangeData[start + i].RawSentence);
         });
       }
 
@@ -368,24 +354,20 @@
         renderPage();
       };
       pagePrevBtn.onclick = () => {
-        if (currentPage > 1) {
-          currentPage--;
-          renderPage();
-        }
+        if (currentPage > 1) { currentPage--; renderPage(); }
       };
       pageNextBtn.onclick = () => {
         if (currentPage * rowsPerPage < rangeData.length) {
-          currentPage++;
-          renderPage();
+          currentPage++; renderPage();
         }
       };
 
-      // Show Range logic
+      // Show Range
       applyBtn.onclick = async () => {
         const s = startInput.value, e = endInput.value;
-        const sel = Array.from(fieldsSelect.selectedOptions).map(o => o.value);
-        if (!s || !e || !sel.length) {
-          return alert('Please select From, To, and at least one field.');
+        selectedFields = Array.from(fieldsSelect.selectedOptions).map(o => o.value);
+        if (!s || !e || !selectedFields.length) {
+          return alert('Select From, To, and at least one field.');
         }
 
         const params = new URLSearchParams({
@@ -402,9 +384,9 @@
           return alert('Failed to fetch range.');
         }
 
-        // CSV download logic
+        // CSV download
         downloadBtn.onclick = () => {
-          const csv = toCSV(rangeData, sel, includeRawChk.checked);
+          const csv = toCSV(rangeData, selectedFields, includeRawChk.checked);
           const blob = new Blob([csv], { type: 'text/csv' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -414,22 +396,22 @@
           URL.revokeObjectURL(url);
         };
 
-        downloadRow.style.display = '';
+        downloadRow.style.display   = '';
         paginationRow.style.display = '';
         individualDiv.style.display = 'none';
-        rangeDiv.style.display = '';
+        rangeDiv.style.display      = '';
         currentPage = 1;
         renderPage();
       };
 
-      // Reset logic
+      // Reset
       resetBtn.onclick = () => {
         startInput.value = '';
         endInput.value   = '';
         fieldsSelect.selectedIndex = -1;
-        downloadRow.style.display = 'none';
+        downloadRow.style.display   = 'none';
         paginationRow.style.display = 'none';
-        rangeDiv.style.display = 'none';
+        rangeDiv.style.display      = 'none';
         individualDiv.style.display = '';
       };
     })();
