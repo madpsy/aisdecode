@@ -61,17 +61,6 @@
       font-family: monospace;
       white-space: pre-wrap;
     }
-
-    #download-csv {
-      display: none;
-      margin-top: 0.5rem;
-      padding: 0.5rem 1rem;
-      border: 1px solid #ccc;
-      background: #fafafa;
-      cursor: pointer;
-      border-radius: 4px;
-      font-size: 0.9rem;
-    }
   </style>
 </head>
 <body>
@@ -88,15 +77,13 @@
       To
       <input type="datetime-local" id="end"/>
     </label>
-    <label style="flex-basis:100%; margin-top:0.5rem;">
+    <label>
       Fields
       <select multiple size="4" id="fields"></select>
     </label>
     <button id="apply">Show Range</button>
     <button id="reset">Reset</button>
   </div>
-
-  <button id="download-csv">Download CSV</button>
 
   <div id="individual-view">
     <div class="nav">
@@ -160,29 +147,12 @@
       return html + '</tbody></table>';
     }
 
-    // Convert rows+fields to CSV string
-    function toCSV(rows, fields) {
-      const header = ['Timestamp', ...fields];
-      const lines = [header.join(',')];
-      rows.forEach(r => {
-        const flat = flatten(r.Packet);
-        const ts = new Date(r.Timestamp).toISOString();
-        const vals = fields.map(f => {
-          const v = flat[f];
-          return v != null ? `"${String(v).replace(/"/g,'""')}"` : '';
-        });
-        lines.push([ts, ...vals].join(','));
-      });
-      return lines.join('\n');
-    }
-
     (async () => {
       const userID = qsParam('UserID'),
             msgID  = qsParam('MessageID'),
             errEl  = document.getElementById('error'),
             mainT  = document.getElementById('main-title'),
-            subT   = document.getElementById('sub-title'),
-            downloadB = document.getElementById('download-csv');
+            subT   = document.getElementById('sub-title');
 
       if (!userID || !msgID) {
         mainT.textContent = 'Error';
@@ -200,14 +170,14 @@
         mainT.textContent = `Latest Messages for ${userID}`;
       }
 
-      // Message type
+      // Message type title
       let typeMap = {};
       try {
         typeMap = await (await fetch('/message_types.json', { cache: 'no-store' })).json();
       } catch {}
       subT.textContent = `${typeMap[msgID] || 'Message ' + msgID} (ID ${msgID})`;
 
-      // Fetch last 100
+      // Last 100 messages
       let allMsgs = [];
       try {
         allMsgs = await (await fetch(
@@ -223,7 +193,7 @@
         return;
       }
 
-      // Populate fields
+      // Fields selector
       const firstFlat = flatten(allMsgs[0].Packet),
             numeric   = Object.entries(firstFlat)
               .filter(([,v]) => typeof v === 'number')
@@ -294,18 +264,10 @@
           ? makeRangeHTML(data, sel)
           : '<p>No records in that range.</p>';
 
-        // Wire "View" buttons
         rngT.querySelectorAll('button.view').forEach(btn => {
           btn.onclick = () => alert(data[btn.dataset.i].RawSentence);
         });
 
-        // Show download button
-        const csv = toCSV(data, sel);
-        const blob = new Blob([csv], { type: 'text/csv' });
-        downloadB.href = URL.createObjectURL(blob);
-        downloadB.download = `messages_${userID}_${msgID}.csv`;
-        downloadB.style.display = '';
-        
         indV.style.display = 'none';
         rngV.style.display = '';
       };
@@ -315,26 +277,9 @@
         document.getElementById('end').value   = '';
         fieldsSel.selectedIndex = -1;
         rngT.innerHTML = '';
-        downloadB.style.display = 'none';
         rngV.style.display = 'none';
         indV.style.display = '';
       };
-
-      // CSV helper
-      function toCSV(rows, fields) {
-        const header = ['Timestamp', ...fields];
-        const lines = [header.join(',')];
-        rows.forEach(r => {
-          const flat = flatten(r.Packet);
-          const ts = new Date(r.Timestamp).toISOString();
-          const vals = fields.map(f => {
-            const v = flat[f];
-            return v != null ? `"${String(v).replace(/"/g,'""')}"` : '';
-          });
-          lines.push([ts, ...vals].join(','));
-        });
-        return lines.join('\n');
-      }
     })();
   </script>
 </body>
