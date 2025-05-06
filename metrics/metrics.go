@@ -655,51 +655,78 @@ func queryUserIDsTimeSeries(ip *string, interval string, from, to time.Time) ([]
 }
 
 func historicMetricsHandler(w http.ResponseWriter, r *http.Request) {
+    // 1) Parse & validate “from” / “to”
     fromStr, toStr := r.URL.Query().Get("from"), r.URL.Query().Get("to")
     if fromStr == "" || toStr == "" {
         http.Error(w, "missing from/to", http.StatusBadRequest)
         return
     }
     from, err1 := time.Parse(time.RFC3339, fromStr)
-    to, err2 := time.Parse(time.RFC3339, toStr)
+    to, err2   := time.Parse(time.RFC3339, toStr)
     if err1 != nil || err2 != nil || !to.After(from) {
         http.Error(w, "invalid from/to", http.StatusBadRequest)
         return
     }
 
+    // 2) Optional IP filter
     var ipPtr *string
     if ip := r.URL.Query().Get("ip"); ip != "" {
         ipPtr = &ip
     }
 
+    // 3) Choose bucket size
     interval := pickInterval(from, to)
-    series := make(map[string]interface{}, len(metricConfigs))
 
+    // 4) Map your “keys” to the real metric‐tags you wrote
+    alias := map[string]metricConfig{
+        "bytes_forwarded":             {"total_bytes_forwarded",   "SUM",  "int"},
+        "bytes_received":              {"bytes_received",          "SUM",  "int"},
+        "messages":                    {"messages",                "SUM",  "int"},
+        "failures":                    {"failures",                "SUM",  "int"},
+        "unique_mmsi":                 {"unique_mmsi",             "SUM",  "int"},
+        "clients_connected":           {"total_clients",           "LAST", "int"},
+        "alloc_bytes":                 {"alloc_bytes",             "MEAN", "int"},
+        "heap_alloc_bytes":            {"heap_alloc_bytes",        "MEAN", "int"},
+        "sys_bytes":                   {"sys_bytes",               "MEAN", "int"},
+        "num_gc":                      {"num_gc",                  "SUM",  "int"},
+        "ratio_forwarded_to_received": {"ratio_forwarded_to_received","MEAN","float"},
+        "window_unique_uids":          {"window_unique_uids",      "MEAN", "float"},
+        // leave bytes_per_sec, msgs_per_sec, dedup_per_sec, etc. out
+        // until you either write them or compute via DERIVATIVE()
+    }
+
+    // 5) Build the response series
+    series := make(map[string]interface{}, len(metricConfigs))
     for _, cfg := range metricConfigs {
-        // Special-case window_user_ids → comes from metrics_user_ids.uids
+        // pick the real tag-config
+        realCfg, ok := alias[cfg.Key]
+        if !ok && cfg.Key != "window_user_ids" {
+            // no data was ever written under this logical key
+            series[cfg.Key] = nil
+            continue
+        }
+
+        // UID‐lists are in their own measurement:
         if cfg.Key == "window_user_ids" {
             pts, err := queryUserIDsTimeSeries(ipPtr, interval, from, to)
             if err != nil {
                 http.Error(w, err.Error(), http.StatusInternalServerError)
                 return
             }
-            if pts != nil {
-                series[cfg.Key] = pts
-            }
+            series[cfg.Key] = pts
             continue
         }
 
-        // All other metrics still come from "metrics.value"
-        pts, err := queryTimeSeriesGeneric(cfg, ipPtr, interval, from, to)
+        // everything else comes from “metrics”:
+        pts, err := queryTimeSeriesGeneric(realCfg, ipPtr, interval, from, to)
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
         }
-        if pts != nil {
-            series[cfg.Key] = pts
-        }
+        series[cfg.Key] = pts  // slice or nil
     }
 
+    // 6) JSON encode
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(struct {
         IP       *string                `json:"ip,omitempty"`
