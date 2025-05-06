@@ -1422,13 +1422,15 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         buf.Reset()
         json.NewEncoder(buf).Encode(streamObj)
         out := buf.Bytes()
-        jsonBufPool.Put(buf)
 
         // ── MQTT ───────────────────────────────────────────────────────────────
         if mqttClient != nil && mqttClient.IsConnected() {
             topic := fmt.Sprintf("%s/%d/%s/%s/message", mqttTopic, shardID, userID, msgID)
+            // make a private copy of the buffer bytes to avoid mutation races
+            payload := make([]byte, len(out))
+            copy(payload, out)
             var mqttMap map[string]interface{}
-            if err := json.Unmarshal(out, &mqttMap); err == nil {
+            if err := json.Unmarshal(payload, &mqttMap); err == nil {
                 delete(mqttMap, "source_ip")
                 if mqttBuf, err := json.Marshal(mqttMap); err == nil {
                     token := mqttClient.Publish(topic, 0, false, mqttBuf)
@@ -1458,6 +1460,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         clientsMu.Unlock()
 
         // ── Cleanup ────────────────────────────────────────────────────────────
+	jsonBufPool.Put(buf)
         original := pkt.raw[:cap(pkt.raw)]
         bufPool.Put(original)
         pkt.raw = nil
