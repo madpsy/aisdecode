@@ -2214,71 +2214,15 @@ function isVesselVisibleByAge(vessel) {
 
 function attachMessageTypeClicks() {
   document.querySelectorAll('#detail-content .msg-type').forEach(el => {
-    el.addEventListener('click', async (e) => {
+    el.addEventListener('click', e => {
       e.stopPropagation();
-
-      const userID   = focusedVessel;
-      const rawType  = el.dataset.type;
-      const friendly = messageTypeNames[rawType] || `Unknown (${rawType})`;
-
-      try {
-        const resp = await fetch(`/latestmessages?UserID=${userID}&MessageID=${rawType}`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const [msg] = await resp.json();
-
-        // Convert timestamp
-        const localTs    = new Date(msg.Timestamp).toLocaleString();
-        const packetJson = JSON.stringify(msg.Packet, null, 2);
-
-        // Create or get overlay container
-        let lm = document.getElementById('latest-message-overlay');
-        if (!lm) {
-          lm = document.createElement('div');
-          lm.id = 'latest-message-overlay';
-          document.body.appendChild(lm);
-        }
-        lm.innerHTML    = '';
-        lm.style.display = 'block';
-
-        // Header (flex layout for left/right)
-        const header = document.createElement('div');
-        header.className = 'lm-header';
-        header.style.display        = 'flex';
-        header.style.justifyContent = 'space-between';
-        header.style.alignItems     = 'center';
-        header.innerHTML = `<strong>Message ${rawType}: ${friendly}</strong>`;
-
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'lm-close';
-        closeBtn.textContent = '✕';
-        closeBtn.onclick = () => { lm.style.display = 'none'; };
-
-        header.appendChild(closeBtn);
-        lm.appendChild(header);
-
-        // Timestamp
-        const tsDiv = document.createElement('div');
-        tsDiv.textContent = localTs;
-        lm.appendChild(tsDiv);
-
-        // Packet JSON block
-        const prePkt = document.createElement('pre');
-        const codePkt = document.createElement('code');
-        codePkt.textContent = packetJson;
-        prePkt.appendChild(codePkt);
-        lm.appendChild(prePkt);
-
-        // Raw AIS sentence block
-        const preRaw = document.createElement('pre');
-        const codeRaw = document.createElement('code');
-        codeRaw.textContent = msg.RawSentence;
-        preRaw.appendChild(codeRaw);
-        lm.appendChild(preRaw);
-
-      } catch (err) {
-        console.error('Failed to load latest message:', err);
-        showFlashMessage('Error loading message', el);
-      }
+      const rawType = el.dataset.type;
+      // Open new page instead of inline overlay
+      window.open(
+        `/latestmessages.html?UserID=${focusedVessel}&MessageID=${rawType}`,
+        '_blank',
+        'width=600,height=800'
+      );
     });
   });
 }
