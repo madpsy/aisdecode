@@ -598,49 +598,64 @@ func queryTimeSeriesGeneric(cfg metricConfig, ip *string, interval string, from,
 }
 
 func historicMetricsHandler(w http.ResponseWriter, r *http.Request) {
-	fromStr, toStr := r.URL.Query().Get("from"), r.URL.Query().Get("to")
-	if fromStr == "" || toStr == "" {
-		http.Error(w, "missing from/to", http.StatusBadRequest)
-		return
-	}
-	from, err1 := time.Parse(time.RFC3339, fromStr)
-	to, err2 := time.Parse(time.RFC3339, toStr)
-	if err1 != nil || err2 != nil || !to.After(from) {
-		http.Error(w, "invalid from/to", http.StatusBadRequest)
-		return
-	}
+    fromStr, toStr := r.URL.Query().Get("from"), r.URL.Query().Get("to")
+    if fromStr == "" || toStr == "" {
+        http.Error(w, "missing from/to", http.StatusBadRequest)
+        return
+    }
+    from, err1 := time.Parse(time.RFC3339, fromStr)
+    to, err2 := time.Parse(time.RFC3339, toStr)
+    if err1 != nil || err2 != nil || !to.After(from) {
+        http.Error(w, "invalid from/to", http.StatusBadRequest)
+        return
+    }
 
-	var ipPtr *string
-	if ip := r.URL.Query().Get("ip"); ip != "" {
-		ipPtr = &ip
-	}
+    var ipPtr *string
+    if ip := r.URL.Query().Get("ip"); ip != "" {
+        ipPtr = &ip
+    }
 
-	interval := pickInterval(from, to)
+    interval := pickInterval(from, to)
+    series := make(map[string]interface{}, len(metricConfigs))
 
-	series := make(map[string]interface{}, len(metricConfigs))
-	for _, cfg := range metricConfigs {
-		pts, err := queryTimeSeriesGeneric(cfg, ipPtr, interval, from, to)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if pts != nil {
-			series[cfg.Key] = pts
-		}
-	}
+    for _, cfg := range metricConfigs {
+        var pts interface{}
+        var err error
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(struct {
-		IP       *string                `json:"ip,omitempty"`
-		From     time.Time              `json:"from"`
-		To       time.Time              `json:"to"`
-		Interval string                 `json:"interval"`
-		Series   map[string]interface{} `json:"series"`
-	}{
-		IP:       ipPtr,
-		From:     from,
-		To:       to,
-		Interval: interval,
-		Series:   series,
-	})
+        if cfg.Key == "window_user_ids" {
+            // special-case: read from the new measurement+field
+            fakeCfg := metricConfig{
+                Key:       "metrics_user_ids",
+                Func:      "LAST",
+                ValueType: "string",
+            }
+            pts, err = queryTimeSeriesGeneric(fakeCfg, ipPtr, interval, from, to)
+        } else {
+            // all other metrics still come from "metrics"
+            pts, err = queryTimeSeriesGeneric(cfg, ipPtr, interval, from, to)
+        }
+
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        if pts != nil {
+            series[cfg.Key] = pts
+        }
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(struct {
+        IP       *string                `json:"ip,omitempty"`
+        From     time.Time              `json:"from"`
+        To       time.Time              `json:"to"`
+        Interval string                 `json:"interval"`
+        Series   map[string]interface{} `json:"series"`
+    }{
+        IP:       ipPtr,
+        From:     from,
+        To:       to,
+        Interval: interval,
+        Series:   series,
+    })
 }
