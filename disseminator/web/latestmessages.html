@@ -8,12 +8,8 @@
     body { font-family: sans-serif; margin: 2rem; }
     .error { color: red; font-weight: bold; }
 
-    .message { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
-    .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
-    .title-details {
-      font-weight: normal; font-size: 0.9rem;
-      margin-top: 0.2rem; margin-bottom: 0.5rem; color: #555;
-    }
+    h1 { font-size: 1.6rem; margin-bottom: 0.2rem; }
+    h2 { font-size: 1rem; color: #555; margin-top: 0; margin-bottom: 1rem; }
 
     .message .time-controls {
       display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start;
@@ -68,11 +64,9 @@
   </style>
 </head>
 <body>
-  <div class="message">
-    <div class="title" id="main-title">Loading…</div>
-    <div class="title-details" id="sub-title"></div>
-    <div id="error" class="error"></div>
-  </div>
+  <h1 id="main-title">Loading…</h1>
+  <h2 id="sub-title"></h2>
+  <div id="error" class="error"></div>
 
   <div class="message time-controls">
     <label>
@@ -106,13 +100,11 @@
   </div>
 
   <script>
-    // Query-string helper
     function qsParam(name) {
       const v = new URLSearchParams(window.location.search).get(name);
       return v && /^\d+$/.test(v) ? v : null;
     }
 
-    // Flatten nested objects
     function flatten(obj, prefix = '', res = {}) {
       for (const [k, v] of Object.entries(obj || {})) {
         const key = prefix ? `${prefix}.${k}` : k;
@@ -129,7 +121,6 @@
       return field.replace(/[_\.]/g, ' ');
     }
 
-    // Make HTML for individual-message table
     function makeSingleHTML(msg) {
       const flat = flatten(msg.Packet);
       let html = '<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
@@ -139,7 +130,6 @@
       return html + '</tbody></table>';
     }
 
-    // Make HTML for range table
     function makeRangeHTML(rows, fields) {
       let html = '<table><thead><tr><th>Timestamp</th>';
       fields.forEach(f => html += `<th>${humanize(f)}</th>`);
@@ -170,30 +160,30 @@
         return;
       }
 
-      // Fetch vessel name
+      // Vessel name
       try {
-        const res = await fetch(`/summary?UserID=${userID}`, { cache: 'no-store' });
-        const summary = await res.json();
+        const r = await fetch(`/summary?UserID=${userID}`, { cache: 'no-store' });
+        const summary = await r.json();
         const vessel = summary[userID]?.Name.trim() || userID;
-        mainT.textContent = `History for ${vessel}`;
+        mainT.textContent = `Latest Messages for ${vessel}`;
       } catch {
-        mainT.textContent = `History for ${userID}`;
+        mainT.textContent = `Latest Messages for ${userID}`;
       }
 
-      // Fetch message types
+      // Message type title
       let typeMap = {};
       try {
-        const r = await fetch('/message_types.json', { cache: 'no-store' });
-        typeMap = await r.json();
+        typeMap = await (await fetch('/message_types.json', { cache: 'no-store' })).json();
       } catch {}
-
       subT.textContent = `${typeMap[msgID] || 'Message ' + msgID} (ID ${msgID})`;
 
-      // Fetch last 100 messages
+      // Last 100 messages
       let allMsgs = [];
       try {
-        const r = await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, { cache: 'no-store' });
-        allMsgs = await r.json();
+        allMsgs = await (await fetch(
+          `/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`,
+          { cache: 'no-store' }
+        )).json();
       } catch {
         errEl.textContent = 'Failed to load messages.';
         return;
@@ -203,7 +193,7 @@
         return;
       }
 
-      // Populate numeric fields selector
+      // Fields selector
       const firstFlat = flatten(allMsgs[0].Packet),
             numeric   = Object.entries(firstFlat)
               .filter(([,v]) => typeof v === 'number')
@@ -217,13 +207,13 @@
         fieldsSel.append(o);
       });
 
-      // Individual view setup
+      // Individual view
       let idx = 0;
-      const prevB    = document.getElementById('prev'),
-            nextB    = document.getElementById('next'),
-            counter  = document.getElementById('counter'),
-            singleT  = document.getElementById('single-table'),
-            singleR  = document.getElementById('single-raw');
+      const prevB   = document.getElementById('prev'),
+            nextB   = document.getElementById('next'),
+            counter = document.getElementById('counter'),
+            singleT = document.getElementById('single-table'),
+            singleR = document.getElementById('single-raw');
 
       function renderIndividual() {
         const msg = allMsgs[idx];
@@ -264,8 +254,7 @@
 
         let data = [];
         try {
-          const r = await fetch(`/latestmessages?${params}`, { cache: 'no-store' });
-          data = await r.json();
+          data = await (await fetch(`/latestmessages?${params}`, { cache: 'no-store' })).json();
         } catch {
           alert('Failed to fetch range.');
           return;
@@ -275,7 +264,6 @@
           ? makeRangeHTML(data, sel)
           : '<p>No records in that range.</p>';
 
-        // Wire up each "View" button
         rngT.querySelectorAll('button.view').forEach(btn => {
           btn.onclick = () => alert(data[btn.dataset.i].RawSentence);
         });
