@@ -266,98 +266,121 @@ func metricsIngesterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeMetricsToInfluxDB(metrics interface{}) error {
-	blob, err := json.Marshal(metrics)
-	if err != nil {
-		return err
-	}
-	var full FullMetrics
-	if err := json.Unmarshal(blob, &full); err != nil {
-		return err
-	}
+    // Marshal back into our FullMetrics struct
+    blob, err := json.Marshal(metrics)
+    if err != nil {
+        return err
+    }
+    var full FullMetrics
+    if err := json.Unmarshal(blob, &full); err != nil {
+        return err
+    }
 
-	bp, err := client.NewBatchPoints(client.BatchPointsConfig{
-		Database: settings.InfluxDB,
-	})
-	if err != nil {
-		return err
-	}
+    // Prepare a new batch
+    bp, err := client.NewBatchPoints(client.BatchPointsConfig{
+        Database: settings.InfluxDB,
+    })
+    if err != nil {
+        return err
+    }
 
-	add := func(tags map[string]string, fields map[string]interface{}) {
-		pt, err := client.NewPoint("metrics", tags, fields, time.Now())
-		if err != nil {
-			log.Printf("Point error tags=%v fields=%v: %v", tags, fields, err)
-			return
-		}
-		bp.AddPoint(pt)
-	}
+    // Helper to add numeric points into "metrics" measurement
+    add := func(tags map[string]string, fields map[string]interface{}) {
+        pt, err := client.NewPoint("metrics", tags, fields, time.Now())
+        if err != nil {
+            log.Printf("Point error tags=%v fields=%v: %v", tags, fields, err)
+            return
+        }
+        bp.AddPoint(pt)
+    }
 
-	// Per-source, windowed, per-message, totals & uptime
-	for _, m := range full.BytesReceivedBySource {
-		add(map[string]string{"source_ip": m.SourceIP, "metric": "bytes_received"},
-			map[string]interface{}{"value": m.Count})
-	}
-	for _, m := range full.FailuresBySource {
-		add(map[string]string{"source_ip": m.SourceIP, "metric": "failures"},
-			map[string]interface{}{"value": m.Count})
-	}
-	for _, m := range full.MessagesBySource {
-		add(map[string]string{"source_ip": m.SourceIP, "metric": "messages"},
-			map[string]interface{}{"value": m.Count})
-	}
-	for _, m := range full.UniqueMMSIBySource {
-		add(map[string]string{"source_ip": m.SourceIP, "metric": "unique_mmsi"},
-			map[string]interface{}{"value": m.Count})
-	}
+    // --- Per-source counts ---
+    for _, m := range full.BytesReceivedBySource {
+        add(map[string]string{"source_ip": m.SourceIP, "metric": "bytes_received"},
+            map[string]interface{}{"value": m.Count})
+    }
+    for _, m := range full.FailuresBySource {
+        add(map[string]string{"source_ip": m.SourceIP, "metric": "failures"},
+            map[string]interface{}{"value": m.Count})
+    }
+    for _, m := range full.MessagesBySource {
+        add(map[string]string{"source_ip": m.SourceIP, "metric": "messages"},
+            map[string]interface{}{"value": m.Count})
+    }
+    for _, m := range full.UniqueMMSIBySource {
+        add(map[string]string{"source_ip": m.SourceIP, "metric": "unique_mmsi"},
+            map[string]interface{}{"value": m.Count})
+    }
 
-	for ip, v := range full.WindowBytesBySource {
-		add(map[string]string{"source_ip": ip, "metric": "window_bytes"},
-			map[string]interface{}{"value": v})
-	}
-	for ip, v := range full.WindowMessagesBySource {
-		add(map[string]string{"source_ip": ip, "metric": "window_messages"},
-			map[string]interface{}{"value": v})
-	}
-	for ip, v := range full.WindowUniqueUIDsBySource {
-		add(map[string]string{"source_ip": ip, "metric": "window_unique_uids"},
-			map[string]interface{}{"value": v})
-	}
-	for ip, uids := range full.WindowUserIDsBySource {
-		add(map[string]string{"source_ip": ip, "metric": "window_user_ids"},
-			map[string]interface{}{"value": strings.Join(uids, ",")})
-	}
+    // --- Windowed counts ---
+    for ip, v := range full.WindowBytesBySource {
+        add(map[string]string{"source_ip": ip, "metric": "window_bytes"},
+            map[string]interface{}{"value": v})
+    }
+    for ip, v := range full.WindowMessagesBySource {
+        add(map[string]string{"source_ip": ip, "metric": "window_messages"},
+            map[string]interface{}{"value": v})
+    }
+    for ip, v := range full.WindowUniqueUIDsBySource {
+        add(map[string]string{"source_ip": ip, "metric": "window_unique_uids"},
+            map[string]interface{}{"value": v})
+    }
 
-	for ip, v := range full.PerDeduplicatedSource {
-		add(map[string]string{"source_ip": ip, "metric": "per_deduplicated"},
-			map[string]interface{}{"value": v})
-	}
-	for mid, v := range full.PerDownsampledMessageID {
-		add(map[string]string{"message_id": mid, "metric": "per_downsampled_message_id"},
-			map[string]interface{}{"value": v})
-	}
-	for mid, v := range full.PerMessageID {
-		add(map[string]string{"message_id": mid, "metric": "per_message_id"},
-			map[string]interface{}{"value": v})
-	}
+    // --- Deduplicated / per-message counts ---
+    for ip, v := range full.PerDeduplicatedSource {
+        add(map[string]string{"source_ip": ip, "metric": "per_deduplicated"},
+            map[string]interface{}{"value": v})
+    }
+    for mid, v := range full.PerDownsampledMessageID {
+        add(map[string]string{"message_id": mid, "metric": "per_downsampled_message_id"},
+            map[string]interface{}{"value": v})
+    }
+    for mid, v := range full.PerMessageID {
+        add(map[string]string{"message_id": mid, "metric": "per_message_id"},
+            map[string]interface{}{"value": v})
+    }
 
-	for _, t := range []struct{ metric string; value int }{
-		{"total_bytes_forwarded", full.TotalBytesForwarded},
-		{"total_bytes_received", full.TotalBytesReceived},
-		{"total_failures", full.TotalFailures},
-		{"total_messages", full.TotalMessages},
-		{"total_messages_forwarded", full.TotalMessagesForwarded},
-		{"uptime_seconds", full.UptimeSeconds},
-		{"total_clients", full.TotalClients},
-	} {
-		add(map[string]string{"metric": t.metric}, map[string]interface{}{"value": t.value})
-	}
+    // --- Totals & uptime & clients ---
+    totals := []struct {
+        metric string
+        value  int
+    }{
+        {"total_bytes_forwarded", full.TotalBytesForwarded},
+        {"total_bytes_received", full.TotalBytesReceived},
+        {"total_failures", full.TotalFailures},
+        {"total_messages", full.TotalMessages},
+        {"total_messages_forwarded", full.TotalMessagesForwarded},
+        {"uptime_seconds", full.UptimeSeconds},
+        {"total_clients", full.TotalClients},
+    }
+    for _, t := range totals {
+        add(map[string]string{"metric": t.metric}, map[string]interface{}{"value": t.value})
+    }
 
-	// Memory stats
-	add(map[string]string{"metric": "alloc_bytes"}, map[string]interface{}{"value": full.MemoryStats.AllocBytes})
-	add(map[string]string{"metric": "heap_alloc_bytes"}, map[string]interface{}{"value": full.MemoryStats.HeapAllocBytes})
-	add(map[string]string{"metric": "sys_bytes"}, map[string]interface{}{"value": full.MemoryStats.SysBytes})
-	add(map[string]string{"metric": "num_gc"}, map[string]interface{}{"value": full.MemoryStats.NumGC})
+    // --- Memory stats ---
+    add(map[string]string{"metric": "alloc_bytes"}, map[string]interface{}{"value": full.MemoryStats.AllocBytes})
+    add(map[string]string{"metric": "heap_alloc_bytes"}, map[string]interface{}{"value": full.MemoryStats.HeapAllocBytes})
+    add(map[string]string{"metric": "sys_bytes"}, map[string]interface{}{"value": full.MemoryStats.SysBytes})
+    add(map[string]string{"metric": "num_gc"}, map[string]interface{}{"value": full.MemoryStats.NumGC})
 
-	return influxClient.Write(bp)
+    // --- Windowed UID lists into separate measurement ---
+    for ip, uids := range full.WindowUserIDsBySource {
+        idList := strings.Join(uids, ",")
+        pt, err := client.NewPoint(
+            "metrics_user_ids",               // new measurement
+            map[string]string{"source_ip": ip},
+            map[string]interface{}{"uids": idList}, // string field
+            time.Now(),
+        )
+        if err != nil {
+            log.Printf("Point error for metrics_user_ids: %v", err)
+        } else {
+            bp.AddPoint(pt)
+        }
+    }
+
+    // Write all points in one batch
+    return influxClient.Write(bp)
 }
 
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
