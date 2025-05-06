@@ -1368,7 +1368,7 @@ func handleSummaryRequest(client *serverSocket.Socket, data map[string]interface
 
 func userStateHandler(w http.ResponseWriter, r *http.Request) {
     // 1) Parse & validate userID from query string
-    idStr := r.URL.Query().Get("userID")
+    idStr := r.URL.Query().Get("UserID")
     if idStr == "" {
         http.Error(w, "Missing userID query parameter", http.StatusBadRequest)
         return
