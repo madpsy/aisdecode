@@ -1367,17 +1367,26 @@ func handleSummaryRequest(client *serverSocket.Socket, data map[string]interface
 }
 
 func userStateHandler(w http.ResponseWriter, r *http.Request) {
-    // Extract UserID from URL
-    userID := r.URL.Path[len("/state/"):]
+    // 1) Parse & validate userID from query string
+    idStr := r.URL.Query().Get("userID")
+    if idStr == "" {
+        http.Error(w, "Missing userID query parameter", http.StatusBadRequest)
+        return
+    }
+    userID, err := strconv.ParseInt(idStr, 10, 64)
+    if err != nil || userID <= 0 {
+        http.Error(w, "Invalid userID", http.StatusBadRequest)
+        return
+    }
 
-   // Modify the SQL query to include the 'count' column and fetch unique message_ids using ARRAY_AGG
-   query := fmt.Sprintf(`
+    // 2) Build the SQL with %d so we get "... WHERE s.user_id = 123;"
+    query := fmt.Sprintf(`
 WITH msg_types AS (
   SELECT
     user_id,
     ARRAY_AGG(DISTINCT message_id) AS message_types
   FROM messages
-  WHERE user_id = '%[1]s'
+  WHERE user_id = %d
   GROUP BY user_id
 )
 SELECT
@@ -1391,89 +1400,81 @@ SELECT
 FROM state AS s
 LEFT JOIN msg_types AS mt
   ON s.user_id = mt.user_id
-WHERE s.user_id = '%[1]s';
-   `, userID)
+WHERE s.user_id = %d;
+`, userID, userID)
 
-    // Query the database for the specific user state and message_ids
-    rows, err := QueryDatabaseForUser(userID, query)
+    // 3) Run the query (still routed to the correct shard by passing the ID string)
+    rows, err := QueryDatabaseForUser(strconv.FormatInt(userID, 10), query)
     if err != nil {
         http.Error(w, fmt.Sprintf("Error querying database: %v", err), http.StatusInternalServerError)
         return
     }
     defer rows.Close()
 
-    // Create a map to hold the merged results
-    mergedResults := make(map[string]interface{})
-
-    // Read the result and add packet data to mergedResults map
-    var packetData map[string]interface{}
+    // 4) Merge results into one packet‐map
+    merged := make(map[string]interface{})
     for rows.Next() {
-	var packet, timestamp, aisClass string
-	var count int
-	var dbName sql.NullString
-	var dbImageURL sql.NullString
-	var messageTypes pq.StringArray
-
-        // Scan the result into the respective variables
-        if err := rows.Scan(&packet, &timestamp, &aisClass, &count, &dbName, &dbImageURL, &messageTypes); err != nil {
+        var (
+            packetJSON   []byte
+            ts           string
+            aisClass     string
+            count        int
+            dbName       sql.NullString
+            dbImageURL   sql.NullString
+            messageTypes pq.StringArray
+        )
+        if err := rows.Scan(&packetJSON, &ts, &aisClass, &count, &dbName, &dbImageURL, &messageTypes); err != nil {
             http.Error(w, fmt.Sprintf("Error scanning result: %v", err), http.StatusInternalServerError)
             return
         }
 
-        // Unmarshal the packet into a map
-        if err := json.Unmarshal([]byte(packet), &packetData); err != nil {
+        // Unmarshal the raw JSON packet
+        packetData := make(map[string]interface{})
+        if err := json.Unmarshal(packetJSON, &packetData); err != nil {
             http.Error(w, fmt.Sprintf("Error unmarshalling packet data: %v", err), http.StatusInternalServerError)
             return
         }
 
+        // Assemble/override fields
         if ext, ok := packetData["NameExtension"].(string); ok && ext != "" {
-           base := ""
-           if b, ok2 := packetData["Name"].(string); ok2 {
-               base = b
-           }
-           packetData["Name"] = base + ext
-       }
-       delete(packetData, "NameExtension")
+            base := ""
+            if b, ok2 := packetData["Name"].(string); ok2 {
+                base = b
+            }
+            packetData["Name"] = base + ext
+        }
+        delete(packetData, "NameExtension")
 
-    	if _, exists := packetData["TrueHeading"]; exists {
-             if getFieldFloat(packetData, "TrueHeading") == NoTrueHeading {
-        	delete(packetData, "TrueHeading")
-	     }
-	}
+        // Drop sentinel TrueHeading
+        if getFieldFloat(packetData, "TrueHeading") == NoTrueHeading {
+            delete(packetData, "TrueHeading")
+        }
 
-        // Add AISClass, LastUpdated, NumMessages, and MessageTypes to the packet data
         packetData["AISClass"]    = aisClass
-        packetData["LastUpdated"] = timestamp
+        packetData["LastUpdated"] = ts
         packetData["NumMessages"] = count
         packetData["MessageTypes"] = messageTypes
 
-        // override Name from DB if present
         if dbName.Valid && dbName.String != "" {
             packetData["Name"] = dbName.String
         }
-        // add ImageURL from DB if present
         if dbImageURL.Valid {
             packetData["ImageURL"] = dbImageURL.String
         }
-        // default Name to AISClass + " Class" if empty
-        if nm, ok := packetData["Name"].(string); !ok || nm == "" {
-            if classVal, ok := packetData["AISClass"].(string); ok {
-                packetData["Name"] = fmt.Sprintf("%s (%s)", classVal, userID)
-            }
+
+        if name, ok := packetData["Name"].(string); !ok || name == "" {
+            packetData["Name"] = fmt.Sprintf("%s (%d)", aisClass, userID)
         }
 
-        // Set the packet data directly as the response
-        mergedResults = packetData
+        merged = packetData
     }
 
-    // Send the response as JSON
+    // 5) Return as JSON
     w.Header().Set("Content-Type", "application/json")
-    if err := json.NewEncoder(w).Encode(mergedResults); err != nil {
+    if err := json.NewEncoder(w).Encode(merged); err != nil {
         http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
     }
 }
-
-
 
 // Utility function to handle debug logging
 func logWithDebug(debug bool, format string, args ...interface{}) {
