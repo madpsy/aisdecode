@@ -82,10 +82,16 @@ type Aggregated struct {
 }
 
 type ResponseMetrics struct {
-	IPAddress       string        `json:"ip_address"`
-	SimpleMetrics                // real-time
-	Aggregated     Aggregated    `json:"aggregated"`
-	WindowUserIDs  []string      `json:"window_user_ids"`
+	IPAddress      string        `json:"ip_address"`
+	SimpleMetrics               // real-time
+	Aggregated    Aggregated    `json:"aggregated"`
+	WindowUserIDs []string      `json:"window_user_ids"`
+}
+
+// New types for historic endpoint
+type HistoricSeriesPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Value     int64     `json:"value"`
 }
 
 var (
@@ -133,6 +139,7 @@ func main() {
 	// HTTP handlers
 	http.HandleFunc("/metrics/ingester", metricsIngesterHandler)
 	http.HandleFunc("/metrics/bysource", handleMetricsBySource)
+	http.HandleFunc("/metrics/historic", historicMetricsHandler)
 	http.Handle("/metrics/", http.StripPrefix("/metrics/", http.FileServer(http.Dir("web"))))
 
 	// Serve
@@ -149,6 +156,8 @@ func ensureDatabase(db string) error {
 	}
 	return resp.Error()
 }
+
+// ingestMetricsLoop and writeMetricsToInfluxDB unchanged from original…
 
 func ingestMetricsLoop() {
 	httpClient := &http.Client{Timeout: 5 * time.Second}
@@ -221,7 +230,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 		bp.AddPoint(pt)
 	}
 
-	// --- Per-source ---
+	// Per‑source, windowed, per‑message, totals & uptime (same as original)…
 	for _, m := range full.BytesReceivedBySource {
 		add(map[string]string{"source_ip": m.SourceIP, "metric": "bytes_received"},
 			map[string]interface{}{"value": m.Count})
@@ -239,7 +248,6 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 			map[string]interface{}{"value": m.Count})
 	}
 
-	// --- Windowed per-source ---
 	for ip, v := range full.WindowBytesBySource {
 		add(map[string]string{"source_ip": ip, "metric": "window_bytes"},
 			map[string]interface{}{"value": v})
@@ -253,13 +261,10 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 			map[string]interface{}{"value": v})
 	}
 
-	// --- Deduplicated per-source ---
 	for ip, v := range full.PerDeduplicatedSource {
 		add(map[string]string{"source_ip": ip, "metric": "per_deduplicated"},
 			map[string]interface{}{"value": v})
 	}
-
-	// --- Per-message ID ---
 	for mid, v := range full.PerDownsampledMessageID {
 		add(map[string]string{"message_id": mid, "metric": "per_downsampled_message_id"},
 			map[string]interface{}{"value": v})
@@ -269,11 +274,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 			map[string]interface{}{"value": v})
 	}
 
-	// --- Totals & Uptime ---
-	for _, t := range []struct {
-		metric string
-		value  int
-	}{
+	for _, t := range []struct{ metric string; value int }{
 		{"total_bytes_forwarded", full.TotalBytesForwarded},
 		{"total_bytes_received", full.TotalBytesReceived},
 		{"total_failures", full.TotalFailures},
@@ -351,10 +352,10 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := ResponseMetrics{
-		IPAddress:       ip,
-		SimpleMetrics:   rt,
-		Aggregated:      agg,
-		WindowUserIDs:   windowIDs,
+		IPAddress:      ip,
+		SimpleMetrics:  rt,
+		Aggregated:     agg,
+		WindowUserIDs:  windowIDs,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -371,12 +372,10 @@ func queryAggregates(ip string) Aggregated {
 		{"messages",      "1m", func(v int) { a.MessagesMinute = v }},
 		{"failures",      "1m", func(v int) { a.FailuresMinute = v }},
 		{"unique_mmsi",   "1m", func(v int) { a.UniqueMMSIMinute = v }},
-
 		{"bytes_received", "1h", func(v int) { a.BytesReceivedHour = v }},
 		{"messages",      "1h", func(v int) { a.MessagesHour = v }},
 		{"failures",      "1h", func(v int) { a.FailuresHour = v }},
 		{"unique_mmsi",   "1h", func(v int) { a.UniqueMMSIHour = v }},
-
 		{"bytes_received", "24h", func(v int) { a.BytesReceivedDay = v }},
 		{"messages",      "24h", func(v int) { a.MessagesDay = v }},
 		{"failures",      "24h", func(v int) { a.FailuresDay = v }},
@@ -401,4 +400,111 @@ func queryAggregates(ip string) Aggregated {
 	}
 
 	return a
+}
+
+// ---- New helper & handler for historic data ----
+
+func pickInterval(from, to time.Time) string {
+	diff := to.Sub(from)
+	switch {
+	case diff <= 2*time.Hour:
+		return "1m"
+	case diff <= 48*time.Hour:
+		return "1h"
+	default:
+		return "24h"
+	}
+}
+
+func queryTimeSeries(ip *string, field, interval string, from, to time.Time) ([]HistoricSeriesPoint, error) {
+	var where []string
+	where = append(where, fmt.Sprintf("time >= '%s' AND time <= '%s'",
+		from.UTC().Format(time.RFC3339Nano),
+		to.UTC().Format(time.RFC3339Nano)))
+	where = append(where, fmt.Sprintf(`"metric" = '%s'`, field))
+	if ip != nil && *ip != "" {
+		where = append(where, fmt.Sprintf(`"source_ip" = '%s'`, *ip))
+	}
+
+	influxQL := fmt.Sprintf(`
+        SELECT SUM("value")
+        FROM "metrics"
+        WHERE %s
+        GROUP BY time(%s) fill(0)
+        ORDER BY time ASC
+    `, strings.Join(where, " AND "), interval)
+
+	q := client.NewQuery(influxQL, settings.InfluxDB, "ns")
+	res, err := influxClient.Query(q)
+	if err != nil {
+		return nil, err
+	}
+	if res.Error() != nil || len(res.Results[0].Series) == 0 {
+		return nil, nil
+	}
+
+	series := res.Results[0].Series[0]
+	pts := make([]HistoricSeriesPoint, 0, len(series.Values))
+	for _, row := range series.Values {
+		t, err := time.Parse(time.RFC3339Nano, row[0].(string))
+		if err != nil {
+			continue
+		}
+		var v int64
+		switch num := row[1].(type) {
+		case json.Number:
+			v, _ = num.Int64()
+		case float64:
+			v = int64(num)
+		}
+		pts = append(pts, HistoricSeriesPoint{Timestamp: t, Value: v})
+	}
+	return pts, nil
+}
+
+func historicMetricsHandler(w http.ResponseWriter, r *http.Request) {
+	fromStr, toStr := r.URL.Query().Get("from"), r.URL.Query().Get("to")
+	if fromStr == "" || toStr == "" {
+		http.Error(w, "missing from or to", http.StatusBadRequest)
+		return
+	}
+	from, err1 := time.Parse(time.RFC3339, fromStr)
+	to, err2   := time.Parse(time.RFC3339, toStr)
+	if err1 != nil || err2 != nil || !to.After(from) {
+		http.Error(w, "invalid from/to", http.StatusBadRequest)
+		return
+	}
+
+	var ipPtr *string
+	if ip := r.URL.Query().Get("ip"); ip != "" {
+		ipPtr = &ip
+	}
+
+	interval := pickInterval(from, to)
+	fields := []string{"bytes_received", "messages", "failures", "unique_mmsi"}
+	series := make(map[string][]HistoricSeriesPoint, len(fields))
+
+	for _, field := range fields {
+		pts, err := queryTimeSeries(ipPtr, field, interval, from, to)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		series[field] = pts
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		IP       *string                          `json:"ip,omitempty"`
+		From     time.Time                        `json:"from"`
+		To       time.Time                        `json:"to"`
+		Interval string                           `json:"interval"`
+		Series   map[string][]HistoricSeriesPoint `json:"series"`
+	}{
+		IP:       ipPtr,
+		From:     from,
+		To:       to,
+		Interval: interval,
+		Series:   series,
+	})
 }
