@@ -11,31 +11,26 @@
     h1 { font-size: 1.6rem; margin-bottom: 0.2rem; }
     h2 { font-size: 1rem; color: #555; margin-top: 0; margin-bottom: 1rem; }
 
-    .message .time-controls {
+    .time-controls {
       display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start;
       margin-bottom: 0.6rem; font-size: 0.9rem;
     }
-    .message .time-controls label {
+    .time-controls label {
       display: flex; flex-direction: column;
       flex: 1 1 150px;
     }
-    .message .time-controls select,
-    .message .time-controls input {
-      min-width: 100%;
-    }
-    .message .time-controls button {
+    .time-controls button {
       background: none; border: none;
       font-size: 1.2rem; cursor: pointer;
       flex: 0 0 auto; margin-top: 1.2rem;
       transition: opacity 0.2s;
     }
-    .message .time-controls button:disabled {
+    .time-controls button:disabled {
       color: #bbb; cursor: default; opacity: 0.4;
     }
 
     .fields-row {
-      display: flex; flex-wrap: wrap; gap: 1rem;
-      margin-bottom: 1rem; font-size: 0.9rem;
+      display: flex; margin-bottom: 1rem; font-size: 0.9rem;
     }
     .fields-row label {
       flex: 1 1 100%; display: flex; flex-direction: column;
@@ -45,14 +40,12 @@
       margin-bottom: 1rem;
     }
     .download-row button {
-      background: none; border: none;
+      background: none; border: 1px solid #ccc;
       font-size: 1.2rem; cursor: pointer;
-      padding: 0.4rem 0.8rem; border: 1px solid #ccc;
-      border-radius: 4px; transition: opacity 0.2s;
+      padding: 0.4rem 0.8rem; border-radius: 4px;
+      transition: background 0.2s;
     }
-    .download-row button:hover {
-      background: #f0f0f0;
-    }
+    .download-row button:hover { background: #f0f0f0; }
 
     .nav { display: flex; align-items: center; margin-bottom: 0.8rem; }
     .nav button {
@@ -89,27 +82,20 @@
   <h2 id="sub-title"></h2>
   <div id="error" class="error"></div>
 
-  <div class="message time-controls">
-    <label>
-      From
-      <input type="datetime-local" id="start"/>
-    </label>
-    <label>
-      To
-      <input type="datetime-local" id="end"/>
-    </label>
+  <div class="time-controls">
+    <label>From <input type="datetime-local" id="start"/></label>
+    <label>To   <input type="datetime-local" id="end"/></label>
     <button id="apply">Show Range</button>
     <button id="reset">Reset</button>
   </div>
 
-  <div class="message fields-row">
+  <div class="fields-row">
     <label>
       Fields
       <select multiple size="4" id="fields"></select>
     </label>
   </div>
 
-  <!-- Download button appears here -->
   <div class="download-row" id="download-row" style="display:none;">
     <button id="download-csv">Download CSV</button>
   </div>
@@ -176,17 +162,22 @@
       return html + '</tbody></table>';
     }
 
+    // CSV now includes RawSentence column
     function toCSV(rows, fields) {
-      const header = ['Timestamp', ...fields];
+      const header = ['Timestamp', ...fields, 'RawSentence'];
       const lines = [header.join(',')];
       rows.forEach(r => {
         const flat = flatten(r.Packet);
         const ts = new Date(r.Timestamp).toISOString();
         const vals = fields.map(f => {
           const v = flat[f];
-          return v != null ? `"${String(v).replace(/"/g,'""')}"` : '';
+          return v != null
+            ? `"${String(v).replace(/"/g,'""')}"`
+            : '';
         });
-        lines.push([ts, ...vals].join(','));
+        // escape RawSentence
+        const raw = `"${r.RawSentence.replace(/"/g,'""')}"`;
+        lines.push([ts, ...vals, raw].join(','));
       });
       return lines.join('\n');
     }
@@ -314,9 +305,9 @@
           btn.onclick = () => alert(data[btn.dataset.i].RawSentence);
         });
 
-        // Show CSV download above table
-        const csv = toCSV(data, sel);
+        // Show Download CSV with RawSentence
         downloadBtn.onclick = () => {
+          const csv = toCSV(data, sel);
           const blob = new Blob([csv], { type: 'text/csv' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
