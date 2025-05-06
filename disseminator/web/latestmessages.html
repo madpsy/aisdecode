@@ -11,96 +11,92 @@
     h1 { font-size: 1.6rem; margin-bottom: 0.2rem; }
     h2 { font-size: 1rem; color: #555; margin-top: 0; margin-bottom: 0.6rem; }
 
-    .type-selector { margin-bottom: 1.2rem; }
-    .type-selector select { font-size: 1rem; padding: 0.3rem; }
-
-    .date-row, .fields-row, .button-row {
-      display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.6rem;
-      font-size: 0.9rem;
-    }
-    .date-row label, .fields-row label {
-      display: flex; flex-direction: column; flex: 1 1 150px;
-    }
+    .row { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.6rem; font-size:0.9rem; }
+    .row label { display: flex; flex-direction: column; flex:1 1 150px; }
+    .row select, .row input { font-size:1rem; padding:0.3rem; }
     .button-row button {
-      background: none; border: 1px solid #ccc;
-      font-size: 1.2rem; cursor: pointer; padding: 0.4rem 0.8rem;
-      border-radius: 4px; transition: background 0.2s;
+      background:none;border:1px solid #ccc;border-radius:4px;
+      padding:0.4rem 0.8rem;font-size:1.2rem;cursor:pointer;
+      transition:background 0.2s;
     }
-    .button-row button:hover { background: #f0f0f0; }
-    .button-row button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
+    .button-row button:hover { background:#f0f0f0; }
+    .button-row button:disabled { color:#bbb;cursor:default;opacity:0.4; }
 
     .download-row, .pagination-row {
-      display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;
+      display:flex;align-items:center;gap:1rem;margin-bottom:1rem;
     }
     .download-row button {
-      background: none; border: 1px solid #ccc;
-      padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer;
-      font-size: 1.2rem; transition: background 0.2s;
+      background:none;border:1px solid #ccc;border-radius:4px;
+      padding:0.4rem 0.8rem;font-size:1.2rem;cursor:pointer;
+      transition:background 0.2s;
     }
-    .download-row button:hover { background: #f0f0f0; }
+    .download-row button:hover { background:#f0f0f0; }
 
     .pagination-row select, .pagination-row button {
-      font-size: 1rem; padding: 0.3rem; cursor: pointer;
+      font-size:1rem;padding:0.3rem;cursor:pointer;
     }
     .pagination-row button {
-      border: 1px solid #ccc; background: none; border-radius: 4px;
+      border:1px solid #ccc;border-radius:4px;background:none;
     }
-    .pagination-row button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
+    .pagination-row button:disabled { color:#bbb;cursor:default;opacity:0.4; }
 
-    .nav { display: flex; align-items: center; margin-bottom: 0.8rem; }
+    .nav { display:flex;align-items:center;margin-bottom:0.8rem; }
     .nav button {
-      background: none; border: none;
-      font-size: 1.2rem; margin: 0 0.3rem;
-      cursor: pointer; transition: opacity 0.2s;
+      background:none;border:none;font-size:1.2rem;margin:0 0.3rem;
+      cursor:pointer;transition:opacity .2s;
     }
-    .nav button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
-    .nav .counter { font-size: 0.9rem; color: #333; min-width: 3em; text-align: center; }
+    .nav button:disabled { color:#bbb;cursor:default;opacity:0.4; }
+    .nav .counter { font-size:.9rem;color:#333;min-width:3em;text-align:center; }
 
     table {
-      border-collapse: collapse; table-layout: auto;
-      white-space: nowrap; width: 100%;
+      border-collapse:collapse;white-space:nowrap;width:100%;
     }
-    th, td {
-      border: 1px solid #ccc; padding: 0.4rem 0.6rem;
-      text-align: left; vertical-align: top;
+    th,td {
+      border:1px solid #ccc;padding:.4rem .6rem;
+      text-align:left;vertical-align:top;
     }
-    th { background: #f0f0f0; }
+    th { background:#f0f0f0; }
 
     .raw-sentence {
-      margin-top: 0.5rem;
-      padding: 0.5rem;
-      background: #f9f9f9;
-      border: 1px solid #eee;
-      border-radius: 4px;
-      font-family: monospace;
-      white-space: pre-wrap;
+      margin-top:.5rem;padding:.5rem;
+      background:#f9f9f9;border:1px solid #eee;border-radius:4px;
+      font-family:monospace;white-space:pre-wrap;
     }
+
+    #chart-container { position:relative;width:100%;height:400px;margin-bottom:1rem; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <h1 id="main-title">Loading…</h1>
   <h2 id="sub-title"></h2>
   <div id="error" class="error"></div>
 
-  <div class="type-selector" id="type-selector" style="display:none;">
+  <div class="row" id="type-selector" style="display:none;">
     <label>Message Type:
       <select id="message-type-select"></select>
     </label>
   </div>
 
-  <div class="date-row">
+  <div class="row">
     <label>From <input type="datetime-local" id="start"/></label>
     <label>To   <input type="datetime-local" id="end"/></label>
   </div>
 
-  <div class="fields-row">
+  <div class="row">
     <label>Fields
       <select multiple size="4" id="fields"></select>
+    </label>
+    <label>Results as
+      <select id="results-as">
+        <option value="table" selected>Table</option>
+        <option value="graph">Graph</option>
+      </select>
     </label>
   </div>
 
   <div class="button-row">
-    <button id="apply">Show Range</button>
+    <button id="apply">Search</button>
     <button id="reset">Reset</button>
   </div>
 
@@ -135,17 +131,21 @@
 
   <div id="range-view" style="display:none;">
     <div id="range-table"></div>
+    <div id="chart-container" style="display:none;">
+      <canvas id="range-chart"></canvas>
+    </div>
   </div>
 
   <script>
+    // Utility functions
     function qsParam(name) {
-      const v = new URLSearchParams(window.location.search).get(name);
+      const v = new URLSearchParams(location.search).get(name);
       return v && /^\d+$/.test(v) ? v : null;
     }
     function setSearch(params) {
-      const u = new URL(window.location.href);
+      const u = new URL(location);
       u.search = params.toString();
-      window.location.href = u;
+      location = u;
     }
     function flatten(obj, prefix = '', res = {}) {
       for (const [k, v] of Object.entries(obj || {})) {
@@ -158,8 +158,9 @@
       }
       return res;
     }
-    function humanize(f) { return f.replace(/[_\.]/g, ' '); }
-
+    function humanize(f) {
+      return f.replace(/[_\.]/g, ' ');
+    }
     function makeSingleHTML(m) {
       const flat = flatten(m.Packet);
       let html = '<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
@@ -168,12 +169,9 @@
       });
       return html + '</tbody></table>';
     }
-
     function makeRangeHTML(rows, fields) {
       let html = '<table><thead><tr><th>Timestamp</th>';
-      fields.forEach(f => {
-        html += `<th>${humanize(f)}</th>`;
-      });
+      fields.forEach(f => { html += `<th>${humanize(f)}</th>`; });
       html += '<th>Sentences</th></tr></thead><tbody>';
       rows.forEach((r, i) => {
         const flat = flatten(r.Packet);
@@ -187,7 +185,6 @@
       });
       return html + '</tbody></table>';
     }
-
     function toCSV(rows, fields, includeRaw) {
       const header = ['Timestamp', ...fields];
       if (includeRaw) header.push('RawSentence');
@@ -210,35 +207,38 @@
     }
 
     (async () => {
-      const userID = qsParam('UserID'),
-            msgID  = qsParam('MessageID');
-
-      const errorEl       = document.getElementById('error'),
-            mainTitle     = document.getElementById('main-title'),
-            subTitle      = document.getElementById('sub-title'),
-            typeSelector  = document.getElementById('type-selector'),
-            typeSelect    = document.getElementById('message-type-select'),
-            startInput    = document.getElementById('start'),
-            endInput      = document.getElementById('end'),
-            fieldsSelect  = document.getElementById('fields'),
-            applyBtn      = document.getElementById('apply'),
-            resetBtn      = document.getElementById('reset'),
-            downloadRow   = document.getElementById('download-row'),
-            downloadBtn   = document.getElementById('download-csv'),
-            includeRawChk = document.getElementById('include-raw'),
+      // DOM refs
+      const userID      = qsParam('UserID'),
+            msgID       = qsParam('MessageID'),
+            errorEl     = document.getElementById('error'),
+            mainTitle   = document.getElementById('main-title'),
+            subTitle    = document.getElementById('sub-title'),
+            typeDiv     = document.getElementById('type-selector'),
+            typeSelect  = document.getElementById('message-type-select'),
+            startInput  = document.getElementById('start'),
+            endInput    = document.getElementById('end'),
+            fieldsSel   = document.getElementById('fields'),
+            resultsAs   = document.getElementById('results-as'),
+            applyBtn    = document.getElementById('apply'),
+            resetBtn    = document.getElementById('reset'),
+            downloadRow = document.getElementById('download-row'),
+            downloadBtn = document.getElementById('download-csv'),
+            includeRaw  = document.getElementById('include-raw'),
             paginationRow = document.getElementById('pagination-row'),
-            viewInfo      = document.getElementById('view-info'),
-            rowsPerPageSel= document.getElementById('rows-per-page'),
-            pagePrevBtn   = document.getElementById('page-prev'),
-            pageNextBtn   = document.getElementById('page-next'),
-            individualDiv = document.getElementById('individual-view'),
-            rangeDiv      = document.getElementById('range-view'),
-            singleTable   = document.getElementById('single-table'),
-            singleRaw     = document.getElementById('single-raw'),
-            prevBtn       = document.getElementById('prev'),
-            nextBtn       = document.getElementById('next'),
-            counterDiv    = document.getElementById('counter'),
-            rangeTable    = document.getElementById('range-table');
+            viewInfo    = document.getElementById('view-info'),
+            rowsPerPageSel = document.getElementById('rows-per-page'),
+            pagePrev    = document.getElementById('page-prev'),
+            pageNext    = document.getElementById('page-next'),
+            indDiv      = document.getElementById('individual-view'),
+            rngDiv      = document.getElementById('range-view'),
+            singleTbl   = document.getElementById('single-table'),
+            singleRaw   = document.getElementById('single-raw'),
+            prevBtn     = document.getElementById('prev'),
+            nextBtn     = document.getElementById('next'),
+            counterDiv  = document.getElementById('counter'),
+            rangeTbl    = document.getElementById('range-table'),
+            chartCont   = document.getElementById('chart-container'),
+            chartCanvas = document.getElementById('range-chart');
 
       if (!userID) {
         mainTitle.textContent = 'Error';
@@ -248,10 +248,9 @@
 
       // Vessel name
       try {
-        const res = await fetch(`/summary?UserID=${userID}`, {cache:'no-store'});
-        const summary = await res.json();
-        const name = summary[userID]?.Name.trim() || userID;
-        mainTitle.textContent = `Latest Messages for ${name}`;
+        const res = await fetch(`/summary?UserID=${userID}`, { cache:'no-store' });
+        const sum = await res.json();
+        mainTitle.textContent = `Latest Messages for ${sum[userID]?.Name.trim()||userID}`;
       } catch {
         mainTitle.textContent = `Latest Messages for ${userID}`;
       }
@@ -259,36 +258,32 @@
       // Message types
       let available = [];
       try {
-        const res = await fetch(`/state/${userID}`, {cache:'no-store'});
+        const res = await fetch(`/state/${userID}`, { cache:'no-store' });
         const st = await res.json();
-        available = st.MessageTypes || [];
+        available = st.MessageTypes||[];
       } catch {}
 
       let typeMap = {};
       try {
-        typeMap = await (await fetch('/message_types.json', {cache:'no-store'})).json();
+        typeMap = await (await fetch('/message_types.json', { cache:'no-store' })).json();
       } catch {}
 
       available.forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t;
-        opt.textContent = `${typeMap[t] || 'Msg ' + t} (ID ${t})`;
-        if (String(t) === msgID) opt.selected = true;
-        typeSelect.append(opt);
+        const o = document.createElement('option');
+        o.value = t;
+        o.textContent = `${typeMap[t]||'Msg '+t} (ID ${t})`;
+        if (String(t)===msgID) o.selected=true;
+        typeSelect.append(o);
       });
       if (available.length) {
-        typeSelector.style.display = '';
+        typeDiv.style.display='';
         typeSelect.onchange = () => {
-          const p = new URLSearchParams({UserID:userID, MessageID:typeSelect.value});
-          setSearch(p);
+          setSearch(new URLSearchParams({UserID:userID,MessageID:typeSelect.value}));
         };
       }
+      if (msgID) subTitle.textContent = `${typeMap[msgID]||'Message '+msgID} (ID ${msgID})`;
 
-      if (msgID) {
-        subTitle.textContent = `${typeMap[msgID] || 'Message ' + msgID} (ID ${msgID})`;
-      }
-
-      // Individual messages (limit 100)
+      // Individual messages
       let allMsgs = [];
       try {
         allMsgs = await (await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, {cache:'no-store'})).json();
@@ -301,118 +296,129 @@
         return;
       }
 
-      // Fields selector
-      const firstFlat = flatten(allMsgs[0].Packet);
-      const numericFields = Object.entries(firstFlat)
-        .filter(([,v]) => typeof v === 'number')
-        .map(([k]) => k)
-        .sort();
+      // Populate fields select
+      const baseFlat = flatten(allMsgs[0].Packet);
+      const numericFields = Object.entries(baseFlat)
+        .filter(([,v])=>typeof v==='number')
+        .map(([k])=>k).sort();
       numericFields.forEach(f => {
         const o = document.createElement('option');
         o.value = f;
         o.textContent = humanize(f);
-        fieldsSelect.append(o);
+        fieldsSel.append(o);
       });
 
-      // Individual view
+      // Individual view handlers
       let idx = 0;
-      function renderIndividual() {
-        const msg = allMsgs[idx];
+      function renderInd() {
+        const m = allMsgs[idx];
         counterDiv.textContent = `${idx+1} of ${allMsgs.length}`;
-        singleTable.innerHTML = makeSingleHTML(msg);
-        singleRaw.textContent = msg.RawSentence;
-        prevBtn.disabled = idx === 0;
-        nextBtn.disabled = idx === allMsgs.length - 1;
+        singleTbl.innerHTML = makeSingleHTML(m);
+        singleRaw.textContent = m.RawSentence;
+        prevBtn.disabled = idx===0;
+        nextBtn.disabled = idx===allMsgs.length-1;
       }
-      prevBtn.onclick = () => idx>0 && (--idx, renderIndividual());
-      nextBtn.onclick = () => idx<allMsgs.length-1 && (++idx, renderIndividual());
-      renderIndividual();
+      prevBtn.onclick = () => idx>0&&(idx--,renderInd());
+      nextBtn.onclick = () => idx<allMsgs.length-1&&(idx++,renderInd());
+      renderInd();
 
-      // Range and pagination
-      let rangeData = [];
-      let currentPage = 1;
-      let rowsPerPage = parseInt(rowsPerPageSel.value, 10);
-      let selectedFields = [];
+      // Range + pagination state
+      let rangeData = [], currentPage=1, rowsPerPage=parseInt(rowsPerPageSel.value,10), selectedFields=[];
 
       function renderPage() {
-        const start = (currentPage - 1) * rowsPerPage;
-        const end = Math.min(rangeData.length, start + rowsPerPage);
-        const pageRows = rangeData.slice(start, end);
-        rangeTable.innerHTML = makeRangeHTML(pageRows, selectedFields);
+        const start=(currentPage-1)*rowsPerPage, end=Math.min(rangeData.length,start+rowsPerPage);
+        const pageRows=rangeData.slice(start,end);
+        rangeTbl.innerHTML = makeRangeHTML(pageRows,selectedFields);
         viewInfo.textContent = `Viewing ${start+1}–${end} of ${rangeData.length}`;
-        pagePrevBtn.disabled = currentPage === 1;
-        pageNextBtn.disabled = end === rangeData.length;
-        rangeTable.querySelectorAll('button.view').forEach(btn => {
-          const i = parseInt(btn.dataset.i, 10);
-          btn.onclick = () => alert(rangeData[start + i].RawSentence);
+        pagePrev.disabled = currentPage===1;
+        pageNext.disabled = end===rangeData.length;
+        rangeTbl.querySelectorAll('button.view').forEach(btn=>{
+          const i=parseInt(btn.dataset.i,10);
+          btn.onclick = ()=>alert(rangeData[start+i].RawSentence);
         });
       }
 
-      rowsPerPageSel.onchange = () => {
-        rowsPerPage = parseInt(rowsPerPageSel.value, 10);
-        currentPage = 1;
+      rowsPerPageSel.onchange = ()=>{
+        rowsPerPage = parseInt(rowsPerPageSel.value,10);
+        currentPage=1; renderPage();
+      };
+      pagePrev.onclick = ()=>{ if(currentPage>1){currentPage--;renderPage();} };
+      pageNext.onclick = ()=>{ if(currentPage*rowsPerPage<rangeData.length){currentPage++;renderPage();} };
+
+      let chartObj=null;
+      function showTable() {
+        chartCont.style.display='none';
+        rangeTbl.style.display='';
         renderPage();
-      };
-      pagePrevBtn.onclick = () => {
-        if (currentPage > 1) { currentPage--; renderPage(); }
-      };
-      pageNextBtn.onclick = () => {
-        if (currentPage * rowsPerPage < rangeData.length) {
-          currentPage++; renderPage();
-        }
-      };
+      }
 
-      // Show Range
-      applyBtn.onclick = async () => {
-        const s = startInput.value, e = endInput.value;
-        selectedFields = Array.from(fieldsSelect.selectedOptions).map(o => o.value);
-        if (!s || !e || !selectedFields.length) {
-          return alert('Select From, To, and at least one field.');
-        }
-
-        const params = new URLSearchParams({
-          UserID:    userID,
-          MessageID: msgID,
-          start:     new Date(s).toISOString(),
-          end:       new Date(e).toISOString(),
-          limit:     '2000'
+      function showGraph() {
+        rangeTbl.style.display='none';
+        chartCont.style.display='';
+        const ctx=chartCanvas.getContext('2d');
+        const datasets = selectedFields.map(f=>({
+          label: humanize(f),
+          data: rangeData.map(r=>({x:new Date(r.Timestamp),y:flatten(r.Packet)[f]})),
+          borderWidth:1, fill:false
+        }));
+        if(chartObj) chartObj.destroy();
+        chartObj = new Chart(ctx, {
+          type:'line',
+          data:{datasets},
+          options:{
+            scales:{
+              x:{type:'time',time:{unit:'hour',displayFormats:{hour:'MMM d HH:mm'}}},
+              y:{beginAtZero:false}
+            },
+            interaction:{mode:'nearest',axis:'x',intersect:false}
+          }
         });
+      }
 
+      resultsAs.onchange = ()=>{
+        if(rngDiv.style.display!=='none') {
+          if(resultsAs.value==='table') showTable();
+          else showGraph();
+        }
+      };
+
+      // Search button
+      applyBtn.onclick = async ()=>{
+        const s = startInput.value, e = endInput.value;
+        selectedFields = Array.from(fieldsSel.selectedOptions).map(o=>o.value);
+        if(!s||!e||!selectedFields.length) return alert('Select From, To & fields.');
+        const params = new URLSearchParams({
+          UserID:userID, MessageID:msgID,
+          start:new Date(s).toISOString(),
+          end:new Date(e).toISOString(),
+          limit:'2000'
+        });
         try {
-          rangeData = await (await fetch(`/latestmessages?${params}`, {cache:'no-store'})).json();
+          rangeData = await (await fetch(`/latestmessages?${params}`,{cache:'no-store'})).json();
         } catch {
           return alert('Failed to fetch range.');
         }
-
-        // CSV download
-        downloadBtn.onclick = () => {
-          const csv = toCSV(rangeData, selectedFields, includeRawChk.checked);
-          const blob = new Blob([csv], { type: 'text/csv' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `messages_${userID}_${msgID}.csv`;
-          a.click();
-          URL.revokeObjectURL(url);
+        downloadBtn.onclick = ()=>{
+          const csv = toCSV(rangeData,selectedFields,includeRaw.checked);
+          const b = new Blob([csv],{type:'text/csv'});
+          const url = URL.createObjectURL(b);
+          const a=document.createElement('a');
+          a.href=url; a.download=`messages_${userID}_${msgID}.csv`;
+          a.click(); URL.revokeObjectURL(url);
         };
-
-        downloadRow.style.display   = '';
-        paginationRow.style.display = '';
-        individualDiv.style.display = 'none';
-        rangeDiv.style.display      = '';
-        currentPage = 1;
-        renderPage();
+        downloadRow.style.display=''; paginationRow.style.display='';
+        indDiv.style.display='none'; rngDiv.style.display='';
+        if(resultsAs.value==='table') showTable(); else showGraph();
       };
 
       // Reset
-      resetBtn.onclick = () => {
-        startInput.value = '';
-        endInput.value   = '';
-        fieldsSelect.selectedIndex = -1;
-        downloadRow.style.display   = 'none';
-        paginationRow.style.display = 'none';
-        rangeDiv.style.display      = 'none';
-        individualDiv.style.display = '';
+      resetBtn.onclick = ()=>{
+        startInput.value=''; endInput.value='';
+        fieldsSel.selectedIndex=-1;
+        downloadRow.style.display='none';
+        paginationRow.style.display='none';
+        rngDiv.style.display='none';
+        indDiv.style.display='';
       };
     })();
   </script>
