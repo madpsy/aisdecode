@@ -597,6 +597,63 @@ func queryTimeSeriesGeneric(cfg metricConfig, ip *string, interval string, from,
 	return pts, nil
 }
 
+// Helper specifically for the window_user_ids series
+func queryUserIDsTimeSeries(ip *string, interval string, from, to time.Time) ([]genericPoint, error) {
+    // Build WHERE clauses
+    where := []string{
+        fmt.Sprintf("time >= '%s' AND time <= '%s'",
+            from.UTC().Format(time.RFC3339Nano),
+            to.UTC().Format(time.RFC3339Nano)),
+    }
+    if ip != nil && *ip != "" {
+        where = append(where, fmt.Sprintf(`"source_ip" = '%s'`, *ip))
+    }
+    // InfluxQL against the new measurement + field
+    influxQL := fmt.Sprintf(`
+        SELECT LAST("uids")
+          FROM "metrics_user_ids"
+         WHERE %s
+      GROUP BY time(%s) fill(previous)
+      ORDER BY time ASC
+    `, strings.Join(where, " AND "), interval)
+
+    res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ns"))
+    if err != nil {
+        return nil, err
+    }
+    if res.Error() != nil || len(res.Results) == 0 || len(res.Results[0].Series) == 0 {
+        return nil, nil
+    }
+
+    series := res.Results[0].Series[0]
+    pts := make([]genericPoint, 0, len(series.Values))
+    for _, row := range series.Values {
+        // parse timestamp
+        var ts time.Time
+        switch v := row[0].(type) {
+        case json.Number:
+            if ns, e := v.Int64(); e == nil {
+                ts = time.Unix(0, ns)
+            }
+        case float64:
+            ts = time.Unix(0, int64(v))
+        case int64:
+            ts = time.Unix(0, v)
+        case string:
+            ts, _ = time.Parse(time.RFC3339Nano, v)
+        default:
+            continue
+        }
+        // parse string value
+        var val interface{}
+        if s, ok := row[1].(string); ok {
+            val = s
+        }
+        pts = append(pts, genericPoint{Timestamp: ts, Value: val})
+    }
+    return pts, nil
+}
+
 func historicMetricsHandler(w http.ResponseWriter, r *http.Request) {
     fromStr, toStr := r.URL.Query().Get("from"), r.URL.Query().Get("to")
     if fromStr == "" || toStr == "" {
@@ -619,22 +676,21 @@ func historicMetricsHandler(w http.ResponseWriter, r *http.Request) {
     series := make(map[string]interface{}, len(metricConfigs))
 
     for _, cfg := range metricConfigs {
-        var pts interface{}
-        var err error
-
+        // Special-case window_user_ids → comes from metrics_user_ids.uids
         if cfg.Key == "window_user_ids" {
-            // special-case: read from the new measurement+field
-            fakeCfg := metricConfig{
-                Key:       "metrics_user_ids",
-                Func:      "LAST",
-                ValueType: "string",
+            pts, err := queryUserIDsTimeSeries(ipPtr, interval, from, to)
+            if err != nil {
+                http.Error(w, err.Error(), http.StatusInternalServerError)
+                return
             }
-            pts, err = queryTimeSeriesGeneric(fakeCfg, ipPtr, interval, from, to)
-        } else {
-            // all other metrics still come from "metrics"
-            pts, err = queryTimeSeriesGeneric(cfg, ipPtr, interval, from, to)
+            if pts != nil {
+                series[cfg.Key] = pts
+            }
+            continue
         }
 
+        // All other metrics still come from "metrics.value"
+        pts, err := queryTimeSeriesGeneric(cfg, ipPtr, interval, from, to)
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
