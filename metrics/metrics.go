@@ -538,8 +538,8 @@ func queryTimeSeriesGeneric(cfg metricConfig, ip *string, interval string, from,
          ORDER BY time ASC
     `, cfg.Func, strings.Join(where, " AND "), interval, fill)
 
-	// Request nanosecond precision
-	res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ns"))
+        // Request millisecond precision (so the client returns manageable timestamps)
+        res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ms"))
 	if err != nil {
 		return nil, err
 	}
@@ -623,7 +623,7 @@ func queryUserIDsTimeSeries(ip *string, interval string, from, to time.Time) ([]
       ORDER BY time ASC
     `, strings.Join(where, " AND "), interval)
 
-    res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ns"))
+    res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ms"))
     if err != nil {
         return nil, err
     }
