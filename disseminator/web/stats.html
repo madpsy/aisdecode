@@ -638,9 +638,9 @@ document.getElementById('directionChart').addEventListener('dblclick', () => {
           document.getElementById('lat-long-display').textContent = latText + ", " + lonText;
         }
         
-        // --- 6. Load Initial State from /state/<UserID> ---
+        // --- 6. Load Initial State from /state?UserID=<UserID> ---
         function loadInitialState() {
-          fetch('/state/' + userID)
+          fetch('/state?UserID=' + userID)
             .then(response => response.json())
             .then(vesselState => {
               if (vesselState && vesselState.Name) {

@@ -1691,7 +1691,7 @@ function selectVesselById(UserID) {
   // Check if a marker already exists for the vessel.
   if (!vesselMarkers[UserID]) {
     // If the marker does not exist, fetch the vessel state.
-    fetch(`/state/${UserID}`)
+    fetch(`/state?UserID=${UserID}`)
       .then(response => {
         if (!response.ok) {
           throw new Error(`Request failed with status ${response.status}`);
@@ -1731,7 +1731,7 @@ function selectVesselById(UserID) {
       });
   } else {
     // If the marker already exists, update its position.
-    fetch(`/state/${UserID}`)
+    fetch(`/state?UserID=${UserID}`)
       .then(response => response.json())
       .then(stateData => {
         // Update global state and marker position.
@@ -3042,7 +3042,7 @@ function performSearch(query) {
 	  // Only fetch if this vessel hasn't already had its missing data fetched this selection.
 	  if (lastFetchedUserID === UserID) return;
 
-	  fetch(`/state/${UserID}`)
+	  fetch(`/state?UserID=${UserID}`)
 	    .then(response => {
 	      if (!response.ok) {
 	        throw new Error(`Network response was not ok (${response.status})`);
@@ -3302,7 +3302,7 @@ function showFlashMessage(message, parentEl) {
           const detailContent = createDetailContent(vesselData[UserID]);
           document.getElementById('detail-content').innerHTML = detailContent;
 
-	  // Fetch missing data from /state/<UserID> and update overlay.
+	  // Fetch missing data from /state?UserID=<UserID> and update overlay.
 	  fetchMissingData(UserID);
 
 	if (initialFocus) {
@@ -3392,7 +3392,7 @@ window.addEventListener('load', () => {
 
   // If UserID is provided, fetch the state and center the map accordingly.
   if (UserIDParam) {
-    fetch(`/state/${UserIDParam}`)
+    fetch(`/state?UserID=${UserIDParam}`)
       .then(response => {
         if (!response.ok) {
           throw new Error(`Network error: ${response.status}`);

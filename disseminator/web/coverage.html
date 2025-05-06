@@ -422,8 +422,8 @@
           // On mouseover, fetch the updated state data and update the tooltip.
           marker.on('mouseover', function() {
             closeAllVesselTooltips(this);
-            // Fetch updated data from /state/<UserID>
-            fetch(`/state/${vessel.UserID}`)
+            // Fetch updated data from /state?UserID=<UserID>
+            fetch(`/state?UserID=${vessel.UserID}`)
               .then(response => {
                 if (!response.ok) {
                   throw new Error("Network response was not ok");

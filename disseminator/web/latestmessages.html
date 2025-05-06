@@ -251,7 +251,7 @@
 
       let available = [];
       try {
-        const r = await fetch(`/state/${userID}`, { cache:'no-store' });
+        const r = await fetch(`/state?UserID=${userID}`, { cache:'no-store' });
         const st = await r.json();
         available = st.MessageTypes||[];
       } catch {}
