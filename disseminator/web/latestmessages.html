@@ -212,34 +212,36 @@
       });
       return html + '</tbody></table>';
     }
-  function toCSV(rows, fields, includeRaw) {
-    // Build header
-    const header = ['Timestamp', ...fields];
-    if (includeRaw) header.push('RawSentence');
-    const lines = [ header.join(',') ];
+function toCSV(rows, fields, includeRaw) {
+  const header = ['Timestamp', ...fields];
+  if (includeRaw) header.push('RawSentence');
+  const lines = [ header.join(',') ];
 
-    // Build each row
-    for (const r of rows) {
-      const flat = flatten(r.Packet);
-      const ts = new Date(r.Timestamp).toISOString();
-      const vals = fields.map(f => {
-        const v = flat[f];
-        // escape any double‑quotes in the field
-        return v != null
-          ? `"${String(v).replace(/"/g, '""')}"`
-          : '';
-      });
+  for (const r of rows) {
+    const flat = flatten(r.Packet);
+    const ts = new Date(r.Timestamp).toISOString();
+    const vals = fields.map(f => {
+      const v = flat[f];
+      return v != null
+        ? `"${String(v).replace(/"/g, '""')}"`
+        : '';
+    });
 
-      if (includeRaw) {
-        const raw = `"${r.RawSentence.replace(/"/g, '""')}"`;
-        lines.push([ts, ...vals, raw].join(','));
-      } else {
-        lines.push([ts, ...vals].join(','));
-      }
+    if (includeRaw) {
+      // if RawSentence is null/undefined, use empty string
+      const rawText = r.RawSentence != null
+        ? r.RawSentence
+        : '';
+      const rawEscaped = `"${String(rawText).replace(/"/g, '""')}"`;
+      lines.push([ts, ...vals, rawEscaped].join(','));
+    } else {
+      lines.push([ts, ...vals].join(','));
     }
-
-    return lines.join('\r\n');
   }
+
+  return lines.join('\r\n');
+}
+
 
     (async () => {
       const userID        = qsParam('UserID'),
