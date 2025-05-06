@@ -330,17 +330,24 @@
         errorEl.textContent = 'No messages found.';
         return;
       }
+      const baseFlat    = flatten(allMsgs[0].Packet);
+      const allFields   = Object.keys(baseFlat).sort();
+      const numericOnly = allFields.filter(k => typeof baseFlat[k] === 'number');
+    
+      // Helper to build the selector options
+      function buildFieldSelector(fields) {
+        fieldsSel.innerHTML = '';
+        fields.forEach(f => {
+          const o = document.createElement('option');
+          o.value = f;
+          o.textContent = humanize(f);
+          fieldsSel.append(o);
+        });
+      }
 
-      const baseFlat = flatten(allMsgs[0].Packet);
-      const numericFields = Object.entries(baseFlat)
-        .filter(([,v])=>typeof v==='number')
-        .map(([k])=>k).sort();
-      numericFields.forEach(f => {
-        const o = document.createElement('option');
-        o.value = f;
-        o.textContent = humanize(f);
-        fieldsSel.append(o);
-      });
+      // Initialize with full list, then apply default based on dropdown
+      buildFieldSelector(allFields);
+      resultsAs.onchange();
 
       // Individual-message view
       let idx = 0;
@@ -526,6 +533,14 @@
 
       // switch between table/graph when user changes dropdown
       resultsAs.onchange = () => {
+        // Rebuild fields list: all for table, numeric-only for graph
+        if (resultsAs.value === 'graph') {
+          buildFieldSelector(numericOnly);
+        } else {
+          buildFieldSelector(allFields);
+        }
+    
+        // If a range view is already active, update display mode
         if (rngDiv.style.display !== 'none') {
           resultsAs.value === 'table' ? showTable() : showGraph();
         }
