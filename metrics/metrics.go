@@ -3,12 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +19,10 @@ import (
 )
 
 var ctx = context.Background()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings & Data Models
+// ─────────────────────────────────────────────────────────────────────────────
 
 type Settings struct {
 	IngestHost string `json:"ingest_host"`
@@ -83,17 +87,55 @@ type Aggregated struct {
 }
 
 type ResponseMetrics struct {
-	IPAddress      string        `json:"ip_address"`
-	SimpleMetrics               // real-time
-	Aggregated    Aggregated    `json:"aggregated"`
-	WindowUserIDs []string      `json:"window_user_ids"`
+	IPAddress      string     `json:"ip_address"`
+	SimpleMetrics             // real-time counts
+	Aggregated    Aggregated `json:"aggregated"`
+	WindowUserIDs []string   `json:"window_user_ids"`
 }
 
-// New types for historic endpoint
-type HistoricSeriesPoint struct {
-	Timestamp time.Time `json:"timestamp"`
-	Value     int64     `json:"value"`
+// ─────────────────────────────────────────────────────────────────────────────
+// Historic Endpoint Support Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+// metricConfig drives each series we expose in /metrics/historic
+type metricConfig struct {
+	Key       string // JSON key & Influx metric tag
+	Func      string // Influx function: SUM, MEAN, LAST
+	ValueType string // "int", "float", or "string"
 }
+
+var metricConfigs = []metricConfig{
+	{"bytes_received", "SUM", "int"},
+	{"bytes_per_sec", "MEAN", "float"},
+	{"bytes_forwarded", "SUM", "int"},
+	{"msgs_per_sec", "MEAN", "float"},
+	{"messages", "SUM", "int"},
+	{"failures", "SUM", "int"},
+	{"fail_per_sec", "MEAN", "float"},
+	{"deduplicated", "SUM", "int"},
+	{"dedup_per_sec", "MEAN", "float"},
+	{"downsampled", "SUM", "int"},
+	{"downsample_per_sec", "MEAN", "float"},
+	{"unique_mmsi", "SUM", "int"},
+	{"clients_connected", "LAST", "int"},
+	{"alloc_bytes", "MEAN", "int"},
+	{"heap_alloc_bytes", "MEAN", "int"},
+	{"sys_bytes", "MEAN", "int"},
+	{"num_gc", "SUM", "int"},
+	{"ratio_forwarded_to_received", "MEAN", "float"},
+	{"window_unique_uids", "MEAN", "float"},
+	{"window_user_ids", "LAST", "string"},
+}
+
+// genericPoint for arbitrary timestamped values
+type genericPoint struct {
+	Timestamp time.Time   `json:"timestamp"`
+	Value     interface{} `json:"value"`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Globals
+// ─────────────────────────────────────────────────────────────────────────────
 
 var (
 	settings      Settings
@@ -103,8 +145,12 @@ var (
 	redisClient   *redis.Client
 )
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Entry Point
+// ─────────────────────────────────────────────────────────────────────────────
+
 func main() {
-	// Load settings.json
+	// Load settings
 	data, err := ioutil.ReadFile("settings.json")
 	if err != nil {
 		log.Fatalf("Error reading settings.json: %v", err)
@@ -129,7 +175,7 @@ func main() {
 	}
 	defer influxClient.Close()
 
-	// Ensure DB
+	// Ensure DB exists
 	if err := ensureDatabase(settings.InfluxDB); err != nil {
 		log.Fatalf("Could not create InfluxDB database %q: %v", settings.InfluxDB, err)
 	}
@@ -149,6 +195,10 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Influx DB utility
+// ─────────────────────────────────────────────────────────────────────────────
+
 func ensureDatabase(db string) error {
 	q := client.NewQuery(fmt.Sprintf("CREATE DATABASE \"%s\"", db), "", "")
 	resp, err := influxClient.Query(q)
@@ -158,7 +208,9 @@ func ensureDatabase(db string) error {
 	return resp.Error()
 }
 
-// ingestMetricsLoop and writeMetricsToInfluxDB unchanged from original…
+// ─────────────────────────────────────────────────────────────────────────────
+// Ingest Loop & Original Handlers (unchanged)
+// ─────────────────────────────────────────────────────────────────────────────
 
 func ingestMetricsLoop() {
 	httpClient := &http.Client{Timeout: 5 * time.Second}
@@ -231,7 +283,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 		bp.AddPoint(pt)
 	}
 
-	// Per‑source, windowed, per‑message, totals & uptime (same as original)…
+	// Original per-source, windowed, per-message, totals & uptime…
 	for _, m := range full.BytesReceivedBySource {
 		add(map[string]string{"source_ip": m.SourceIP, "metric": "bytes_received"},
 			map[string]interface{}{"value": m.Count})
@@ -301,7 +353,6 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Real-time metrics
 	metricsLock.RLock()
 	raw := latestMetrics
 	metricsLock.RUnlock()
@@ -314,7 +365,6 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 	json.Unmarshal(blob, &full)
 
 	rt := SimpleMetrics{}
-	windowIDs := full.WindowUserIDsBySource[ip]
 	for _, m := range full.BytesReceivedBySource {
 		if m.SourceIP == ip {
 			rt.BytesReceived = m.Count
@@ -339,8 +389,8 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 	rt.WindowBytes = full.WindowBytesBySource[ip]
 	rt.WindowMessages = full.WindowMessagesBySource[ip]
 	rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[ip]
+	windowIDs := full.WindowUserIDsBySource[ip]
 
-	// Aggregated (Redis-cached)
 	cacheKey := fmt.Sprintf("agg:%s", ip)
 	var agg Aggregated
 	if data, err := redisClient.Get(ctx, cacheKey).Bytes(); err == nil {
@@ -370,17 +420,17 @@ func queryAggregates(ip string) Aggregated {
 		setter   func(int)
 	}{
 		{"bytes_received", "1m", func(v int) { a.BytesReceivedMinute = v }},
-		{"messages",      "1m", func(v int) { a.MessagesMinute = v }},
-		{"failures",      "1m", func(v int) { a.FailuresMinute = v }},
-		{"unique_mmsi",   "1m", func(v int) { a.UniqueMMSIMinute = v }},
+		{"messages", "1m", func(v int) { a.MessagesMinute = v }},
+		{"failures", "1m", func(v int) { a.FailuresMinute = v }},
+		{"unique_mmsi", "1m", func(v int) { a.UniqueMMSIMinute = v }},
 		{"bytes_received", "1h", func(v int) { a.BytesReceivedHour = v }},
-		{"messages",      "1h", func(v int) { a.MessagesHour = v }},
-		{"failures",      "1h", func(v int) { a.FailuresHour = v }},
-		{"unique_mmsi",   "1h", func(v int) { a.UniqueMMSIHour = v }},
+		{"messages", "1h", func(v int) { a.MessagesHour = v }},
+		{"failures", "1h", func(v int) { a.FailuresHour = v }},
+		{"unique_mmsi", "1h", func(v int) { a.UniqueMMSIHour = v }},
 		{"bytes_received", "24h", func(v int) { a.BytesReceivedDay = v }},
-		{"messages",      "24h", func(v int) { a.MessagesDay = v }},
-		{"failures",      "24h", func(v int) { a.FailuresDay = v }},
-		{"unique_mmsi",   "24h", func(v int) { a.UniqueMMSIDay = v }},
+		{"messages", "24h", func(v int) { a.MessagesDay = v }},
+		{"failures", "24h", func(v int) { a.FailuresDay = v }},
+		{"unique_mmsi", "24h", func(v int) { a.UniqueMMSIDay = v }},
 	}
 
 	for _, q := range queries {
@@ -403,7 +453,9 @@ func queryAggregates(ip string) Aggregated {
 	return a
 }
 
-// ---- New helper & handler for historic data ----
+// ─────────────────────────────────────────────────────────────────────────────
+// New: historicMetricsHandler & queryTimeSeriesGeneric
+// ─────────────────────────────────────────────────────────────────────────────
 
 func pickInterval(from, to time.Time) string {
 	diff := to.Sub(from)
@@ -417,110 +469,99 @@ func pickInterval(from, to time.Time) string {
 	}
 }
 
-func queryTimeSeries(ip *string, field, interval string, from, to time.Time) ([]HistoricSeriesPoint, error) {
-    var where []string
-    where = append(where, fmt.Sprintf("time >= '%s' AND time <= '%s'",
-        from.UTC().Format(time.RFC3339Nano),
-        to.UTC().Format(time.RFC3339Nano)))
-    where = append(where, fmt.Sprintf(`"metric" = '%s'`, field))
-    if ip != nil && *ip != "" {
-        where = append(where, fmt.Sprintf(`"source_ip" = '%s'`, *ip))
-    }
+func queryTimeSeriesGeneric(cfg metricConfig, ip *string, interval string, from, to time.Time) ([]genericPoint, error) {
+	where := []string{
+		fmt.Sprintf("time >= '%s' AND time <= '%s'",
+			from.UTC().Format(time.RFC3339Nano),
+			to.UTC().Format(time.RFC3339Nano)),
+		fmt.Sprintf(`"metric" = '%s'`, cfg.Key),
+	}
+	if ip != nil && *ip != "" {
+		where = append(where, fmt.Sprintf(`"source_ip" = '%s'`, *ip))
+	}
 
-    influxQL := fmt.Sprintf(`
-        SELECT SUM("value")
-        FROM "metrics"
-        WHERE %s
-        GROUP BY time(%s) fill(0)
-        ORDER BY time ASC
-    `, strings.Join(where, " AND "), interval)
+	fill := "0"
+	if cfg.ValueType == "string" {
+		fill = "previous"
+	}
 
-    // Use millisecond precision to match typical point writes
-    q := client.NewQuery(influxQL, settings.InfluxDB, "ms")
-    res, err := influxClient.Query(q)
-    if err != nil {
-        return nil, err
-    }
-    if res.Error() != nil || len(res.Results) == 0 || len(res.Results[0].Series) == 0 {
-        return nil, nil
-    }
+	influxQL := fmt.Sprintf(`
+        SELECT %s("value") FROM "metrics"
+         WHERE %s
+         GROUP BY time(%s) fill(%s)
+         ORDER BY time ASC
+    `, cfg.Func, strings.Join(where, " AND "), interval, fill)
 
-    series := res.Results[0].Series[0]
-    pts := make([]HistoricSeriesPoint, 0, len(series.Values))
+	res, err := influxClient.Query(client.NewQuery(influxQL, settings.InfluxDB, "ms"))
+	if err != nil {
+		return nil, err
+	}
+	if res.Error() != nil || len(res.Results) == 0 || len(res.Results[0].Series) == 0 {
+		return nil, nil
+	}
 
-    for _, row := range series.Values {
-        // --- Parse the timestamp ---
-        rawTime := row[0]
-        var t time.Time
+	series := res.Results[0].Series[0]
+	pts := make([]genericPoint, 0, len(series.Values))
 
-        switch v := rawTime.(type) {
-        case string:
-            // RFC3339Nano string
-            parsed, err := time.Parse(time.RFC3339Nano, v)
-            if err != nil {
-                continue
-            }
-            t = parsed
+	for _, row := range series.Values {
+		// timestamp
+		var ts time.Time
+		switch v := row[0].(type) {
+		case string:
+			ts, _ = time.Parse(time.RFC3339Nano, v)
+		case json.Number:
+			if ns, e := v.Int64(); e == nil {
+				ts = time.Unix(0, ns)
+			}
+		case float64:
+			ts = time.Unix(0, int64(v))
+		case int64:
+			ts = time.Unix(0, v)
+		default:
+			continue
+		}
 
-        case json.Number:
-            // Numeric string → nanoseconds
-            if ns, err := v.Int64(); err == nil {
-                t = time.Unix(0, ns)
-            } else {
-                continue
-            }
+		// value
+		var val interface{}
+		switch cfg.ValueType {
+		case "int":
+			switch x := row[1].(type) {
+			case json.Number:
+				v, _ := x.Int64(); val = v
+			case float64:
+				val = int64(x)
+			case int64:
+				val = x
+			}
+		case "float":
+			switch x := row[1].(type) {
+			case json.Number:
+				v, _ := x.Float64(); val = v
+			case float64:
+				val = x
+			case int64:
+				val = float64(x)
+			}
+		case "string":
+			if s, ok := row[1].(string); ok {
+				val = s
+			}
+		}
 
-        case float64:
-            // Client may unmarshal as float64
-            t = time.Unix(0, int64(v))
+		pts = append(pts, genericPoint{Timestamp: ts, Value: val})
+	}
 
-        case int64:
-            t = time.Unix(0, v)
-
-        default:
-            // Fallback: try parsing as string
-            s := fmt.Sprint(v)
-            if parsed, err := time.Parse(time.RFC3339Nano, s); err == nil {
-                t = parsed
-            } else {
-                continue
-            }
-        }
-
-        // --- Parse the value ---
-        var val int64
-        switch num := row[1].(type) {
-        case json.Number:
-            if x, err := num.Int64(); err == nil {
-                val = x
-            }
-        case float64:
-            val = int64(num)
-        case int64:
-            val = num
-        default:
-            if x, err := strconv.ParseInt(fmt.Sprint(num), 10, 64); err == nil {
-                val = x
-            }
-        }
-
-        pts = append(pts, HistoricSeriesPoint{
-            Timestamp: t,
-            Value:     val,
-        })
-    }
-
-    return pts, nil
+	return pts, nil
 }
 
 func historicMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	fromStr, toStr := r.URL.Query().Get("from"), r.URL.Query().Get("to")
 	if fromStr == "" || toStr == "" {
-		http.Error(w, "missing from or to", http.StatusBadRequest)
+		http.Error(w, "missing from/to", http.StatusBadRequest)
 		return
 	}
 	from, err1 := time.Parse(time.RFC3339, fromStr)
-	to, err2   := time.Parse(time.RFC3339, toStr)
+	to, err2 := time.Parse(time.RFC3339, toStr)
 	if err1 != nil || err2 != nil || !to.After(from) {
 		http.Error(w, "invalid from/to", http.StatusBadRequest)
 		return
@@ -532,25 +573,24 @@ func historicMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	interval := pickInterval(from, to)
-	fields := []string{"bytes_received", "messages", "failures", "unique_mmsi"}
-	series := make(map[string][]HistoricSeriesPoint, len(fields))
+	series := make(map[string]interface{}, len(metricConfigs))
 
-	for _, field := range fields {
-		pts, err := queryTimeSeries(ipPtr, field, interval, from, to)
+	for _, cfg := range metricConfigs {
+		pts, err := queryTimeSeriesGeneric(cfg, ipPtr, interval, from, to)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		series[field] = pts
+		series[cfg.Key] = pts
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(struct {
-		IP       *string                          `json:"ip,omitempty"`
-		From     time.Time                        `json:"from"`
-		To       time.Time                        `json:"to"`
-		Interval string                           `json:"interval"`
-		Series   map[string][]HistoricSeriesPoint `json:"series"`
+		IP       *string               `json:"ip,omitempty"`
+		From     time.Time             `json:"from"`
+		To       time.Time             `json:"to"`
+		Interval string                `json:"interval"`
+		Series   map[string]interface{} `json:"series"`
 	}{
 		IP:       ipPtr,
 		From:     from,
