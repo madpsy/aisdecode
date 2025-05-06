@@ -59,11 +59,25 @@
     th.sortable { cursor: pointer; }
     th .arrow { margin-left:0.2em; font-size:0.8em; }
 
-    .raw-sentence {
-      margin-top:.5rem;padding:.5rem;
-      background:#f9f9f9;border:1px solid #eee;border-radius:4px;
-      font-family:monospace;white-space:pre-wrap;
-    }
+.raw-sentence {
+  margin-top: .5rem;
+  padding: .5rem;
+  background: #f9f9f9;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  font-family: monospace;
+
+  /* preserve existing wrapping behavior */
+  white-space: pre-wrap;
+
+  /* NEW: force long words or URLs to wrap inside the box */
+  overflow-wrap: break-word;
+  word-break: break-word;
+  
+  /* OPTIONAL if you want to avoid any horizontal scrollbar: */
+  box-sizing: border-box;
+  width: 100%;
+}
 
     #chart-container { position:relative;width:100%;height:400px;margin-bottom:1rem; }
   </style>
