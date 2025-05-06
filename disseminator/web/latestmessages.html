@@ -11,53 +11,41 @@
     h1 { font-size: 1.6rem; margin-bottom: 0.2rem; }
     h2 { font-size: 1rem; color: #555; margin-top: 0; margin-bottom: 0.6rem; }
 
-    .type-selector {
-      margin-bottom: 1.2rem;
-    }
-    .type-selector select {
-      font-size: 1rem;
-      padding: 0.3rem;
-    }
+    .type-selector { margin-bottom: 1.2rem; }
+    .type-selector select { font-size: 1rem; padding: 0.3rem; }
 
-    .date-row {
+    .date-row, .fields-row, .button-row {
       display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.6rem;
       font-size: 0.9rem;
     }
-    .date-row label {
-      display: flex; flex-direction: column;
-      flex: 1 1 150px;
-    }
-
-    .fields-row {
-      display: flex; margin-bottom: 0.6rem; font-size: 0.9rem;
-    }
-    .fields-row label {
-      flex: 1 1 100%; display: flex; flex-direction: column;
-    }
-
-    .button-row {
-      display: flex; gap: 1rem; margin-bottom: 1rem;
+    .date-row label, .fields-row label {
+      display: flex; flex-direction: column; flex: 1 1 150px;
     }
     .button-row button {
-      background: none; border: none;
-      font-size: 1.2rem; cursor: pointer;
-      padding: 0.4rem 0.8rem; border: 1px solid #ccc;
+      background: none; border: 1px solid #ccc;
+      font-size: 1.2rem; cursor: pointer; padding: 0.4rem 0.8rem;
       border-radius: 4px; transition: background 0.2s;
     }
     .button-row button:hover { background: #f0f0f0; }
     .button-row button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
 
-    .download-row {
-      margin-bottom: 1rem;
-      display: flex; align-items: center; gap: 0.5rem;
+    .download-row, .pagination-row {
+      display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;
     }
     .download-row button {
       background: none; border: 1px solid #ccc;
-      font-size: 1.2rem; cursor: pointer;
-      padding: 0.4rem 0.8rem; border-radius: 4px;
-      transition: background 0.2s;
+      padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer;
+      font-size: 1.2rem; transition: background 0.2s;
     }
     .download-row button:hover { background: #f0f0f0; }
+
+    .pagination-row select, .pagination-row button {
+      font-size: 1rem; padding: 0.3rem; cursor: pointer;
+    }
+    .pagination-row button {
+      border: 1px solid #ccc; background: none; border-radius: 4px;
+    }
+    .pagination-row button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
 
     .nav { display: flex; align-items: center; margin-bottom: 0.8rem; }
     .nav button {
@@ -94,41 +82,47 @@
   <h2 id="sub-title"></h2>
   <div id="error" class="error"></div>
 
-  <!-- Message type selector -->
   <div class="type-selector" id="type-selector" style="display:none;">
-    <label>
-      Message Type:
+    <label>Message Type:
       <select id="message-type-select"></select>
     </label>
   </div>
 
-  <!-- Date inputs -->
   <div class="date-row">
     <label>From <input type="datetime-local" id="start"/></label>
     <label>To   <input type="datetime-local" id="end"/></label>
   </div>
 
-  <!-- Fields selector -->
   <div class="fields-row">
-    <label>
-      Fields
+    <label>Fields
       <select multiple size="4" id="fields"></select>
     </label>
   </div>
 
-  <!-- Show/Reset buttons -->
   <div class="button-row">
     <button id="apply">Show Range</button>
     <button id="reset">Reset</button>
   </div>
 
-  <!-- Download CSV + option -->
   <div class="download-row" id="download-row" style="display:none;">
     <button id="download-csv">Download CSV</button>
     <label><input type="checkbox" id="include-raw" checked/> Include RawSentence</label>
   </div>
 
-  <!-- Individual-view -->
+  <div class="pagination-row" id="pagination-row" style="display:none;">
+    <span id="view-info"></span>
+    <label>Rows:
+      <select id="rows-per-page">
+        <option>10</option>
+        <option>25</option>
+        <option>50</option>
+        <option>100</option>
+      </select>
+    </label>
+    <button id="page-prev">Prev</button>
+    <button id="page-next">Next</button>
+  </div>
+
   <div id="individual-view">
     <div class="nav">
       <button id="prev">◀️</button>
@@ -139,201 +133,304 @@
     <div class="raw-sentence" id="single-raw"></div>
   </div>
 
-  <!-- Range-view -->
   <div id="range-view" style="display:none;">
     <div id="range-table"></div>
   </div>
 
   <script>
+    // Read numeric query param
     function qsParam(name) {
       const v = new URLSearchParams(window.location.search).get(name);
       return v && /^\d+$/.test(v) ? v : null;
     }
+
+    // Replace URL search and reload
     function setSearch(params) {
       const u = new URL(window.location.href);
       u.search = params.toString();
       window.location.href = u;
     }
+
+    // Deep-flatten packet object
     function flatten(obj, prefix='', res={}) {
-      for(const [k,v] of Object.entries(obj||{})){
-        const key=prefix?`${prefix}.${k}`:k;
-        if(v!=null&&typeof v==='object'&&!Array.isArray(v)) flatten(v,key,res);
-        else res[key]=v;
+      for (const [k, v] of Object.entries(obj || {})) {
+        const key = prefix ? `${prefix}.${k}` : k;
+        if (v != null && typeof v === 'object' && !Array.isArray(v)) {
+          flatten(v, key, res);
+        } else {
+          res[key] = v;
+        }
       }
       return res;
     }
-    function humanize(f){return f.replace(/[_\.]/g,' ');}
-    function makeSingleHTML(m){
-      const flat=flatten(m.Packet);
-      let h='<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
-      Object.keys(flat).sort().forEach(k=>{
-        h+=`<tr><td>${humanize(k)}</td><td>${flat[k]}</td></tr>`;
-      });
-      return h+'</tbody></table>';
+
+    // Turn snake.case to human text
+    function humanize(field) {
+      return field.replace(/[_\.]/g, ' ');
     }
-    function makeRangeHTML(rows,fields){
-      let h='<table><thead><tr><th>Timestamp</th>';
-      fields.forEach(f=>h+=`<th>${humanize(f)}</th>`);
-      h+='<th>Sentences</th></tr></thead><tbody>';
-      rows.forEach((r,i)=>{
-        const flat=flatten(r.Packet);
-        h+='<tr>';
-        h+=`<td>${new Date(r.Timestamp).toLocaleString([],{hour12:false})}</td>`;
-        fields.forEach(f=>h+=`<td>${flat[f]!=null?flat[f]:''}</td>`);
-        h+=`<td><button class="view" data-i="${i}">View</button></td>`;
-        h+='</tr>';
+
+    // Build HTML table for single message
+    function makeSingleHTML(msg) {
+      const flat = flatten(msg.Packet);
+      let html = '<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
+      Object.keys(flat).sort().forEach(k => {
+        html += `<tr><td>${humanize(k)}</td><td>${flat[k]}</td></tr>`;
       });
-      return h+'</tbody></table>';
+      return html + '</tbody></table>';
     }
-    function toCSV(rows,fields,incRaw){
-      const hdr=['Timestamp',...fields]; if(incRaw) hdr.push('RawSentence');
-      const lines=[hdr.join(',')];
-      rows.forEach(r=>{
-        const flat=flatten(r.Packet), ts=new Date(r.Timestamp).toISOString();
-        const vals=fields.map(f=>{
-          const v=flat[f];return v!=null?`"${String(v).replace(/"/g,'""')}"`:'';
+
+    // Build HTML table for a page of range
+    function makeRangeHTML(rows, fields) {
+      let html = '<table><thead><tr><th>Timestamp</th>';
+      fields.forEach(f => {
+        html += `<th>${humanize(f)}</th>`;
+      });
+      html += '<th>Sentences</th></tr></thead><tbody>';
+      rows.forEach((r, i) => {
+        const flat = flatten(r.Packet);
+        html += '<tr>';
+        html += `<td>${new Date(r.Timestamp).toLocaleString([], {hour12:false})}</td>`;
+        fields.forEach(f => {
+          html += `<td>${flat[f] != null ? flat[f] : ''}</td>`;
         });
-        if(incRaw){
-          const raw=`"${r.RawSentence.replace(/"/g,'""')}"`;
-          lines.push([ts,...vals,raw].join(','));
+        html += `<td><button class="view" data-i="${i}">View</button></td>`;
+        html += '</tr>';
+      });
+      return html + '</tbody></table>';
+    }
+
+    // Generate CSV text
+    function toCSV(rows, fields, includeRaw) {
+      const header = ['Timestamp', ...fields];
+      if (includeRaw) header.push('RawSentence');
+      const lines = [header.join(',')];
+      rows.forEach(r => {
+        const flat = flatten(r.Packet);
+        const ts = new Date(r.Timestamp).toISOString();
+        const vals = fields.map(f => {
+          const v = flat[f];
+          return v != null ? `"${String(v).replace(/"/g,'""')}"` : '';
+        });
+        if (includeRaw) {
+          const raw = `"${r.RawSentence.replace(/"/g,'""')}"`;
+          lines.push([ts, ...vals, raw].join(','));
         } else {
-          lines.push([ts,...vals].join(','));
+          lines.push([ts, ...vals].join(','));
         }
       });
       return lines.join('\n');
     }
 
-    (async()=>{
-      const userID=qsParam('UserID'), msgID=qsParam('MessageID'),
-            errEl=document.getElementById('error'),
-            mainT=document.getElementById('main-title'),
-            subT=document.getElementById('sub-title'),
-            tsDiv=document.getElementById('type-selector'),
-            tsSel=document.getElementById('message-type-select'),
-            downloadRow=document.getElementById('download-row'),
-            dlBtn=document.getElementById('download-csv'),
-            incRaw=document.getElementById('include-raw');
+    (async () => {
+      const userID = qsParam('UserID'),
+            msgID  = qsParam('MessageID');
 
-      if(!userID){
-        mainT.textContent='Error'; errEl.textContent='Missing UserID.';
+      const errorEl       = document.getElementById('error'),
+            mainTitle     = document.getElementById('main-title'),
+            subTitle      = document.getElementById('sub-title'),
+            typeSelector  = document.getElementById('type-selector'),
+            typeSelect    = document.getElementById('message-type-select'),
+            startInput    = document.getElementById('start'),
+            endInput      = document.getElementById('end'),
+            fieldsSelect  = document.getElementById('fields'),
+            applyBtn      = document.getElementById('apply'),
+            resetBtn      = document.getElementById('reset'),
+            downloadRow   = document.getElementById('download-row'),
+            downloadBtn   = document.getElementById('download-csv'),
+            includeRawChk = document.getElementById('include-raw'),
+            paginationRow = document.getElementById('pagination-row'),
+            viewInfo      = document.getElementById('view-info'),
+            rowsPerPageSel= document.getElementById('rows-per-page'),
+            pagePrevBtn   = document.getElementById('page-prev'),
+            pageNextBtn   = document.getElementById('page-next'),
+            individualDiv = document.getElementById('individual-view'),
+            rangeDiv      = document.getElementById('range-view'),
+            singleTable   = document.getElementById('single-table'),
+            singleRaw     = document.getElementById('single-raw'),
+            prevBtn       = document.getElementById('prev'),
+            nextBtn       = document.getElementById('next'),
+            counterDiv    = document.getElementById('counter'),
+            rangeTable    = document.getElementById('range-table');
+
+      if (!userID) {
+        mainTitle.textContent = 'Error';
+        errorEl.textContent = 'Missing UserID in URL.';
         return;
       }
-      // vessel name
-      try{
-        const r=await fetch(`/summary?UserID=${userID}`,{cache:'no-store'}),
-              s=await r.json(),
-              n=s[userID]?.Name.trim()||userID;
-        mainT.textContent=`Latest Messages for ${n}`;
-      }catch{ mainT.textContent=`Latest Messages for ${userID}`; }
 
-      // available message types
-      let avail=[];
-      try{
-        const r=await fetch(`/state/${userID}`,{cache:'no-store'}),
-              st=await r.json();
-        avail=st.MessageTypes||[];
-      }catch{}
+      // Fetch vessel name
+      try {
+        const res = await fetch(`/summary?UserID=${userID}`, {cache:'no-store'});
+        const summary = await res.json();
+        const name = summary[userID]?.Name.trim() || userID;
+        mainTitle.textContent = `Latest Messages for ${name}`;
+      } catch {
+        mainTitle.textContent = `Latest Messages for ${userID}`;
+      }
 
-      // translations
-      let map={};
-      try{ map=await (await fetch('/message_types.json',{cache:'no-store'})).json(); }
-      catch{}
+      // Load available message types
+      let available = [];
+      try {
+        const res = await fetch(`/state/${userID}`, {cache:'no-store'});
+        const st = await res.json();
+        available = st.MessageTypes || [];
+      } catch {}
 
-      // populate type selector
-      avail.forEach(t=>{
-        const o=document.createElement('option');
-        o.value=t; o.textContent=`${map[t]||'Msg '+t} (ID ${t})`;
-        if(String(t)===msgID) o.selected=true;
-        tsSel.append(o);
+      // Load translation map
+      let typeMap = {};
+      try {
+        typeMap = await (await fetch('/message_types.json', {cache:'no-store'})).json();
+      } catch {}
+
+      // Populate type dropdown
+      available.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = `${typeMap[t] || 'Msg ' + t} (ID ${t})`;
+        if (String(t) === msgID) opt.selected = true;
+        typeSelect.append(opt);
       });
-      if(avail.length){
-        tsDiv.style.display=''; tsSel.onchange=()=>{
-          const p=new URLSearchParams({UserID:userID,MessageID:tsSel.value});
+      if (available.length) {
+        typeSelector.style.display = '';
+        typeSelect.onchange = () => {
+          const p = new URLSearchParams({UserID:userID, MessageID:typeSelect.value});
           setSearch(p);
         };
       }
-      if(msgID) subT.textContent=`${map[msgID]||('Message '+msgID)} (ID ${msgID})`;
 
-      // fetch messages
-      const base=`/latestmessages?UserID=${userID}&MessageID=${msgID}`;
-      let allMsgs=[];
-      try{ allMsgs=await (await fetch(base+'&limit=100',{cache:'no-store'})).json(); }
-      catch{ errEl.textContent='Failed to load messages.'; return; }
-      if(!allMsgs.length){ errEl.textContent='No messages found.'; return; }
+      // Subtitle
+      if (msgID) {
+        subTitle.textContent = `${typeMap[msgID] || 'Message ' + msgID} (ID ${msgID})`;
+      }
 
-      // fields
-      const ff=flatten(allMsgs[0].Packet),
-            num=Object.entries(ff).filter(([,v])=>typeof v==='number').map(([k])=>k).sort(),
-            fld=document.getElementById('fields');
-      num.forEach(f=>{
-        const o=document.createElement('option');
-        o.value=f; o.textContent=humanize(f);
-        fld.append(o);
+      // Fetch last 100 for individual view
+      let allMsgs = [];
+      try {
+        allMsgs = await (await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, {cache:'no-store'})).json();
+      } catch {
+        errorEl.textContent = 'Failed to load messages.';
+        return;
+      }
+      if (!allMsgs.length) {
+        errorEl.textContent = 'No messages found.';
+        return;
+      }
+
+      // Fill fields selector
+      const firstFlat = flatten(allMsgs[0].Packet);
+      const numericFields = Object.entries(firstFlat)
+        .filter(([,v]) => typeof v === 'number')
+        .map(([k]) => k)
+        .sort();
+      numericFields.forEach(f => {
+        const o = document.createElement('option');
+        o.value = f;
+        o.textContent = humanize(f);
+        fieldsSelect.append(o);
       });
 
-      // individual & range logic
-      let idx=0;
-      const prevB=document.getElementById('prev'),
-            nextB=document.getElementById('next'),
-            ctr=document.getElementById('counter'),
-            sT=document.getElementById('single-table'),
-            sR=document.getElementById('single-raw'),
-            indV=document.getElementById('individual-view'),
-            rngV=document.getElementById('range-view'),
-            rngT=document.getElementById('range-table'),
-            applyB=document.getElementById('apply'),
-            resetB=document.getElementById('reset');
-
-      function renderInd(){
-        const m=allMsgs[idx];
-        ctr.textContent=`${idx+1} of ${allMsgs.length}`;
-        sT.innerHTML=makeSingleHTML(m);
-        sR.textContent=m.RawSentence;
-        prevB.disabled=idx===0; nextB.disabled=idx===allMsgs.length-1;
+      // Individual view pagination
+      let idx = 0;
+      function renderIndividual() {
+        const msg = allMsgs[idx];
+        counterDiv.textContent = `${idx+1} of ${allMsgs.length}`;
+        singleTable.innerHTML = makeSingleHTML(msg);
+        singleRaw.textContent = msg.RawSentence;
+        prevBtn.disabled = idx === 0;
+        nextBtn.disabled = idx === allMsgs.length - 1;
       }
-      prevB.onclick=()=>idx>0&&(idx--,renderInd());
-      nextB.onclick=()=>idx<allMsgs.length-1&&(idx++,renderInd());
-      renderInd();
+      prevBtn.onclick = () => idx>0 && (--idx, renderIndividual());
+      nextBtn.onclick = () => idx<allMsgs.length-1 && (++idx, renderIndividual());
+      renderIndividual();
 
-      applyB.onclick=async()=>{
-        const s=document.getElementById('start').value,
-              e=document.getElementById('end').value,
-              sel=Array.from(fld.selectedOptions).map(o=>o.value);
-        if(!s||!e||!sel.length) return alert('Select From, To & fields.');
-        const p=new URLSearchParams({
-          UserID:userID,MessageID:msgID,
-          start:new Date(s).toISOString(),
-          end:new Date(e).toISOString(),
-          limit:'100'
+      // Range + Pagination state
+      let rangeData = [];
+      let currentPage = 1;
+      let rowsPerPage = parseInt(rowsPerPageSel.value, 10);
+
+      function renderPage() {
+        const start = (currentPage - 1) * rowsPerPage;
+        const end = Math.min(rangeData.length, start + rowsPerPage);
+        const pageRows = rangeData.slice(start, end);
+        rangeTable.innerHTML = makeRangeHTML(pageRows, numericFields);
+        viewInfo.textContent = `Viewing ${start+1}–${end} of ${rangeData.length}`;
+        pagePrevBtn.disabled = currentPage === 1;
+        pageNextBtn.disabled = end === rangeData.length;
+        rangeTable.querySelectorAll('button.view').forEach(btn => {
+          const idxOnPage = parseInt(btn.dataset.i, 10);
+          btn.onclick = () => alert(rangeData[(currentPage-1)*rowsPerPage + idxOnPage].RawSentence);
         });
-        let data=[];
-        try{ data=await (await fetch(base+'&'+p,{cache:'no-store'})).json(); }
-        catch{ return alert('Failed to fetch range.'); }
+      }
 
-        rngT.innerHTML=data.length?makeRangeHTML(data,sel):'<p>No records.</p>';
-        rngT.querySelectorAll('button.view').forEach(b=>
-          b.onclick=()=>alert(data[b.dataset.i].RawSentence)
-        );
-        dlBtn.onclick=()=>{
-          const csv=toCSV(data,sel,incRaw.checked);
-          const b=new Blob([csv],{type:'text/csv'}),
-                u=URL.createObjectURL(b),
-                a=document.createElement('a');
-          a.href=u; a.download=`messages_${userID}_${msgID}.csv`;
-          a.click(); URL.revokeObjectURL(u);
-        };
-        downloadRow.style.display='';
-        indV.style.display='none'; rngV.style.display='';
+      rowsPerPageSel.onchange = () => {
+        rowsPerPage = parseInt(rowsPerPageSel.value, 10);
+        currentPage = 1;
+        renderPage();
+      };
+      pagePrevBtn.onclick = () => {
+        if (currentPage > 1) {
+          currentPage--;
+          renderPage();
+        }
+      };
+      pageNextBtn.onclick = () => {
+        if (currentPage * rowsPerPage < rangeData.length) {
+          currentPage++;
+          renderPage();
+        }
       };
 
-      resetB.onclick=()=>{
-        document.getElementById('start').value='';
-        document.getElementById('end').value='';
-        fld.selectedIndex=-1;
-        rngT.innerHTML='';
-        downloadRow.style.display='none';
-        rngV.style.display='none';
-        indV.style.display='';
+      // Show Range logic
+      applyBtn.onclick = async () => {
+        const s = startInput.value, e = endInput.value;
+        const sel = Array.from(fieldsSelect.selectedOptions).map(o => o.value);
+        if (!s || !e || !sel.length) {
+          return alert('Please select From, To, and at least one field.');
+        }
+
+        const params = new URLSearchParams({
+          UserID:    userID,
+          MessageID: msgID,
+          start:     new Date(s).toISOString(),
+          end:       new Date(e).toISOString(),
+          limit:     '2000'
+        });
+
+        try {
+          rangeData = await (await fetch(`/latestmessages?${params}`, {cache:'no-store'})).json();
+        } catch {
+          return alert('Failed to fetch range.');
+        }
+
+        // CSV download logic
+        downloadBtn.onclick = () => {
+          const csv = toCSV(rangeData, sel, includeRawChk.checked);
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `messages_${userID}_${msgID}.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        downloadRow.style.display = '';
+        paginationRow.style.display = '';
+        individualDiv.style.display = 'none';
+        rangeDiv.style.display = '';
+        currentPage = 1;
+        renderPage();
+      };
+
+      // Reset logic
+      resetBtn.onclick = () => {
+        startInput.value = '';
+        endInput.value   = '';
+        fieldsSelect.selectedIndex = -1;
+        downloadRow.style.display = 'none';
+        paginationRow.style.display = 'none';
+        rangeDiv.style.display = 'none';
+        individualDiv.style.display = '';
       };
     })();
   </script>
