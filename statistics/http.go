@@ -29,15 +29,15 @@ func StartServer(port int) {
 
 // registerHandlers attaches your routes to the mux.
 func registerHandlers(mux *http.ServeMux) {
-    // 1) Static assets from ./web at /statistics/...
+    // Serve static assets under /statistics/
     fs := http.FileServer(http.Dir("web"))
     mux.Handle("/statistics/", http.StripPrefix("/statistics/", fs))
 
-    // 2) API endpoint at /statistics/stats/top-sog
+    // Stats endpoint
     mux.HandleFunc("/statistics/stats/top-sog", topSogHandler)
 }
 
-// topSogHandler returns the top 10 vessels by max SOG in the last x days.
+// topSogHandler returns the top 10 vessels by max SOG (excluding 102.3) in the last x days.
 // Query-param: ?days=N  (default 1)
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
     // 1) parse days
@@ -67,7 +67,7 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 3) merge per-shard into global map[user_id]max_sog
+    // 3) merge per-shard into global map[user_id]max_sog, skipping 102.3
     maxMap := make(map[int]float64)
     for _, recs := range shardResults {
         for _, rec := range recs {
@@ -90,6 +90,10 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
                 sog = v
             case []byte:
                 sog, _ = strconv.ParseFloat(string(v), 64)
+            }
+            // skip the special-case value
+            if sog == 102.3 {
+                continue
             }
             if prev, ok := maxMap[uid]; !ok || sog > prev {
                 maxMap[uid] = sog
