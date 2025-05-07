@@ -56,6 +56,7 @@ type Settings struct {
 	PollInterval int   `json:"poll_interval"`
 	ReceiversBaseURL string `json:"receivers_base_url"`
 	MetricsBaseURL string `json:"metrics_base_url"`
+	StatisticsBaseURL string `json:"statistics_base_url"`
         RedisHost string `json:"redis_host"`
         RedisPort int    `json:"redis_port"`
         CacheTime int    `json:"cache_time"`
@@ -1700,10 +1701,16 @@ func setupServer(settings *Settings) {
     if err != nil {
         log.Fatalf("invalid metrics_base_url: %v", err)
     }
+    statisticsURL, err := url.Parse(conf.StatisticsBaseURL)
+    if err != nil {
+        log.Fatalf("invalid statistics_base_url: %v", err)
+    }
     receiversProxy := httputil.NewSingleHostReverseProxy(receiversURL)
     metricsProxy := httputil.NewSingleHostReverseProxy(metricsURL)
+    statisticsProxy := httputil.NewSingleHostReverseProxy(statisticsURL)
     mux.Handle("/receivers", receiversProxy) // receivers JSON endpoint
-    mux.Handle("/metrics/",  metricsProxy) // per user metrics JSON endpoints
+    mux.Handle("/metrics/",  metricsProxy) // metrics JSON endpoints
+    mux.Handle("/statistics/", statisticsProxy) // statistics JSON endpoints
 
     // HTTP API endpoints
     mux.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
