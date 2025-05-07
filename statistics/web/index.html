@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Vessel Statistics</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 2rem;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    select {
+      font-size: 1rem;
+      padding: 0.2rem;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 2rem;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 0.5rem;
+      text-align: left;
+    }
+    th {
+      background: #eee;
+    }
+    .section {
+      margin-top: 2rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Vessel Statistics</h1>
+
+  <label for="days-select">Select time window:</label>
+  <select id="days-select">
+    <option value="1">1 day</option>
+    <option value="2">2 days</option>
+    <option value="7">7 days</option>
+    <option value="14">14 days</option>
+    <option value="30">30 days</option>
+  </select>
+
+  <div class="section">
+    <h2>Top 10 by Speed Over Ground</h2>
+    <table id="top-sog-table">
+      <thead>
+        <tr><th>Vessel</th><th>Image</th><th>Max SOG</th><th>Lat</th><th>Lon</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Top 10 Vessel Types</h2>
+    <table id="top-types-table">
+      <thead>
+        <tr><th>Type</th><th>Count</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Top 10 by Position Reports</h2>
+    <table id="top-positions-table">
+      <thead>
+        <tr><th>Vessel</th><th>Image</th><th>Reports</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    const daysSelect = document.getElementById('days-select');
+    daysSelect.addEventListener('change', fetchAll);
+
+    async function fetchAll() {
+      const days = daysSelect.value;
+      await Promise.all([
+        fetchTopSog(days),
+        fetchTopTypes(days),
+        fetchTopPositions(days)
+      ]);
+    }
+
+    async function fetchTopSog(days) {
+      const res = await fetch(`/statistics/stats/top-sog?days=${days}`);
+      const data = await res.json();
+      const tbody = document.querySelector('#top-sog-table tbody');
+      tbody.innerHTML = '';
+      data.forEach(v => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${v.name || v.user_id}</td>
+          <td>${v.image_url ? `<img src="${v.image_url}" alt="" width="50">` : ''}</td>
+          <td>${v.max_sog.toFixed(2)}</td>
+          <td>${v.lat.toFixed(5)}</td>
+          <td>${v.lon.toFixed(5)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function fetchTopTypes(days) {
+      const res = await fetch(`/statistics/stats/top-types?days=${days}`);
+      const data = await res.json();
+      const tbody = document.querySelector('#top-types-table tbody');
+      tbody.innerHTML = '';
+      data.forEach(t => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${t.type}</td>
+          <td>${t.count}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function fetchTopPositions(days) {
+      const res = await fetch(`/statistics/stats/top-positions?days=${days}`);
+      const data = await res.json();
+      const tbody = document.querySelector('#top-positions-table tbody');
+      tbody.innerHTML = '';
+      data.forEach(v => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${v.name || v.user_id}</td>
+          <td>${v.image_url ? `<img src="${v.image_url}" alt="" width="50">` : ''}</td>
+          <td>${v.count}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // initial load
+    fetchAll();
+  </script>
+</body>
+</html>
