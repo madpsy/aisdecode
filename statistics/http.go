@@ -7,12 +7,16 @@ import (
     "net/http"
     "sort"
     "strconv"
+    "time"
 )
 
 // vessel is the JSON shape returned by /statistics/stats/top-sog
 type vessel struct {
-    UserID int     `json:"user_id"`
-    MaxSog float64 `json:"max_sog"`
+    UserID    int       `json:"user_id"`
+    MaxSog    float64   `json:"max_sog"`
+    Timestamp time.Time `json:"timestamp"`
+    Lat       float64   `json:"lat"`
+    Lon       float64   `json:"lon"`
 }
 
 // StartServer sets up HTTP handlers and begins listening.
@@ -37,7 +41,8 @@ func registerHandlers(mux *http.ServeMux) {
     mux.HandleFunc("/statistics/stats/top-sog", topSogHandler)
 }
 
-// topSogHandler returns the top 10 vessels by max SOG (excluding 102.3) in the last x days.
+// topSogHandler returns the top 10 vessels by max SOG (excluding 102.3) in the last x days,
+// including the timestamp and position where that max was observed.
 // It caches results in Redis under key "top-sog:<days>d" with TTL == conf.CacheTime seconds.
 // Query-param: ?days=N  (default 1)
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
@@ -64,14 +69,19 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 3) Not cached: run per-shard query
+    // 3) Not cached: run per-shard DISTINCT ON query to get each user's top record
     qry := fmt.Sprintf(`
-        SELECT user_id,
-               MAX((packet->>'Sog')::float) AS max_sog
+        SELECT DISTINCT ON (user_id)
+               user_id,
+               (packet->>'Sog')::float AS max_sog,
+               timestamp,
+               (packet->>'Latitude')::float AS lat,
+               (packet->>'Longitude')::float AS lon
           FROM messages
          WHERE message_id IN (1,2,3,18,19)
+           AND (packet->>'Sog')::float <> 102.3
            AND timestamp >= now() - INTERVAL '%d days'
-         GROUP BY user_id
+         ORDER BY user_id, max_sog DESC
     `, days)
 
     shardResults, err := QueryDatabasesForAllShards(qry)
@@ -80,8 +90,14 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 4) Merge, skip SOG==102.3
-    maxMap := make(map[int]float64, 16)
+    // 4) Merge across shards to get global max per user
+    type recType struct {
+        Sog  float64
+        Ts   time.Time
+        Lat  float64
+        Lon  float64
+    }
+    maxMap := make(map[int]recType)
     for _, recs := range shardResults {
         for _, rec := range recs {
             // extract user_id
@@ -104,19 +120,49 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
             case []byte:
                 sog, _ = strconv.ParseFloat(string(v), 64)
             }
-            if sog == 102.3 {
-                continue
+            // extract timestamp
+            var ts time.Time
+            switch v := rec["timestamp"].(type) {
+            case time.Time:
+                ts = v
+            case []byte:
+                ts, _ = time.Parse(time.RFC3339, string(v))
+            case string:
+                ts, _ = time.Parse(time.RFC3339, v)
             }
-            if prev, ok := maxMap[uid]; !ok || sog > prev {
-                maxMap[uid] = sog
+            // extract lat
+            var lat float64
+            switch v := rec["lat"].(type) {
+            case float64:
+                lat = v
+            case []byte:
+                lat, _ = strconv.ParseFloat(string(v), 64)
+            }
+            // extract lon
+            var lon float64
+            switch v := rec["lon"].(type) {
+            case float64:
+                lon = v
+            case []byte:
+                lon, _ = strconv.ParseFloat(string(v), 64)
+            }
+
+            if prev, ok := maxMap[uid]; !ok || sog > prev.Sog {
+                maxMap[uid] = recType{Sog: sog, Ts: ts, Lat: lat, Lon: lon}
             }
         }
     }
 
     // 5) Sort into slice and take top 10
     vessels = make([]vessel, 0, len(maxMap))
-    for uid, sog := range maxMap {
-        vessels = append(vessels, vessel{UserID: uid, MaxSog: sog})
+    for uid, data := range maxMap {
+        vessels = append(vessels, vessel{
+            UserID:    uid,
+            MaxSog:    data.Sog,
+            Timestamp: data.Ts,
+            Lat:       data.Lat,
+            Lon:       data.Lon,
+        })
     }
     sort.Slice(vessels, func(i, j int) bool {
         return vessels[i].MaxSog > vessels[j].MaxSog
