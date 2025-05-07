@@ -241,13 +241,76 @@ func getClientDatabaseSettings(ip string, port int) (*ClientDBSettings, error) {
 }
 
 // syncClientConns reconciles local DBs with ingester list
+// Logs only on initial connect and when topology changes (add/remove).
 func syncClientConns() {
-	log.Printf("🔄 Syncing shard topology from %s:%d...", conf.IngestHost, conf.IngestPort)
 	clients, err := fetchClients()
 	if err != nil {
 		log.Printf("Error fetching clients: %v", err)
 		return
 	}
+
+	// Build new map of connections
+	newMap := make(map[string]*ClientConn, len(clients))
+	var added []string
+	for _, ci := range clients {
+		key := fmt.Sprintf("%s:%d", ci.Ip, ci.Port)
+
+		clientConnsMu.RLock()
+		existing, ok := clientConns[key]
+		clientConnsMu.RUnlock()
+
+		if ok {
+			// reuse existing
+			newMap[key] = existing
+			continue
+		}
+
+		// new shard: fetch credentials and connect
+		dbCfg, err := getClientDatabaseSettings(ci.Ip, ci.Port)
+		if err != nil {
+			log.Printf("Error fetching DB settings from %s: %v", key, err)
+			continue
+		}
+		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName)
+		db, err := sql.Open("postgres", dsn)
+		if err != nil {
+			log.Printf("DB open error for %s: %v", key, err)
+			continue
+		}
+		if err := db.Ping(); err != nil {
+			log.Printf("DB ping error for %s: %v", key, err)
+			db.Close()
+			continue
+		}
+
+		// Successful initial connect
+		log.Printf("✅ Connected to shard DB %s, shards=%v", key, ci.Shards)
+		newMap[key] = &ClientConn{DbSettings: *dbCfg, Db: db, Shards: ci.Shards, HostKey: key}
+		added = append(added, key)
+	}
+
+	// Determine removals
+	clientConnsMu.Lock()
+	oldMap := clientConns
+	var removed []string
+	for key, conn := range oldMap {
+		if _, ok := newMap[key]; !ok {
+			removed = append(removed, key)
+			conn.Db.Close()
+			log.Printf("❌ Disconnected shard DB %s", key)
+		}
+	}
+
+	// Swap in updated map
+	clientConns = newMap
+	clientConnsMu.Unlock()
+
+	// Log topology change if any
+	if len(added) > 0 || len(removed) > 0 {
+		log.Printf("🔄 Shard topology updated: +%v, -%v; total shards: %d", added, removed, totalShards)
+	}
+}
 	log.Printf("Fetched %d client entries", len(clients))
 	newMap := make(map[string]*ClientConn, len(clients))
 	for _, ci := range clients {
