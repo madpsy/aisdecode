@@ -14,6 +14,7 @@
     body {
       background-color: #f8f9fa;
       padding: 2rem;
+      font-family: sans-serif;
     }
     h1, h2 {
       color: #343a40;
@@ -125,14 +126,28 @@
   </div>
 
   <!-- Dependencies -->
+  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
-  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
 
   <script>
     let typeMapping = {};
+
+    // palette for up to 10 slices
+    const sliceColors = [
+      '#4dc9f6', // light blue
+      '#f67019', // orange
+      '#f53794', // pink
+      '#537bc4', // dark blue
+      '#acc236', // lime
+      '#166a8f', // navy
+      '#00a950', // green
+      '#58595b', // gray
+      '#8549ba', // purple
+      '#e6194b'  // red
+    ];
 
     async function loadTypeMapping() {
       try {
@@ -155,7 +170,15 @@
 
     const typeChart = new Chart(typeCtx, {
       type: 'pie',
-      data: { labels: [], datasets: [{ data: [] }] },
+      data: {
+        labels: [],
+        datasets: [{
+          data: [],
+          backgroundColor: [],       // will be set dynamically
+          borderColor: '#fff',
+          borderWidth: 1
+        }]
+      },
       options: { plugins: { legend: { position: 'bottom' } } }
     });
 
@@ -194,9 +217,8 @@
             <td>${v.lon.toFixed(5)}</td>
           </tr>
         `);
-
         sogChart.data.labels.push(name);
-        sogChart.data.datasets[0].data.push(v.max_sog.toFixed(2));
+        sogChart.data.datasets[0].data.push(v.max_sog);
       });
 
       sogChart.update();
@@ -206,20 +228,16 @@
     async function fetchTopTypes(days) {
       const data = await (await fetch(`/statistics/stats/top-types?days=${days}`)).json();
       const $tbody = $('#top-types-table tbody').empty();
-      typeChart.data.labels = [];
-      typeChart.data.datasets[0].data = [];
+
+      // set labels & values
+      typeChart.data.labels = data.map(t => typeMapping[t.type] || t.type);
+      typeChart.data.datasets[0].data = data.map(t => t.count);
+      // assign a distinct color per slice
+      typeChart.data.datasets[0].backgroundColor = sliceColors.slice(0, data.length);
 
       data.forEach(t => {
         const desc = typeMapping[t.type] || t.type;
-        $tbody.append(`
-          <tr>
-            <td>${desc}</td>
-            <td>${t.count}</td>
-          </tr>
-        `);
-
-        typeChart.data.labels.push(desc);
-        typeChart.data.datasets[0].data.push(t.count);
+        $tbody.append(`<tr><td>${desc}</td><td>${t.count}</td></tr>`);
       });
 
       typeChart.update();
@@ -244,7 +262,6 @@
             <td>${v.count}</td>
           </tr>
         `);
-
         posChart.data.labels.push(name);
         posChart.data.datasets[0].data.push(v.count);
       });
