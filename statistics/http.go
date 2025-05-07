@@ -47,6 +47,7 @@ func StartServer(port int) {
 func registerHandlers(mux *http.ServeMux) {
     fs := http.FileServer(http.Dir("web"))
     mux.Handle("/statistics/", http.StripPrefix("/statistics/", fs))
+
     mux.HandleFunc("/statistics/stats/top-sog", topSogHandler)
     mux.HandleFunc("/statistics/stats/top-types", topTypesHandler)
     mux.HandleFunc("/statistics/stats/top-positions", topPositionsHandler)
@@ -67,8 +68,8 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         }
         if len(ids) > 0 {
             if meta, err := fetchVesselMetadata(ids); err == nil {
-                for i, v := range vessels {
-                    if md, found := meta[v.UserID]; found {
+                for i, vv := range vessels {
+                    if md, found := meta[vv.UserID]; found {
                         vessels[i].Name = md.Name
                         vessels[i].ImageURL = md.ImageURL
                     }
@@ -143,8 +144,8 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     if metaMap, err := fetchVesselMetadata(ids); err == nil {
-        for i, v := range vessels {
-            if md, found := metaMap[v.UserID]; found {
+        for i, vv := range vessels {
+            if md, found := metaMap[vv.UserID]; found {
                 vessels[i].Name = md.Name
                 vessels[i].ImageURL = md.ImageURL
             }
@@ -213,9 +214,10 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     cacheKey := fmt.Sprintf("top-positions:%dd", days)
 
-    var results []posVessel
-    if ok, _ := cacheGet(cacheKey, &results); ok {
-        respondJSON(w, results)
+    var result []posVessel
+    if ok, _ := cacheGet(cacheKey, &result); ok {
+        // on cache hit we already have names/images
+        respondJSON(w, result)
         return
     }
 
@@ -243,35 +245,36 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    results = make([]posVessel, 0, len(countMap))
+    result = make([]posVessel, 0, len(countMap))
     ids := make([]int, 0, len(countMap))
     for uid, cnt := range countMap {
-        results = append(results, posVessel{
+        result = append(result, posVessel{
             UserID: uid,
             Count:  cnt,
         })
         ids = append(ids, uid)
     }
 
-    sort.Slice(results, func(i, j int) bool {
-        return results[i].Count > results[j].Count
+    sort.Slice(result, func(i, j int) bool {
+        return result[i].Count > result[j].Count
     })
-    if len(results) > 10 {
-        results = results[:10]
+    if len(result) > 10 {
+        result = result[:10]
         ids = ids[:10]
     }
 
+    // ** fetch metadata exactly once before caching/responsive **
     if metaMap, err := fetchVesselMetadata(ids); err == nil {
-        for i, v := range results {
+        for i, v := range result {
             if md, found := metaMap[v.UserID]; found {
-                results[i].Name = md.Name
-                results[i].ImageURL = md.ImageURL
+                result[i].Name = md.Name
+                result[i].ImageURL = md.ImageURL
             }
         }
     }
 
-    cacheSet(cacheKey, results)
-    respondJSON(w, results)
+    cacheSet(cacheKey, result)
+    respondJSON(w, result)
 }
 
 // parseDaysParam reads 'days' query param, defaults to 1.
