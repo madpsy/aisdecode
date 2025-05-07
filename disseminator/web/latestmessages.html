@@ -527,41 +527,38 @@ function showMap() {
   }
   mapLayerGroup.clearLayers();
 
-  // build an array of points with lat, lng, and the raw record
+  // prepare points
   const pts = rangeData.map(r => {
     const flat = flatten(r.Packet);
     return {
       lat: flat.Latitude,
       lng: flat.Longitude,
-      record: r,      // full record for Timestamp
-      data: flat      // other packet fields
+      record: r,
+      data: flat
     };
   });
-
   if (!pts.length) return;
 
-  // draw the path line
+  // draw track line
   const latlngs = pts.map(p => [p.lat, p.lng]);
   L.polyline(latlngs, { color: 'blue' }).addTo(mapLayerGroup);
 
-  // always show Record Timestamp, Latitude, Longitude, then other selected fields
-  const mandatory = ['Record Timestamp', 'Latitude', 'Longitude'];
+  // fields: Record Timestamp, Latitude, Longitude, + any other selected
+  const mandatory = ['Record Timestamp','Latitude','Longitude'];
   const fieldsToShow = mandatory.concat(
     selectedFields.filter(f => !['Latitude','Longitude'].includes(f))
   );
 
-  // add markers with hover-tooltips showing only our chosen fields
   pts.forEach((p, i) => {
     const marker = (i === pts.length - 1)
       ? L.marker([p.lat, p.lng]).addTo(mapLayerGroup)
       : L.circleMarker([p.lat, p.lng], { radius: 4 }).addTo(mapLayerGroup);
 
-    // build tooltip HTML
-    let html = '<table>';
-    fieldsToShow.forEach(f => {
-      let displayVal = '';
+    // build tooltip text
+    const lines = fieldsToShow.map(f => {
+      let val = '';
       if (f === 'Record Timestamp') {
-        displayVal = new Date(p.record.Timestamp).toLocaleString([], {
+        val = new Date(p.record.Timestamp).toLocaleString([], {
           hour12: false,
           year:   'numeric',
           month:  '2-digit',
@@ -571,18 +568,16 @@ function showMap() {
           second: '2-digit'
         });
       } else if (f === 'Latitude') {
-        displayVal = p.lat;
+        val = p.lat;
       } else if (f === 'Longitude') {
-        displayVal = p.lng;
+        val = p.lng;
       } else {
-        displayVal = p.data[f] != null ? p.data[f] : '';
+        val = p.data[f] != null ? p.data[f] : '';
       }
-      html += `<tr><td><strong>${f}</strong></td><td>${displayVal}</td></tr>`;
+      return `<strong>${f}:</strong> ${val}`;
     });
-    html += '</table>';
 
-    // bind a tooltip that shows on hover
-    marker.bindTooltip(html, {
+    marker.bindTooltip(lines.join('<br/>'), {
       direction: 'top',
       offset: [0, -6],
       permanent: false,
@@ -590,9 +585,8 @@ function showMap() {
     });
   });
 
-  // fit map bounds to data
-  const bounds = L.latLngBounds(latlngs);
-  map.fitBounds(bounds.pad(0.2));
+  // fit map to data
+  map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
 }
 
 
