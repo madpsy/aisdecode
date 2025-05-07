@@ -509,113 +509,108 @@ resultsAs.onchange = () => {
         paginationRow.style.display = '';
         renderPage();
       }
-let map, mapLayerGroup;
-function showMap() {
-  // hide other views
-  chartCont.style.display = 'none';
-  rangeTbl.style.display = 'none';
-  paginationRow.style.display = 'none';
-  document.getElementById('map-container').style.display = '';
 
-  // initialize Leaflet map once
-  if (!map) {
-    map = L.map('map-container').setView([0,0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-    mapLayerGroup = L.layerGroup().addTo(map);
-  }
-  mapLayerGroup.clearLayers();
-
-  // prepare points
-  const pts = rangeData.map(r => {
-    const flat = flatten(r.Packet);
-    return {
-      lat: flat.Latitude,
-      lng: flat.Longitude,
-      record: r,
-      data: flat
-    };
-  });
-  if (!pts.length) return;
-
-  // get array of latlngs
-  const latlngs = pts.map(p => [p.lat, p.lng]);
-
-  // draw the polyline
-  const line = L.polyline(latlngs, { color: 'blue', weight: 3 })
-    .addTo(mapLayerGroup);
-
-  // tooltip options
-  const tooltipOpts = {
-    direction: 'top',
-    offset: [0, -6],
-    permanent: false,
-    sticky: true
-  };
-
-  // helper to format one point’s tooltip HTML
-  function makeTooltipHTML(pt) {
-    const mandatory = ['Record Timestamp','Latitude','Longitude'];
-    const fieldsToShow = mandatory.concat(
-      selectedFields.filter(f => !['Latitude','Longitude'].includes(f))
-    );
-
-    function limitDecimals(num, max = 4) {
-      const [i, f = ''] = String(num).split('.');
-      return f.length <= max ? i + (f ? `.${f}` : '') : i + '.' + f.slice(0, max);
-    }
-
-    return fieldsToShow.map((f, idx) => {
-      let raw;
-      if (f === 'Record Timestamp') {
-        raw = new Date(pt.record.Timestamp).toLocaleString([], {
-          hour12: false,
-          year:'numeric', month:'2-digit', day:'2-digit',
-          hour:'2-digit', minute:'2-digit', second:'2-digit'
+      let map, mapLayerGroup;
+      function showMap() {
+        // hide other views
+        chartCont.style.display = 'none';
+        rangeTbl.style.display = 'none';
+        paginationRow.style.display = 'none';
+        document.getElementById('map-container').style.display = '';
+      
+        // initialize Leaflet map once
+        if (!map) {
+          map = L.map('map-container').setView([0,0], 2);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+          }).addTo(map);
+          mapLayerGroup = L.layerGroup().addTo(map);
+        }
+        mapLayerGroup.clearLayers();
+      
+        // prepare points
+        const pts = rangeData.map(r => {
+          const flat = flatten(r.Packet);
+          return {
+            lat: flat.Latitude,
+            lng: flat.Longitude,
+            record: r,
+            data: flat
+          };
         });
-      } else if (f === 'Latitude') raw = pt.lat;
-      else if (f === 'Longitude') raw = pt.lng;
-      else raw = pt.data[f];
+        if (!pts.length) return;
+      
+        // get array of latlngs
+        const latlngs = pts.map(p => [p.lat, p.lng]);
+      
+        // draw the polyline
+        const line = L.polyline(latlngs, { color: 'blue', weight: 3 })
+          .addTo(mapLayerGroup);
+      
+        // tooltip options
+        const tooltipOpts = {
+          direction: 'top',
+          offset: [0, -6],
+          permanent: false,
+          sticky: true
+        };
+      
+        // helper to format one point’s tooltip HTML
+        function makeTooltipHTML(pt) {
+          const mandatory = ['Record Timestamp','Latitude','Longitude'];
+          const fieldsToShow = mandatory.concat(
+            selectedFields.filter(f => !['Latitude','Longitude'].includes(f))
+          );
+      
+          function limitDecimals(num, max = 4) {
+            const [i, f = ''] = String(num).split('.');
+            return f.length <= max ? i + (f ? `.${f}` : '') : i + '.' + f.slice(0, max);
+          }
+      
+          return fieldsToShow.map((f, idx) => {
+            let raw;
+            if (f === 'Record Timestamp') {
+              raw = new Date(pt.record.Timestamp).toLocaleString([], {
+                hour12: false,
+                year:'numeric', month:'2-digit', day:'2-digit',
+                hour:'2-digit', minute:'2-digit', second:'2-digit'
+              });
+            } else if (f === 'Latitude') raw = pt.lat;
+            else if (f === 'Longitude') raw = pt.lng;
+            else raw = pt.data[f];
+      
+            const val = (typeof raw === 'number' ? limitDecimals(raw) : (raw ?? ''));
+            // no label on first (timestamp) line
+            return (idx === 0 && f === 'Record Timestamp')
+              ? val
+              : `<strong>${f}:</strong> ${val}`;
+          }).join('<br/>');
+        }
 
-      const val = (typeof raw === 'number' ? limitDecimals(raw) : (raw ?? ''));
-      // no label on first (timestamp) line
-      return (idx === 0 && f === 'Record Timestamp')
-        ? val
-        : `<strong>${f}:</strong> ${val}`;
-    }).join('<br/>');
-  }
+        // bind an empty tooltip to the polyline (to be updated on hover)
+        line.bindTooltip('', tooltipOpts);
+      
+        // on polyline hover: find nearest point, update + open tooltip
+        line.on('mousemove', e => {
+          let minDist = Infinity, idx = 0;
+          latlngs.forEach((ll, i) => {
+            const d = e.latlng.distanceTo(L.latLng(ll));
+            if (d < minDist) minDist = d, idx = i;
+          });
+          const html = makeTooltipHTML(pts[idx]);
+          line.setTooltipContent(html);
+          line.openTooltip(e.latlng);
+        });
+        line.on('mouseout', () => line.closeTooltip());
 
-  // bind an empty tooltip to the polyline (to be updated on hover)
-  line.bindTooltip('', tooltipOpts);
-
-  // on polyline hover: find nearest point, update + open tooltip
-  line.on('mousemove', e => {
-    let minDist = Infinity, idx = 0;
-    latlngs.forEach((ll, i) => {
-      const d = e.latlng.distanceTo(L.latLng(ll));
-      if (d < minDist) minDist = d, idx = i;
-    });
-    const html = makeTooltipHTML(pts[idx]);
-    line.setTooltipContent(html);
-    line.openTooltip(e.latlng);
-  });
-  line.on('mouseout', () => line.closeTooltip());
-
-  // add a marker at the final point with its own tooltip
-  const last = pts[pts.length - 1];
-  const marker = L.marker([last.lat, last.lng]).addTo(mapLayerGroup);
-  marker.bindTooltip(makeTooltipHTML(last), tooltipOpts);
-
-  // fit map to data
-  map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
-}
-
-
-
-
-
-
+        // add a marker at the final point with its own tooltip
+        const last = pts[pts.length - 1];
+        const marker = L.marker([last.lat, last.lng]).addTo(mapLayerGroup);
+        marker.bindTooltip(makeTooltipHTML(last), tooltipOpts);
+      
+        // fit map to data
+        map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
+      }
 
       function showGraph() {
         rangeTbl.style.display = 'none';
