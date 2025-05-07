@@ -14,6 +14,7 @@ import (
 type vessel struct {
     UserID    int       `json:"user_id"`
     Name      string    `json:"name"`
+    ImageURL  string    `json:"image_url"`
     MaxSog    float64   `json:"max_sog"`
     Timestamp time.Time `json:"timestamp"`
     Lat       float64   `json:"lat"`
@@ -43,7 +44,7 @@ func registerHandlers(mux *http.ServeMux) {
 }
 
 // topSogHandler returns the top 10 vessels by max SOG (excluding 102.3) in the last x days,
-// including the timestamp, position, and vessel name from state.
+// including the timestamp, position, vessel name, and image URL from state.
 // It caches results in Redis under key "top-sog:<days>d" with TTL == conf.CacheTime seconds.
 // Query-param: ?days=N  (default 1)
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
@@ -70,15 +71,16 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 3) Not cached: per-shard query fetching max SOG record plus vessel name
+    // 3) Not cached: per-shard query fetching top SOG record plus vessel name & image_url
     qry := fmt.Sprintf(`
         SELECT DISTINCT ON (m.user_id)
                m.user_id,
-               (m.packet->>'Sog')::float   AS max_sog,
+               (m.packet->>'Sog')::float        AS max_sog,
                m.timestamp,
-               (m.packet->>'Latitude')::float  AS lat,
-               (m.packet->>'Longitude')::float AS lon,
-               COALESCE(s.name, '')         AS name
+               (m.packet->>'Latitude')::float   AS lat,
+               (m.packet->>'Longitude')::float  AS lon,
+               COALESCE(s.name, '')             AS name,
+               COALESCE(s.image_url, '')        AS image_url
           FROM messages m
           JOIN state   s ON m.user_id = s.user_id
          WHERE m.message_id IN (1,2,3,18,19)
@@ -95,11 +97,12 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
 
     // 4) Merge across shards to pick the global max per user
     type recType struct {
-        Sog  float64
-        Ts   time.Time
-        Lat  float64
-        Lon  float64
-        Name string
+        Sog      float64
+        Ts       time.Time
+        Lat      float64
+        Lon      float64
+        Name     string
+        ImageURL string
     }
     maxMap := make(map[int]recType, len(shardResults))
     for _, recs := range shardResults {
@@ -158,10 +161,18 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
             case []byte:
                 name = string(v)
             }
+            // extract image_url
+            var imageURL string
+            switch v := rec["image_url"].(type) {
+            case string:
+                imageURL = v
+            case []byte:
+                imageURL = string(v)
+            }
 
             prev, exists := maxMap[uid]
             if !exists || sog > prev.Sog {
-                maxMap[uid] = recType{Sog: sog, Ts: ts, Lat: lat, Lon: lon, Name: name}
+                maxMap[uid] = recType{Sog: sog, Ts: ts, Lat: lat, Lon: lon, Name: name, ImageURL: imageURL}
             }
         }
     }
@@ -172,6 +183,7 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         vessels = append(vessels, vessel{
             UserID:    uid,
             Name:      data.Name,
+            ImageURL:  data.ImageURL,
             MaxSog:    data.Sog,
             Timestamp: data.Ts,
             Lat:       data.Lat,
