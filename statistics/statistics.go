@@ -217,6 +217,7 @@ func fetchClients() ([]ClientInfo, error) {
 
 // syncClientConns updates local DB connections to match the ingester
 func syncClientConns() {
+	log.Printf("🔄 Syncing shard topology from %s:%d...", conf.IngestHost, conf.IngestPort)
 	clients, err := fetchClients()
 	if err != nil {
 		log.Printf("Error fetching clients: %v", err)
@@ -224,6 +225,8 @@ func syncClientConns() {
 	}
 
 	newMap := make(map[string]*ClientConn, len(clients))
+	// Log the number of client entries we will process
+	log.Printf("Fetched %d client entries", len(clients))
 	for _, ci := range clients {
 		key := fmt.Sprintf("%s:%d", ci.Ip, ci.Port)
 
@@ -261,6 +264,7 @@ func syncClientConns() {
 		newMap[key] = &ClientConn{DbSettings: dbCfg, Db: db, Shards: ci.Shards, HostKey: key}
 	}
 
+		log.Printf("⚡️ Synced %d shard connections (total shards: %d)", len(newMap), totalShards)
 	clientConnsMu.Lock()
 	clientConns = newMap
 	clientConnsMu.Unlock()
@@ -285,6 +289,8 @@ func main() {
 
 	initRedis()
 	syncClientConns()
+	// Report initial connections
+	log.Printf("🔄 Initial shard sync complete: %d connections, %d shards", len(clientConns), totalShards)
 	scheduleShardSync(30 * time.Second)
 
 	mux := http.NewServeMux()
