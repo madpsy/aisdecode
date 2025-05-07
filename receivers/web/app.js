@@ -64,6 +64,7 @@ function renderList(list) {
           : `—`
         }
       </td>
+      <td>${r.ip_address}</td>
       <td>
         <a class="action" data-id="${r.id}">Edit</a>
         &nbsp;|&nbsp;
