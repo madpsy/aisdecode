@@ -7,15 +7,19 @@ import (
     "net/http"
     "sort"
     "strconv"
+    "time"
 )
 
 // vessel is the JSON shape returned by /statistics/stats/top-sog.
 type vessel struct {
-    UserID    int     `json:"user_id"`
-    Name      string  `json:"name,omitempty"`
-    ImageURL  string  `json:"image_url,omitempty"`
-    MaxSog    float64 `json:"max_sog,omitempty"`
-    Count     int     `json:"count,omitempty"`
+    UserID    int       `json:"user_id"`
+    Name      string    `json:"name,omitempty"`
+    ImageURL  string    `json:"image_url,omitempty"`
+    MaxSog    float64   `json:"max_sog,omitempty"`
+    Timestamp time.Time `json:"timestamp,omitempty"`
+    Lat       float64   `json:"lat,omitempty"`
+    Lon       float64   `json:"lon,omitempty"`
+    Count     int       `json:"count,omitempty"`
 }
 
 // typeCount is the JSON shape returned by /statistics/stats/top-types.
@@ -55,8 +59,8 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
 
     var vessels []vessel
     if ok, _ := cacheGet(cacheKey, &vessels); ok {
-        // back-fill missing metadata
-        ids := []int{}
+        // back‐fill metadata on cache hit
+        ids := make([]int, 0, len(vessels))
         for _, v := range vessels {
             if v.Name == "" || v.ImageURL == "" {
                 ids = append(ids, v.UserID)
@@ -80,7 +84,10 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
     qry := fmt.Sprintf(`
         SELECT DISTINCT ON (m.user_id)
                m.user_id,
-               (m.packet->>'Sog')::float AS max_sog
+               (m.packet->>'Sog')::float       AS max_sog,
+               m.timestamp,
+               (m.packet->>'Latitude')::float  AS lat,
+               (m.packet->>'Longitude')::float AS lon
           FROM messages m
          WHERE m.message_id IN (1,2,3,18,19)
            AND (m.packet->>'Sog')::float <> 102.3
@@ -94,23 +101,40 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    maxMap := make(map[int]float64)
+    maxMap := make(map[int]struct {
+        sog float64
+        ts  time.Time
+        lat float64
+        lon float64
+    })
     for _, recs := range shardResults {
         for _, rec := range recs {
             uid, _ := parseInt(rec["user_id"])
             sog, _ := parseFloat(rec["max_sog"])
-            if prev, found := maxMap[uid]; !found || sog > prev {
-                maxMap[uid] = sog
+            ts, _ := parseTime(rec["timestamp"])
+            lat, _ := parseFloat(rec["lat"])
+            lon, _ := parseFloat(rec["lon"])
+            prev := maxMap[uid]
+            if sog > prev.sog {
+                maxMap[uid] = struct {
+                    sog float64
+                    ts  time.Time
+                    lat float64
+                    lon float64
+                }{sog, ts, lat, lon}
             }
         }
     }
 
     vessels = make([]vessel, 0, len(maxMap))
     ids := make([]int, 0, len(maxMap))
-    for uid, sog := range maxMap {
+    for uid, d := range maxMap {
         vessels = append(vessels, vessel{
-            UserID: uid,
-            MaxSog: sog,
+            UserID:    uid,
+            MaxSog:    d.sog,
+            Timestamp: d.ts,
+            Lat:       d.lat,
+            Lon:       d.lon,
         })
         ids = append(ids, uid)
     }
@@ -123,9 +147,9 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         ids = ids[:10]
     }
 
-    if metaMap, err := fetchVesselMetadata(ids); err == nil {
+    if meta, err := fetchVesselMetadata(ids); err == nil {
         for i, vv := range vessels {
-            if md, found := metaMap[vv.UserID]; found {
+            if md, found := meta[vv.UserID]; found {
                 vessels[i].Name = md.Name
                 vessels[i].ImageURL = md.ImageURL
             }
@@ -194,26 +218,9 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     cacheKey := fmt.Sprintf("top-positions:%dd", days)
 
+    // on cache hit, assume Name/ImageURL already present
     var results []posVessel
     if ok, _ := cacheGet(cacheKey, &results); ok {
-        // back-fill missing metadata on cache hit
-        ids := []int{}
-        for _, v := range results {
-            if v.Name == "" || v.ImageURL == "" {
-                ids = append(ids, v.UserID)
-            }
-        }
-        if len(ids) > 0 {
-            if meta, err := fetchVesselMetadata(ids); err == nil {
-                for i, vv := range results {
-                    if md, found := meta[vv.UserID]; found {
-                        results[i].Name = md.Name
-                        results[i].ImageURL = md.ImageURL
-                    }
-                }
-                go cacheSet(cacheKey, results)
-            }
-        }
         respondJSON(w, results)
         return
     }
@@ -242,31 +249,35 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    results = make([]posVessel, 0, len(countMap))
-    ids := make([]int, 0, len(countMap))
+    // build and sort raw list
+    type raw struct{ uid, cnt int }
+    raws := make([]raw, 0, len(countMap))
     for uid, cnt := range countMap {
-        results = append(results, posVessel{
-            UserID: uid,
-            Count:  cnt,
-        })
-        ids = append(ids, uid)
+        raws = append(raws, raw{uid, cnt})
     }
-
-    sort.Slice(results, func(i, j int) bool {
-        return results[i].Count > results[j].Count
+    sort.Slice(raws, func(i, j int) bool {
+        return raws[i].cnt > raws[j].cnt
     })
-    if len(results) > 10 {
-        results = results[:10]
-        ids = ids[:10]
+    if len(raws) > 10 {
+        raws = raws[:10]
     }
 
-    // fetch metadata before responding & caching
-    if metaMap, err := fetchVesselMetadata(ids); err == nil {
-        for i, vv := range results {
-            if md, found := metaMap[vv.UserID]; found {
-                results[i].Name = md.Name
-                results[i].ImageURL = md.ImageURL
-            }
+    // fetch metadata once
+    ids := make([]int, len(raws))
+    for i, r := range raws {
+        ids[i] = r.uid
+    }
+    metaMap, _ := fetchVesselMetadata(ids)
+
+    // assemble final slice
+    results = make([]posVessel, len(raws))
+    for i, r := range raws {
+        md := metaMap[r.uid]
+        results[i] = posVessel{
+            UserID:   r.uid,
+            Name:     md.Name,
+            ImageURL: md.ImageURL,
+            Count:    r.cnt,
         }
     }
 
