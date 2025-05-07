@@ -17,6 +17,16 @@ import (
 )
 
 // Settings defines service configuration
+// loaded from settings.json
+// {
+//   "ingester_host": "localhost",
+//   "ingester_port": 8080,
+//   "listen_port": 5005,
+//   "cache_time": 10,
+//   "redis_host": "127.0.0.1",
+//   "redis_port": 6379,
+//   "debug": false
+// }
 type Settings struct {
 	IngestHost string `json:"ingester_host"`
 	IngestPort int    `json:"ingester_port"`
@@ -35,22 +45,21 @@ type ClientInfo struct {
 	Shards      []int  `json:"shards"`
 }
 
-// ClientConn holds the DB connection and metadata for one collector node
-type ClientConn struct {
-	DbSettings ClientDBSettings
-	Db         *sql.DB
-	Shards     []int
-	HostKey    string // e.g. ip:port
-}
-
 // ClientDBSettings holds credentials for connecting to a Postgres shard
-// We'll store these so we can reconnect automatically.
 type ClientDBSettings struct {
 	Host     string
 	Port     int
 	User     string
 	Password string
 	DBName   string
+}
+
+// ClientConn holds the DB connection and metadata for one collector node
+type ClientConn struct {
+	DbSettings ClientDBSettings
+	Db         *sql.DB
+	Shards     []int
+	HostKey    string // e.g. ip:port
 }
 
 var (
@@ -62,7 +71,7 @@ var (
 	totalShards   int
 )
 
-// loadSettings reads configuration from JSON file
+// loadSettings reads configuration from a JSON file
 func loadSettings(path string) (*Settings, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -75,7 +84,7 @@ func loadSettings(path string) (*Settings, error) {
 	return &s, nil
 }
 
-// initRedis initializes the Redis client and logs if it can't connect
+// initRedis initializes the Redis client for caching
 func initRedis() {
 	redisClient = redis.NewClient(&redis.Options{
 		Addr: fmt.Sprintf("%s:%d", conf.RedisHost, conf.RedisPort),
@@ -100,11 +109,13 @@ func shardForUser(userID string) int {
 	return int(h.Sum32()) % totalShards
 }
 
-// ensureDB pings the underlying DB and reconnects on failure
+// ensureDB pings the DB and reconnects on failure
 func (cc *ClientConn) ensureDB() error {
 	if err := cc.Db.Ping(); err != nil {
-		// attempt reconnect
-		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		log.Printf("⚠️ Lost DB connection for shard %s: %v", cc.HostKey, err)
+		// Attempt reconnect
+		dsn := fmt.Sprintf(
+			"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 			cc.DbSettings.Host,
 			cc.DbSettings.Port,
 			cc.DbSettings.User,
@@ -113,19 +124,20 @@ func (cc *ClientConn) ensureDB() error {
 		)
 		newDb, err2 := sql.Open("postgres", dsn)
 		if err2 != nil {
-			return fmt.Errorf("reconnect open failed: %v (ping err: %v)", err2, err)
+			return fmt.Errorf("reconnect open failed for %s: %v (original ping err: %v)", cc.HostKey, err2, err)
 		}
 		if err2 = newDb.Ping(); err2 != nil {
 			newDb.Close()
-			return fmt.Errorf("reconnect ping failed: %v (ping err: %v)", err2, err)
+			return fmt.Errorf("reconnect ping failed for %s: %v (original ping err: %v)", cc.HostKey, err2, err)
 		}
 		cc.Db.Close()
 		cc.Db = newDb
+		log.Printf("🔄 Reconnected to DB for shard %s", cc.HostKey)
 	}
 	return nil
 }
 
-// QueryDatabaseForUser runs a SQL query against the shard for a given userID
+// QueryDatabaseForUser runs a SQL query against the single shard for userID
 func QueryDatabaseForUser(userID, query string) (*sql.Rows, error) {
 	shard := shardForUser(userID)
 
@@ -222,7 +234,8 @@ func syncClientConns() {
 			newMap[key] = old
 			continue
 		}
-		// TODO: fetch or configure real DB credentials here
+
+		// For new shards, establish a connection
 		dbCfg := ClientDBSettings{
 			Host:     ci.Ip,
 			Port:     ci.Port,
@@ -230,28 +243,30 @@ func syncClientConns() {
 			Password: "<pass>",
 			DBName:   "<dbname>",
 		}
-		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		dsn := fmt.Sprintf(
+			"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 			dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName,
 		)
 		db, err := sql.Open("postgres", dsn)
 		if err != nil {
-			log.Printf("DB open error %s: %v", key, err)
+			log.Printf("DB open error for %s: %v", key, err)
 			continue
 		}
 		if err := db.Ping(); err != nil {
-			log.Printf("DB ping error %s: %v", key, err)
+			log.Printf("DB ping error for %s: %v", key, err)
 			db.Close()
 			continue
 		}
+		log.Printf("✅ Connected to shard DB %s, shards=%v", key, ci.Shards)
 		newMap[key] = &ClientConn{DbSettings: dbCfg, Db: db, Shards: ci.Shards, HostKey: key}
 	}
 
 	clientConnsMu.Lock()
 	clientConns = newMap
-	clientConnsMu.Unlock()
+	clientConvsMu.Unlock()
 }
 
-// scheduleShardSync polls the ingester at a fixed interval\            
+// scheduleShardSync polls the ingester at a fixed interval
 func scheduleShardSync(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	go func() {
@@ -274,9 +289,7 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// TODO: implement your statistic-based API endpoints here,
-	// using QueryDatabaseForUser, QueryDatabasesForAllShards,
-	// and wrapping any redis operations with ensureRedis().
+	// TODO: implement your statistic-based API endpoints here
 
 	// Serve static assets from 'web'
 	mux.Handle("/", http.FileServer(http.Dir("web")))
