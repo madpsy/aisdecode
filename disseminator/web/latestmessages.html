@@ -505,6 +505,7 @@ resultsAs.onchange = () => {
       // show/hide table vs. chart
       function showTable() {
         chartCont.style.display = 'none';
+        document.getElementById('map-container').style.display = 'none';
         rangeTbl.style.display = '';
         paginationRow.style.display = '';
         renderPage();
@@ -614,6 +615,7 @@ resultsAs.onchange = () => {
 
       function showGraph() {
         rangeTbl.style.display = 'none';
+	document.getElementById('map-container').style.display = 'none';
         chartCont.style.display = '';
         paginationRow.style.display = 'none';
 
