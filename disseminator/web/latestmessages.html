@@ -605,7 +605,7 @@ resultsAs.onchange = () => {
         line.on('mouseout', () => line.closeTooltip());
 
         // add a marker at the final point with its own tooltip
-        const last = pts[pts.length - 1];
+        const last = pts[0];
         const marker = L.marker([last.lat, last.lng]).addTo(mapLayerGroup);
         marker.bindTooltip(makeTooltipHTML(last), tooltipOpts);
       
