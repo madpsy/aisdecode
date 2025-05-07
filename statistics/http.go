@@ -15,6 +15,8 @@ type vessel struct {
     UserID    int       `json:"user_id"`
     Name      string    `json:"name,omitempty"`
     ImageURL  string    `json:"image_url,omitempty"`
+    AISClass  string    `json:"ais_class,omitempty"` // new
+    Type      string    `json:"type,omitempty"`      // new
     MaxSog    float64   `json:"max_sog,omitempty"`
     Timestamp time.Time `json:"timestamp,omitempty"`
     Lat       float64   `json:"lat,omitempty"`
@@ -33,10 +35,12 @@ type posVessel struct {
     UserID   int    `json:"user_id"`
     Name     string `json:"name"`
     ImageURL string `json:"image_url"`
+    AISClass string `json:"ais_class,omitempty"` // new
+    Type     string `json:"type,omitempty"`      // new
     Count    int    `json:"count"`
 }
 
-// enrichVessels looks up and injects Name/ImageURL for each vessel in-place.
+// enrichVessels looks up and injects Name/ImageURL/AISClass/Type for each vessel in-place.
 func enrichVessels(vs []vessel) []vessel {
     ids := make([]int, len(vs))
     for i, v := range vs {
@@ -49,14 +53,16 @@ func enrichVessels(vs []vessel) []vessel {
     }
     for i := range vs {
         if m, ok := meta[vs[i].UserID]; ok {
-            vs[i].Name = m.Name
+            vs[i].Name     = m.Name
             vs[i].ImageURL = m.ImageURL
+            vs[i].AISClass = m.AISClass
+            vs[i].Type     = m.Type
         }
     }
     return vs
 }
 
-// enrichPosVessels looks up and injects Name/ImageURL for each posVessel in-place.
+// enrichPosVessels looks up and injects Name/ImageURL/AISClass/Type for each posVessel in-place.
 func enrichPosVessels(ps []posVessel) []posVessel {
     ids := make([]int, len(ps))
     for i, v := range ps {
@@ -69,8 +75,10 @@ func enrichPosVessels(ps []posVessel) []posVessel {
     }
     for i := range ps {
         if m, ok := meta[ps[i].UserID]; ok {
-            ps[i].Name = m.Name
+            ps[i].Name     = m.Name
             ps[i].ImageURL = m.ImageURL
+            ps[i].AISClass = m.AISClass
+            ps[i].Type     = m.Type
         }
     }
     return ps
@@ -150,7 +158,6 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     vs = make([]vessel, 0, len(maxMap))
-    ids := make([]int, 0, len(maxMap))
     for uid, d := range maxMap {
         vs = append(vs, vessel{
             UserID:    uid,
@@ -159,7 +166,6 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
             Lat:       d.lat,
             Lon:       d.lon,
         })
-        ids = append(ids, uid)
     }
 
     sort.Slice(vs, func(i, j int) bool {
@@ -274,10 +280,8 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     ps = make([]posVessel, len(raw))
-    ids := make([]int, len(raw))
     for i, r := range raw {
         ps[i] = posVessel{UserID: r.uid, Count: r.cnt}
-        ids[i] = r.uid
     }
 
     ps = enrichPosVessels(ps)

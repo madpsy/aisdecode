@@ -372,10 +372,14 @@ func scheduleShardSync(interval time.Duration) {
 
 // VesselMetadata holds the name & image URL for a vessel
 type VesselMetadata struct {
-    Name     string `json:"name"`
-    ImageURL string `json:"image_url"`
+   Name     string `json:"name"`
+   ImageURL string `json:"image_url"`
+   AISClass string `json:"ais_class"`
+   Type     string `json:"type"`
 }
 
+// fetchVesselMetadata takes a slice of userIDs, fans out to every shard’s state table,
+// and returns a map[userID]VesselMetadata.
 // fetchVesselMetadata takes a slice of userIDs, fans out to every shard’s state table,
 // and returns a map[userID]VesselMetadata.
 func fetchVesselMetadata(userIDs []int) (map[int]VesselMetadata, error) {
@@ -393,10 +397,16 @@ func fetchVesselMetadata(userIDs []int) (map[int]VesselMetadata, error) {
         sb.WriteString(strconv.Itoa(id))
     }
 
+    // select name, image_url, ais_class, and packet->>'type'
     qry := fmt.Sprintf(`
-        SELECT user_id, name, image_url
-          FROM state
-         WHERE user_id IN (%s)
+        SELECT
+          user_id,
+          name,
+          image_url,
+          ais_class,
+          packet->>'type' AS type
+        FROM state
+       WHERE user_id IN (%s)
     `, sb.String())
 
     shardResults, err := QueryDatabasesForAllShards(qry)
@@ -406,6 +416,7 @@ func fetchVesselMetadata(userIDs []int) (map[int]VesselMetadata, error) {
 
     for _, recs := range shardResults {
         for _, rec := range recs {
+            // extract user_id
             var uid int
             switch v := rec["user_id"].(type) {
             case int:
@@ -418,24 +429,47 @@ func fetchVesselMetadata(userIDs []int) (map[int]VesselMetadata, error) {
                 continue
             }
 
-            var name, img string
+            // extract name
+            var name string
             if v, ok := rec["name"].(string); ok {
                 name = v
             } else if b, ok := rec["name"].([]byte); ok {
                 name = string(b)
             }
+
+            // extract image_url
+            var img string
             if v, ok := rec["image_url"].(string); ok {
                 img = v
             } else if b, ok := rec["image_url"].([]byte); ok {
                 img = string(b)
             }
 
+            // extract ais_class
+            var aisClass string
+            if v, ok := rec["ais_class"].(string); ok {
+                aisClass = v
+            } else if b, ok := rec["ais_class"].([]byte); ok {
+                aisClass = string(b)
+            }
+
+            // extract type (from JSON packet->>'type')
+            var typ string
+            if v, ok := rec["type"].(string); ok {
+                typ = v
+            } else if b, ok := rec["type"].([]byte); ok {
+                typ = string(b)
+            }
+
             out[uid] = VesselMetadata{
                 Name:     name,
                 ImageURL: img,
+                AISClass: aisClass,
+                Type:     typ,
             }
         }
     }
+
     return out, nil
 }
 
