@@ -82,7 +82,6 @@
 </head>
 <body>
   <h1 id="main-title">Loading…</h1>
-  <h2 id="sub-title"></h2>
   <div id="error" class="error"></div>
 
   <div class="row" id="type-selector" style="display:none;">
@@ -247,7 +246,6 @@
             msgID         = qsParam('MessageID'),
             errorEl       = document.getElementById('error'),
             mainTitle     = document.getElementById('main-title'),
-            subTitle      = document.getElementById('sub-title'),
             typeDiv       = document.getElementById('type-selector'),
             typeSelect    = document.getElementById('message-type-select'),
             startInput    = document.getElementById('start'),
@@ -313,10 +311,6 @@
         typeSelect.onchange = () => {
           setSearch(new URLSearchParams({UserID:userID,MessageID:typeSelect.value}));
         };
-      }
-
-      if (msgID) {
-        subTitle.textContent = `${typeMap[msgID]||'Message '+msgID} (ID ${msgID})`;
       }
 
       let allMsgs = [];
