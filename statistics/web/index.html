@@ -91,6 +91,8 @@
                   <th>Vessel</th>
                   <th>Image</th>
                   <th>Reports</th>
+                  <th>Class</th>
+                  <th>Type</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -117,6 +119,8 @@
                   <th>Max SOG (knots)</th>
                   <th>Lat</th>
                   <th>Lon</th>
+                  <th>Class</th>
+                  <th>Type</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -234,7 +238,14 @@
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
-          posTable.row.add([ name, imgTag, v.count ]);
+          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
+          posTable.row.add([
+            name,
+            imgTag,
+            v.count,
+            v.ais_class,    // Class column
+            typeDesc        // Type column
+          ]);
           posChart.data.labels.push(name);
           posChart.data.datasets[0].data.push(v.count);
         });
@@ -254,12 +265,15 @@
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
+          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
           sogTable.row.add([
             name,
             imgTag,
             v.max_sog.toFixed(2),
             v.lat.toFixed(5),
-            v.lon.toFixed(5)
+            v.lon.toFixed(5),
+            v.ais_class,   // Class column
+            typeDesc       // Type column
           ]);
           sogChart.data.labels.push(name);
           sogChart.data.datasets[0].data.push(v.max_sog);
