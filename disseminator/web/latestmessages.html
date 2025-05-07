@@ -391,7 +391,7 @@ resultsAs.onchange = () => {
 
       // Initial build based on current selection
       buildFieldSelector(
-        resultsAs.onchange();
+        resultsAs.value === 'graph' ? numericOnly : allFields
       );
 
 
