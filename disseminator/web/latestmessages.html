@@ -112,7 +112,6 @@
       <select id="results-as">
         <option value="table" selected>Table</option>
         <option value="graph">Graph</option>
-	<option value="map">Map</option>
       </select>
     </label>
   </div>
@@ -283,6 +282,14 @@
             rangeTbl      = document.getElementById('range-table'),
             chartCont     = document.getElementById('chart-container'),
             chartCanvas   = document.getElementById('range-chart');
+	    const mapAllowed = new Set(['1','2','3','9','18','19']);
+
+      if (mapAllowed.has(msgID)) {
+        const mapOpt = document.createElement('option');
+        mapOpt.value = 'map';
+        mapOpt.text  = 'Map';
+        resultsAs.append(mapOpt);
+      }
 
       if (!userID) {
         mainTitle.textContent = 'Error';
