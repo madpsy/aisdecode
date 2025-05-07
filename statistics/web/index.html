@@ -6,7 +6,6 @@
 
   <!-- Bootstrap 5 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-
   <!-- DataTables CSS -->
   <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css" rel="stylesheet">
 
@@ -33,6 +32,7 @@
       position: relative;
       height: 300px;
     }
+    /* Image overlay */
     #img-overlay {
       display: none;
       position: fixed;
@@ -76,7 +76,7 @@
       </div>
     </div>
 
-    <!-- Top 10 by Position Reports (moved to top) -->
+    <!-- Top 10 by Position Reports -->
     <div class="card">
       <div class="card-body">
         <h2 class="card-title">Top 10 by Position Reports</h2>
@@ -164,160 +164,151 @@
   <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
 
   <script>
-    let typeMapping = {};
-    const sliceColors = [
-      '#4dc9f6','#f67019','#f53794','#537bc4',
-      '#acc236','#166a8f','#00a950','#58595b',
-      '#8549ba','#e6194b'
-    ];
+    $(function() {
+      let typeMapping = {};
+      const sliceColors = [
+        '#4dc9f6','#f67019','#f53794','#537bc4',
+        '#acc236','#166a8f','#00a950','#58595b',
+        '#8549ba','#e6194b'
+      ];
 
-    async function loadTypeMapping() {
-      try {
-        typeMapping = await fetch('vessel_types.json').then(r => r.json());
-      } catch (e) {
-        console.error('Failed to load type mapping:', e);
+      // Load type descriptions
+      async function loadTypeMapping() {
+        try {
+          typeMapping = await fetch('vessel_types.json').then(r => r.json());
+        } catch (e) {
+          console.error('Failed to load type mapping:', e);
+        }
       }
-    }
 
-    const sogChart = new Chart(
-      document.getElementById('sogChart').getContext('2d'),
-      { type: 'bar', data: { labels: [], datasets: [{ label: 'Max SOG (knots)', data: [] }] },
+      // Initialize Chart.js charts
+      const sogChart = new Chart($('#sogChart')[0].getContext('2d'), {
+        type: 'bar',
+        data: { labels: [], datasets: [{ label: 'Max SOG (knots)', data: [] }] },
         options: { scales: { y: { beginAtZero: true } } }
-      }
-    );
-    const typeChart = new Chart(
-      document.getElementById('typeChart').getContext('2d'),
-      { type: 'pie', data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderColor: '#fff', borderWidth: 1 }] },
+      });
+      const typeChart = new Chart($('#typeChart')[0].getContext('2d'), {
+        type: 'pie',
+        data: {
+          labels: [], datasets: [{
+            data: [], backgroundColor: [], borderColor: '#fff', borderWidth: 1
+          }]
+        },
         options: { plugins: { legend: { position: 'bottom' } } }
-      }
-    );
-    const posChart = new Chart(
-      document.getElementById('posChart').getContext('2d'),
-      { type: 'bar', data: { labels: [], datasets: [{ label: 'Reports', data: [] }] },
+      });
+      const posChart = new Chart($('#posChart')[0].getContext('2d'), {
+        type: 'bar',
+        data: { labels: [], datasets: [{ label: 'Reports', data: [] }] },
         options: { scales: { y: { beginAtZero: true } } }
+      });
+
+      // Initialize DataTables once
+      const posTable = $('#top-positions-table').DataTable({
+        paging: false, info: false, searching: false, order: [[2, 'desc']]
+      });
+      const sogTable = $('#top-sog-table').DataTable({
+        paging: false, info: false, searching: false, order: [[2, 'desc']]
+      });
+      const typeTable = $('#top-types-table').DataTable({
+        paging: false, info: false, searching: false, order: [[1, 'desc']]
+      });
+
+      // Fetch & redraw everything
+      async function fetchAll() {
+        const days = $('#days-select').val();
+        await Promise.all([
+          fetchTopPositions(days),
+          fetchTopSog(days),
+          fetchTopTypes(days)
+        ]);
       }
-    );
 
-    async function fetchAll() {
-      const days = $('#days-select').val();
-      await Promise.all([
-        fetchTopPositions(days),
-        fetchTopSog(days),
-        fetchTopTypes(days)
-      ]);
-    }
+      async function fetchTopPositions(days) {
+        const data = await (await fetch(`/statistics/stats/top-positions?days=${days}`)).json();
+        posTable.clear();
+        posChart.data.labels = [];
+        posChart.data.datasets[0].data = [];
 
-    async function fetchTopPositions(days) {
-      const data = await (await fetch(`/statistics/stats/top-positions?days=${days}`)).json();
-      const $tbody = $('#top-positions-table tbody').empty();
-      posChart.data.labels = [];
-      posChart.data.datasets[0].data = [];
+        data.forEach(v => {
+          const name = v.name || v.user_id;
+          const imgTag = v.image_url
+            ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
+            : '';
+          posTable.row.add([ name, imgTag, v.count ]);
+          posChart.data.labels.push(name);
+          posChart.data.datasets[0].data.push(v.count);
+        });
 
-      data.forEach(v => {
-        const name = v.name || v.user_id;
-        const img = v.image_url
-          ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
-          : '';
-        $tbody.append(`
-          <tr>
-            <td>${name}</td>
-            <td>${img}</td>
-            <td>${v.count}</td>
-          </tr>
-        `);
-        posChart.data.labels.push(name);
-        posChart.data.datasets[0].data.push(v.count);
-      });
-
-      posChart.update();
-      $('#top-positions-table').DataTable({
-        destroy: true,
-        paging: false,
-        info: false,
-        searching: false,
-        order: [[2, 'desc']]
-      });
-    }
-
-    async function fetchTopSog(days) {
-      const data = await (await fetch(`/statistics/stats/top-sog?days=${days}`)).json();
-      const $tbody = $('#top-sog-table tbody').empty();
-      sogChart.data.labels = [];
-      sogChart.data.datasets[0].data = [];
-
-      data.forEach(v => {
-        const name = v.name || v.user_id;
-        const img = v.image_url
-          ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
-          : '';
-        $tbody.append(`
-          <tr>
-            <td>${name}</td>
-            <td>${img}</td>
-            <td>${v.max_sog.toFixed(2)}</td>
-            <td>${v.lat.toFixed(5)}</td>
-            <td>${v.lon.toFixed(5)}</td>
-          </tr>
-        `);
-        sogChart.data.labels.push(name);
-        sogChart.data.datasets[0].data.push(v.max_sog);
-      });
-
-      sogChart.update();
-      $('#top-sog-table').DataTable({
-        destroy: true,
-        paging: false,
-        info: false,
-        searching: false,
-        order: [[2, 'desc']]
-      });
-    }
-
-    async function fetchTopTypes(days) {
-      const data = await (await fetch(`/statistics/stats/top-types?days=${days}`)).json();
-      const $tbody = $('#top-types-table tbody').empty();
-
-      typeChart.data.labels = data.map(t => typeMapping[t.type] || t.type);
-      typeChart.data.datasets[0].data = data.map(t => t.count);
-      typeChart.data.datasets[0].backgroundColor = sliceColors.slice(0, data.length);
-
-      data.forEach(t => {
-        const desc = typeMapping[t.type] || t.type;
-        $tbody.append(`<tr><td>${desc}</td><td>${t.count}</td></tr>`);
-      });
-
-      typeChart.update();
-      $('#top-types-table').DataTable({
-        destroy: true,
-        paging: false,
-        info: false,
-        searching: false,
-        order: [[1, 'desc']]
-      });
-    }
-
-    // Event listeners & initial load
-    $('#days-select').on('change', fetchAll);
-    (async () => {
-      await loadTypeMapping();
-      fetchAll();
-    })();
-  </script>
-
-  <script>
-    // Overlay open/close
-    $(document).on('click', '.thumb', function() {
-      const src = $(this).attr('src');
-      $('#img-overlay-img').attr('src', src);
-      $('#img-overlay').css('display', 'flex').hide().fadeIn(200);
-    });
-    $('#img-overlay, #img-overlay-close').on('click', function(e) {
-      if (e.target.id === 'img-overlay' || e.target.id === 'img-overlay-close') {
-        $('#img-overlay').fadeOut(200);
+        posTable.draw();
+        posChart.update();
       }
-    });
-    $('#img-overlay-img').on('click', e => e.stopPropagation());
-  </script>
 
+      async function fetchTopSog(days) {
+        const data = await (await fetch(`/statistics/stats/top-sog?days=${days}`)).json();
+        sogTable.clear();
+        sogChart.data.labels = [];
+        sogChart.data.datasets[0].data = [];
+
+        data.forEach(v => {
+          const name = v.name || v.user_id;
+          const imgTag = v.image_url
+            ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
+            : '';
+          sogTable.row.add([
+            name,
+            imgTag,
+            v.max_sog.toFixed(2),
+            v.lat.toFixed(5),
+            v.lon.toFixed(5)
+          ]);
+          sogChart.data.labels.push(name);
+          sogChart.data.datasets[0].data.push(v.max_sog);
+        });
+
+        sogTable.draw();
+        sogChart.update();
+      }
+
+      async function fetchTopTypes(days) {
+        const data = await (await fetch(`/statistics/stats/top-types?days=${days}`)).json();
+        typeTable.clear();
+        typeChart.data.labels = [];
+        typeChart.data.datasets[0].data = [];
+
+        data.forEach((t, i) => {
+          const desc = typeMapping[t.type] || t.type;
+          typeTable.row.add([ desc, t.count ]);
+          typeChart.data.labels.push(desc);
+          typeChart.data.datasets[0].data.push(t.count);
+        });
+
+        // assign slice colors dynamically
+        typeChart.data.datasets[0].backgroundColor = sliceColors.slice(0, data.length);
+
+        typeTable.draw();
+        typeChart.update();
+      }
+
+      // bind controls & initial load
+      $('#days-select').on('change', fetchAll);
+      (async () => {
+        await loadTypeMapping();
+        fetchAll();
+      })();
+
+      // image overlay handlers
+      $(document).on('click', '.thumb', function() {
+        const src = $(this).attr('src');
+        $('#img-overlay-img').attr('src', src);
+        $('#img-overlay').css('display','flex').hide().fadeIn(200);
+      });
+      $('#img-overlay, #img-overlay-close').on('click', function(e) {
+        if (e.target.id === 'img-overlay' || e.target.id === 'img-overlay-close') {
+          $('#img-overlay').fadeOut(200);
+        }
+      });
+      $('#img-overlay-img').on('click', e => e.stopPropagation());
+    });
+  </script>
 </body>
 </html>
