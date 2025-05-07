@@ -103,6 +103,7 @@
       <select id="results-as">
         <option value="table" selected>Table</option>
         <option value="graph">Graph</option>
+	<option value="map">Map</option>
       </select>
     </label>
   </div>
@@ -150,6 +151,7 @@
     <div id="chart-container" style="display:none;">
       <canvas id="range-chart"></canvas>
     </div>
+    <div id="map-container" style="display:none; height:400px; margin-bottom:1rem;"></div>
   </div>
 
   <script>
@@ -340,13 +342,43 @@
       }
 
       // Attach handler for when Results-as changes
-      resultsAs.onchange = () => {
-        const list = resultsAs.value === 'graph' ? numericOnly : allFields;
-        buildFieldSelector(list);
-        if (rngDiv.style.display !== 'none') {
-          resultsAs.value === 'table' ? showTable() : showGraph();
-        }
-      };
+resultsAs.onchange = () => {
+  let list;
+  if (resultsAs.value === 'graph') {
+    list = numericOnly;
+  } else if (resultsAs.value === 'map') {
+    // only these five; lat/lon always selected
+    list = ['Latitude','Longitude','Cog','Sog','TrueHeading'];
+  } else {
+    list = allFields;
+  }
+  buildFieldSelector(list);
+
+  // if map, force Lat/Lon selected and disable them
+  if (resultsAs.value === 'map') {
+    Array.from(fieldsSel.options).forEach(opt => {
+      if (opt.value === 'Latitude' || opt.value === 'Longitude') {
+        opt.selected = true;
+        opt.disabled = true;
+      } else {
+        opt.disabled = false;
+        opt.selected = false;
+      }
+    });
+  } else {
+    // re‑enable everything for table/graph
+    Array.from(fieldsSel.options).forEach(opt => {
+      opt.disabled = false;
+    });
+  }
+
+  // if already in range view, switch display mode
+  if (rngDiv.style.display !== 'none') {
+    if (resultsAs.value === 'table') showTable();
+    else if (resultsAs.value === 'graph') showGraph();
+    else if (resultsAs.value === 'map') showMap();
+  }
+};
 
       // Initial build based on current selection
       buildFieldSelector(
@@ -465,6 +497,65 @@
         paginationRow.style.display = '';
         renderPage();
       }
+let map, mapLayerGroup;
+function showMap() {
+  // hide other views
+  chartCont.style.display = 'none';
+  rangeTbl.style.display = 'none';
+  paginationRow.style.display = 'none';
+  document.getElementById('map-container').style.display = '';
+
+  // initialize Leaflet map once
+  if (!map) {
+    map = L.map('map-container').setView([0,0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    mapLayerGroup = L.layerGroup().addTo(map);
+  }
+  mapLayerGroup.clearLayers();
+
+  // extract lat/lon and full data
+  const pts = rangeData.map(r => {
+    const flat = flatten(r.Packet);
+    return {
+      lat: flat.Latitude,
+      lng: flat.Longitude,
+      data: {
+        Timestamp: r.Timestamp,
+        Cog: flat.Cog,
+        Sog: flat.Sog,
+        TrueHeading: flat.TrueHeading,
+        ...flat
+      }
+    };
+  });
+
+  if (!pts.length) return;
+
+  // build polyline
+  const latlngs = pts.map(p => [p.lat, p.lng]);
+  L.polyline(latlngs, { color: 'blue' }).addTo(mapLayerGroup);
+
+  // add markers / hover tooltips
+  pts.forEach((p, i) => {
+    const marker = (i === pts.length - 1)
+      ? L.marker([p.lat, p.lng]).addTo(mapLayerGroup)
+      : L.circleMarker([p.lat, p.lng], { radius: 4 }).addTo(mapLayerGroup);
+
+    // build tooltip content
+    let html = '<table>';
+    Object.entries(p.data).forEach(([k,v]) => {
+      html += `<tr><td><strong>${k}</strong></td><td>${v}</td></tr>`;
+    });
+    html += '</table>';
+    marker.bindPopup(html);
+  });
+
+  // fit map bounds to data
+  const bounds = L.latLngBounds(latlngs);
+  map.fitBounds(bounds.pad(0.2));
+}
       function showGraph() {
         rangeTbl.style.display = 'none';
         chartCont.style.display = '';
@@ -589,7 +680,13 @@
         downloadRow.style.display = '';
         indDiv.style.display = 'none';
         rngDiv.style.display = '';
-        resultsAs.value === 'table' ? showTable() : showGraph();
+        if (resultsAs.value === 'table') {
+	  showTable();
+	} else if (resultsAs.value === 'graph') {
+	  showGraph();
+	} else if (resultsAs.value === 'map') {
+	  showMap();
+	}
       };
 
       // reset view back to individual mode
