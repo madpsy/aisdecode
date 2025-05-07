@@ -34,7 +34,7 @@ type Receiver struct {
     Longitude   float64    `json:"longitude"`
     Name        string     `json:"name"`
     URL         *string    `json:"url,omitempty"`
-    IPAddress   string     `json:"ip_address"`
+    IPAddress   string     `json:"ip_address,omitempty"`
 }
 
 type ReceiverInput struct {
