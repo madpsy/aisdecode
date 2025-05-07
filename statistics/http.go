@@ -10,7 +10,7 @@ import (
     "time"
 )
 
-// vessel is the JSON shape returned by the various stats endpoints.
+// vessel is the JSON shape returned by /statistics/stats/top-sog.
 type vessel struct {
     UserID    int       `json:"user_id"`
     Name      string    `json:"name,omitempty"`
@@ -22,10 +22,18 @@ type vessel struct {
     Count     int       `json:"count,omitempty"`
 }
 
-// typeCount is the JSON shape returned by /statistics/stats/top-types
+// typeCount is the JSON shape returned by /statistics/stats/top-types.
 type typeCount struct {
     Type  string `json:"type"`
     Count int    `json:"count"`
+}
+
+// posVessel is the JSON shape returned by /statistics/stats/top-positions.
+type posVessel struct {
+    UserID   int    `json:"user_id"`
+    Name     string `json:"name"`
+    ImageURL string `json:"image_url"`
+    Count    int    `json:"count"`
 }
 
 func StartServer(port int) {
@@ -37,24 +45,20 @@ func StartServer(port int) {
 }
 
 func registerHandlers(mux *http.ServeMux) {
-    // Serve static assets under /statistics/
     fs := http.FileServer(http.Dir("web"))
     mux.Handle("/statistics/", http.StripPrefix("/statistics/", fs))
-
-    // Stats endpoints
     mux.HandleFunc("/statistics/stats/top-sog", topSogHandler)
     mux.HandleFunc("/statistics/stats/top-types", topTypesHandler)
     mux.HandleFunc("/statistics/stats/top-positions", topPositionsHandler)
 }
 
-// topSogHandler returns the top 10 vessels by max SOG over the past n days.
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     cacheKey := fmt.Sprintf("top-sog:%dd", days)
 
     var vessels []vessel
     if ok, _ := cacheGet(cacheKey, &vessels); ok {
-        // back-fill missing metadata if needed
+        // back-fill missing metadata
         ids := []int{}
         for _, v := range vessels {
             if v.Name == "" || v.ImageURL == "" {
@@ -151,7 +155,6 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
     respondJSON(w, vessels)
 }
 
-// topTypesHandler returns the top 10 vessel types over the past n days.
 func topTypesHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     cacheKey := fmt.Sprintf("top-types:%dd", days)
@@ -206,15 +209,13 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
     respondJSON(w, counts)
 }
 
-// topPositionsHandler returns the top 10 vessels by number of position reports
-// (message IDs 1,2,3,18,19) over the past n days.
 func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     cacheKey := fmt.Sprintf("top-positions:%dd", days)
 
-    var vessels []vessel
-    if ok, _ := cacheGet(cacheKey, &vessels); ok {
-        respondJSON(w, vessels)
+    var results []posVessel
+    if ok, _ := cacheGet(cacheKey, &results); ok {
+        respondJSON(w, results)
         return
     }
 
@@ -242,38 +243,38 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    vessels = make([]vessel, 0, len(countMap))
+    results = make([]posVessel, 0, len(countMap))
     ids := make([]int, 0, len(countMap))
     for uid, cnt := range countMap {
-        vessels = append(vessels, vessel{
+        results = append(results, posVessel{
             UserID: uid,
             Count:  cnt,
         })
         ids = append(ids, uid)
     }
 
-    sort.Slice(vessels, func(i, j int) bool {
-        return vessels[i].Count > vessels[j].Count
+    sort.Slice(results, func(i, j int) bool {
+        return results[i].Count > results[j].Count
     })
-    if len(vessels) > 10 {
-        vessels = vessels[:10]
+    if len(results) > 10 {
+        results = results[:10]
         ids = ids[:10]
     }
 
     if metaMap, err := fetchVesselMetadata(ids); err == nil {
-        for i, v := range vessels {
+        for i, v := range results {
             if md, found := metaMap[v.UserID]; found {
-                vessels[i].Name = md.Name
-                vessels[i].ImageURL = md.ImageURL
+                results[i].Name = md.Name
+                results[i].ImageURL = md.ImageURL
             }
         }
     }
 
-    cacheSet(cacheKey, vessels)
-    respondJSON(w, vessels)
+    cacheSet(cacheKey, results)
+    respondJSON(w, results)
 }
 
-// parseDaysParam reads the 'days' query param, defaulting to 1.
+// parseDaysParam reads 'days' query param, defaults to 1.
 func parseDaysParam(r *http.Request) int {
     days := 1
     if d := r.URL.Query().Get("days"); d != "" {
@@ -284,13 +285,13 @@ func parseDaysParam(r *http.Request) int {
     return days
 }
 
-// respondJSON sets JSON header and writes the value.
+// respondJSON serializes v as JSON to the response.
 func respondJSON(w http.ResponseWriter, v interface{}) {
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(v)
 }
 
-// respondError sends a 500 with the error message.
+// respondError sends a 500 status with the error message.
 func respondError(w http.ResponseWriter, err error) {
     http.Error(w, fmt.Sprintf("internal error: %v", err), http.StatusInternalServerError)
 }
