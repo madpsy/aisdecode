@@ -7,19 +7,15 @@ import (
     "net/http"
     "sort"
     "strconv"
-    "time"
 )
 
 // vessel is the JSON shape returned by /statistics/stats/top-sog.
 type vessel struct {
-    UserID    int       `json:"user_id"`
-    Name      string    `json:"name,omitempty"`
-    ImageURL  string    `json:"image_url,omitempty"`
-    MaxSog    float64   `json:"max_sog,omitempty"`
-    Timestamp time.Time `json:"timestamp,omitempty"`
-    Lat       float64   `json:"lat,omitempty"`
-    Lon       float64   `json:"lon,omitempty"`
-    Count     int       `json:"count,omitempty"`
+    UserID    int     `json:"user_id"`
+    Name      string  `json:"name,omitempty"`
+    ImageURL  string  `json:"image_url,omitempty"`
+    MaxSog    float64 `json:"max_sog,omitempty"`
+    Count     int     `json:"count,omitempty"`
 }
 
 // typeCount is the JSON shape returned by /statistics/stats/top-types.
@@ -84,10 +80,7 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
     qry := fmt.Sprintf(`
         SELECT DISTINCT ON (m.user_id)
                m.user_id,
-               (m.packet->>'Sog')::float       AS max_sog,
-               m.timestamp,
-               (m.packet->>'Latitude')::float  AS lat,
-               (m.packet->>'Longitude')::float AS lon
+               (m.packet->>'Sog')::float AS max_sog
           FROM messages m
          WHERE m.message_id IN (1,2,3,18,19)
            AND (m.packet->>'Sog')::float <> 102.3
@@ -101,36 +94,23 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    type rec struct {
-        Sog float64
-        Ts  time.Time
-        Lat float64
-        Lon float64
-    }
-    maxMap := make(map[int]rec)
+    maxMap := make(map[int]float64)
     for _, recs := range shardResults {
-        for _, r := range recs {
-            uid, _ := parseInt(r["user_id"])
-            sog, _ := parseFloat(r["max_sog"])
-            ts, _ := parseTime(r["timestamp"])
-            lat, _ := parseFloat(r["lat"])
-            lon, _ := parseFloat(r["lon"])
-            prev, found := maxMap[uid]
-            if !found || sog > prev.Sog {
-                maxMap[uid] = rec{Sog: sog, Ts: ts, Lat: lat, Lon: lon}
+        for _, rec := range recs {
+            uid, _ := parseInt(rec["user_id"])
+            sog, _ := parseFloat(rec["max_sog"])
+            if prev, found := maxMap[uid]; !found || sog > prev {
+                maxMap[uid] = sog
             }
         }
     }
 
     vessels = make([]vessel, 0, len(maxMap))
     ids := make([]int, 0, len(maxMap))
-    for uid, d := range maxMap {
+    for uid, sog := range maxMap {
         vessels = append(vessels, vessel{
-            UserID:    uid,
-            MaxSog:    d.Sog,
-            Timestamp: d.Ts,
-            Lat:       d.Lat,
-            Lon:       d.Lon,
+            UserID: uid,
+            MaxSog: sog,
         })
         ids = append(ids, uid)
     }
@@ -214,10 +194,27 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     cacheKey := fmt.Sprintf("top-positions:%dd", days)
 
-    var result []posVessel
-    if ok, _ := cacheGet(cacheKey, &result); ok {
-        // on cache hit we already have names/images
-        respondJSON(w, result)
+    var results []posVessel
+    if ok, _ := cacheGet(cacheKey, &results); ok {
+        // back-fill missing metadata on cache hit
+        ids := []int{}
+        for _, v := range results {
+            if v.Name == "" || v.ImageURL == "" {
+                ids = append(ids, v.UserID)
+            }
+        }
+        if len(ids) > 0 {
+            if meta, err := fetchVesselMetadata(ids); err == nil {
+                for i, vv := range results {
+                    if md, found := meta[vv.UserID]; found {
+                        results[i].Name = md.Name
+                        results[i].ImageURL = md.ImageURL
+                    }
+                }
+                go cacheSet(cacheKey, results)
+            }
+        }
+        respondJSON(w, results)
         return
     }
 
@@ -245,36 +242,36 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    result = make([]posVessel, 0, len(countMap))
+    results = make([]posVessel, 0, len(countMap))
     ids := make([]int, 0, len(countMap))
     for uid, cnt := range countMap {
-        result = append(result, posVessel{
+        results = append(results, posVessel{
             UserID: uid,
             Count:  cnt,
         })
         ids = append(ids, uid)
     }
 
-    sort.Slice(result, func(i, j int) bool {
-        return result[i].Count > result[j].Count
+    sort.Slice(results, func(i, j int) bool {
+        return results[i].Count > results[j].Count
     })
-    if len(result) > 10 {
-        result = result[:10]
+    if len(results) > 10 {
+        results = results[:10]
         ids = ids[:10]
     }
 
-    // ** fetch metadata exactly once before caching/responsive **
+    // fetch metadata before responding & caching
     if metaMap, err := fetchVesselMetadata(ids); err == nil {
-        for i, v := range result {
-            if md, found := metaMap[v.UserID]; found {
-                result[i].Name = md.Name
-                result[i].ImageURL = md.ImageURL
+        for i, vv := range results {
+            if md, found := metaMap[vv.UserID]; found {
+                results[i].Name = md.Name
+                results[i].ImageURL = md.ImageURL
             }
         }
     }
 
-    cacheSet(cacheKey, result)
-    respondJSON(w, result)
+    cacheSet(cacheKey, results)
+    respondJSON(w, results)
 }
 
 // parseDaysParam reads 'days' query param, defaults to 1.
