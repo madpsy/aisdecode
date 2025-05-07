@@ -539,20 +539,17 @@ function showMap() {
   });
   if (!pts.length) return;
 
-  // draw the polyline only (no small dots)
+  // draw the polyline
   const latlngs = pts.map(p => [p.lat, p.lng]);
-  L.polyline(latlngs, { color: 'blue', weight: 3 }).addTo(mapLayerGroup);
+  const line = L.polyline(latlngs, { color: 'blue', weight: 3 })
+    .addTo(mapLayerGroup);
 
-  // mark only the last point
+  // compute tooltip content once from the last point
   const last = pts[pts.length - 1];
-  const marker = L.marker([last.lat, last.lng]).addTo(mapLayerGroup);
-
-  // build tooltip content for the last point
   const mandatory = ['Record Timestamp','Latitude','Longitude'];
   const fieldsToShow = mandatory.concat(
     selectedFields.filter(f => !['Latitude','Longitude'].includes(f))
   );
-
   function limitDecimals(num, maxDecimals = 4) {
     const [intPart, fracPart = ''] = String(num).split('.');
     return fracPart.length <= maxDecimals
@@ -560,7 +557,7 @@ function showMap() {
       : intPart + '.' + fracPart.slice(0, maxDecimals);
   }
 
-  const lines = fieldsToShow.map((f, idx) => {
+  const tooltipLines = fieldsToShow.map((f, idx) => {
     let rawVal;
     if (f === 'Record Timestamp') {
       rawVal = new Date(last.record.Timestamp).toLocaleString([], {
@@ -579,27 +576,32 @@ function showMap() {
     } else {
       rawVal = last.data[f];
     }
-
     const displayVal = (typeof rawVal === 'number')
       ? limitDecimals(rawVal, 4)
       : (rawVal != null ? rawVal : '');
 
-    if (idx === 0 && f === 'Record Timestamp') {
-      return displayVal;
-    }
+    // omit the label on the first (timestamp) line
+    if (idx === 0 && f === 'Record Timestamp') return displayVal;
     return `<strong>${f}:</strong> ${displayVal}`;
-  });
+  }).join('<br/>');
 
-  marker.bindTooltip(lines.join('<br/>'), {
-    direction: 'top',
-    offset: [0, -6],
-    permanent: false,
-    sticky: true
+  // add a marker at the last point (so you still get a pointer there)
+  const marker = L.marker([last.lat, last.lng]).addTo(mapLayerGroup);
+
+  // bind the same tooltip to both line and marker
+  [ line, marker ].forEach(layer => {
+    layer.bindTooltip(tooltipLines, {
+      direction: 'top',
+      offset: [0, -6],
+      permanent: false,
+      sticky: true
+    });
   });
 
   // fit map to data
   map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
 }
+
 
 
 
