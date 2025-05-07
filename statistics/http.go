@@ -44,7 +44,7 @@ func registerHandlers(mux *http.ServeMux) {
 }
 
 // topSogHandler returns the top 10 vessels by max SOG (excluding 102.3) in the last x days,
-// including the timestamp, position, vessel name, and image URL from state.
+// including the timestamp, position, vessel name, and image URL.
 // It caches results in Redis under key "top-sog:<days>d" with TTL == conf.CacheTime seconds.
 // Query-param: ?days=N  (default 1)
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
@@ -71,18 +71,15 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 3) Not cached: per-shard query fetching top SOG record plus vessel name & image_url
+    // 3) Not cached: per-shard query for max SOG records
     qry := fmt.Sprintf(`
         SELECT DISTINCT ON (m.user_id)
                m.user_id,
                (m.packet->>'Sog')::float        AS max_sog,
                m.timestamp,
                (m.packet->>'Latitude')::float   AS lat,
-               (m.packet->>'Longitude')::float  AS lon,
-               COALESCE(s.name, '')             AS name,
-               COALESCE(s.image_url, '')        AS image_url
+               (m.packet->>'Longitude')::float  AS lon
           FROM messages m
-          JOIN state   s ON m.user_id = s.user_id
          WHERE m.message_id IN (1,2,3,18,19)
            AND (m.packet->>'Sog')::float <> 102.3
            AND m.timestamp >= now() - INTERVAL '%d days'
@@ -95,16 +92,14 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 4) Merge across shards to pick the global max per user
+    // 4) Merge per-shard into global map[user_id]record
     type recType struct {
-        Sog      float64
-        Ts       time.Time
-        Lat      float64
-        Lon      float64
-        Name     string
-        ImageURL string
+        Sog  float64
+        Ts   time.Time
+        Lat  float64
+        Lon  float64
     }
-    maxMap := make(map[int]recType, len(shardResults))
+    maxMap := make(map[int]recType, 16)
     for _, recs := range shardResults {
         for _, rec := range recs {
             // extract user_id
@@ -153,56 +148,55 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
             case []byte:
                 lon, _ = strconv.ParseFloat(string(v), 64)
             }
-            // extract name
-            var name string
-            switch v := rec["name"].(type) {
-            case string:
-                name = v
-            case []byte:
-                name = string(v)
-            }
-            // extract image_url
-            var imageURL string
-            switch v := rec["image_url"].(type) {
-            case string:
-                imageURL = v
-            case []byte:
-                imageURL = string(v)
-            }
 
-            prev, exists := maxMap[uid]
-            if !exists || sog > prev.Sog {
-                maxMap[uid] = recType{Sog: sog, Ts: ts, Lat: lat, Lon: lon, Name: name, ImageURL: imageURL}
+            if prev, ok := maxMap[uid]; !ok || sog > prev.Sog {
+                maxMap[uid] = recType{Sog: sog, Ts: ts, Lat: lat, Lon: lon}
             }
         }
     }
 
-    // 5) Sort into slice and take top 10
+    // 5) Build slice of vessels
     vessels = make([]vessel, 0, len(maxMap))
+    ids := make([]int, 0, len(maxMap))
     for uid, data := range maxMap {
         vessels = append(vessels, vessel{
             UserID:    uid,
-            Name:      data.Name,
-            ImageURL:  data.ImageURL,
             MaxSog:    data.Sog,
             Timestamp: data.Ts,
             Lat:       data.Lat,
             Lon:       data.Lon,
         })
+        ids = append(ids, uid)
     }
+
+    // 6) Sort and take top 10
     sort.Slice(vessels, func(i, j int) bool {
         return vessels[i].MaxSog > vessels[j].MaxSog
     })
     if len(vessels) > 10 {
         vessels = vessels[:10]
+        ids = ids[:10]
     }
 
-    // 6) Store in cache
+    // 7) Fetch names & images for only the top 10
+    metaMap, err := fetchVesselMetadata(ids)
+    if err != nil {
+        log.Printf("metadata fetch error: %v", err)
+    } else {
+        for i, v := range vessels {
+            if md, ok := metaMap[v.UserID]; ok {
+                vessels[i].Name = md.Name
+                vessels[i].ImageURL = md.ImageURL
+            }
+        }
+    }
+
+    // 8) Store in cache
     if err := cacheSet(cacheKey, vessels); err != nil {
         log.Printf("cache set error: %v", err)
     }
 
-    // 7) Return JSON
+    // 9) Return JSON
     w.Header().Set("Content-Type", "application/json")
     if err := json.NewEncoder(w).Encode(vessels); err != nil {
         http.Error(w, fmt.Sprintf("encoding error: %v", err), http.StatusInternalServerError)

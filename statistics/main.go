@@ -9,11 +9,13 @@ import (
     "log"
     "net/http"
     "os"
+    "strings"
     "sync"
     "time"
 
     "github.com/go-redis/redis/v8"
     _ "github.com/lib/pq"
+    "strconv"
 )
 
 //
@@ -362,6 +364,90 @@ func scheduleShardSync(interval time.Duration) {
             syncClientConns()
         }
     }()
+}
+
+//
+// ─── VESSEL METADATA HELPERS ──────────────────────────────────────────────────
+//
+
+// VesselMetadata holds the name & image URL for a vessel
+type VesselMetadata struct {
+    Name     string `json:"name"`
+    ImageURL string `json:"image_url"`
+}
+
+// fetchVesselMetadata takes a slice of userIDs, fans out to every shard’s state table,
+// and returns a map[userID]VesselMetadata.
+func fetchVesselMetadata(userIDs []int) (map[int]VesselMetadata, error) {
+    out := make(map[int]VesselMetadata, len(userIDs))
+    if len(userIDs) == 0 {
+        return out, nil
+    }
+
+    // build “IN (1,2,3)” list
+    var sb strings.Builder
+    for i, id := range userIDs {
+        if i > 0 {
+            sb.WriteByte(',')
+        }
+        sb.WriteString(strconv.Itoa(id))
+    }
+
+    qry := fmt.Sprintf(`
+        SELECT user_id, name, image_url
+          FROM state
+         WHERE user_id IN (%s)
+    `, sb.String())
+
+    shardResults, err := QueryDatabasesForAllShards(qry)
+    if err != nil {
+        return nil, err
+    }
+
+    for _, recs := range shardResults {
+        for _, rec := range recs {
+            var uid int
+            switch v := rec["user_id"].(type) {
+            case int:
+                uid = v
+            case int64:
+                uid = int(v)
+            case float64:
+                uid = int(v)
+            default:
+                continue
+            }
+
+            var name, img string
+            if v, ok := rec["name"].(string); ok {
+                name = v
+            } else if b, ok := rec["name"].([]byte); ok {
+                name = string(b)
+            }
+            if v, ok := rec["image_url"].(string); ok {
+                img = v
+            } else if b, ok := rec["image_url"].([]byte); ok {
+                img = string(b)
+            }
+
+            out[uid] = VesselMetadata{
+                Name:     name,
+                ImageURL: img,
+            }
+        }
+    }
+    return out, nil
+}
+
+// getVesselMetadata is a convenience for a single userID
+func getVesselMetadata(userID int) (VesselMetadata, error) {
+    m, err := fetchVesselMetadata([]int{userID})
+    if err != nil {
+        return VesselMetadata{}, err
+    } else if md, ok := m[userID]; ok {
+        return md, nil
+    }
+    return VesselMetadata{}, nil
 }
 
 //
