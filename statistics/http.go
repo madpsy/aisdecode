@@ -54,25 +54,24 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
     if ok, err := cacheGet(cacheKey, &vessels); err != nil {
         log.Printf("cache get error: %v", err)
     } else if ok {
-        // 2a) even on a hit, back‐fill any missing metadata
-        ids := make([]int, 0, len(vessels))
+        // back-fill any missing metadata (should be rare)
+        ids := []int{}
         for _, v := range vessels {
             if v.Name == "" || v.ImageURL == "" {
                 ids = append(ids, v.UserID)
             }
         }
         if len(ids) > 0 {
-            metaMap, err := fetchVesselMetadata(ids)
+            meta, err := fetchVesselMetadata(ids)
             if err != nil {
                 log.Printf("metadata fetch error: %v", err)
             } else {
                 for i, v := range vessels {
-                    if md, found := metaMap[v.UserID]; found {
+                    if md, found := meta[v.UserID]; found {
                         vessels[i].Name = md.Name
                         vessels[i].ImageURL = md.ImageURL
                     }
                 }
-                // update cache in background
                 go func(key string, data []vessel) {
                     if err := cacheSet(key, data); err != nil {
                         log.Printf("cache update error: %v", err)
@@ -86,7 +85,7 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 3) not cached: query messages
+    // 3) not cached: per-shard query for max-SOG records
     qry := fmt.Sprintf(`
         SELECT DISTINCT ON (m.user_id)
                m.user_id,
@@ -107,18 +106,16 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 4) merge per‐shard into global map
-    type recType struct {
-        Sog float64
-        Ts  time.Time
-        Lat float64
-        Lon float64
+    // 4) merge into map[user_id]record
+    type rec struct {
+        Sog       float64
+        Ts, Lat, Lon interface{}
     }
-    maxMap := make(map[int]recType, 16)
+    maxMap := make(map[int]rec, len(shardResults))
     for _, recs := range shardResults {
-        for _, rec := range recs {
+        for _, r := range recs {
             var uid int
-            switch v := rec["user_id"].(type) {
+            switch v := r["user_id"].(type) {
             case int:
                 uid = v
             case int64:
@@ -128,67 +125,43 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
             default:
                 continue
             }
-            var sog float64
-            switch v := rec["max_sog"].(type) {
-            case float64:
-                sog = v
-            case []byte:
-                sog, _ = strconv.ParseFloat(string(v), 64)
-            }
-            var ts time.Time
-            switch v := rec["timestamp"].(type) {
-            case time.Time:
-                ts = v
-            case string:
-                ts, _ = time.Parse(time.RFC3339, v)
-            case []byte:
-                ts, _ = time.Parse(time.RFC3339, string(v))
-            }
-            var lat float64
-            switch v := rec["lat"].(type) {
-            case float64:
-                lat = v
-            case []byte:
-                lat, _ = strconv.ParseFloat(string(v), 64)
-            }
-            var lon float64
-            switch v := rec["lon"].(type) {
-            case float64:
-                lon = v
-            case []byte:
-                lon, _ = strconv.ParseFloat(string(v), 64)
-            }
+            sog, _ := parseFloat(r["max_sog"])
+            ts, _ := parseTime(r["timestamp"])
+            lat, _ := parseFloat(r["lat"])
+            lon, _ := parseFloat(r["lon"])
 
-            if prev, found := maxMap[uid]; !found || sog > prev.Sog {
-                maxMap[uid] = recType{Sog: sog, Ts: ts, Lat: lat, Lon: lon}
+            prev, found := maxMap[uid]
+            if !found || sog > prev.Sog {
+                maxMap[uid] = rec{Sog: sog, Ts: ts, Lat: lat, Lon: lon}
             }
         }
     }
 
-    // 5) build vessels slice & ids
+    // 5) build vessels slice
     vessels = make([]vessel, 0, len(maxMap))
-    ids := make([]int, 0, len(maxMap))
     for uid, d := range maxMap {
         vessels = append(vessels, vessel{
             UserID:    uid,
             MaxSog:    d.Sog,
-            Timestamp: d.Ts,
-            Lat:       d.Lat,
-            Lon:       d.Lon,
+            Timestamp: d.Ts.(time.Time),
+            Lat:       d.Lat.(float64),
+            Lon:       d.Lon.(float64),
         })
-        ids = append(ids, uid)
     }
 
-    // 6) sort & take top 10
+    // 6) sort & truncate to top 10
     sort.Slice(vessels, func(i, j int) bool {
         return vessels[i].MaxSog > vessels[j].MaxSog
     })
     if len(vessels) > 10 {
         vessels = vessels[:10]
-        ids = ids[:10]
     }
 
-    // 7) fetch metadata for those top 10
+    // 7) fetch metadata for exactly these top 10
+    ids := make([]int, len(vessels))
+    for i, v := range vessels {
+        ids[i] = v.UserID
+    }
     metaMap, err := fetchVesselMetadata(ids)
     if err != nil {
         log.Printf("metadata fetch error: %v", err)
@@ -201,12 +174,38 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // 8) cache the full records
+    // 8) cache the complete results
     if err := cacheSet(cacheKey, vessels); err != nil {
         log.Printf("cache set error: %v", err)
     }
 
-    // 9) return
+    // 9) respond
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(vessels)
+}
+
+// helpers to coerce interface{} into float64 or time.Time
+func parseFloat(i interface{}) (float64, error) {
+    switch v := i.(type) {
+    case float64:
+        return v, nil
+    case []byte:
+        return strconv.ParseFloat(string(v), 64)
+    case string:
+        return strconv.ParseFloat(v, 64)
+    default:
+        return 0, fmt.Errorf("cannot parse float: %v", i)
+    }
+}
+func parseTime(i interface{}) (time.Time, error) {
+    switch v := i.(type) {
+    case time.Time:
+        return v, nil
+    case []byte:
+        return time.Parse(time.RFC3339, string(v))
+    case string:
+        return time.Parse(time.RFC3339, v)
+    default:
+        return time.Time{}, fmt.Errorf("cannot parse time: %v", i)
+    }
 }
