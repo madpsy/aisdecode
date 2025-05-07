@@ -16,8 +16,8 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// Settings defines service configuration
-// loaded from settings.json
+// Settings defines service configuration loaded from settings.json
+// Example settings.json:
 // {
 //   "ingester_host": "localhost",
 //   "ingester_port": 8080,
@@ -37,7 +37,7 @@ type Settings struct {
 	Debug      bool   `json:"debug"`
 }
 
-// ClientInfo is returned by the ingester to describe each shard node
+// ClientInfo describes a shard node (from ingester)
 type ClientInfo struct {
 	Description string `json:"description"`
 	Ip          string `json:"ip"`
@@ -45,7 +45,7 @@ type ClientInfo struct {
 	Shards      []int  `json:"shards"`
 }
 
-// ClientDBSettings holds credentials for connecting to a Postgres shard
+// ClientDBSettings holds credentials for a shard Postgres DB
 type ClientDBSettings struct {
 	Host     string
 	Port     int
@@ -54,12 +54,12 @@ type ClientDBSettings struct {
 	DBName   string
 }
 
-// ClientConn holds the DB connection and metadata for one collector node
+// ClientConn holds one shard's DB connection and metadata
 type ClientConn struct {
 	DbSettings ClientDBSettings
 	Db         *sql.DB
 	Shards     []int
-	HostKey    string // e.g. ip:port
+	HostKey    string // host:port
 }
 
 var (
@@ -71,7 +71,7 @@ var (
 	totalShards   int
 )
 
-// loadSettings reads configuration from a JSON file
+// loadSettings loads JSON config
 func loadSettings(path string) (*Settings, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -84,8 +84,7 @@ func loadSettings(path string) (*Settings, error) {
 	return &s, nil
 }
 
-// initRedis initializes the Redis client for caching
-// initRedis initializes the Redis client for caching
+// initRedis sets up Redis client and logs status
 func initRedis() {
 	redisClient = redis.NewClient(&redis.Options{
 		Addr: fmt.Sprintf("%s:%d", conf.RedisHost, conf.RedisPort),
@@ -96,42 +95,29 @@ func initRedis() {
 		log.Printf("✅ Connected to Redis at %s:%d", conf.RedisHost, conf.RedisPort)
 	}
 }
-	redisClient = redis.NewClient(&redis.Options{
-		Addr: fmt.Sprintf("%s:%d", conf.RedisHost, conf.RedisPort),
-	})
-	if err := redisClient.Ping(redisCtx).Err(); err != nil {
-		log.Printf("⚠️ Redis ping failed: %v", err)
-	}
-}
 
-// ensureRedis checks connectivity and reconnects if needed
-// ensureRedis checks connectivity and reconnects if needed
+// ensureRedis reconnects if needed
 func ensureRedis() {
 	if err := redisClient.Ping(redisCtx).Err(); err != nil {
-		log.Printf("⚠️ Redis connection lost, reconnecting: %v", err)
+		log.Printf("⚠️ Redis lost, reconnecting: %v", err)
 		initRedis()
 	} else {
-		log.Printf("🔄 Redis connection healthy")
-	}
-}
-	if err := redisClient.Ping(redisCtx).Err(); err != nil {
-		log.Printf("⚠️ Redis connection lost, reconnecting: %v", err)
-		initRedis()
+		log.Printf("🔄 Redis healthy")
 	}
 }
 
-// shardForUser deterministically assigns a userID to a shard index
+// shardForUser hashes userID to a shard index
 func shardForUser(userID string) int {
 	h := fnv.New32a()
 	h.Write([]byte(userID))
 	return int(h.Sum32()) % totalShards
 }
 
-// ensureDB pings the DB and reconnects on failure
+// ensureDB pings and reconnects a shard DB if needed
 func (cc *ClientConn) ensureDB() error {
 	if err := cc.Db.Ping(); err != nil {
 		log.Printf("⚠️ Lost DB connection for shard %s: %v", cc.HostKey, err)
-		// Attempt reconnect
+		// reconnect
 		dsn := fmt.Sprintf(
 			"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 			cc.DbSettings.Host,
@@ -142,11 +128,11 @@ func (cc *ClientConn) ensureDB() error {
 		)
 		newDb, err2 := sql.Open("postgres", dsn)
 		if err2 != nil {
-			return fmt.Errorf("reconnect open failed for %s: %v (original ping err: %v)", cc.HostKey, err2, err)
+			return fmt.Errorf("reconnect open failed for %s: %v (orig: %v)", cc.HostKey, err2, err)
 		}
 		if err2 = newDb.Ping(); err2 != nil {
 			newDb.Close()
-			return fmt.Errorf("reconnect ping failed for %s: %v (original ping err: %v)", cc.HostKey, err2, err)
+			return fmt.Errorf("reconnect ping failed for %s: %v (orig: %v)", cc.HostKey, err2, err)
 		}
 		cc.Db.Close()
 		cc.Db = newDb
@@ -155,10 +141,9 @@ func (cc *ClientConn) ensureDB() error {
 	return nil
 }
 
-// QueryDatabaseForUser runs a SQL query against the single shard for userID
+// QueryDatabaseForUser runs a query on the user's assigned shard
 func QueryDatabaseForUser(userID, query string) (*sql.Rows, error) {
 	shard := shardForUser(userID)
-
 	clientConnsMu.RLock()
 	defer clientConnsMu.RUnlock()
 	for _, cc := range clientConns {
@@ -171,20 +156,18 @@ func QueryDatabaseForUser(userID, query string) (*sql.Rows, error) {
 			}
 		}
 	}
-	return nil, fmt.Errorf("no shard found for user %s", userID)
+	return nil, fmt.Errorf("no shard for user %s", userID)
 }
 
-// QueryDatabasesForAllShards fans out the same SQL to every shard
+// QueryDatabasesForAllShards fans out a query to all shards
 func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface{}, error) {
 	results := make(map[string][]map[string]interface{})
-
 	clientConnsMu.RLock()
 	conns := make([]*ClientConn, 0, len(clientConns))
 	for _, cc := range clientConns {
 		conns = append(conns, cc)
 	}
 	clientConnsMu.RUnlock()
-
 	for _, cc := range conns {
 		if err := cc.ensureDB(); err != nil {
 			return nil, err
@@ -193,27 +176,26 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 		if err != nil {
 			return nil, err
 		}
-		cols, _ := rows.Columns()
+		tcols, _ := rows.Columns()
 		for rows.Next() {
-			vals := make([]interface{}, len(cols))
-			scans := make([]interface{}, len(cols))
+			vals := make([]interface{}, len(tcols))
+			scans := make([]interface{}, len(tcols))
 			for i := range vals {
 				scans[i] = &vals[i]
 			}
 			rows.Scan(scans...)
-			rec := make(map[string]interface{}, len(cols))
-			for i, col := range cols {
+			rec := make(map[string]interface{}, len(tcols))
+			for i, col := range tcols {
 				rec[col] = vals[i]
 			}
 			results[cc.HostKey] = append(results[cc.HostKey], rec)
 		}
 		rows.Close()
 	}
-
 	return results, nil
 }
 
-// fetchClients retrieves shard topology from the ingester
+// fetchClients gets shard metadata from ingester
 func fetchClients() ([]ClientInfo, error) {
 	url := fmt.Sprintf("http://%s:%d/clients", conf.IngestHost, conf.IngestPort)
 	resp, err := http.Get(url)
@@ -221,7 +203,6 @@ func fetchClients() ([]ClientInfo, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
 	var payload struct {
 		ConfiguredShards int          `json:"configured_shards"`
 		Clients          []ClientInfo `json:"clients"`
@@ -233,7 +214,7 @@ func fetchClients() ([]ClientInfo, error) {
 	return payload.Clients, nil
 }
 
-// syncClientConns updates local DB connections to match the ingester
+// syncClientConns reconciles local DBs with ingester list
 func syncClientConns() {
 	log.Printf("🔄 Syncing shard topology from %s:%d...", conf.IngestHost, conf.IngestPort)
 	clients, err := fetchClients()
@@ -241,13 +222,10 @@ func syncClientConns() {
 		log.Printf("Error fetching clients: %v", err)
 		return
 	}
-
-	newMap := make(map[string]*ClientConn, len(clients))
-	// Log the number of client entries we will process
 	log.Printf("Fetched %d client entries", len(clients))
+	newMap := make(map[string]*ClientConn, len(clients))
 	for _, ci := range clients {
 		key := fmt.Sprintf("%s:%d", ci.Ip, ci.Port)
-
 		clientConnsMu.RLock()
 		old, exists := clientConns[key]
 		clientConnsMu.RUnlock()
@@ -255,19 +233,8 @@ func syncClientConns() {
 			newMap[key] = old
 			continue
 		}
-
-		// For new shards, establish a connection
-		dbCfg := ClientDBSettings{
-			Host:     ci.Ip,
-			Port:     ci.Port,
-			User:     "<user>",
-			Password: "<pass>",
-			DBName:   "<dbname>",
-		}
-		dsn := fmt.Sprintf(
-			"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-			dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName,
-		)
+		dbCfg := ClientDBSettings{Host: ci.Ip, Port: ci.Port, User: "<user>", Password: "<pass>", DBName: "<dbname>"}
+		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName)
 		db, err := sql.Open("postgres", dsn)
 		if err != nil {
 			log.Printf("DB open error for %s: %v", key, err)
@@ -281,14 +248,13 @@ func syncClientConns() {
 		log.Printf("✅ Connected to shard DB %s, shards=%v", key, ci.Shards)
 		newMap[key] = &ClientConn{DbSettings: dbCfg, Db: db, Shards: ci.Shards, HostKey: key}
 	}
-
-		log.Printf("⚡️ Synced %d shard connections (total shards: %d)", len(newMap), totalShards)
+	log.Printf("⚡️ Synced %d shard connections (total shards: %d)", len(newMap), totalShards)
 	clientConnsMu.Lock()
 	clientConns = newMap
 	clientConnsMu.Unlock()
 }
 
-// scheduleShardSync polls the ingester at a fixed interval
+// scheduleShardSync periodically refreshes shard list
 func scheduleShardSync(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	go func() {
@@ -304,18 +270,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("load settings: %v", err)
 	}
-
 	initRedis()
 	syncClientConns()
-	// Report initial connections
 	log.Printf("🔄 Initial shard sync complete: %d connections, %d shards", len(clientConns), totalShards)
 	scheduleShardSync(30 * time.Second)
 
 	mux := http.NewServeMux()
-
-	// TODO: implement your statistic-based API endpoints here
-
-	// Serve static assets from 'web'
+	// TODO: statistic-based endpoints here
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 
 	addr := fmt.Sprintf(":%d", conf.ListenPort)
