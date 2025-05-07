@@ -58,7 +58,7 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
     if ok, err := cacheGet(cacheKey, &vessels); err != nil {
         log.Printf("cache get error: %v", err)
     } else if ok {
-        // back‐fill missing metadata
+        // back-fill missing metadata
         ids := []int{}
         for _, v := range vessels {
             if v.Name == "" || v.ImageURL == "" {
@@ -66,8 +66,7 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
             }
         }
         if len(ids) > 0 {
-            meta, err := fetchVesselMetadata(ids)
-            if err == nil {
+            if meta, err := fetchVesselMetadata(ids); err == nil {
                 for i, v := range vessels {
                     if md, found := meta[v.UserID]; found {
                         vessels[i].Name = md.Name
@@ -187,6 +186,8 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
                COUNT(*)               AS cnt
           FROM state
          WHERE timestamp >= now() - INTERVAL '%d days'
+           AND (packet->>'Type') IS NOT NULL
+           AND TRIM((packet->>'Type')) <> ''
          GROUP BY vessel_type
     `, days)
 
@@ -200,6 +201,9 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
     for _, recs := range shardResults {
         for _, rec := range recs {
             typ, _ := parseString(rec["vessel_type"])
+            if typ == "" {
+                continue
+            }
             cnt, _ := parseInt(rec["cnt"])
             agg[typ] += cnt
         }
