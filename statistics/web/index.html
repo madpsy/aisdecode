@@ -31,6 +31,10 @@
     .section {
       margin-top: 2rem;
     }
+    img.thumb {
+      width: 50px;
+      height: auto;
+    }
   </style>
 </head>
 <body>
@@ -59,7 +63,7 @@
     <h2>Top 10 Vessel Types</h2>
     <table id="top-types-table">
       <thead>
-        <tr><th>Type</th><th>Count</th></tr>
+        <tr><th>Type Description</th><th>Count</th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -76,11 +80,18 @@
   </div>
 
   <script>
-    const daysSelect = document.getElementById('days-select');
-    daysSelect.addEventListener('change', fetchAll);
+    let typeMapping = {};
+
+    async function loadTypeMapping() {
+      try {
+        typeMapping = await fetch('vessel_types.json').then(r => r.json());
+      } catch (e) {
+        console.error('Failed to load type mapping:', e);
+      }
+    }
 
     async function fetchAll() {
-      const days = daysSelect.value;
+      const days = document.getElementById('days-select').value;
       await Promise.all([
         fetchTopSog(days),
         fetchTopTypes(days),
@@ -97,7 +108,7 @@
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${v.name || v.user_id}</td>
-          <td>${v.image_url ? `<img src="${v.image_url}" alt="" width="50">` : ''}</td>
+          <td>${v.image_url ? `<img class="thumb" src="${v.image_url}" alt="">` : ''}</td>
           <td>${v.max_sog.toFixed(2)}</td>
           <td>${v.lat.toFixed(5)}</td>
           <td>${v.lon.toFixed(5)}</td>
@@ -112,9 +123,10 @@
       const tbody = document.querySelector('#top-types-table tbody');
       tbody.innerHTML = '';
       data.forEach(t => {
+        const desc = typeMapping[t.type] || t.type;
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td>${t.type}</td>
+          <td>${desc}</td>
           <td>${t.count}</td>
         `;
         tbody.appendChild(tr);
@@ -130,15 +142,20 @@
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${v.name || v.user_id}</td>
-          <td>${v.image_url ? `<img src="${v.image_url}" alt="" width="50">` : ''}</td>
+          <td>${v.image_url ? `<img class="thumb" src="${v.image_url}" alt="">` : ''}</td>
           <td>${v.count}</td>
         `;
         tbody.appendChild(tr);
       });
     }
 
+    document.getElementById('days-select').addEventListener('change', fetchAll);
+
     // initial load
-    fetchAll();
+    (async () => {
+      await loadTypeMapping();
+      fetchAll();
+    })();
   </script>
 </body>
 </html>
