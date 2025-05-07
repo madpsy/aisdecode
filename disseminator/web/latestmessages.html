@@ -546,8 +546,8 @@ function showMap() {
   const latlngs = pts.map(p => [p.lat, p.lng]);
   L.polyline(latlngs, { color: 'blue' }).addTo(mapLayerGroup);
 
-  // decide which fields to show: always lat/lon, then the rest of selectedFields
-  const mandatory = ['Latitude', 'Longitude'];
+  // always show Timestamp, Latitude, Longitude, then other selected fields
+  const mandatory = ['Timestamp', 'Latitude', 'Longitude'];
   const fieldsToShow = mandatory.concat(
     selectedFields.filter(f => !mandatory.includes(f))
   );
@@ -561,11 +561,7 @@ function showMap() {
     let html = '<table>';
     fieldsToShow.forEach(f => {
       let displayVal;
-      if (f === 'Latitude') {
-        displayVal = p.lat;
-      } else if (f === 'Longitude') {
-        displayVal = p.lng;
-      } else if (f === 'Timestamp') {
+      if (f === 'Timestamp') {
         displayVal = new Date(p.data.Timestamp).toLocaleString([], {
           hour12: false,
           year:   'numeric',
@@ -575,6 +571,10 @@ function showMap() {
           minute: '2-digit',
           second: '2-digit'
         });
+      } else if (f === 'Latitude') {
+        displayVal = p.lat;
+      } else if (f === 'Longitude') {
+        displayVal = p.lng;
       } else {
         displayVal = p.data[f] != null ? p.data[f] : '';
       }
@@ -589,6 +589,7 @@ function showMap() {
   const bounds = L.latLngBounds(latlngs);
   map.fitBounds(bounds.pad(0.2));
 }
+
 
       function showGraph() {
         rangeTbl.style.display = 'none';
