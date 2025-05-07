@@ -543,18 +543,26 @@ function showMap() {
   const latlngs = pts.map(p => [p.lat, p.lng]);
   L.polyline(latlngs, { color: 'blue' }).addTo(mapLayerGroup);
 
-  // fields: Record Timestamp, Latitude, Longitude, + any other selected
+  // define fields: timestamp, lat/lon, plus any other selected
   const mandatory = ['Record Timestamp','Latitude','Longitude'];
   const fieldsToShow = mandatory.concat(
     selectedFields.filter(f => !['Latitude','Longitude'].includes(f))
   );
+
+  // helper to limit decimals without forcing
+  function limitDecimals(num, maxDecimals = 4) {
+    const [intPart, fracPart = ''] = String(num).split('.');
+    if (fracPart.length <= maxDecimals) {
+      return intPart + (fracPart ? `.${fracPart}` : '');
+    }
+    return intPart + '.' + fracPart.slice(0, maxDecimals);
+  }
 
   pts.forEach((p, i) => {
     const marker = (i === pts.length - 1)
       ? L.marker([p.lat, p.lng]).addTo(mapLayerGroup)
       : L.circleMarker([p.lat, p.lng], { radius: 4 }).addTo(mapLayerGroup);
 
-    // build tooltip lines
     const lines = fieldsToShow.map((f, idx) => {
       let rawVal;
       if (f === 'Record Timestamp') {
@@ -575,12 +583,14 @@ function showMap() {
         rawVal = p.data[f];
       }
 
-      // format numbers to 4 decimals
-      const displayVal = (typeof rawVal === 'number')
-        ? rawVal.toFixed(4)
-        : (rawVal != null ? rawVal : '');
+      let displayVal;
+      if (typeof rawVal === 'number') {
+        displayVal = limitDecimals(rawVal, 4);
+      } else {
+        displayVal = rawVal != null ? rawVal : '';
+      }
 
-      // omit the “Field:” label for the first line (timestamp)
+      // omit label for the timestamp line
       if (idx === 0 && f === 'Record Timestamp') {
         return displayVal;
       }
@@ -598,6 +608,7 @@ function showMap() {
   // fit map to data
   map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
 }
+
 
 
 
