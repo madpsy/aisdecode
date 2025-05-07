@@ -527,16 +527,14 @@ function showMap() {
   }
   mapLayerGroup.clearLayers();
 
-  // build an array of points with lat, lng, and full data
+  // build an array of points with lat, lng, and the raw record
   const pts = rangeData.map(r => {
     const flat = flatten(r.Packet);
     return {
       lat: flat.Latitude,
       lng: flat.Longitude,
-      data: {
-        Timestamp: r.Timestamp,
-        ...flat
-      }
+      record: r,      // keep the full record here
+      data: flat      // other packet fields
     };
   });
 
@@ -546,13 +544,12 @@ function showMap() {
   const latlngs = pts.map(p => [p.lat, p.lng]);
   L.polyline(latlngs, { color: 'blue' }).addTo(mapLayerGroup);
 
-  // always show Timestamp, Latitude, Longitude, then other selected fields
-  const mandatory = ['Timestamp', 'Latitude', 'Longitude'];
+  // always show the record Timestamp, then Latitude & Longitude, then other fields
+  const mandatory = ['Record Timestamp', 'Latitude', 'Longitude'];
   const fieldsToShow = mandatory.concat(
-    selectedFields.filter(f => !mandatory.includes(f))
+    selectedFields.filter(f => !['Latitude','Longitude'].includes(f))
   );
 
-  // add markers with popups showing only our chosen fields
   pts.forEach((p, i) => {
     const marker = (i === pts.length - 1)
       ? L.marker([p.lat, p.lng]).addTo(mapLayerGroup)
@@ -560,9 +557,10 @@ function showMap() {
 
     let html = '<table>';
     fieldsToShow.forEach(f => {
-      let displayVal;
-      if (f === 'Timestamp') {
-        displayVal = new Date(p.data.Timestamp).toLocaleString([], {
+      let displayVal = '';
+      if (f === 'Record Timestamp') {
+        // format exactly as in your table view
+        displayVal = new Date(p.record.Timestamp).toLocaleString([], {
           hour12: false,
           year:   'numeric',
           month:  '2-digit',
@@ -589,6 +587,7 @@ function showMap() {
   const bounds = L.latLngBounds(latlngs);
   map.fitBounds(bounds.pad(0.2));
 }
+
 
 
       function showGraph() {
