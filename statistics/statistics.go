@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net/http"
 	"os"
-	"hash/fnv"
 	"sync"
 	"time"
 
@@ -17,16 +17,6 @@ import (
 )
 
 // Settings defines service configuration loaded from settings.json
-// Example settings.json:
-// {
-//   "ingester_host": "localhost",
-//   "ingester_port": 8080,
-//   "listen_port": 5005,
-//   "cache_time": 10,
-//   "redis_host": "127.0.0.1",
-//   "redis_port": 6379,
-//   "debug": false
-// }
 type Settings struct {
 	IngestHost string `json:"ingester_host"`
 	IngestPort int    `json:"ingester_port"`
@@ -167,6 +157,7 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 		conns = append(conns, cc)
 	}
 	clientConnsMu.RUnlock()
+
 	for _, cc := range conns {
 		if err := cc.ensureDB(); err != nil {
 			return nil, err
@@ -175,22 +166,23 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 		if err != nil {
 			return nil, err
 		}
-		tcols, _ := rows.Columns()
+		cols, _ := rows.Columns()
 		for rows.Next() {
-			vals := make([]interface{}, len(tcols))
-			scans := make([]interface{}, len(tcols))
+			vals := make([]interface{}, len(cols))
+			scans := make([]interface{}, len(cols))
 			for i := range vals {
 				scans[i] = &vals[i]
 			}
 			rows.Scan(scans...)
-			rec := make(map[string]interface{}, len(tcols))
-			for i, col := range tcols {
+			rec := make(map[string]interface{}, len(cols))
+			for i, col := range cols {
 				rec[col] = vals[i]
 			}
 			results[cc.HostKey] = append(results[cc.HostKey], rec)
 		}
 		rows.Close()
 	}
+
 	return results, nil
 }
 
@@ -202,6 +194,7 @@ func fetchClients() ([]ClientInfo, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
 	var payload struct {
 		ConfiguredShards int          `json:"configured_shards"`
 		Clients          []ClientInfo `json:"clients"`
@@ -221,6 +214,7 @@ func getClientDatabaseSettings(ip string, port int) (*ClientDBSettings, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
 	var cfg struct {
 		DbHost string `json:"db_host"`
 		DbPort int    `json:"db_port"`
@@ -240,8 +234,8 @@ func getClientDatabaseSettings(ip string, port int) (*ClientDBSettings, error) {
 	}, nil
 }
 
-// syncClientConns reconciles local DBs with ingester list
-// Logs only on initial connect and when topology changes (add/remove).
+// syncClientConns reconciles local DBs with ingester list,
+// but only logs on the very first sync or if the topology actually changes.
 func syncClientConns() {
 	clients, err := fetchClients()
 	if err != nil {
@@ -249,103 +243,90 @@ func syncClientConns() {
 		return
 	}
 
-	// Build new map of connections
-	newMap := make(map[string]*ClientConn, len(clients))
-	var added []string
-	for _, ci := range clients {
-		key := fmt.Sprintf("%s:%d", ci.Ip, ci.Port)
-
-		clientConnsMu.RLock()
-		existing, ok := clientConns[key]
-		clientConnsMu.RUnlock()
-
-		if ok {
-			// reuse existing
-			newMap[key] = existing
-			continue
-		}
-
-		// new shard: fetch credentials and connect
-		dbCfg, err := getClientDatabaseSettings(ci.Ip, ci.Port)
-		if err != nil {
-			log.Printf("Error fetching DB settings from %s: %v", key, err)
-			continue
-		}
-		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-			dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName)
-		db, err := sql.Open("postgres", dsn)
-		if err != nil {
-			log.Printf("DB open error for %s: %v", key, err)
-			continue
-		}
-		if err := db.Ping(); err != nil {
-			log.Printf("DB ping error for %s: %v", key, err)
-			db.Close()
-			continue
-		}
-
-		// Successful initial connect
-		log.Printf("✅ Connected to shard DB %s, shards=%v", key, ci.Shards)
-		newMap[key] = &ClientConn{DbSettings: *dbCfg, Db: db, Shards: ci.Shards, HostKey: key}
-		added = append(added, key)
-	}
-
-	// Determine removals
-	clientConnsMu.Lock()
-	oldMap := clientConns
-	var removed []string
-	for key, conn := range oldMap {
-		if _, ok := newMap[key]; !ok {
-			removed = append(removed, key)
-			conn.Db.Close()
-			log.Printf("❌ Disconnected shard DB %s", key)
-		}
-	}
-
-	// Swap in updated map
-	clientConns = newMap
-	clientConnsMu.Unlock()
-
-	// Log topology change if any
-	if len(added) > 0 || len(removed) > 0 {
-		log.Printf("🔄 Shard topology updated: +%v, -%v; total shards: %d", added, removed, totalShards)
-	}
-}
-	log.Printf("Fetched %d client entries", len(clients))
 	newMap := make(map[string]*ClientConn, len(clients))
 	for _, ci := range clients {
 		key := fmt.Sprintf("%s:%d", ci.Ip, ci.Port)
+
 		clientConnsMu.RLock()
 		old, exists := clientConns[key]
 		clientConnsMu.RUnlock()
+
 		if exists {
 			newMap[key] = old
-			continue
+		} else {
+			dbCfg, err := getClientDatabaseSettings(ci.Ip, ci.Port)
+			if err != nil {
+				log.Printf("Error fetching DB settings from %s: %v", key, err)
+				continue
+			}
+			dsn := fmt.Sprintf(
+				"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+				dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName,
+			)
+			db, err := sql.Open("postgres", dsn)
+			if err != nil {
+				log.Printf("DB open error for %s: %v", key, err)
+				continue
+			}
+			if err := db.Ping(); err != nil {
+				log.Printf("DB ping error for %s: %v", key, err)
+				db.Close()
+				continue
+			}
+			log.Printf("✅ Connected to shard DB %s, shards=%v", key, ci.Shards)
+			newMap[key] = &ClientConn{
+				DbSettings: *dbCfg,
+				Db:         db,
+				Shards:     ci.Shards,
+				HostKey:    key,
+			}
 		}
-		dbCfg, err := getClientDatabaseSettings(ci.Ip, ci.Port)
-		if err != nil {
-			log.Printf("Error fetching DB settings from %s: %v", key, err)
-			continue
-		}
-		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-			dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName)
-		db, err := sql.Open("postgres", dsn)
-		if err != nil {
-			log.Printf("DB open error for %s: %v", key, err)
-			continue
-		}
-		if err := db.Ping(); err != nil {
-			log.Printf("DB ping error for %s: %v", key, err)
-			db.Close()
-			continue
-		}
-		log.Printf("✅ Connected to shard DB %s, shards=%v", key, ci.Shards)
-		newMap[key] = &ClientConn{DbSettings: *dbCfg, Db: db, Shards: ci.Shards, HostKey: key}
 	}
-	log.Printf("⚡️ Synced %d shard connections (total shards: %d)", len(newMap), totalShards)
+
 	clientConnsMu.Lock()
-	clientConns = newMap
+	oldMap := clientConns
+	firstSync := len(oldMap) == 0
+	if firstSync || !shardMapsEqual(oldMap, newMap) {
+		clientConns = newMap
+		if firstSync {
+			log.Printf("🔄 Initial shard sync complete: %d connections, %d shards",
+				len(newMap), totalShards)
+		} else {
+			log.Printf("⚡️ Shard topology changed: %d connections (total shards: %d)",
+				len(newMap), totalShards)
+		}
+	}
 	clientConnsMu.Unlock()
+}
+
+// shardMapsEqual returns true if two host→shard lists maps are identical.
+func shardMapsEqual(a, b map[string]*ClientConn) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, cca := range a {
+		ccb, ok := b[key]
+		if !ok {
+			return false
+		}
+		if !intSlicesEqual(cca.Shards, ccb.Shards) {
+			return false
+		}
+	}
+	return true
+}
+
+// intSlicesEqual checks exact equality (order+values) of two []int.
+func intSlicesEqual(x, y []int) bool {
+	if len(x) != len(y) {
+		return false
+	}
+	for i := range x {
+		if x[i] != y[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // scheduleShardSync periodically refreshes shard list
@@ -364,18 +345,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("load settings: %v", err)
 	}
+
 	initRedis()
 	syncClientConns()
-	log.Printf("🔄 Initial shard sync complete: %d connections, %d shards", len(clientConns), totalShards)
 	scheduleShardSync(30 * time.Second)
 
+	log.Printf("Listening on :%d...", conf.ListenPort)
 	mux := http.NewServeMux()
-	// TODO: statistic-based endpoints here
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 
-	addr := fmt.Sprintf(":%d", conf.ListenPort)
-	log.Printf("Listening on %s...", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", conf.ListenPort), mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
