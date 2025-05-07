@@ -1,0 +1,9 @@
+{
+  "ingester_host": "localhost",
+  "ingester_port": 8080,
+  "listen_port": 5005,
+  "cache_time": 10,
+  "redis_host": "127.0.0.1",
+  "redis_port": 6379,
+  "debug": false
+}
