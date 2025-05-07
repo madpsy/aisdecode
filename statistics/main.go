@@ -404,7 +404,7 @@ func fetchVesselMetadata(userIDs []int) (map[int]VesselMetadata, error) {
           name,
           image_url,
           ais_class,
-          packet->>'type' AS type
+          packet->>'Type' AS type
         FROM state
        WHERE user_id IN (%s)
     `, sb.String())
