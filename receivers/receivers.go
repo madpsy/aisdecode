@@ -11,6 +11,7 @@ import (
     "strconv"
     "strings"
     "time"
+    "net"
 
     _ "github.com/lib/pq"
 )
@@ -33,6 +34,7 @@ type Receiver struct {
     Longitude   float64    `json:"longitude"`
     Name        string     `json:"name"`
     URL         *string    `json:"url,omitempty"`
+    IPAddress   string     `json:"ip_address"`
 }
 
 type ReceiverInput struct {
@@ -55,6 +57,19 @@ var (
     db       *sql.DB
     settings Settings
 )
+
+func getClientIP(r *http.Request) string {
+    if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+        // take only the first IP in the list
+        parts := strings.Split(xff, ",")
+        return strings.TrimSpace(parts[0])
+    }
+    // fall back to RemoteAddr
+    if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+        return host
+    }
+    return r.RemoteAddr
+}
 
 func main() {
     // Load settings.json
@@ -90,7 +105,8 @@ func main() {
             w.WriteHeader(http.StatusMethodNotAllowed)
             return
         }
-        handleListReceivers(w, r)
+        // public list: no IP
+        handleListReceiversPublic(w, r)
     })
 
     // Admin API: full CRUD under /admin/receivers
@@ -117,7 +133,8 @@ func createSchema() {
             latitude DOUBLE PRECISION NOT NULL,
             longitude DOUBLE PRECISION NOT NULL,
             name VARCHAR(15) NOT NULL,
-            url TEXT
+            url TEXT,
+	    ip_address TEXT NOT NULL DEFAULT ''
         );
     `)
     if err != nil {
@@ -198,12 +215,106 @@ func handleListReceivers(w http.ResponseWriter, r *http.Request) {
 func adminReceiversHandler(w http.ResponseWriter, r *http.Request) {
     switch r.Method {
     case http.MethodGet:
-        handleListReceivers(w, r)
+        handleListReceiversAdmin(w, r)
     case http.MethodPost:
         handleCreateReceiver(w, r)
     default:
         w.WriteHeader(http.StatusMethodNotAllowed)
     }
+}
+
+// Public list: exactly as before, but *without* ip_address
+func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
+    if err := ensureConnection(); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    rows, err := db.Query(`
+        SELECT id,
+               lastupdated,
+               description,
+               latitude,
+               longitude,
+               name,
+               url
+          FROM receivers
+         ORDER BY id
+    `)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    defer rows.Close()
+
+    var list []Receiver
+    for rows.Next() {
+        var rec Receiver
+        if err := rows.Scan(
+            &rec.ID,
+            &rec.LastUpdated,
+            &rec.Description,
+            &rec.Latitude,
+            &rec.Longitude,
+            &rec.Name,
+            &rec.URL,
+        ); err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        list = append(list, rec)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(list)
+}
+
+// Admin list: same as public but includes ip_address
+func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
+    if err := ensureConnection(); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    rows, err := db.Query(`
+        SELECT id,
+               lastupdated,
+               description,
+               latitude,
+               longitude,
+               name,
+               url,
+               ip_address
+          FROM receivers
+         ORDER BY id
+    `)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    defer rows.Close()
+
+    var list []Receiver
+    for rows.Next() {
+        var rec Receiver
+        if err := rows.Scan(
+            &rec.ID,
+            &rec.LastUpdated,
+            &rec.Description,
+            &rec.Latitude,
+            &rec.Longitude,
+            &rec.Name,
+            &rec.URL,
+            &rec.IPAddress,
+        ); err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        list = append(list, rec)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(list)
 }
 
 func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
@@ -232,11 +343,17 @@ func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
+    // 1) extract client IP
+    ip := getClientIP(r)
+
+    // 2) decode JSON body
     var input ReceiverInput
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
         http.Error(w, "invalid JSON", http.StatusBadRequest)
         return
     }
+
+    // 3) build Receiver and validate
     rec := Receiver{
         Description: input.Description,
         Latitude:    input.Latitude,
@@ -249,17 +366,28 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // 4) INSERT including ip_address
     err := db.QueryRow(`
-        INSERT INTO receivers (description, latitude, longitude, name, url)
-        VALUES ($1,$2,$3,$4,$5)
+        INSERT INTO receivers (
+            description,
+            latitude,
+            longitude,
+            name,
+            url,
+            ip_address
+        ) VALUES ($1,$2,$3,$4,$5,$6)
         RETURNING id, lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip).
         Scan(&rec.ID, &rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
 
+    // 5) populate IPAddress on the struct for JSON response
+    rec.IPAddress = ip
+
+    // 6) send response
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusCreated)
     json.NewEncoder(w).Encode(rec)
@@ -268,11 +396,11 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
 func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
     var rec Receiver
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url
+        SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address
         FROM receivers WHERE id = $1
     `, id).Scan(
         &rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL,
+        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.IPAddress,
     )
     if err == sql.ErrNoRows {
         w.WriteHeader(http.StatusNotFound)
@@ -287,11 +415,17 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
 }
 
 func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
+    // 1) extract client IP
+    ip := getClientIP(r)
+
+    // 2) decode JSON body
     var input ReceiverInput
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
         http.Error(w, "invalid JSON", http.StatusBadRequest)
         return
     }
+
+    // 3) build Receiver and validate
     rec := Receiver{
         ID:          id,
         Description: input.Description,
@@ -305,42 +439,66 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         return
     }
 
+    // 4) UPSERT including ip_address
     err := db.QueryRow(`
-        INSERT INTO receivers (id, description, latitude, longitude, name, url)
-        VALUES ($1,$2,$3,$4,$5,$6)
+        INSERT INTO receivers (
+            id,
+            description,
+            latitude,
+            longitude,
+            name,
+            url,
+            ip_address
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
         ON CONFLICT (id) DO UPDATE
           SET description = EXCLUDED.description,
               latitude    = EXCLUDED.latitude,
               longitude   = EXCLUDED.longitude,
               name        = EXCLUDED.name,
               url         = EXCLUDED.url,
+              ip_address  = EXCLUDED.ip_address,
               lastupdated = NOW()
         RETURNING lastupdated
-    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL).
+    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
 
+    // 5) populate IPAddress on the struct for JSON response
+    rec.IPAddress = ip
+
+    // 6) send response
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(rec)
 }
 
 func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
+    // 1) extract client IP
+    ip := getClientIP(r)
+
+    // 2) decode JSON body
     var patch ReceiverPatch
     if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
         http.Error(w, "invalid JSON", http.StatusBadRequest)
         return
     }
 
+    // 3) load existing record
     var rec Receiver
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url
+        SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address
         FROM receivers WHERE id = $1
     `, id).Scan(
-        &rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL,
+        &rec.ID,
+        &rec.LastUpdated,
+        &rec.Description,
+        &rec.Latitude,
+        &rec.Longitude,
+        &rec.Name,
+        &rec.URL,
+        &rec.IPAddress,
     )
     if err == sql.ErrNoRows {
         w.WriteHeader(http.StatusNotFound)
@@ -350,6 +508,7 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
         return
     }
 
+    // 4) apply patch
     if patch.Description != nil {
         rec.Description = *patch.Description
     }
@@ -366,28 +525,35 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
         rec.URL = patch.URL
     }
 
+    // 5) validate updated rec
     if err := validateReceiver(rec); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
+    // 6) perform UPDATE including ip_address
     err = db.QueryRow(`
         UPDATE receivers
-           SET description = $1,
-               latitude    = $2,
-               longitude   = $3,
-               name        = $4,
-               url         = $5,
-               lastupdated = NOW()
-         WHERE id = $6
+           SET description  = $1,
+               latitude     = $2,
+               longitude    = $3,
+               name         = $4,
+               url          = $5,
+               ip_address   = $6,
+               lastupdated  = NOW()
+         WHERE id = $7
          RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.ID).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip, rec.ID).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
 
+    // 7) populate IPAddress on the struct for JSON response
+    rec.IPAddress = ip
+
+    // 8) send response
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(rec)
 }
