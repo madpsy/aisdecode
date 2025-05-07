@@ -263,7 +263,7 @@ func syncClientConns() {
 
 	clientConnsMu.Lock()
 	clientConns = newMap
-	clientConvsMu.Unlock()
+	clientConnsMu.Unlock()
 }
 
 // scheduleShardSync polls the ingester at a fixed interval
