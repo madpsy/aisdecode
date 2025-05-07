@@ -38,6 +38,7 @@ func registerHandlers(mux *http.ServeMux) {
 }
 
 // topSogHandler returns the top 10 vessels by max SOG (excluding 102.3) in the last x days.
+// It caches results in Redis under key "top-sog:<days>d" with TTL == conf.CacheTime seconds.
 // Query-param: ?days=N  (default 1)
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
     // 1) parse days
@@ -51,7 +52,19 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         days = n
     }
 
-    // 2) fan-out per-shard query
+    cacheKey := fmt.Sprintf("top-sog:%dd", days)
+
+    // 2) Try Redis cache
+    var vessels []vessel
+    if ok, err := cacheGet(cacheKey, &vessels); err != nil {
+        log.Printf("cache get error: %v", err)
+    } else if ok {
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(vessels)
+        return
+    }
+
+    // 3) Not cached: run per-shard query
     qry := fmt.Sprintf(`
         SELECT user_id,
                MAX((packet->>'Sog')::float) AS max_sog
@@ -67,8 +80,8 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 3) merge per-shard into global map[user_id]max_sog, skipping 102.3
-    maxMap := make(map[int]float64)
+    // 4) Merge, skip SOG==102.3
+    maxMap := make(map[int]float64, 16)
     for _, recs := range shardResults {
         for _, rec := range recs {
             // extract user_id
@@ -91,7 +104,6 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
             case []byte:
                 sog, _ = strconv.ParseFloat(string(v), 64)
             }
-            // skip the special-case value
             if sog == 102.3 {
                 continue
             }
@@ -101,8 +113,8 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // 4) sort into slice and take top 10
-    vessels := make([]vessel, 0, len(maxMap))
+    // 5) Sort into slice and take top 10
+    vessels = make([]vessel, 0, len(maxMap))
     for uid, sog := range maxMap {
         vessels = append(vessels, vessel{UserID: uid, MaxSog: sog})
     }
@@ -113,7 +125,12 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         vessels = vessels[:10]
     }
 
-    // 5) return JSON
+    // 6) Store in cache
+    if err := cacheSet(cacheKey, vessels); err != nil {
+        log.Printf("cache set error: %v", err)
+    }
+
+    // 7) Return JSON
     w.Header().Set("Content-Type", "application/json")
     if err := json.NewEncoder(w).Encode(vessels); err != nil {
         http.Error(w, fmt.Sprintf("encoding error: %v", err), http.StatusInternalServerError)
