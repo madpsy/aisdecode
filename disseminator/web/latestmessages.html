@@ -554,8 +554,8 @@ function showMap() {
       ? L.marker([p.lat, p.lng]).addTo(mapLayerGroup)
       : L.circleMarker([p.lat, p.lng], { radius: 4 }).addTo(mapLayerGroup);
 
-    // build tooltip lines, formatting numbers to 4 decimal places
-    const lines = fieldsToShow.map(f => {
+    // build tooltip lines
+    const lines = fieldsToShow.map((f, idx) => {
       let rawVal;
       if (f === 'Record Timestamp') {
         rawVal = new Date(p.record.Timestamp).toLocaleString([], {
@@ -575,14 +575,15 @@ function showMap() {
         rawVal = p.data[f];
       }
 
-      // if it's a number, format to 4 decimals
-      let displayVal;
-      if (typeof rawVal === 'number') {
-        displayVal = rawVal.toFixed(4);
-      } else {
-        displayVal = rawVal != null ? rawVal : '';
-      }
+      // format numbers to 4 decimals
+      const displayVal = (typeof rawVal === 'number')
+        ? rawVal.toFixed(4)
+        : (rawVal != null ? rawVal : '');
 
+      // omit the “Field:” label for the first line (timestamp)
+      if (idx === 0 && f === 'Record Timestamp') {
+        return displayVal;
+      }
       return `<strong>${f}:</strong> ${displayVal}`;
     });
 
