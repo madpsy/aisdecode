@@ -117,7 +117,6 @@ func shardForUser(userID string) int {
 func (cc *ClientConn) ensureDB() error {
 	if err := cc.Db.Ping(); err != nil {
 		log.Printf("⚠️ Lost DB connection for shard %s: %v", cc.HostKey, err)
-		// reconnect
 		dsn := fmt.Sprintf(
 			"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 			cc.DbSettings.Host,
@@ -214,6 +213,33 @@ func fetchClients() ([]ClientInfo, error) {
 	return payload.Clients, nil
 }
 
+// getClientDatabaseSettings fetches DB credentials from a collector's /settings
+func getClientDatabaseSettings(ip string, port int) (*ClientDBSettings, error) {
+	url := fmt.Sprintf("http://%s:%d/settings", ip, port)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var cfg struct {
+		DbHost string `json:"db_host"`
+		DbPort int    `json:"db_port"`
+		DbUser string `json:"db_user"`
+		DbPass string `json:"db_pass"`
+		DbName string `json:"db_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+		return nil, err
+	}
+	return &ClientDBSettings{
+		Host:     cfg.DbHost,
+		Port:     cfg.DbPort,
+		User:     cfg.DbUser,
+		Password: cfg.DbPass,
+		DBName:   cfg.DbName,
+	}, nil
+}
+
 // syncClientConns reconciles local DBs with ingester list
 func syncClientConns() {
 	log.Printf("🔄 Syncing shard topology from %s:%d...", conf.IngestHost, conf.IngestPort)
@@ -233,8 +259,13 @@ func syncClientConns() {
 			newMap[key] = old
 			continue
 		}
-		dbCfg := ClientDBSettings{Host: ci.Ip, Port: ci.Port, User: "<user>", Password: "<pass>", DBName: "<dbname>"}
-		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName)
+		dbCfg, err := getClientDatabaseSettings(ci.Ip, ci.Port)
+		if err != nil {
+			log.Printf("Error fetching DB settings from %s: %v", key, err)
+			continue
+		}
+		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName)
 		db, err := sql.Open("postgres", dsn)
 		if err != nil {
 			log.Printf("DB open error for %s: %v", key, err)
@@ -246,7 +277,7 @@ func syncClientConns() {
 			continue
 		}
 		log.Printf("✅ Connected to shard DB %s, shards=%v", key, ci.Shards)
-		newMap[key] = &ClientConn{DbSettings: dbCfg, Db: db, Shards: ci.Shards, HostKey: key}
+		newMap[key] = &ClientConn{DbSettings: *dbCfg, Db: db, Shards: ci.Shards, HostKey: key}
 	}
 	log.Printf("⚡️ Synced %d shard connections (total shards: %d)", len(newMap), totalShards)
 	clientConnsMu.Lock()
