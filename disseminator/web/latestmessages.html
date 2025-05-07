@@ -79,6 +79,15 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
+    integrity="sha512‑..." crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"
+    integrity="sha512‑..." crossorigin=""
+  ></script>
 </head>
 <body>
   <h1 id="main-title">Loading…</h1>
@@ -382,7 +391,7 @@ resultsAs.onchange = () => {
 
       // Initial build based on current selection
       buildFieldSelector(
-        resultsAs.value === 'graph' ? numericOnly : allFields
+        resultsAs.onchange();
       );
 
 
@@ -627,21 +636,6 @@ function showMap() {
           if (chartInst) chartInst.resetZoom();
         });
       }
-
-      // switch between table/graph when user changes dropdown
-      resultsAs.onchange = () => {
-        // Rebuild fields list: all for table, numeric-only for graph
-        if (resultsAs.value === 'graph') {
-          buildFieldSelector(numericOnly);
-        } else {
-          buildFieldSelector(allFields);
-        }
-    
-        // If a range view is already active, update display mode
-        if (rngDiv.style.display !== 'none') {
-          resultsAs.value === 'table' ? showTable() : showGraph();
-        }
-      };
 
       // apply search: fetch rangeData, show download & table/chart
       applyBtn.onclick = async () => {
