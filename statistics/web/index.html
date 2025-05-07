@@ -33,8 +33,6 @@
       position: relative;
       height: 300px;
     }
-
-    /* Fixed overlay: initially hidden, flex container when shown */
     #img-overlay {
       display: none;
       position: fixed;
@@ -63,7 +61,22 @@
 <body>
 
   <div class="container-fluid">
-    <!-- Top Positions Card -->
+    <!-- Header + Time Selector -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h1 class="m-0">Vessel Statistics</h1>
+      <div>
+        <label for="days-select" class="form-label me-2">Time window:</label>
+        <select id="days-select" class="form-select d-inline-block w-auto">
+          <option value="1">1 day</option>
+          <option value="2">2 days</option>
+          <option value="7" selected>7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Top 10 by Position Reports (moved to top) -->
     <div class="card">
       <div class="card-body">
         <h2 class="card-title">Top 10 by Position Reports</h2>
@@ -87,7 +100,7 @@
       </div>
     </div>
 
-    <!-- Top Speed Card -->
+    <!-- Top 10 by Speed Over Ground -->
     <div class="card">
       <div class="card-body">
         <h2 class="card-title">Top 10 by Speed Over Ground</h2>
@@ -113,7 +126,7 @@
       </div>
     </div>
 
-    <!-- Top Types Card -->
+    <!-- Vessel Type Breakdown -->
     <div class="card">
       <div class="card-body">
         <h2 class="card-title">Vessel Type Breakdown</h2>
@@ -174,7 +187,7 @@
     );
     const typeChart = new Chart(
       document.getElementById('typeChart').getContext('2d'),
-      { type: 'pie', data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderColor: '#fff', borderWidth:1 }] },
+      { type: 'pie', data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderColor: '#fff', borderWidth: 1 }] },
         options: { plugins: { legend: { position: 'bottom' } } }
       }
     );
@@ -192,6 +205,38 @@
         fetchTopSog(days),
         fetchTopTypes(days)
       ]);
+    }
+
+    async function fetchTopPositions(days) {
+      const data = await (await fetch(`/statistics/stats/top-positions?days=${days}`)).json();
+      const $tbody = $('#top-positions-table tbody').empty();
+      posChart.data.labels = [];
+      posChart.data.datasets[0].data = [];
+
+      data.forEach(v => {
+        const name = v.name || v.user_id;
+        const img = v.image_url
+          ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
+          : '';
+        $tbody.append(`
+          <tr>
+            <td>${name}</td>
+            <td>${img}</td>
+            <td>${v.count}</td>
+          </tr>
+        `);
+        posChart.data.labels.push(name);
+        posChart.data.datasets[0].data.push(v.count);
+      });
+
+      posChart.update();
+      $('#top-positions-table').DataTable({
+        destroy: true,
+        paging: false,
+        info: false,
+        searching: false,
+        order: [[2, 'desc']]
+      });
     }
 
     async function fetchTopSog(days) {
@@ -219,55 +264,44 @@
       });
 
       sogChart.update();
-      $('#top-sog-table').DataTable({ destroy:true, paging:false, info:false, searching:false });
+      $('#top-sog-table').DataTable({
+        destroy: true,
+        paging: false,
+        info: false,
+        searching: false,
+        order: [[2, 'desc']]
+      });
     }
 
     async function fetchTopTypes(days) {
       const data = await (await fetch(`/statistics/stats/top-types?days=${days}`)).json();
       const $tbody = $('#top-types-table tbody').empty();
 
-      typeChart.data.labels = data.map(t => typeMapping[t.type]||t.type);
+      typeChart.data.labels = data.map(t => typeMapping[t.type] || t.type);
       typeChart.data.datasets[0].data = data.map(t => t.count);
       typeChart.data.datasets[0].backgroundColor = sliceColors.slice(0, data.length);
 
       data.forEach(t => {
-        const desc = typeMapping[t.type]||t.type;
+        const desc = typeMapping[t.type] || t.type;
         $tbody.append(`<tr><td>${desc}</td><td>${t.count}</td></tr>`);
       });
 
       typeChart.update();
-      $('#top-types-table').DataTable({ destroy:true, paging:false, info:false, searching:false });
-    }
-
-    async function fetchTopPositions(days) {
-      const data = await (await fetch(`/statistics/stats/top-positions?days=${days}`)).json();
-      const $tbody = $('#top-positions-table tbody').empty();
-      posChart.data.labels = [];
-      posChart.data.datasets[0].data = [];
-
-      data.forEach(v => {
-        const name = v.name || v.user_id;
-        const img = v.image_url
-          ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
-          : '';
-        $tbody.append(`
-          <tr>
-            <td>${name}</td>
-            <td>${img}</td>
-            <td>${v.count}</td>
-          </tr>
-        `);
-        posChart.data.labels.push(name);
-        posChart.data.datasets[0].data.push(v.count);
+      $('#top-types-table').DataTable({
+        destroy: true,
+        paging: false,
+        info: false,
+        searching: false,
+        order: [[1, 'desc']]
       });
-
-      posChart.update();
-      $('#top-positions-table').DataTable({ destroy:true, paging:false, info:false, searching:false });
     }
 
     // Event listeners & initial load
     $('#days-select').on('change', fetchAll);
-    (async()=>{ await loadTypeMapping(); fetchAll(); })();
+    (async () => {
+      await loadTypeMapping();
+      fetchAll();
+    })();
   </script>
 
   <script>
@@ -275,11 +309,10 @@
     $(document).on('click', '.thumb', function() {
       const src = $(this).attr('src');
       $('#img-overlay-img').attr('src', src);
-      // ensure flex display and then fade in
-      $('#img-overlay').css('display','flex').hide().fadeIn(200);
+      $('#img-overlay').css('display', 'flex').hide().fadeIn(200);
     });
     $('#img-overlay, #img-overlay-close').on('click', function(e) {
-      if (e.target.id==='img-overlay' || e.target.id==='img-overlay-close') {
+      if (e.target.id === 'img-overlay' || e.target.id === 'img-overlay-close') {
         $('#img-overlay').fadeOut(200);
       }
     });
