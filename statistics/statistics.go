@@ -85,7 +85,17 @@ func loadSettings(path string) (*Settings, error) {
 }
 
 // initRedis initializes the Redis client for caching
+// initRedis initializes the Redis client for caching
 func initRedis() {
+	redisClient = redis.NewClient(&redis.Options{
+		Addr: fmt.Sprintf("%s:%d", conf.RedisHost, conf.RedisPort),
+	})
+	if err := redisClient.Ping(redisCtx).Err(); err != nil {
+		log.Printf("⚠️ Redis ping failed: %v", err)
+	} else {
+		log.Printf("✅ Connected to Redis at %s:%d", conf.RedisHost, conf.RedisPort)
+	}
+}
 	redisClient = redis.NewClient(&redis.Options{
 		Addr: fmt.Sprintf("%s:%d", conf.RedisHost, conf.RedisPort),
 	})
@@ -95,7 +105,15 @@ func initRedis() {
 }
 
 // ensureRedis checks connectivity and reconnects if needed
+// ensureRedis checks connectivity and reconnects if needed
 func ensureRedis() {
+	if err := redisClient.Ping(redisCtx).Err(); err != nil {
+		log.Printf("⚠️ Redis connection lost, reconnecting: %v", err)
+		initRedis()
+	} else {
+		log.Printf("🔄 Redis connection healthy")
+	}
+}
 	if err := redisClient.Ping(redisCtx).Err(); err != nil {
 		log.Printf("⚠️ Redis connection lost, reconnecting: %v", err)
 		initRedis()
