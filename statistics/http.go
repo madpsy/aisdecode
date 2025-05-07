@@ -27,7 +27,6 @@ type typeCount struct {
     Count int    `json:"count"`
 }
 
-// StartServer sets up HTTP handlers and begins listening.
 func StartServer(port int) {
     mux := http.NewServeMux()
     registerHandlers(mux)
@@ -36,18 +35,13 @@ func StartServer(port int) {
     log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-// registerHandlers attaches your routes to the mux.
 func registerHandlers(mux *http.ServeMux) {
-    // Serve static assets under /statistics/
     fs := http.FileServer(http.Dir("web"))
     mux.Handle("/statistics/", http.StripPrefix("/statistics/", fs))
-
-    // Stats endpoints
     mux.HandleFunc("/statistics/stats/top-sog", topSogHandler)
     mux.HandleFunc("/statistics/stats/top-types", topTypesHandler)
 }
 
-// topSogHandler returns the top 10 vessels by max SOG in the last x days.
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
     days := 1
     if d := r.URL.Query().Get("days"); d != "" {
@@ -108,7 +102,6 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // merge per-shard
     type rec struct {
         Sog float64
         Ts  time.Time
@@ -123,7 +116,6 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
             ts, _ := parseTime(r["timestamp"])
             lat, _ := parseFloat(r["lat"])
             lon, _ := parseFloat(r["lon"])
-
             prev, found := maxMap[uid]
             if !found || sog > prev.Sog {
                 maxMap[uid] = rec{Sog: sog, Ts: ts, Lat: lat, Lon: lon}
@@ -169,7 +161,6 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(vessels)
 }
 
-// topTypesHandler returns the top 10 vessel types in the last x days.
 func topTypesHandler(w http.ResponseWriter, r *http.Request) {
     days := 1
     if d := r.URL.Query().Get("days"); d != "" {
@@ -276,4 +267,14 @@ func parseTime(i interface{}) (time.Time, error) {
         return time.Parse(time.RFC3339, v)
     }
     return time.Time{}, fmt.Errorf("cannot parse time: %v", i)
+}
+
+func parseString(i interface{}) (string, error) {
+    switch v := i.(type) {
+    case string:
+        return v, nil
+    case []byte:
+        return string(v), nil
+    }
+    return "", fmt.Errorf("cannot parse string: %v", i)
 }
