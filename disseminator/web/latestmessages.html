@@ -539,75 +539,68 @@ function showMap() {
   });
   if (!pts.length) return;
 
-  // draw track line
+  // draw the polyline only (no small dots)
   const latlngs = pts.map(p => [p.lat, p.lng]);
-  L.polyline(latlngs, { color: 'blue' }).addTo(mapLayerGroup);
+  L.polyline(latlngs, { color: 'blue', weight: 3 }).addTo(mapLayerGroup);
 
-  // define fields: timestamp, lat/lon, plus any other selected
+  // mark only the last point
+  const last = pts[pts.length - 1];
+  const marker = L.marker([last.lat, last.lng]).addTo(mapLayerGroup);
+
+  // build tooltip content for the last point
   const mandatory = ['Record Timestamp','Latitude','Longitude'];
   const fieldsToShow = mandatory.concat(
     selectedFields.filter(f => !['Latitude','Longitude'].includes(f))
   );
 
-  // helper to limit decimals without forcing
   function limitDecimals(num, maxDecimals = 4) {
     const [intPart, fracPart = ''] = String(num).split('.');
-    if (fracPart.length <= maxDecimals) {
-      return intPart + (fracPart ? `.${fracPart}` : '');
-    }
-    return intPart + '.' + fracPart.slice(0, maxDecimals);
+    return fracPart.length <= maxDecimals
+      ? intPart + (fracPart ? `.${fracPart}` : '')
+      : intPart + '.' + fracPart.slice(0, maxDecimals);
   }
 
-  pts.forEach((p, i) => {
-    const marker = (i === pts.length - 1)
-      ? L.marker([p.lat, p.lng]).addTo(mapLayerGroup)
-      : L.circleMarker([p.lat, p.lng], { radius: 4 }).addTo(mapLayerGroup);
+  const lines = fieldsToShow.map((f, idx) => {
+    let rawVal;
+    if (f === 'Record Timestamp') {
+      rawVal = new Date(last.record.Timestamp).toLocaleString([], {
+        hour12: false,
+        year:   'numeric',
+        month:  '2-digit',
+        day:    '2-digit',
+        hour:   '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } else if (f === 'Latitude') {
+      rawVal = last.lat;
+    } else if (f === 'Longitude') {
+      rawVal = last.lng;
+    } else {
+      rawVal = last.data[f];
+    }
 
-    const lines = fieldsToShow.map((f, idx) => {
-      let rawVal;
-      if (f === 'Record Timestamp') {
-        rawVal = new Date(p.record.Timestamp).toLocaleString([], {
-          hour12: false,
-          year:   'numeric',
-          month:  '2-digit',
-          day:    '2-digit',
-          hour:   '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        });
-      } else if (f === 'Latitude') {
-        rawVal = p.lat;
-      } else if (f === 'Longitude') {
-        rawVal = p.lng;
-      } else {
-        rawVal = p.data[f];
-      }
+    const displayVal = (typeof rawVal === 'number')
+      ? limitDecimals(rawVal, 4)
+      : (rawVal != null ? rawVal : '');
 
-      let displayVal;
-      if (typeof rawVal === 'number') {
-        displayVal = limitDecimals(rawVal, 4);
-      } else {
-        displayVal = rawVal != null ? rawVal : '';
-      }
+    if (idx === 0 && f === 'Record Timestamp') {
+      return displayVal;
+    }
+    return `<strong>${f}:</strong> ${displayVal}`;
+  });
 
-      // omit label for the timestamp line
-      if (idx === 0 && f === 'Record Timestamp') {
-        return displayVal;
-      }
-      return `<strong>${f}:</strong> ${displayVal}`;
-    });
-
-    marker.bindTooltip(lines.join('<br/>'), {
-      direction: 'top',
-      offset: [0, -6],
-      permanent: false,
-      sticky: true
-    });
+  marker.bindTooltip(lines.join('<br/>'), {
+    direction: 'top',
+    offset: [0, -6],
+    permanent: false,
+    sticky: true
   });
 
   // fit map to data
   map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
 }
+
 
 
 
