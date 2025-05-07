@@ -36,6 +36,46 @@ type posVessel struct {
     Count    int    `json:"count"`
 }
 
+// enrichVessels looks up and injects Name/ImageURL for each vessel in-place.
+func enrichVessels(vs []vessel) []vessel {
+    ids := make([]int, len(vs))
+    for i, v := range vs {
+        ids[i] = v.UserID
+    }
+    meta, err := fetchVesselMetadata(ids)
+    if err != nil {
+        log.Printf("enrichVessels: metadata fetch error: %v", err)
+        return vs
+    }
+    for i := range vs {
+        if m, ok := meta[vs[i].UserID]; ok {
+            vs[i].Name = m.Name
+            vs[i].ImageURL = m.ImageURL
+        }
+    }
+    return vs
+}
+
+// enrichPosVessels looks up and injects Name/ImageURL for each posVessel in-place.
+func enrichPosVessels(ps []posVessel) []posVessel {
+    ids := make([]int, len(ps))
+    for i, v := range ps {
+        ids[i] = v.UserID
+    }
+    meta, err := fetchVesselMetadata(ids)
+    if err != nil {
+        log.Printf("enrichPosVessels: metadata fetch error: %v", err)
+        return ps
+    }
+    for i := range ps {
+        if m, ok := meta[ps[i].UserID]; ok {
+            ps[i].Name = m.Name
+            ps[i].ImageURL = m.ImageURL
+        }
+    }
+    return ps
+}
+
 func StartServer(port int) {
     mux := http.NewServeMux()
     registerHandlers(mux)
@@ -57,27 +97,10 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     cacheKey := fmt.Sprintf("top-sog:%dd", days)
 
-    var vessels []vessel
-    if ok, _ := cacheGet(cacheKey, &vessels); ok {
-        // back‐fill metadata on cache hit
-        ids := make([]int, 0, len(vessels))
-        for _, v := range vessels {
-            if v.Name == "" || v.ImageURL == "" {
-                ids = append(ids, v.UserID)
-            }
-        }
-        if len(ids) > 0 {
-            if meta, err := fetchVesselMetadata(ids); err == nil {
-                for i, vv := range vessels {
-                    if md, found := meta[vv.UserID]; found {
-                        vessels[i].Name = md.Name
-                        vessels[i].ImageURL = md.ImageURL
-                    }
-                }
-                go cacheSet(cacheKey, vessels)
-            }
-        }
-        respondJSON(w, vessels)
+    var vs []vessel
+    if ok, _ := cacheGet(cacheKey, &vs); ok {
+        vs = enrichVessels(vs)
+        respondJSON(w, vs)
         return
     }
 
@@ -126,10 +149,10 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    vessels = make([]vessel, 0, len(maxMap))
+    vs = make([]vessel, 0, len(maxMap))
     ids := make([]int, 0, len(maxMap))
     for uid, d := range maxMap {
-        vessels = append(vessels, vessel{
+        vs = append(vs, vessel{
             UserID:    uid,
             MaxSog:    d.sog,
             Timestamp: d.ts,
@@ -139,25 +162,16 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         ids = append(ids, uid)
     }
 
-    sort.Slice(vessels, func(i, j int) bool {
-        return vessels[i].MaxSog > vessels[j].MaxSog
+    sort.Slice(vs, func(i, j int) bool {
+        return vs[i].MaxSog > vs[j].MaxSog
     })
-    if len(vessels) > 10 {
-        vessels = vessels[:10]
-        ids = ids[:10]
+    if len(vs) > 10 {
+        vs = vs[:10]
     }
 
-    if meta, err := fetchVesselMetadata(ids); err == nil {
-        for i, vv := range vessels {
-            if md, found := meta[vv.UserID]; found {
-                vessels[i].Name = md.Name
-                vessels[i].ImageURL = md.ImageURL
-            }
-        }
-    }
-
-    cacheSet(cacheKey, vessels)
-    respondJSON(w, vessels)
+    vs = enrichVessels(vs)
+    cacheSet(cacheKey, vs)
+    respondJSON(w, vs)
 }
 
 func topTypesHandler(w http.ResponseWriter, r *http.Request) {
@@ -218,10 +232,9 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     cacheKey := fmt.Sprintf("top-positions:%dd", days)
 
-    // on cache hit, assume Name/ImageURL already present
-    var results []posVessel
-    if ok, _ := cacheGet(cacheKey, &results); ok {
-        respondJSON(w, results)
+    var ps []posVessel
+    if ok, _ := cacheGet(cacheKey, &ps); ok {
+        respondJSON(w, ps)
         return
     }
 
@@ -249,40 +262,27 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // build and sort raw list
-    type raw struct{ uid, cnt int }
-    raws := make([]raw, 0, len(countMap))
+    raw := make([]struct{ uid, cnt int }, 0, len(countMap))
     for uid, cnt := range countMap {
-        raws = append(raws, raw{uid, cnt})
+        raw = append(raw, struct{ uid, cnt int }{uid, cnt})
     }
-    sort.Slice(raws, func(i, j int) bool {
-        return raws[i].cnt > raws[j].cnt
+    sort.Slice(raw, func(i, j int) bool {
+        return raw[i].cnt > raw[j].cnt
     })
-    if len(raws) > 10 {
-        raws = raws[:10]
+    if len(raw) > 10 {
+        raw = raw[:10]
     }
 
-    // fetch metadata once
-    ids := make([]int, len(raws))
-    for i, r := range raws {
+    ps = make([]posVessel, len(raw))
+    ids := make([]int, len(raw))
+    for i, r := range raw {
+        ps[i] = posVessel{UserID: r.uid, Count: r.cnt}
         ids[i] = r.uid
     }
-    metaMap, _ := fetchVesselMetadata(ids)
 
-    // assemble final slice
-    results = make([]posVessel, len(raws))
-    for i, r := range raws {
-        md := metaMap[r.uid]
-        results[i] = posVessel{
-            UserID:   r.uid,
-            Name:     md.Name,
-            ImageURL: md.ImageURL,
-            Count:    r.cnt,
-        }
-    }
-
-    cacheSet(cacheKey, results)
-    respondJSON(w, results)
+    ps = enrichPosVessels(ps)
+    cacheSet(cacheKey, ps)
+    respondJSON(w, ps)
 }
 
 // parseDaysParam reads 'days' query param, defaults to 1.
