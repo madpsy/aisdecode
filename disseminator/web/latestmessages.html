@@ -520,14 +520,14 @@ function showMap() {
   // initialize Leaflet map once
   if (!map) {
     map = L.map('map-container').setView([0,0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
     mapLayerGroup = L.layerGroup().addTo(map);
   }
   mapLayerGroup.clearLayers();
 
-  // extract lat/lon and full data
+  // build an array of points with lat, lng, and full data
   const pts = rangeData.map(r => {
     const flat = flatten(r.Packet);
     return {
@@ -535,9 +535,6 @@ function showMap() {
       lng: flat.Longitude,
       data: {
         Timestamp: r.Timestamp,
-        Cog: flat.Cog,
-        Sog: flat.Sog,
-        TrueHeading: flat.TrueHeading,
         ...flat
       }
     };
@@ -545,22 +542,46 @@ function showMap() {
 
   if (!pts.length) return;
 
-  // build polyline
+  // draw the path line
   const latlngs = pts.map(p => [p.lat, p.lng]);
   L.polyline(latlngs, { color: 'blue' }).addTo(mapLayerGroup);
 
-  // add markers / hover tooltips
+  // decide which fields to show: always lat/lon, then the rest of selectedFields
+  const mandatory = ['Latitude', 'Longitude'];
+  const fieldsToShow = mandatory.concat(
+    selectedFields.filter(f => !mandatory.includes(f))
+  );
+
+  // add markers with popups showing only our chosen fields
   pts.forEach((p, i) => {
     const marker = (i === pts.length - 1)
       ? L.marker([p.lat, p.lng]).addTo(mapLayerGroup)
       : L.circleMarker([p.lat, p.lng], { radius: 4 }).addTo(mapLayerGroup);
 
-    // build tooltip content
     let html = '<table>';
-    Object.entries(p.data).forEach(([k,v]) => {
-      html += `<tr><td><strong>${k}</strong></td><td>${v}</td></tr>`;
+    fieldsToShow.forEach(f => {
+      let displayVal;
+      if (f === 'Latitude') {
+        displayVal = p.lat;
+      } else if (f === 'Longitude') {
+        displayVal = p.lng;
+      } else if (f === 'Timestamp') {
+        displayVal = new Date(p.data.Timestamp).toLocaleString([], {
+          hour12: false,
+          year:   'numeric',
+          month:  '2-digit',
+          day:    '2-digit',
+          hour:   '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+      } else {
+        displayVal = p.data[f] != null ? p.data[f] : '';
+      }
+      html += `<tr><td><strong>${f}</strong></td><td>${displayVal}</td></tr>`;
     });
     html += '</table>';
+
     marker.bindPopup(html);
   });
 
@@ -568,6 +589,7 @@ function showMap() {
   const bounds = L.latLngBounds(latlngs);
   map.fitBounds(bounds.pad(0.2));
 }
+
       function showGraph() {
         rangeTbl.style.display = 'none';
         chartCont.style.display = '';
