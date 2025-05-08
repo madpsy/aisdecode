@@ -364,6 +364,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
 }
 
 // Admin list: same as public but includes ip_address
+// Admin list: same as public but includes ip_address and correct message count
 func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
     // Parse filters from query parameters (can be the same as public)
     filters := map[string]string{
@@ -389,7 +390,7 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         list[i].Messages = msgs
     }
 
-    // Return the list of receivers in JSON format
+    // Return the list of receivers in JSON format, including ip_address and messages
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(list)
 }
