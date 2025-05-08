@@ -202,6 +202,22 @@
   .receiver-name, .receiver-description {
     font-size: 0.9em; /* Reduce the font size */
   }
+
+  #receiver-box {
+    position: relative; /* Set as relative to position the map inside it */
+    padding: 16px;
+    border: 1px solid #ddd;
+    margin-top: 20px;
+    background-color: #f9f9f9;
+  }
+
+  #receiver-map {
+    position: absolute;  /* Position the map inside the receiver box */
+    top: 16px;           /* Space from the top */
+    right: 16px;         /* Space from the right */
+    width: 300px;        /* Set map size */
+    height: 300px;       /* Set map size */
+  }
 </style>
 
 </head>
@@ -940,10 +956,6 @@ async function fetchReceivers(ip) {
     // Create a new box to hold receiver info
     const receiverBox = document.createElement('div');
     receiverBox.id = 'receiver-box';
-    receiverBox.style.padding = '16px';
-    receiverBox.style.border = '1px solid #ddd';
-    receiverBox.style.marginTop = '20px';
-    receiverBox.style.backgroundColor = '#f9f9f9';
     
     // Check if the receivers list is empty
     if (receivers.length === 0) {
@@ -957,7 +969,7 @@ async function fetchReceivers(ip) {
         <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
         <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
         <p><strong>Receiver URL:</strong> <a href="${receiver.url}" target="_blank">${receiver.url}</a></p>
-        <div id="receiver-map" style="width: 150px; height: 150px; margin-top: 10px;"></div>
+        <div id="receiver-map"></div> <!-- The map will be positioned here -->
       `;
     }
     
@@ -987,6 +999,7 @@ async function fetchReceivers(ip) {
     console.error('Failed to fetch receivers:', e);
   }
 }
+
 
 
     function typeNameFor(info) {
