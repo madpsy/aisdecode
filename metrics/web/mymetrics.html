@@ -229,7 +229,7 @@
   <div class="controls">
     <label for="ipInput">Override IP Address:</label>
     <input type="text" id="ipInput" placeholder="e.g. 44.31.231.4" />
-    <button id="applyBtn">Apply</button>
+    <button id="applyBtn" disabled>Apply</button>
   </div>
 
   <h2>IP Address: <span id="ip-address">127.0.0.1</span></h2>
@@ -1255,6 +1255,30 @@ async function fetchReceivers(ip) {
       renderPagination(totalPages);
       updateDoughnut();
     }
+
+const ipInput  = document.getElementById('ipInput');
+const applyBtn = document.getElementById('applyBtn');
+
+// 1. Toggle disabled state as the user types:
+ipInput.addEventListener('input', () => {
+  // trim so spaces don’t count
+  applyBtn.disabled = ipInput.value.trim() === '';
+});
+
+// 2. (Extra safety) In your handler, bail out if empty:
+applyBtn.addEventListener('click', () => {
+  const ip = ipInput.value.trim();
+  if (!ip) return;          // nothing to do
+  applyOverride(ip);
+});
+
+// 3. Also handle Enter-key the same way:
+ipInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && ipInput.value.trim() !== '') {
+    applyOverride(ipInput.value.trim());
+  }
+});
+
   </script>
 </body>
 </html>
