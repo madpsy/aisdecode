@@ -472,6 +472,9 @@ function applyOverride(ip) {
 
   // Fetch metrics and update data after IP override
   fetchMetrics();
+
+  // Fetch receivers with the new IP immediately after applying override
+  fetchReceivers(ip);
 }
 
     window.addEventListener('DOMContentLoaded', ()=>{
