@@ -586,16 +586,21 @@ function updateOverlay(latlng) {
 
     // Fetch & draw receiver markers
 function loadReceivers() {
-  // clear any previous receivers
+  // Clear any previous receivers
   receiversList = [];
+
   fetch('/receivers')
     .then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     })
     .then(receivers => {
+      if (receivers.length === 0) {
+        console.warn('No receivers found');
+      }
+
+      // Create the circle markers for all receivers
       receivers.forEach(r => {
-        // create the circle marker
         const dot = L.circleMarker([r.latitude, r.longitude], {
           radius: 8,
           color: 'red',
@@ -604,14 +609,14 @@ function loadReceivers() {
           weight: 1
         }).addTo(map);
 
-        // tooltip with the RX name
+        // Tooltip with the RX name
         dot.bindTooltip(`${r.name} (RX)`, {
           permanent: true,
           direction: 'top',
           className: 'receiver-tooltip'
         });
 
-        // click handler: select this receiver
+        // Click handler: select this receiver
         dot.on('click', e => {
           L.DomEvent.stopPropagation(e);
           selectedReceiverLatLng = e.latlng;
@@ -619,49 +624,50 @@ function loadReceivers() {
           updateOverlay(e.latlng);
           updateSummaryTable();
 
-          // update the URL to include ?receiver=<id>
+          // Update the URL to include ?receiver=<id>
           const url = new URL(location);
           url.searchParams.set('receiver', r.id);
           history.replaceState(null, '', url);
         });
 
-        // store for nearest/override lookup
+        // Store for nearest/override lookup
         receiversList.push({
-          id:   r.id,
+          id: r.id,
           name: r.name,
           marker: dot,
           latlng: L.latLng(r.latitude, r.longitude)
         });
       });
 
-      // if the user passed ?receiver= in the URL, force-select it now
-     if (overrideReceiverId) {
-       // coerce to the same type
-       const idToMatch = typeof receiversList[0].id === 'number'
-         ? Number(overrideReceiverId)
-         : overrideReceiverId;
+      // If the user passed ?receiver= in the URL, force-select it now
+      if (overrideReceiverId && receiversList.length > 0) {
+        // Ensure the receiver is present in the list and match the type correctly
+        const idToMatch = typeof receiversList[0].id === 'number'
+          ? Number(overrideReceiverId)
+          : overrideReceiverId;
 
-       const forced = receiversList.find(rx => rx.id === idToMatch);
-       if (forced) {
-         // manually set selection state
-         selectedReceiverLatLng = forced.latlng;
-         updateOverlay(forced.latlng);
-         updateSummaryTable();
+        const forced = receiversList.find(rx => rx.id === idToMatch);
 
-         // update URL cleanly
-         const url = new URL(location);
-         url.searchParams.set('receiver', forced.id);
-         history.replaceState(null, '', url);
+        if (forced) {
+          // Manually set selection state
+          selectedReceiverLatLng = forced.latlng;
+          updateOverlay(forced.latlng);
+          updateSummaryTable();
 
-         // fire the click *with* a latlng payload
-         forced.marker.fire('click', { latlng: forced.latlng });
-       }
-     }
+          // Update the URL cleanly
+          const url = new URL(location);
+          url.searchParams.set('receiver', forced.id);
+          history.replaceState(null, '', url);
 
+          // Fire the click *with* a latlng payload
+          forced.marker.fire('click', { latlng: forced.latlng });
+        } else {
+          console.warn(`Receiver with id ${overrideReceiverId} not found`);
+        }
+      }
     })
     .catch(err => console.error('Failed to load receivers', err));
- }
-
+}
     // Vessel icon creation
     function makeIcon(info, color){
       if(info.Sog > 0.5){
