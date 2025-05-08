@@ -926,7 +926,7 @@ async function fetchMetrics() {
     const res = await fetch(url);
     if (!res.ok) throw res.status;
     const data = await res.json();
-    const currentIp = data.ip_address; // Use the IP from the API response if available
+    const currentIp = data.requested_ip_address; // Use the IP from the API response if available
     document.getElementById('ip-address').textContent = currentIp;
     const lbl = new Date().toLocaleTimeString();
 
