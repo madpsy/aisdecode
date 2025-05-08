@@ -804,45 +804,51 @@ function focusVessel(uid){
   document.getElementById('map').scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
-// Modify `updateMap` to trigger `map.fitBounds` when the vessels are updated.
+    // Update vessel markers & fit bounds
 function updateMap() {
   const oldVesselCount = Object.keys(vesselMarkers).length;
   const boundsArr = [], newMarkers = {};
+
+  // Loop over all user IDs to process each vessel
   seenUserIds.forEach(uid => {
     if (uid.length !== 9) return;
     const info = summaryCache[uid];
     if (!info) return;
     const { Latitude: lat, Longitude: lon } = info;
     if (typeof lat !== 'number' || typeof lon !== 'number') return;
-    boundsArr.push([lat, lon]);
+
+    boundsArr.push([lat, lon]);  // Collecting the bounds for all vessels
     const typeDisp = typeNameFor(info);
     const color = typeColorsMap[typeDisp] || '#000';
     const icon = makeIcon(info, color);
 
+    // Update existing marker if it exists, or create a new one
     if (vesselMarkers[uid]) {
       vesselMarkers[uid].setLatLng([lat, lon]).setIcon(icon);
       newMarkers[uid] = vesselMarkers[uid];
     } else {
       const m = L.marker([lat, lon], { icon });
 
-      m.on('click', function(e) {
-        // reset line-drawing state
+      // Click handler for the vessel marker
+      m.on('click', function (e) {
+        // Reset line-drawing state
         polylineAdded = false;
         tooltipAdded = false;
 
         L.DomEvent.stopPropagation(e);
         updateOverlay(e.latlng);
 
-        // close other popups
+        // Close other popups
         Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
 
-        // open this one and keep it open
+        // Open the clicked marker popup
         m.openPopup();
 
         focusedUid = uid;
         clearSelectedRow();
         highlightRow(uid);
 
+        // If a receiver is selected, draw distance line and adjust map bounds
         if (selectedReceiverLatLng) {
           clearDistanceLine();
           const vesselLatLng = m.getLatLng();
@@ -875,6 +881,7 @@ function updateMap() {
         }
       });
 
+      // Mouseover handler for the vessel marker
       m.on('mouseover', () => {
         const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
         const detailsHtml = `
@@ -888,22 +895,49 @@ function updateMap() {
           </div>
         `;
         m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
+
+        // Fetch additional vessel state data if available
+        fetch(`/state?UserID=${encodeURIComponent(uid)}`)
+          .then(res => res.ok ? res.json() : Promise.reject(res.status))
+          .then(state => {
+            if (state.ImageURL) {
+              const flexHtml = `
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <img src="${state.ImageURL}" style="max-width:120px;max-height:80px;flex-shrink:0;" alt="State image"/>
+                  <div style="line-height:1.2;">
+                    <b>MMSI:</b> ${uid}<br/>
+                    <b>Name:</b> ${info.Name || ''}<br/>
+                    <b>Speed:</b> ${info.Sog} kn<br/>
+                    <b>Type:</b> ${typeDisp}<br/>
+                    <b>Status:</b> ${status}<br/>
+                    <b>Class:</b> ${info.AISClass || ''}
+                  </div>
+                </div>
+              `;
+              m.getPopup().setContent(flexHtml).update();
+              m.openPopup();
+            }
+          })
+          .catch(e => console.error(`Failed to load state for ${uid}`, e));
       });
 
       m.on('mouseout', () => m.closePopup());
 
+      // Add the new marker to the map
       m.addTo(map);
       vesselMarkers[uid] = m;
       newMarkers[uid] = m;
     }
   });
 
+  // Remove markers that are no longer needed
   Object.keys(vesselMarkers).forEach(uid => {
     if (!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
   });
+
   vesselMarkers = newMarkers;
 
-  // After all markers have been added, we attempt to fit the map bounds
+  // After all markers are updated, adjust the map bounds to fit all markers
   if (autoFit && boundsArr.length) {
     programmaticFit = true;
     map.once('moveend zoomend', () => programmaticFit = false);
@@ -911,67 +945,6 @@ function updateMap() {
   }
 }
 
-
-          m.on('mouseover', ()=>{
-            const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
-            const detailsHtml = `
-              <div style="line-height:1.2;">
-                <b>MMSI:</b> ${uid}<br/>
-                <b>Name:</b> ${info.Name || ''}<br/>
-                <b>Speed:</b> ${info.Sog} kn<br/>
-                <b>Type:</b> ${typeDisp}<br/>
-                <b>Status:</b> ${status}<br/>
-                <b>Class:</b> ${info.AISClass || ''}
-              </div>
-            `;
-            m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
-            fetch(`/state?UserID=${encodeURIComponent(uid)}`)
-              .then(res => res.ok ? res.json() : Promise.reject(res.status))
-              .then(state => {
-                if(state.ImageURL){
-                  const flexHtml = `
-                    <div style="display:flex;align-items:center;gap:8px;">
-                      <img src="${state.ImageURL}" style="max-width:120px;max-height:80px;flex-shrink:0;" alt="State image"/>
-                      <div style="line-height:1.2;">
-                        <b>MMSI:</b> ${uid}<br/>
-                        <b>Name:</b> ${info.Name || ''}<br/>
-                        <b>Speed:</b> ${info.Sog} kn<br/>
-                        <b>Type:</b> ${typeDisp}<br/>
-                        <b>Status:</b> ${status}<br/>
-                        <b>Class:</b> ${info.AISClass || ''}
-                      </div>
-                    </div>
-                  `;
-                  m.getPopup().setContent(flexHtml).update();
-                  m.openPopup();
-                }
-              })
-              .catch(e => console.error(`Failed to load state for ${uid}`, e));
-          });
-
-          m.on('mouseout', () => m.closePopup());
-          //m.on('popupclose', () => {
-          //  updateOverlay(null);
-          //  clearDistanceLine();
-          //});
-
-          m.addTo(map);
-          vesselMarkers[uid] = m;
-          newMarkers[uid] = m;
-        }
-      });
-
-      Object.keys(vesselMarkers).forEach(uid => {
-        if(!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
-      });
-  vesselMarkers = newMarkers;
-
-      if(autoFit && boundsArr.length){
-        programmaticFit = true;
-        map.once('moveend zoomend', ()=> programmaticFit = false);
-        map.fitBounds(L.latLngBounds(boundsArr), { padding: [30,30] });
-      }
-    }
 
     // Fetch metrics, update cards/charts/table
 let receiversFetched = false; // Flag to ensure receivers are only fetched once
