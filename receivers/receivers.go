@@ -111,6 +111,8 @@ func main() {
         handleListReceiversPublic(w, r)
     })
 
+    http.HandleFunc("/admin/getip", adminGetIPHandler)
+
     // Admin API: full CRUD under /admin/receivers
     http.HandleFunc("/admin/receivers", adminReceiversHandler)
     http.HandleFunc("/admin/receivers/", adminReceiverHandler)
@@ -262,6 +264,59 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
     }
 
     return list, nil
+}
+
+// adminGetIPHandler handles GET /admin/getip?id=<id>
+func adminGetIPHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodGet {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        return
+    }
+
+    // 1) Parse and validate 'id' query parameter
+    idStr := r.URL.Query().Get("id")
+    if idStr == "" {
+        http.Error(w, "`id` query parameter is required", http.StatusBadRequest)
+        return
+    }
+    id, err := strconv.Atoi(idStr)
+    if err != nil || id < 1 {
+        http.Error(w, "`id` must be a positive integer", http.StatusBadRequest)
+        return
+    }
+
+    // 2) Ensure DB connection
+    if err := ensureConnection(); err != nil {
+        http.Error(w, "database error", http.StatusInternalServerError)
+        return
+    }
+
+    // 3) Query the ip_address column
+    var ip sql.NullString
+    err = db.
+        QueryRow(`SELECT ip_address FROM receivers WHERE id = $1`, id).
+        Scan(&ip)
+    if err == sql.ErrNoRows {
+        // No matching receiver → return empty string
+        ip.String = ""
+    } else if err != nil {
+        // Some other DB error
+        http.Error(w, "database error", http.StatusInternalServerError)
+        return
+    }
+
+    // 4) Always return a string (never null)
+    addr := ip.String
+    if addr == "" {
+        // normalize NULL or empty column to the empty string
+        addr = ""
+    }
+
+    // 5) Write response
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]string{
+        "ip_address": addr,
+    })
 }
 
 // Function to get the message count for a given IP address from the metrics API.
