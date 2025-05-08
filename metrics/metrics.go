@@ -390,14 +390,29 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 }
 
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
-    var ip string
+    // 1) Determine the requestor’s IP
+    var requestorIP string
+    if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+        requestorIP = strings.TrimSpace(strings.Split(xff, ",")[0])
+    } else if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+        requestorIP = host
+    } else {
+        requestorIP = r.RemoteAddr
+    }
 
-    // 1) Try 'id' lookup first (must be integer, cache for 60s)
+    // 2) Determine the requested IP: param ipaddress overrides requestorIP
+    requestedIP := r.URL.Query().Get("ipaddress")
+    if requestedIP == "" {
+        requestedIP = requestorIP
+    }
+
+    // 3) Determine the filter IP: try id lookup, else requestedIP
+    filterIP := ""
     if id := r.URL.Query().Get("id"); id != "" {
         if _, err := strconv.Atoi(id); err == nil {
             cacheKey := "receiver:" + id
             if cached, err := redisClient.Get(ctx, cacheKey).Result(); err == nil {
-                ip = cached
+                filterIP = cached
             } else {
                 url := fmt.Sprintf("%s/admin/getip?id=%s", settings.ReceiversBaseURL, id)
                 resp, err := http.Get(url)
@@ -406,28 +421,18 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
                     body, _ := io.ReadAll(resp.Body)
                     var out struct{ IP string `json:"ip_address"` }
                     if json.Unmarshal(body, &out) == nil && out.IP != "" {
-                        ip = out.IP
-                        redisClient.Set(ctx, cacheKey, ip, 60*time.Second)
+                        filterIP = out.IP
+                        redisClient.Set(ctx, cacheKey, filterIP, 60*time.Second)
                     }
                 }
             }
         }
     }
-
-    // 2) Fallback to standard IP resolution
-    if ip == "" {
-        if q := r.URL.Query().Get("ipaddress"); q != "" {
-            ip = q
-        } else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-            ip = strings.TrimSpace(strings.Split(xff, ",")[0])
-        } else if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-            ip = host
-        } else {
-            ip = r.RemoteAddr
-        }
+    if filterIP == "" {
+        filterIP = requestedIP
     }
 
-    // 3) Grab latest metrics snapshot
+    // 4) Load latest metrics
     metricsLock.RLock()
     raw := latestMetrics
     metricsLock.RUnlock()
@@ -436,59 +441,61 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 4) Unmarshal into FullMetrics
+    // 5) Unmarshal into FullMetrics
     blob, _ := json.Marshal(raw)
     var full FullMetrics
     _ = json.Unmarshal(blob, &full)
 
-    // 5) Build the real‑time SimpleMetrics
+    // 6) Build SimpleMetrics for filterIP
     rt := SimpleMetrics{}
     for _, m := range full.BytesReceivedBySource {
-        if m.SourceIP == ip {
+        if m.SourceIP == filterIP {
             rt.BytesReceived = m.Count
         }
     }
     for _, m := range full.MessagesBySource {
-        if m.SourceIP == ip {
+        if m.SourceIP == filterIP {
             rt.Messages = m.Count
         }
     }
     for _, m := range full.UniqueMMSIBySource {
-        if m.SourceIP == ip {
+        if m.SourceIP == filterIP {
             rt.UniqueMMSI = m.Count
         }
     }
     for _, m := range full.FailuresBySource {
-        if m.SourceIP == ip {
+        if m.SourceIP == filterIP {
             rt.Failures = m.Count
         }
     }
-    rt.Deduplicated     = full.PerDeduplicatedSource[ip]
-    rt.WindowBytes      = full.WindowBytesBySource[ip]
-    rt.WindowMessages   = full.WindowMessagesBySource[ip]
-    rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[ip]
+    rt.Deduplicated     = full.PerDeduplicatedSource[filterIP]
+    rt.WindowBytes      = full.WindowBytesBySource[filterIP]
+    rt.WindowMessages   = full.WindowMessagesBySource[filterIP]
+    rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[filterIP]
 
-    // 6) Load or compute Aggregated (cached in Redis)
-    aggKey := fmt.Sprintf("agg:%s", ip)
+    // 7) Load or compute Aggregated (cached)
+    aggKey := fmt.Sprintf("agg:%s", filterIP)
     var agg Aggregated
     if data, err := redisClient.Get(ctx, aggKey).Bytes(); err == nil {
         _ = json.Unmarshal(data, &agg)
     } else {
-        agg = queryAggregates(ip)
+        agg = queryAggregates(filterIP)
         if b, err := json.Marshal(agg); err == nil {
             redisClient.Set(ctx, aggKey, b, time.Duration(settings.CacheTime)*time.Second)
         }
     }
 
-    // 7) Get the sliding‑window user IDs
-    windowIDs := full.WindowUserIDsBySource[ip]
+    // 8) Pull windowed user IDs
+    windowIDs := full.WindowUserIDsBySource[filterIP]
 
-    // 8) Build and send response WITHOUT the IP field
+    // 9) Build and send response with requested_ip_address
     respBody := struct {
-        SimpleMetrics  SimpleMetrics `json:"simple_metrics"`
-        Aggregated     Aggregated    `json:"aggregated"`
-        WindowUserIDs  []string      `json:"window_user_ids"`
+        RequestedIP      string         `json:"requested_ip_address"`
+        SimpleMetrics    SimpleMetrics  `json:"simple_metrics"`
+        Aggregated       Aggregated     `json:"aggregated"`
+        WindowUserIDs    []string       `json:"window_user_ids"`
     }{
+        RequestedIP:   requestedIP,
         SimpleMetrics: rt,
         Aggregated:    agg,
         WindowUserIDs: windowIDs,
