@@ -425,8 +425,6 @@ function updateURLWithIp(ip) {
   history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
 
-
-    // Apply override and reset everything
 function applyOverride(ip) {
   console.log("applyOverride function called with IP:", ip);
   ip = (ip || '').trim();
@@ -435,7 +433,7 @@ function applyOverride(ip) {
   overrideReceiverId = '';  // Reset receiver id
 
   // Update the URL with the new IP address (remove receiver if it's there)
-  updateURLWithIp(ip);
+  updateURLWithIp(ip);  // Ensure ipaddress is set and receiver is removed
 
   // **Reset all components when applying override**
   resetCardsAndCharts();  // Reset all cards and charts
@@ -449,6 +447,7 @@ function applyOverride(ip) {
   // Fetch receivers with the new IP immediately after applying override
   fetchReceivers(ip);
 }
+
 
     window.addEventListener('DOMContentLoaded', ()=>{
       fetch('/types.json')
