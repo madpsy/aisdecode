@@ -1209,10 +1209,10 @@ async function fetchReceivers(ip) {
     }, 2000);
 
     const receiverMarker = vesselMarkers[receiver.id]; // Assuming vesselMarkers stores markers by ID
-    console.log("moo");
     // Trigger a virtual click on the marker if it exists
     if (receiverMarker) {
       receiverMarker.fire('click');  // This simulates the click event
+      console.log("moo");
     }
 
 
