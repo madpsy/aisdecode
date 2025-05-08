@@ -182,7 +182,7 @@ func ensureConnection() error {
 func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]Receiver, error) {
     if err := ensureConnection(); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
-        return nil, err
+        return []Receiver{}, nil // Return empty slice here instead of `nil`
     }
 
     // Extract parameters
@@ -256,9 +256,9 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
         list = append(list, rec)
     }
 
-    // If no records found, return an empty list
+    // Return empty list if no receivers are found
     if len(list) == 0 {
-        return []Receiver{}, nil
+        return []Receiver{}, nil // Return empty slice explicitly
     }
 
     return list, nil
@@ -419,6 +419,13 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         rec.IPAddress = "" // Clear IP address before sending the response
 
         list = append(list, rec)
+    }
+
+    // If no receivers are found, return an empty array instead of null
+    if len(list) == 0 {
+        w.Header().Set("Content-Type", "application/json")
+        w.Write([]byte("[]")) // Send empty array explicitly
+        return
     }
 
     // Return the list of receivers in JSON format
