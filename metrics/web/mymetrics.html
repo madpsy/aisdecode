@@ -415,59 +415,10 @@ function applyOverride(ip) {
   overrideReceiverId = '';
   document.getElementById('ipInput').value = ip;
 
-  // Reset cards & charts
-  Object.keys(baselines).forEach(k => delete baselines[k]);
-  cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
-  chartMetrics.forEach(m => {
-    const c = charts[m];
-    c.data.labels = [];
-    c.data.datasets[0].data = [];
-    c.update();
-  });
-
-  // Clear vessels & summary
-  seenUserIds.clear();
-  Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
-  vesselMarkers = {};
-  Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
-  Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
-  Object.keys(seenCount).forEach(k => delete seenCount[k]);
-  document.getElementById('summaryBody').innerHTML = '';
-  currentPage = 1;
-
-  // Clear doughnut
-  if (typeDoughnut) {
-    typeDoughnut.data.labels = [];
-    typeDoughnut.data.datasets[0].data = [];
-    typeDoughnut.options.plugins.centerText.text = '';
-    typeDoughnut.update();
-  }
-
-  // Reset sorting & pagination
-  autoFit = true;
-  sortField = 'lastSeen'; sortAsc = false;
-  document.querySelectorAll('#summaryTable th .arrow').forEach(a => a.textContent = '');
-  document.getElementById('pagination').innerHTML = '';
-
-  // Clear receiver selection & any line
-  selectedReceiverLatLng = null;
-  clearDistanceLine();
-
-  // Clear filter
-  filterTerm = '';
-  document.getElementById('filterInput').value = '';
-
-  // Clear receiver box content
-  const existingReceiverBox = document.getElementById('receiver-box');
-  if (existingReceiverBox) {
-    existingReceiverBox.remove();
-  }
-
-  // Update the summary table
-  updateSummaryTable();
-
-  // Hide overlay
-  if (overlayDiv) updateOverlay(null);
+  // **Reset all components when applying override**
+  resetCardsAndCharts();  // Reset all cards and charts
+  resetMapAndTable();     // Reset the map and table
+  resetFilters();         // Reset filters
 
   // Fetch metrics and update data after IP override
   console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
@@ -546,11 +497,16 @@ map.on('click', e => {
     return;
   }
 
-  // otherwise clear
-  updateOverlay(null);
-  clearDistanceLine();
-  clearSelectedRow();
+  // otherwise clear the previous selection and reset everything
+  updateOverlay(null);  // Hide the overlay
+  clearDistanceLine();  // Clear distance line
+  clearSelectedRow();   // Clear selected row
   focusedUid = null;
+
+  // **Reset all components on map click**
+  resetCardsAndCharts();  // Reset all cards and charts
+  resetMapAndTable();     // Reset the map and table
+  resetFilters();         // Reset filters
 });
 
       // create and append overlay
@@ -584,6 +540,58 @@ function updateOverlay(latlng) {
   }
 }
 
+// Function to reset cards and charts
+function resetCardsAndCharts() {
+  // Reset cards
+  cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
+
+  // Reset charts
+  chartMetrics.forEach(m => {
+    const c = charts[m];
+    c.data.labels = [];
+    c.data.datasets[0].data = [];
+    c.update();
+  });
+
+  // Reset the doughnut chart
+  if (typeDoughnut) {
+    typeDoughnut.data.labels = [];
+    typeDoughnut.data.datasets[0].data = [];
+    typeDoughnut.options.plugins.centerText.text = '';
+    typeDoughnut.update();
+  }
+}
+
+// Function to reset map and table
+function resetMapAndTable() {
+  // Clear vessels & summary
+  seenUserIds.clear();
+  Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
+  vesselMarkers = {};
+  Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
+  Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
+  Object.keys(seenCount).forEach(k => delete seenCount[k]);
+  document.getElementById('summaryBody').innerHTML = '';
+  currentPage = 1;
+
+  // Clear receiver selection & any line
+  selectedReceiverLatLng = null;
+  clearDistanceLine();
+
+  // Reset sorting & pagination
+  autoFit = true;
+  sortField = 'lastSeen';
+  sortAsc = false;
+  document.querySelectorAll('#summaryTable th .arrow').forEach(a => a.textContent = '');
+  document.getElementById('pagination').innerHTML = '';
+}
+
+// Function to reset filters
+function resetFilters() {
+  // Clear filter
+  filterTerm = '';
+  document.getElementById('filterInput').value = '';
+}
 
     // Fetch & draw receiver markers
 function loadReceivers() {
@@ -621,62 +629,62 @@ function loadReceivers() {
 
         // Click handler: select this receiver
         dot.on('click', e => {
-          L.DomEvent.stopPropagation(e);
-          selectedReceiverLatLng = e.latlng;
-          clearDistanceLine();
-          updateOverlay(e.latlng);
-          updateSummaryTable();
-          // Fetch this receiver’s details via ?id=<id>
-          fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
-            .then(res => {
-              if (!res.ok) throw new Error(res.status);
-              return res.json();
-            })
-            .then(data => {
-              const receiver = Array.isArray(data) ? data[0] : data;
-              // Remove existing info box if present
-              const oldBox = document.getElementById('receiver-box');
-              if (oldBox) oldBox.remove();
-  
-                // Build and insert new info box
-                const box = document.createElement('div');
-                box.id = 'receiver-box';
-                box.innerHTML = `
-                <h3>Receiver Information</h3>
-                <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
-                <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
-                <p class="receiver-url"><strong>URL:</strong>
-      			${receiver.url
-		        ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>`
-		        : 'None'
-		      }
-                </p>
-                <div id="receiver-map"></div>
-              `;
-              document.getElementById('ip-address').insertAdjacentElement('afterend', box);
-  
-              // Initialize the map inside the info box
-              const mapDiv = document.getElementById('receiver-map');
-              const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
-              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap contributors'
-              }).addTo(rxMap);
-              L.marker([receiver.latitude, receiver.longitude])
-               .addTo(rxMap)
-               .bindPopup(`Lat: ${receiver.latitude}<br>
-                         Lon: ${receiver.longitude}`)
-               .openPopup();
-            })
-            .catch(err => console.error('Error fetching single receiver:', err));
+  L.DomEvent.stopPropagation(e);
+  selectedReceiverLatLng = e.latlng;
+  clearDistanceLine();  // Clear any previous distance lines
+  updateOverlay(e.latlng);  // Update the overlay with the receiver location
+  updateSummaryTable();     // Update the summary table with the new receiver data
 
-          // Update the URL to include ?receiver=<id>
-          const url = new URL(location);
-          url.searchParams.set('receiver', r.id);
-          history.replaceState(null, '', url);
-	  overrideReceiverId = r.id;
-	  console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
-	  fetchMetrics();
-        });
+  // Fetch this receiver’s details via ?id=<id>
+  fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
+    .then(res => {
+      if (!res.ok) throw new Error(res.status);
+      return res.json();
+    })
+    .then(data => {
+      const receiver = Array.isArray(data) ? data[0] : data;
+
+      // Remove existing info box if present
+      const oldBox = document.getElementById('receiver-box');
+      if (oldBox) oldBox.remove();
+
+      // Build and insert new info box with receiver details
+      const box = document.createElement('div');
+      box.id = 'receiver-box';
+      box.innerHTML = `
+        <h3>Receiver Information</h3>
+        <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
+        <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+        <p class="receiver-url"><strong>URL:</strong>
+          ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+        </p>
+        <div id="receiver-map"></div> <!-- Receiver map will go here -->
+      `;
+      document.getElementById('ip-address').insertAdjacentElement('afterend', box);
+
+      // Initialize the map inside the info box
+      const mapDiv = document.getElementById('receiver-map');
+      const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(rxMap);
+      L.marker([receiver.latitude, receiver.longitude])
+        .addTo(rxMap)
+        .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
+        .openPopup();
+    })
+    .catch(err => console.error('Error fetching single receiver:', err));
+
+  // **Reset all components when selecting a receiver**
+  resetCardsAndCharts();  // Reset all cards and charts
+  resetMapAndTable();     // Reset the map and table
+  resetFilters();         // Reset filters
+
+  // Update URL and other states after selecting the receiver
+  overrideReceiverId = r.id;
+  console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
+  fetchMetrics();  // Fetch the metrics for the selected receiver
+});
 
         // Store for nearest/override lookup
         receiversList.push({
