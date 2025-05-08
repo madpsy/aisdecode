@@ -178,6 +178,97 @@ func ensureConnection() error {
     return nil
 }
 
+// Helper function to build the query and fetch filtered receivers based on id and ip_address.
+func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]Receiver, error) {
+    if err := ensureConnection(); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return nil, err
+    }
+
+    // Extract parameters
+    idParam := filters["id"]
+    ipParam := filters["ipaddress"]
+
+    // Base query
+    baseQuery := `
+        SELECT id,
+               lastupdated,
+               description,
+               latitude,
+               longitude,
+               name,
+               url,
+               ip_address
+          FROM receivers`
+    
+    var (
+        conditions []string
+        args       []interface{}
+    )
+    idx := 1
+    if idParam != "" {
+        // Validate and add id filter
+        idVal, err := strconv.Atoi(idParam)
+        if err != nil {
+            return nil, fmt.Errorf("invalid id parameter")
+        }
+        conditions = append(conditions, fmt.Sprintf("id = $%d", idx))
+        args = append(args, idVal)
+        idx++
+    }
+    if ipParam != "" {
+        // Add ip_address filter
+        conditions = append(conditions, fmt.Sprintf("ip_address = $%d", idx))
+        args = append(args, ipParam)
+        idx++
+    }
+
+    // Add WHERE clause if filters are provided
+    if len(conditions) > 0 {
+        baseQuery += " WHERE " + strings.Join(conditions, " AND ")
+    }
+    baseQuery += " ORDER BY id"
+
+    // Execute query
+    rows, err := db.Query(baseQuery, args...)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    // Scan results
+    var list []Receiver
+    for rows.Next() {
+        var rec Receiver
+        if err := rows.Scan(
+            &rec.ID,
+            &rec.LastUpdated,
+            &rec.Description,
+            &rec.Latitude,
+            &rec.Longitude,
+            &rec.Name,
+            &rec.URL,
+            &rec.IPAddress,
+        ); err != nil {
+            return nil, err
+        }
+
+        // Fetch message count
+        msgs, err := getMessagesByIP(rec.IPAddress)
+        if err != nil {
+            msgs = 0
+        }
+        rec.Messages = msgs
+
+        // Blank out IP for response
+        rec.IPAddress = ""
+
+        list = append(list, rec)
+    }
+
+    return list, nil
+}
+
 // Function to get the message count for a given IP address from the metrics API.
 func getMessagesByIP(ipAddress string) (int, error) {
     // Create the URL for the metrics API endpoint.
@@ -254,109 +345,40 @@ func adminReceiversHandler(w http.ResponseWriter, r *http.Request) {
 
 // Public list: exactly as before, but *without* ip_address
 func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
-    if err := ensureConnection(); err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
+    // Parse filters from query parameters
+    filters := map[string]string{
+        "id":        r.URL.Query().Get("id"),
+        "ipaddress": r.URL.Query().Get("ipaddress"),
     }
 
-    rows, err := db.Query(`
-        SELECT id,
-               lastupdated,
-               description,
-               latitude,
-               longitude,
-               name,
-               url,
-               ip_address
-          FROM receivers
-         ORDER BY id
-    `)
+    // Call the helper function to get the filtered receivers
+    list, err := getFilteredReceivers(w, filters)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-    defer rows.Close()
 
-    var list []Receiver
-    for rows.Next() {
-        var rec Receiver
-
-        // 1) scan in the stored IP
-        if err := rows.Scan(
-            &rec.ID,
-            &rec.LastUpdated,
-            &rec.Description,
-            &rec.Latitude,
-            &rec.Longitude,
-            &rec.Name,
-            &rec.URL,
-            &rec.IPAddress,
-        ); err != nil {
-            http.Error(w, err.Error(), http.StatusInternalServerError)
-            return
-        }
-
-        // 2) fetch messages count (0 on error)
-        msgs, err := getMessagesByIP(rec.IPAddress)
-        if err != nil {
-            msgs = 0
-        }
-        rec.Messages = msgs
-
-        // 3) blank out the IP so it’s omitted in JSON
-        rec.IPAddress = ""
-
-        list = append(list, rec)
-    }
-
+    // Return the list of receivers in JSON format
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(list)
 }
 
 // Admin list: same as public but includes ip_address
 func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
-    if err := ensureConnection(); err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
+    // Parse filters from query parameters (can be the same as public)
+    filters := map[string]string{
+        "id":        r.URL.Query().Get("id"),
+        "ipaddress": r.URL.Query().Get("ipaddress"),
     }
 
-    rows, err := db.Query(`
-        SELECT id,
-               lastupdated,
-               description,
-               latitude,
-               longitude,
-               name,
-               url,
-               ip_address
-          FROM receivers
-         ORDER BY id
-    `)
+    // Call the helper function to get the filtered receivers
+    list, err := getFilteredReceivers(w, filters)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-    defer rows.Close()
 
-    var list []Receiver
-    for rows.Next() {
-        var rec Receiver
-        if err := rows.Scan(
-            &rec.ID,
-            &rec.LastUpdated,
-            &rec.Description,
-            &rec.Latitude,
-            &rec.Longitude,
-            &rec.Name,
-            &rec.URL,
-            &rec.IPAddress,
-        ); err != nil {
-            http.Error(w, err.Error(), http.StatusInternalServerError)
-            return
-        }
-        list = append(list, rec)
-    }
-
+    // Return the list of receivers in JSON format
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(list)
 }
