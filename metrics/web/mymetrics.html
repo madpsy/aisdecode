@@ -1146,6 +1146,7 @@ async function fetchReceivers(ip) {
     }
 
     function updateSummaryTable(){
+      console.log("Using receiver:", selectedReceiverLatLng); 
       // Show/hide distance column
       const showDist = !!selectedReceiverLatLng;
       document.querySelectorAll('.distance-col').forEach(el=>{
