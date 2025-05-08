@@ -6,9 +6,11 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
+	"strconv"
 	"sync"
 	"time"
 
@@ -34,6 +36,7 @@ type Settings struct {
 	CacheTime  int    `json:"cache_time"`  // seconds
 	ListenPort int    `json:"listen_port"`
 	Debug      bool   `json:"debug"`
+	ReceiversBaseURL string `json:"receivers_base_url"`
 }
 
 type FullMetrics struct {
@@ -387,75 +390,113 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 }
 
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
-	ip := r.URL.Query().Get("ipaddress")
-	if ip == "" {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			ip = strings.TrimSpace(strings.Split(xff, ",")[0])
-		} else if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			ip = host
-		} else {
-			ip = r.RemoteAddr
-		}
-	}
+    var ip string
 
-	metricsLock.RLock()
-	raw := latestMetrics
-	metricsLock.RUnlock()
-	if raw == nil {
-		http.Error(w, "no metrics yet", http.StatusNoContent)
-		return
-	}
-	blob, _ := json.Marshal(raw)
-	var full FullMetrics
-	json.Unmarshal(blob, &full)
+    // 1) If an 'id' param is provided, sanitize it as integer and try Redis cache
+    if id := r.URL.Query().Get("id"); id != "" {
+        if _, err := strconv.Atoi(id); err == nil {
+            cacheKey := "receiver:" + id
+            if cached, err := redisClient.Get(ctx, cacheKey).Result(); err == nil {
+                ip = cached
+            } else {
+                // Cache miss → fetch from receivers_base_url
+                url := fmt.Sprintf("%s/admin/getip?id=%s", settings.ReceiversBaseURL, id)
+                resp, err := http.Get(url)
+                if err == nil {
+                    defer resp.Body.Close()
+                    body, _ := io.ReadAll(resp.Body)
+                    var out struct {
+                        IP string `json:"ip_address"`
+                    }
+                    if err := json.Unmarshal(body, &out); err == nil && out.IP != "" {
+                        ip = out.IP
+                        // Cache for 60 seconds
+                        redisClient.Set(ctx, cacheKey, ip, 60*time.Second)
+                    }
+                }
+            }
+        }
+        // If id is non‑numeric or fetch failed, ip stays empty and we fall back below
+    }
 
-	rt := SimpleMetrics{}
-	windowIDs := full.WindowUserIDsBySource[ip]
+    // 2) Fallback to existing IP resolution if we didn’t get one via 'id'
+    if ip == "" {
+        if q := r.URL.Query().Get("ipaddress"); q != "" {
+            ip = q
+        } else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+            ip = strings.TrimSpace(strings.Split(xff, ",")[0])
+        } else if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+            ip = host
+        } else {
+            ip = r.RemoteAddr
+        }
+    }
 
-	for _, m := range full.BytesReceivedBySource {
-		if m.SourceIP == ip {
-			rt.BytesReceived = m.Count
-		}
-	}
-	for _, m := range full.MessagesBySource {
-		if m.SourceIP == ip {
-			rt.Messages = m.Count
-		}
-	}
-	for _, m := range full.UniqueMMSIBySource {
-		if m.SourceIP == ip {
-			rt.UniqueMMSI = m.Count
-		}
-	}
-	for _, m := range full.FailuresBySource {
-		if m.SourceIP == ip {
-			rt.Failures = m.Count
-		}
-	}
-	rt.Deduplicated = full.PerDeduplicatedSource[ip]
-	rt.WindowBytes = full.WindowBytesBySource[ip]
-	rt.WindowMessages = full.WindowMessagesBySource[ip]
-	rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[ip]
+    // 3) Load latestMetrics snapshot
+    metricsLock.RLock()
+    raw := latestMetrics
+    metricsLock.RUnlock()
+    if raw == nil {
+        http.Error(w, "no metrics yet", http.StatusNoContent)
+        return
+    }
 
-	cacheKey := fmt.Sprintf("agg:%s", ip)
-	var agg Aggregated
-	if data, err := redisClient.Get(ctx, cacheKey).Bytes(); err == nil {
-		json.Unmarshal(data, &agg)
-	} else {
-		agg = queryAggregates(ip)
-		if blob, err := json.Marshal(agg); err == nil {
-			redisClient.Set(ctx, cacheKey, blob, time.Duration(settings.CacheTime)*time.Second)
-		}
-	}
+    // 4) Unmarshal into FullMetrics
+    blob, _ := json.Marshal(raw)
+    var full FullMetrics
+    _ = json.Unmarshal(blob, &full)
 
-	resp := ResponseMetrics{
-		IPAddress:      ip,
-		SimpleMetrics:  rt,
-		Aggregated:     agg,
-		WindowUserIDs:  windowIDs,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+    // 5) Build SimpleMetrics for this IP
+    rt := SimpleMetrics{}
+    for _, m := range full.BytesReceivedBySource {
+        if m.SourceIP == ip {
+            rt.BytesReceived = m.Count
+        }
+    }
+    for _, m := range full.MessagesBySource {
+        if m.SourceIP == ip {
+            rt.Messages = m.Count
+        }
+    }
+    for _, m := range full.UniqueMMSIBySource {
+        if m.SourceIP == ip {
+            rt.UniqueMMSI = m.Count
+        }
+    }
+    for _, m := range full.FailuresBySource {
+        if m.SourceIP == ip {
+            rt.Failures = m.Count
+        }
+    }
+    rt.Deduplicated     = full.PerDeduplicatedSource[ip]
+    rt.WindowBytes      = full.WindowBytesBySource[ip]
+    rt.WindowMessages   = full.WindowMessagesBySource[ip]
+    rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[ip]
+
+    // 6) Load or compute Aggregated
+    cacheKey := fmt.Sprintf("agg:%s", ip)
+    var agg Aggregated
+    if data, err := redisClient.Get(ctx, cacheKey).Bytes(); err == nil {
+        _ = json.Unmarshal(data, &agg)
+    } else {
+        agg = queryAggregates(ip)
+        if blob, err := json.Marshal(agg); err == nil {
+            redisClient.Set(ctx, cacheKey, blob, time.Duration(settings.CacheTime)*time.Second)
+        }
+    }
+
+    // 7) Pull the current window’s user IDs
+    windowIDs := full.WindowUserIDsBySource[ip]
+
+    // 8) Encode and return
+    resp := ResponseMetrics{
+        IPAddress:     ip,
+        SimpleMetrics: rt,
+        Aggregated:    agg,
+        WindowUserIDs: windowIDs,
+    }
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(resp)
 }
 
 func queryAggregates(ip string) Aggregated {
