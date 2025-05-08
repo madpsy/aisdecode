@@ -1014,6 +1014,7 @@ function updateURLWithIp(ip) {
 async function fetchReceivers(ipOrId) {
   try {
     let url = '/receivers';
+    
     if (isNaN(ipOrId)) {
       // Use IP address if ipOrId is not a number (it's an IP address)
       url += `?ipaddress=${encodeURIComponent(ipOrId)}`;
@@ -1034,8 +1035,8 @@ async function fetchReceivers(ipOrId) {
     // If a valid receiver is returned, update the URL with the receiver's ID
     const receiver = receivers[0]; // Assuming the first receiver in the list is the one to use
 
+    // Update URL only if it's fetched by IP address
     if (isNaN(ipOrId)) {
-      // If it's an IP address and we get a valid receiver, update the URL with the receiver's ID
       const currentUrl = new URL(window.location);
       currentUrl.searchParams.set('id', receiver.id);  // Set the receiver's ID
       history.replaceState(null, '', currentUrl.toString());  // Update the URL without reloading the page
