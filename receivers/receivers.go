@@ -320,10 +320,17 @@ func adminGetIPHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Function to get the message count for a given IP address from the metrics API.
+type SimpleMetrics struct {
+    Messages int `json:"messages"` // Messages field inside simple_metrics
+}
+
+type MetricsResponse struct {
+    SimpleMetrics SimpleMetrics `json:"simple_metrics"` // This is where the simple_metrics field is mapped
+}
+
 func getMessagesByIP(ipAddress string) (int, error) {
     // Create the URL for the metrics API endpoint.
     metricsURL := fmt.Sprintf("%s/metrics/bysource?ipaddress=%s", settings.MetricsBaseURL, ipAddress)
-    //log.Printf("Fetching messages from: %s", metricsURL)  // Debug log for URL
 
     // Send a GET request to the metrics API.
     resp, err := http.Get(metricsURL)
@@ -336,19 +343,14 @@ func getMessagesByIP(ipAddress string) (int, error) {
         return 0, fmt.Errorf("received non-OK response from metrics API: %v", resp.Status)
     }
 
-    // Decode the JSON response from the metrics API.
-    var metricsResponse struct {
-        SimpleMetrics struct {
-            Messages int `json:"messages"` // Messages within simple_metrics
-        } `json:"simple_metrics"`
-    }
+    // Decode the JSON response into the MetricsResponse struct.
+    var metricsResponse MetricsResponse
     if err := json.NewDecoder(resp.Body).Decode(&metricsResponse); err != nil {
         return 0, fmt.Errorf("error decoding metrics API response: %v", err)
     }
 
-    //log.Printf("Received message count: %d for IP: %s", metricsResponse.Messages, ipAddress)  // Debug log for message count
-
-    return metricsResponse.Messages, nil
+    // Access the messages field correctly from SimpleMetrics
+    return metricsResponse.SimpleMetrics.Messages, nil
 }
 
 // --- Public listing only ---
