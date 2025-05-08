@@ -575,9 +575,6 @@ function resetMapAndTable() {
   Object.keys(seenCount).forEach(k => delete seenCount[k]);
   document.getElementById('summaryBody').innerHTML = '';
   currentPage = 1;
-
-  // Clear receiver selection & any line
-  //selectedReceiverLatLng = null;
   clearDistanceLine();
 
   // Reset sorting & pagination
@@ -1145,7 +1142,6 @@ async function fetchReceivers(ip) {
 
     function updateSummaryTable(){ 
       // Show/hide distance column
-      console.log("Inside updateSummaryTable. Receiver LatLng: ", selectedReceiverLatLng);
       const showDist = !!selectedReceiverLatLng;
       document.querySelectorAll('.distance-col').forEach(el=>{
         el.style.display = showDist ? '' : 'none';
