@@ -1062,6 +1062,13 @@ function fetchReceiversById(receiverId) {
     .then(data => {
       const receiver = Array.isArray(data) ? data[0] : data;
 
+    const receiverMarker = vesselMarkers[receiver.id]; // Locate the marker by receiver ID
+    
+    if (receiverMarker) {
+      // Trigger the click event programmatically
+      receiverMarker.fire('click');
+    }
+
       // Remove existing info box if present
       const oldBox = document.getElementById('receiver-box');
       if (oldBox) oldBox.remove();
