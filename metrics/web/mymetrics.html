@@ -1011,89 +1011,90 @@ function updateURLWithIp(ip) {
   history.replaceState(null, '', url.toString()); // Update the browser's URL without reloading the page
 }
 
-async function fetchReceivers(ip) {
+async function fetchReceivers(ipOrId) {
   try {
-    const res = await fetch(`/receivers?ipaddress=${encodeURIComponent(ip)}`);
+    let url = '/receivers';
+    if (isNaN(ipOrId)) {
+      // Use IP address if ipOrId is not a number (it's an IP address)
+      url += `?ipaddress=${encodeURIComponent(ipOrId)}`;
+    } else {
+      // Use the receiver's ID
+      url += `?id=${encodeURIComponent(ipOrId)}`;
+    }
+
+    const res = await fetch(url);
     if (!res.ok) throw res.status;
     const receivers = await res.json();
-    
-    // Select the div where the receiver info will be displayed
-    const ipHeading = document.getElementById('ip-address');
-    
-    // Clear previous receiver info
-    const existingReceiverBox = document.getElementById('receiver-box');
-    if (existingReceiverBox) existingReceiverBox.remove();
-    
-    // Create a new box to hold receiver info
-    const receiverBox = document.createElement('div');
-    receiverBox.id = 'receiver-box';
-    
-    // Check if the receivers list is empty
+
     if (receivers.length === 0) {
-      receiverBox.innerHTML = '<p>No receiver found</p>';
-    } else {
-      // Display receiver information
-      const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
-
-      receiverBox.innerHTML = `
-        <h3>Receiver Information</h3>
-        <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
-        <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
-        <p class="receiver-url"><strong>URL:</strong>
-            ${receiver.url
-              ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>`
-              : 'None'
-            }
-        </p>
-        <div id="receiver-map"></div> <!-- The map will be positioned here -->
-      `;
+      console.warn('No receivers found');
+      return;
     }
-    
-    // Insert the receiver box below the IP address heading
-    ipHeading.insertAdjacentElement('afterend', receiverBox);
 
-    // Initialize the map for the receiver pin only after the DOM is ready
-    if (receivers.length > 0) {
-      const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
+    // If a valid receiver is returned, update the URL with the receiver's ID
+    const receiver = receivers[0]; // Assuming the first receiver in the list is the one to use
 
-      // Make sure the div for the map exists before initializing
-      const receiverMapDiv = document.getElementById('receiver-map');
-      if (receiverMapDiv) {
-        // Initialize the map for the receiver pin
-        const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(receiverMap);
-
-        L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
-          .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
-      } else {
-        console.error("Receiver map container not found");
-      }
-
-      const firstReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
-      selectedReceiverLatLng = firstReceiverLatLng;
-      // Update the overlay to show the first receiver's position
-      updateOverlay(firstReceiverLatLng);
-      updateSummaryTable();
-
-      // Optionally flash the selection overlay
-      const ov = document.createElement('div');
-      ov.className = 'rx-overlay';
-      ov.textContent = `Selected RX ${receiver.name}`;
-      document.body.appendChild(ov);
-      requestAnimationFrame(() => ov.classList.add('show'));
-      setTimeout(() => {
-        ov.classList.remove('show');
-        ov.addEventListener('transitionend', () => ov.remove(), { once: true });
-      }, 2000);
+    if (isNaN(ipOrId)) {
+      // If it's an IP address and we get a valid receiver, update the URL with the receiver's ID
+      const currentUrl = new URL(window.location);
+      currentUrl.searchParams.set('id', receiver.id);  // Set the receiver's ID
+      history.replaceState(null, '', currentUrl.toString());  // Update the URL without reloading the page
     }
+
+    // Proceed with displaying the receiver information in the UI
+    displayReceiverInfo(receiver);
+
   } catch (e) {
     console.error('Failed to fetch receivers:', e);
   }
 }
 
+function displayReceiverInfo(receiver) {
+  const ipHeading = document.getElementById('ip-address');
+  const receiverBox = document.createElement('div');
+  receiverBox.id = 'receiver-box';
 
+  receiverBox.innerHTML = `
+    <h3>Receiver Information</h3>
+    <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
+    <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+    <p class="receiver-url"><strong>URL:</strong>
+        ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+    </p>
+    <div id="receiver-map"></div> <!-- The map will be positioned here -->
+  `;
+
+  ipHeading.insertAdjacentElement('afterend', receiverBox);
+
+  // Initialize the map for the receiver pin only after the DOM is ready
+  const receiverMapDiv = document.getElementById('receiver-map');
+  if (receiverMapDiv) {
+    const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(receiverMap);
+
+    L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
+      .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
+  }
+
+  const firstReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+  selectedReceiverLatLng = firstReceiverLatLng;
+  // Update the overlay to show the first receiver's position
+  updateOverlay(firstReceiverLatLng);
+  updateSummaryTable();
+
+  // Optionally flash the selection overlay
+  const ov = document.createElement('div');
+  ov.className = 'rx-overlay';
+  ov.textContent = `Selected RX ${receiver.name}`;
+  document.body.appendChild(ov);
+  requestAnimationFrame(() => ov.classList.add('show'));
+  setTimeout(() => {
+    ov.classList.remove('show');
+    ov.addEventListener('transitionend', () => ov.remove(), { once: true });
+  }, 2000);
+}
 
     function typeNameFor(info) {
       if (info.AISClass === 'AtoN') {
