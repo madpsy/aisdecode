@@ -412,6 +412,7 @@ function applyOverride(ip) {
   ip = (ip || '').trim();
   if (!ip) return;
   overrideIp = ip;
+  overrideReceiverId = '';
   document.getElementById('ipInput').value = ip;
 
   // Reset cards & charts
