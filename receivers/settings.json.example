@@ -4,6 +4,7 @@
   "db_user": "new_user",
   "db_pass": "password",
   "db_name": "mydatabase",
+  "metrics_base_url": "http://localhost:5133",
   "listen_port": 5123,
   "debug": false
 }

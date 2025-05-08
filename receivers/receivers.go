@@ -24,6 +24,7 @@ type Settings struct {
     DbName     string `json:"db_name"`
     ListenPort int    `json:"listen_port"`
     Debug      bool   `json:"debug"`
+    MetricsBaseURL string `json:"metrics_base_url"`
 }
 
 type Receiver struct {
@@ -35,6 +36,7 @@ type Receiver struct {
     Name        string     `json:"name"`
     URL         *string    `json:"url,omitempty"`
     IPAddress   string     `json:"ip_address,omitempty"`
+    Messages    int        `json:"messages"`
 }
 
 type ReceiverInput struct {
@@ -174,6 +176,33 @@ func ensureConnection() error {
         log.Println("Reconnected to the database successfully.")
     }
     return nil
+}
+
+// Function to get the message count for a given IP address from the metrics API.
+func getMessagesByIP(ipAddress string) (int, error) {
+    // Create the URL for the metrics API endpoint.
+    metricsURL := fmt.Sprintf("%s/metrics/bysource?ipaddress=%s", settings.MetricsBaseURL, ipAddress)
+
+    // Send a GET request to the metrics API.
+    resp, err := http.Get(metricsURL)
+    if err != nil {
+        return 0, fmt.Errorf("error making request to metrics API: %v", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return 0, fmt.Errorf("received non-OK response from metrics API: %v", resp.Status)
+    }
+
+    // Decode the JSON response from the metrics API.
+    var metricsResponse struct {
+        Messages int `json:"messages"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&metricsResponse); err != nil {
+        return 0, fmt.Errorf("error decoding metrics API response: %v", err)
+    }
+
+    return metricsResponse.Messages, nil
 }
 
 // --- Public listing only ---
@@ -395,6 +424,7 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
 
 func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
     var rec Receiver
+    // Query the receiver from the database.
     err := db.QueryRow(`
         SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address
         FROM receivers WHERE id = $1
@@ -410,6 +440,17 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
         return
     }
 
+    // Now, fetch the number of messages for the receiver's IP.
+    messages, err := getMessagesByIP(rec.IPAddress)
+    if err != nil {
+        // If the metrics API call fails, set messages to 0.
+        messages = 0
+    }
+
+    // Add the messages field to the receiver struct.
+    rec.Messages = messages
+
+    // Send the full receiver response with messages count.
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(rec)
 }
