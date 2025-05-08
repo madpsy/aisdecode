@@ -34,6 +34,7 @@ type Settings struct {
 	CacheTime  int    `json:"cache_time"`  // seconds
 	ListenPort int    `json:"listen_port"`
 	Debug      bool   `json:"debug"`
+	ReceiversBaseURL string `json:"receivers_base_url"`
 }
 
 type FullMetrics struct {
@@ -99,6 +100,7 @@ type ResponseMetrics struct {
 	SimpleMetrics             // real-time counts
 	Aggregated    Aggregated `json:"aggregated"`
 	WindowUserIDs []string   `json:"window_user_ids"`
+	Receivers      []map[string]interface{} `json:"receivers,omitempty"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -387,75 +389,103 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 }
 
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
-	ip := r.URL.Query().Get("ipaddress")
-	if ip == "" {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			ip = strings.TrimSpace(strings.Split(xff, ",")[0])
-		} else if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			ip = host
-		} else {
-			ip = r.RemoteAddr
-		}
-	}
+    ip := r.URL.Query().Get("ipaddress")
+    if ip == "" {
+        if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+            ip = strings.TrimSpace(strings.Split(xff, ",")[0])
+        } else if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+            ip = host
+        } else {
+            ip = r.RemoteAddr
+        }
+    }
 
-	metricsLock.RLock()
-	raw := latestMetrics
-	metricsLock.RUnlock()
-	if raw == nil {
-		http.Error(w, "no metrics yet", http.StatusNoContent)
-		return
-	}
-	blob, _ := json.Marshal(raw)
-	var full FullMetrics
-	json.Unmarshal(blob, &full)
+    // Step 1: Fetch receivers from the external API
+    receiversURL := fmt.Sprintf("%s/receivers?ipaddress=%s", settings.ReceiversBaseURL, ip)
+    resp, err := http.Get(receiversURL)
+    if err != nil {
+        log.Printf("Error fetching receivers from %s: %v", receiversURL, err)
+        http.Error(w, "Error fetching receivers", http.StatusInternalServerError)
+        return
+    }
+    defer resp.Body.Close()
 
-	rt := SimpleMetrics{}
-	windowIDs := full.WindowUserIDsBySource[ip]
+    var receivers []map[string]interface{}
+    if err := json.NewDecoder(resp.Body).Decode(&receivers); err != nil {
+        log.Printf("Error decoding receivers response: %v", err)
+        http.Error(w, "Error decoding receivers response", http.StatusInternalServerError)
+        return
+    }
 
-	for _, m := range full.BytesReceivedBySource {
-		if m.SourceIP == ip {
-			rt.BytesReceived = m.Count
-		}
-	}
-	for _, m := range full.MessagesBySource {
-		if m.SourceIP == ip {
-			rt.Messages = m.Count
-		}
-	}
-	for _, m := range full.UniqueMMSIBySource {
-		if m.SourceIP == ip {
-			rt.UniqueMMSI = m.Count
-		}
-	}
-	for _, m := range full.FailuresBySource {
-		if m.SourceIP == ip {
-			rt.Failures = m.Count
-		}
-	}
-	rt.Deduplicated = full.PerDeduplicatedSource[ip]
-	rt.WindowBytes = full.WindowBytesBySource[ip]
-	rt.WindowMessages = full.WindowMessagesBySource[ip]
-	rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[ip]
+    // Step 2: Handle metrics
+    metricsLock.RLock()
+    raw := latestMetrics
+    metricsLock.RUnlock()
+    if raw == nil {
+        http.Error(w, "no metrics yet", http.StatusNoContent)
+        return
+    }
+    blob, _ := json.Marshal(raw)
+    var full FullMetrics
+    json.Unmarshal(blob, &full)
 
-	cacheKey := fmt.Sprintf("agg:%s", ip)
-	var agg Aggregated
-	if data, err := redisClient.Get(ctx, cacheKey).Bytes(); err == nil {
-		json.Unmarshal(data, &agg)
-	} else {
-		agg = queryAggregates(ip)
-		if blob, err := json.Marshal(agg); err == nil {
-			redisClient.Set(ctx, cacheKey, blob, time.Duration(settings.CacheTime)*time.Second)
-		}
-	}
+    rt := SimpleMetrics{}
+    windowIDs := full.WindowUserIDsBySource[ip]
 
-	resp := ResponseMetrics{
-		IPAddress:      ip,
-		SimpleMetrics:  rt,
-		Aggregated:     agg,
-		WindowUserIDs:  windowIDs,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+    // Extract metrics for the given source IP
+    for _, m := range full.BytesReceivedBySource {
+        if m.SourceIP == ip {
+            rt.BytesReceived = m.Count
+        }
+    }
+    for _, m := range full.MessagesBySource {
+        if m.SourceIP == ip {
+            rt.Messages = m.Count
+        }
+    }
+    for _, m := range full.UniqueMMSIBySource {
+        if m.SourceIP == ip {
+            rt.UniqueMMSI = m.Count
+        }
+    }
+    for _, m := range full.FailuresBySource {
+        if m.SourceIP == ip {
+            rt.Failures = m.Count
+        }
+    }
+    rt.Deduplicated = full.PerDeduplicatedSource[ip]
+    rt.WindowBytes = full.WindowBytesBySource[ip]
+    rt.WindowMessages = full.WindowMessagesBySource[ip]
+    rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[ip]
+
+    // Aggregate metrics (fetch from Redis or calculate)
+    cacheKey := fmt.Sprintf("agg:%s", ip)
+    var agg Aggregated
+    if data, err := redisClient.Get(ctx, cacheKey).Bytes(); err == nil {
+        json.Unmarshal(data, &agg)
+    } else {
+        agg = queryAggregates(ip)
+        if blob, err := json.Marshal(agg); err == nil {
+            redisClient.Set(ctx, cacheKey, blob, time.Duration(settings.CacheTime)*time.Second)
+        }
+    }
+
+    // Step 3: Build the final response
+    respMetrics := ResponseMetrics{
+        IPAddress:      ip,
+        SimpleMetrics:  rt,
+        Aggregated:     agg,
+        WindowUserIDs:  windowIDs,
+    }
+
+    // Step 4: If there are receivers, add them to the response
+    if len(receivers) > 0 {
+        respMetrics.Receivers = receivers
+    }
+
+    // Return the response
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(respMetrics)
 }
 
 func queryAggregates(ip string) Aggregated {
