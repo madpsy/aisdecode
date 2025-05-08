@@ -1208,15 +1208,6 @@ async function fetchReceivers(ip) {
       ov.addEventListener('transitionend', () => ov.remove(), { once: true });
     }, 2000);
 
-    const receiverMarker = vesselMarkers[receiver.id]; // Assuming vesselMarkers stores markers by ID
-    // Trigger a virtual click on the marker if it exists
-	console.log(receiverMarkers);
-    if (receiverMarker) {
-      receiverMarker.fire('click');  // This simulates the click event
-      console.log("moo");
-    }
-
-
   } catch (e) {
     console.error('Failed to fetch receivers:', e);
 
