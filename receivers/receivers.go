@@ -273,6 +273,7 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
 func getMessagesByIP(ipAddress string) (int, error) {
     // Create the URL for the metrics API endpoint.
     metricsURL := fmt.Sprintf("%s/metrics/bysource?ipaddress=%s", settings.MetricsBaseURL, ipAddress)
+    log.Printf("Fetching messages from: %s", metricsURL)  // Debug log for URL
 
     // Send a GET request to the metrics API.
     resp, err := http.Get(metricsURL)
@@ -292,6 +293,8 @@ func getMessagesByIP(ipAddress string) (int, error) {
     if err := json.NewDecoder(resp.Body).Decode(&metricsResponse); err != nil {
         return 0, fmt.Errorf("error decoding metrics API response: %v", err)
     }
+
+    log.Printf("Received message count: %d for IP: %s", metricsResponse.Messages, ipAddress)  // Debug log for message count
 
     return metricsResponse.Messages, nil
 }
@@ -364,7 +367,6 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
 }
 
 // Admin list: same as public but includes ip_address
-// Admin list: same as public but includes ip_address and correct message count
 func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
     // Parse filters from query parameters (can be the same as public)
     filters := map[string]string{
@@ -379,15 +381,22 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Log list of receivers to debug if IP addresses are being pulled correctly
+    log.Printf("Filtered Receivers: %+v", list)
+
     // For each receiver in the list, fetch messages based on the ip_address
     for i, rec := range list {
+        log.Printf("Fetching messages for IP address: %s", rec.IPAddress)  // Debug log for IP address
+
         // Fetch messages count for each receiver based on ip_address
         msgs, err := getMessagesByIP(rec.IPAddress)
         if err != nil {
             msgs = 0
         }
+
         // Set the messages field
         list[i].Messages = msgs
+        log.Printf("Receiver ID: %d, IP: %s, Messages: %d", rec.ID, rec.IPAddress, msgs)  // Debug log for messages
     }
 
     // Return the list of receivers in JSON format, including ip_address and messages
