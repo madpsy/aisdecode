@@ -296,6 +296,7 @@
     const maxPoints    = 60;
     let focusedUid = null;
     let overrideIp = '';
+    let overrideReceiverId = '';
     let overlayDisplayed = false;
     let polylineAdded = false;
     let tooltipAdded = false;
@@ -464,9 +465,14 @@ function applyOverride(ip) {
   // Update the summary table
   updateSummaryTable();
 
-  // Update URL
+  // clear any IP override
+  overrideIp = '';
+  // set receiver override
+  overrideReceiverId = r.id;
+  // update URL
   const url = new URL(location);
-  ip ? url.searchParams.set('ipaddress', ip) : url.searchParams.delete('ipaddress');
+  url.searchParams.set('receiver', r.id);
+  url.searchParams.delete('ipaddress');
   history.replaceState(null, '', url);
 
   // Hide overlay
@@ -919,9 +925,10 @@ m.on('click', function(e) {
 async function fetchMetrics() {
   try {
     let url = '/metrics/bysource';
-    const ipToUse = overrideIp || '';  // Use the overridden IP if available
-    if (ipToUse) {
-      url += `?ipaddress=${encodeURIComponent(ipToUse)}`;
+    if (overrideReceiverId) {
+      url += `?id=${encodeURIComponent(overrideReceiverId)}`;
+    } else if (overrideIp) {
+      url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
     }
     const res = await fetch(url);
     if (!res.ok) throw res.status;
