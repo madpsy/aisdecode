@@ -502,8 +502,6 @@ map.on('click', e => {
   clearDistanceLine();  // Clear any distance line
   clearSelectedRow();   // Clear any selected row
   focusedUid = null;
-
-  // No reset of cards/charts or data happens here
 });
 
       // create and append overlay
@@ -579,7 +577,7 @@ function resetMapAndTable() {
   currentPage = 1;
 
   // Clear receiver selection & any line
-  selectedReceiverLatLng = null;
+  //selectedReceiverLatLng = null;
   clearDistanceLine();
 
   // Reset sorting & pagination
@@ -639,9 +637,7 @@ dot.on('click', e => {
   console.log("Receiver selected at:", selectedReceiverLatLng);
   clearDistanceLine();  // Clear any existing distance line
   updateOverlay(e.latlng);  // Update the overlay with receiver's coordinates
-  setTimeout(() => {
-    updateSummaryTable();
-  }, 0);
+  updateSummaryTable();
 
   // Fetch this receiver’s details via ?id=<id>
   fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
