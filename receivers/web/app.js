@@ -65,6 +65,7 @@ function renderList(list) {
         }
       </td>
       <td>${r.ip_address}</td>
+      <td>${r.messages ? r.messages : 'No messages'}</td> <!-- Add the messages here -->
       <td>
         <a class="action" data-id="${r.id}">Edit</a>
         &nbsp;|&nbsp;
