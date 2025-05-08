@@ -406,8 +406,15 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             return
         }
 
+        // Fetch message count (0 on error)
+        msgs, err := getMessagesByIP(rec.IPAddress)
+        if err != nil {
+            msgs = 0
+        }
+        rec.Messages = msgs
+
         // Exclude IP Address in public response
-        rec.IPAddress = ""  // Clear IP address before sending the response
+        rec.IPAddress = "" // Clear IP address before sending the response
 
         list = append(list, rec)
     }
