@@ -620,6 +620,7 @@ function loadReceivers() {
         // Click handler: select this receiver
         dot.on('click', e => {
           L.DomEvent.stopPropagation(e);
+	  clearMetrics();
           selectedReceiverLatLng = e.latlng;
           clearDistanceLine();
           updateOverlay(e.latlng);
