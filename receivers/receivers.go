@@ -339,7 +339,7 @@ func getMessagesByIP(ipAddress string) (int, error) {
     // Decode the JSON response from the metrics API.
     var metricsResponse struct {
         SimpleMetrics struct {
-            Messages int `json:"messages"` // Now in the simple_metrics field
+            Messages int `json:"messages"` // Messages within simple_metrics
         } `json:"simple_metrics"`
     }
     if err := json.NewDecoder(resp.Body).Decode(&metricsResponse); err != nil {
