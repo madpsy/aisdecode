@@ -468,6 +468,7 @@ function applyOverride(ip) {
   if (overlayDiv) updateOverlay(null);
 
   // Fetch metrics and update data after IP override
+  console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
   fetchMetrics();
 
   // Fetch receivers with the new IP immediately after applying override
@@ -488,6 +489,7 @@ function applyOverride(ip) {
       const p = new URLSearchParams(location.search);
       if (p.has('ipaddress')) applyOverride(p.get('ipaddress'));
       if (p.has('receiver')) overrideReceiverId = p.get('receiver');
+      console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
       fetchMetrics();
       setInterval(fetchMetrics, 1000);
     });
@@ -669,6 +671,7 @@ function loadReceivers() {
           const url = new URL(location);
           url.searchParams.set('receiver', r.id);
           history.replaceState(null, '', url);
+	  console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
 	  fetchMetrics();
         });
 
