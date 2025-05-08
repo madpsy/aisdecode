@@ -340,7 +340,6 @@ func adminReceiversHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Public list: exactly as before, but *without* ip_address
-// Public list: exactly as before, but *without* ip_address
 func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     // Ensure the connection is alive before performing the query
     if err := ensureConnection(); err != nil {
@@ -348,10 +347,48 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    rows, err := db.Query(`
+    // Extract query parameters
+    idParam := r.URL.Query().Get("id")
+    ipParam := r.URL.Query().Get("ipaddress")
+
+    // Build the query based on filters
+    baseQuery := `
         SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address
-        FROM receivers ORDER BY id
-    `)
+        FROM receivers
+        WHERE 1=1
+    `
+
+    var conditions []string
+    var args []interface{}
+    idx := 1
+
+    if idParam != "" {
+        // Validate and add id filter
+        idVal, err := strconv.Atoi(idParam)
+        if err != nil {
+            http.Error(w, "Invalid id parameter", http.StatusBadRequest)
+            return
+        }
+        conditions = append(conditions, fmt.Sprintf("id = $%d", idx))
+        args = append(args, idVal)
+        idx++
+    }
+
+    if ipParam != "" {
+        // Add ip_address filter
+        conditions = append(conditions, fmt.Sprintf("ip_address = $%d", idx))
+        args = append(args, ipParam)
+        idx++
+    }
+
+    if len(conditions) > 0 {
+        baseQuery += " AND " + strings.Join(conditions, " AND ")
+    }
+
+    baseQuery += " ORDER BY id"
+
+    // Execute the query with the parameters
+    rows, err := db.Query(baseQuery, args...)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
@@ -369,20 +406,13 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        // Fetch message count (0 on error)
-        msgs, err := getMessagesByIP(rec.IPAddress)
-        if err != nil {
-            msgs = 0
-        }
-        rec.Messages = msgs
-
-        // Blank out the IP address for public response
-        rec.IPAddress = "" // Omit IP for public response
+        // Exclude IP Address in public response
+        rec.IPAddress = ""  // Clear IP address before sending the response
 
         list = append(list, rec)
     }
 
-    // Return the list of receivers in JSON format, excluding IP address
+    // Return the list of receivers in JSON format
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(list)
 }
