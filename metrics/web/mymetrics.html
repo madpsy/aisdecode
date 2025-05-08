@@ -626,6 +626,7 @@ function resetFilters() {
 }
 
     // Fetch & draw receiver markers
+// Fetch & draw receiver markers
 function loadReceivers() {
   // Clear any previous receivers
   receiversList = [];
@@ -643,6 +644,7 @@ function loadReceivers() {
       }
 
       // Populate the receiversList with fetched data
+      let boundsArr = [];
       receivers.forEach(r => {
         const dot = L.circleMarker([r.latitude, r.longitude], {
           radius: 8,
@@ -726,13 +728,22 @@ function loadReceivers() {
           marker: dot,
           latlng: L.latLng(r.latitude, r.longitude)
         });
+
+        // Add the receiver's lat/lng to bounds array for fitBounds
+        boundsArr.push([r.latitude, r.longitude]);
       });
+
+      // Check if no vessels exist (or any other items to focus on)
+      if (Object.keys(vesselMarkers).length === 0) {
+        // No vessels, fit map to receiver markers
+        map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+      }
+
     })
     .catch(err => {
       console.error('Failed to load receivers:', err);
     });
 }
-
 
     // Vessel icon creation
     function makeIcon(info, color){
