@@ -409,17 +409,22 @@
 
 function updateURLWithReceiverId(receiverId) {
   const url = new URL(window.location);
+  console.log('Updating URL with receiver ID:', receiverId);
   url.searchParams.delete('ipaddress');  // Remove ipaddress if receiver id is present
   url.searchParams.set('receiver', receiverId);  // Set receiver id as query parameter
+  console.log('Updated URL:', url.toString());
   history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
 
-function updateURLWithReceiverId(receiverId) {
+function updateURLWithIp(ip) {
   const url = new URL(window.location);
-  url.searchParams.delete('ipaddress');  // Remove ipaddress query parameter
-  url.searchParams.set('receiver', receiverId);  // Set receiver id as query parameter
+  console.log('Updating URL with IP:', ip);
+  url.searchParams.delete('receiver');  // Remove receiver if IP address is used
+  url.searchParams.set('ipaddress', ip);  // Set ipaddress query parameter
+  console.log('Updated URL:', url.toString());
   history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
+
 
     // Apply override and reset everything
 function applyOverride(ip) {
