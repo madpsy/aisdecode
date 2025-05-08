@@ -939,65 +939,65 @@ let receiversFetched = false; // Flag to ensure receivers are only fetched once
 async function fetchMetrics() {
   try {
     let url = '/metrics/bysource';
-    const params = new URLSearchParams(location.search);
-    const receiverId = params.get('id');  // Get receiver ID from the URL
+    if (overrideReceiverId) {
+      url += `?id=${encodeURIComponent(overrideReceiverId)}`;
+    } else if (overrideIp) {
+      url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
+    }
+    const res = await fetch(url);
+    if (!res.ok) throw res.status;
+    const data = await res.json();
+    const currentIp = data.requested_ip_address; // Use the IP from the API response if available
 
-    if (receiverId) {
-      // If an ID is present, fetch receiver data using the receiver ID
-      fetchReceivers(receiverId);  // Fetch using ID instead of IP
-    } else {
-      let ip = overrideIp || '127.0.0.1'; // Fallback to default IP if not overridden
-      url += `?ipaddress=${encodeURIComponent(ip)}`;
-      const res = await fetch(url);
-      if (!res.ok) throw res.status;
-      const data = await res.json();
-      const currentIp = data.requested_ip_address; // Use the IP from the API response if available
+    // Update the IP in the header
+    document.getElementById('ip-address').textContent = currentIp;
 
-      // Update the IP in the header
-      document.getElementById('ip-address').textContent = currentIp;
+    // Update the URL with the requested IP address (without reloading the page)
+    updateURLWithIp(currentIp);
 
-      // Update the URL with the requested IP address (without reloading the page)
-      updateURLWithIp(currentIp);
+    // ** Fetch receivers only if they have not been fetched yet**
+    if (!receiversFetched) {
+      fetchReceivers(currentIp);  // Fetch receivers only once
+      receiversFetched = true;    // Set the flag to true after fetching
+    }
 
-      // Fetch receivers with the updated IP immediately after applying override
-      fetchReceivers(currentIp);
+    const lbl = new Date().toLocaleTimeString();
 
-      const lbl = new Date().toLocaleTimeString();
-      cardMetrics.forEach(m => {
-        if (baselines[m] === undefined) baselines[m] = data.simple_metrics[m];
-        document.querySelector(`#card-${m} p`).textContent = formatNumber(data.simple_metrics[m] - baselines[m]);
-      });
+    cardMetrics.forEach(m => {
+      if (baselines[m] === undefined) baselines[m] = data.simple_metrics[m];
+      document.querySelector(`#card-${m} p`).textContent = formatNumber(data.simple_metrics[m] - baselines[m]);
+    });
 
-      chartMetrics.forEach(m => {
-        const c = charts[m];
-        c.data.labels.push(lbl);
-        c.data.datasets[0].data.push(data.simple_metrics[m]);
-        if (c.data.labels.length > maxPoints) {
-          c.data.labels.shift();
-          c.data.datasets[0].data.shift();
+    chartMetrics.forEach(m => {
+      const c = charts[m];
+      c.data.labels.push(lbl);
+      c.data.datasets[0].data.push(data.simple_metrics[m]);
+      if (c.data.labels.length > maxPoints) {
+        c.data.labels.shift();
+        c.data.datasets[0].data.shift();
+      }
+      c.update();
+    });
+
+    // ** Check if 'messages' value is greater than 0 and call /receivers **
+    if (data.messages > 0 && !receivedReceivers) {  // Ensure we only call once
+      receivedReceivers = true;  // Flag to prevent repeated calls
+      fetchReceivers(currentIp); // Pass the current IP, whether overridden or from the API
+    }
+
+    if (Array.isArray(data.window_user_ids)) {
+      data.window_user_ids.forEach(uid => {
+        lastSeenTs[uid] = new Date();
+        seenCount[uid] = (seenCount[uid] || 0) + 1;
+        if (!seenUserIds.has(uid)) {
+          seenUserIds.add(uid);
+          fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
+            .then(r => r.ok ? r.json() : Promise.reject(r.status))
+            .then(json => { summaryCache[uid] = json[uid] || {}; updateSummaryTable(); })
+            .catch(e => console.error(`summary ${uid} error`, e));
         }
-        c.update();
       });
-
-      if (data.messages > 0 && !receivedReceivers) {
-        receivedReceivers = true;
-        fetchReceivers(currentIp);
-      }
-
-      if (Array.isArray(data.window_user_ids)) {
-        data.window_user_ids.forEach(uid => {
-          lastSeenTs[uid] = new Date();
-          seenCount[uid] = (seenCount[uid] || 0) + 1;
-          if (!seenUserIds.has(uid)) {
-            seenUserIds.add(uid);
-            fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
-              .then(r => r.ok ? r.json() : Promise.reject(r.status))
-              .then(json => { summaryCache[uid] = json[uid] || {}; updateSummaryTable(); })
-              .catch(e => console.error(`summary ${uid} error`, e));
-          }
-        });
-        updateSummaryTable();
-      }
+      updateSummaryTable();
     }
   } catch (e) {
     console.error('Fetch error', e);
