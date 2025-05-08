@@ -253,10 +253,12 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
             return nil, err
         }
 
-        // Log the IP Address to ensure it's being fetched correctly
-        //log.Printf("Receiver ID: %d, IP Address: %s", rec.ID, rec.IPAddress)
-
         list = append(list, rec)
+    }
+
+    // If no records found, return an empty list
+    if len(list) == 0 {
+        return []Receiver{}, nil
     }
 
     return list, nil
