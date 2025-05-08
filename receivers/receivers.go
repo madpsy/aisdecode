@@ -259,7 +259,6 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 1) include ip_address in the query
     rows, err := db.Query(`
         SELECT id,
                lastupdated,
@@ -282,7 +281,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     for rows.Next() {
         var rec Receiver
 
-        // 2) scan ip_address too
+        // 1) scan in the stored IP
         if err := rows.Scan(
             &rec.ID,
             &rec.LastUpdated,
@@ -297,12 +296,15 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        // 3) fetch messages count (fallback to 0 on error)
+        // 2) fetch messages count (0 on error)
         msgs, err := getMessagesByIP(rec.IPAddress)
         if err != nil {
             msgs = 0
         }
         rec.Messages = msgs
+
+        // 3) blank out the IP so it’s omitted in JSON
+        rec.IPAddress = ""
 
         list = append(list, rec)
     }
