@@ -435,8 +435,12 @@ function applyOverride(ip) {
   overrideIp = ip;
   overrideReceiverId = '';  // Reset receiver id
 
-  // Update the URL with the new IP address (remove receiver if it's there)
-  updateURLWithIp(ip);  // Ensure ipaddress is set and receiver is removed
+  // If receiver is set, do not update URL with IP
+  const p = new URLSearchParams(location.search);
+  if (!p.has('receiver')) {
+    // Update the URL with the new IP address (remove receiver if it's there)
+    updateURLWithIp(ip);
+  }
 
   // **Reset all components when applying override**
   resetCardsAndCharts();  // Reset all cards and charts
@@ -450,7 +454,6 @@ function applyOverride(ip) {
   // Fetch receivers with the new IP immediately after applying override
   fetchReceivers(ip);
 }
-
 
     window.addEventListener('DOMContentLoaded', ()=>{
       fetch('/types.json')
@@ -926,35 +929,48 @@ let receiversFetched = false; // Flag to ensure receivers are only fetched once
 async function fetchMetrics() {
   try {
     let url = '/metrics/bysource';
+
+    // Check if 'receiver' is in the URL, and use it if it exists
+    const params = new URLSearchParams(location.search);
     if (overrideReceiverId) {
+      // If there's a receiver ID, add it to the URL for fetching metrics
       url += `?id=${encodeURIComponent(overrideReceiverId)}`;
     } else if (overrideIp) {
-      url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
+      // If there's no receiver ID, we use the IP address (only if it's not already in the URL)
+      if (!params.has('receiver')) {  // Prevent setting the IP if 'receiver' is already in the URL
+        url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
+      }
     }
+
     const res = await fetch(url);
     if (!res.ok) throw res.status;
+
     const data = await res.json();
     const currentIp = data.requested_ip_address; // Use the IP from the API response if available
 
     // Update the IP in the header
     document.getElementById('ip-address').textContent = currentIp;
 
-    // Update the URL with the requested IP address (without reloading the page)
-    updateURLWithIp(currentIp);
+    // ** Update the URL with the requested IP address (without reloading the page) **
+    if (!params.has('receiver')) {  // Only update if the receiver is not in the URL
+      updateURLWithIp(currentIp);
+    }
 
-    // ** Fetch receivers only if they have not been fetched yet**
-    if (!receiversFetched) {
+    // ** Fetch receivers only if they have not been fetched yet **
+    if (!receivedReceivers) {
       fetchReceivers(currentIp);  // Fetch receivers only once
-      receiversFetched = true;    // Set the flag to true after fetching
+      receivedReceivers = true;  // Set the flag to true after fetching
     }
 
     const lbl = new Date().toLocaleTimeString();
 
+    // Update card metrics
     cardMetrics.forEach(m => {
       if (baselines[m] === undefined) baselines[m] = data.simple_metrics[m];
       document.querySelector(`#card-${m} p`).textContent = formatNumber(data.simple_metrics[m] - baselines[m]);
     });
 
+    // Update chart metrics
     chartMetrics.forEach(m => {
       const c = charts[m];
       c.data.labels.push(lbl);
@@ -991,9 +1007,10 @@ async function fetchMetrics() {
   }
 }
 
-// To ensure the URL is updated with the new IP address without page reload
+
 function updateURLWithIp(ip) {
   const url = new URL(window.location);
+  console.log('Updating URL with IP:', ip);
   url.searchParams.delete('receiver');  // Remove receiver if IP address is used
   url.searchParams.set('ipaddress', ip);  // Set ipaddress query parameter
   history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
