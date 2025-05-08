@@ -408,6 +408,7 @@
 
     // Apply override and reset everything
 function applyOverride(ip) {
+  console.log("applyOverride function called with IP:", ip);
   ip = (ip || '').trim();
   if (!ip) return;
   overrideIp = ip;
