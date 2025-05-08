@@ -695,7 +695,7 @@ function loadReceivers() {
             selectedReceiverLatLng = receiver.latlng;
             updateOverlay(receiver.latlng);
             updateSummaryTable();
-
+	    overrideReceiverId = r.id;
             // Update the URL cleanly without adding the receiver param again
             const url = new URL(location);
             url.searchParams.set('receiver', receiver.id);
