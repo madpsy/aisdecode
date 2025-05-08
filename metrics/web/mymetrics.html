@@ -1019,55 +1019,6 @@ async function fetchReceivers(ip) {
   }
 }
 
-function selectReceiverBasedOnDistance() {
-  // If no receiver is found, proceed with selecting based on distance
-
-  // Ensure vessels are present in the system
-  if (vesselMarkers.length > 0 && receiversList.length > 0) {
-    // Get the first vessel (or the first available vessel)
-    const firstVesselUid = Object.keys(vesselMarkers)[0];
-    const vesselLatLng = vesselMarkers[firstVesselUid].getLatLng();
-
-    // Find the closest receiver
-    let closestReceiver = null;
-    let minDistance = Infinity;
-
-    receiversList.forEach(receiver => {
-      const distance = haversineDistance(vesselLatLng.lat, vesselLatLng.lng, receiver.latlng.lat, receiver.latlng.lng);
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestReceiver = receiver;
-      }
-    });
-
-    // If a closest receiver is found, select it
-    if (closestReceiver) {
-      selectedReceiverLatLng = closestReceiver.latlng;
-      updateOverlay(selectedReceiverLatLng);
-      updateSummaryTable();
-
-      // Update the URL and trigger click to highlight the receiver
-      const url = new URL(location);
-      url.searchParams.set('receiver', closestReceiver.id);
-      history.replaceState(null, '', url);
-
-      closestReceiver.marker.fire('click', { latlng: closestReceiver.latlng });
-
-      // Show an overlay message indicating the receiver selection
-      const overlay = document.createElement('div');
-      overlay.className = 'rx-overlay';
-      overlay.textContent = `Selected RX ${closestReceiver.name}`;
-      document.body.appendChild(overlay);
-      requestAnimationFrame(() => overlay.classList.add('show'));
-      setTimeout(() => {
-        overlay.classList.remove('show');
-        overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
-      }, 2000);
-    }
-  }
-}
-
-
 
     function typeNameFor(info) {
       if (info.AISClass === 'AtoN') {
