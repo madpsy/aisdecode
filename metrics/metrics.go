@@ -392,34 +392,29 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
     var ip string
 
-    // 1) If an 'id' param is provided, sanitize it as integer and try Redis cache
+    // 1) Try 'id' lookup first (must be integer, cache for 60s)
     if id := r.URL.Query().Get("id"); id != "" {
         if _, err := strconv.Atoi(id); err == nil {
             cacheKey := "receiver:" + id
             if cached, err := redisClient.Get(ctx, cacheKey).Result(); err == nil {
                 ip = cached
             } else {
-                // Cache miss → fetch from receivers_base_url
                 url := fmt.Sprintf("%s/admin/getip?id=%s", settings.ReceiversBaseURL, id)
                 resp, err := http.Get(url)
                 if err == nil {
                     defer resp.Body.Close()
                     body, _ := io.ReadAll(resp.Body)
-                    var out struct {
-                        IP string `json:"ip_address"`
-                    }
-                    if err := json.Unmarshal(body, &out); err == nil && out.IP != "" {
+                    var out struct{ IP string `json:"ip_address"` }
+                    if json.Unmarshal(body, &out) == nil && out.IP != "" {
                         ip = out.IP
-                        // Cache for 60 seconds
                         redisClient.Set(ctx, cacheKey, ip, 60*time.Second)
                     }
                 }
             }
         }
-        // If id is non‑numeric or fetch failed, ip stays empty and we fall back below
     }
 
-    // 2) Fallback to existing IP resolution if we didn’t get one via 'id'
+    // 2) Fallback to standard IP resolution
     if ip == "" {
         if q := r.URL.Query().Get("ipaddress"); q != "" {
             ip = q
@@ -432,7 +427,7 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // 3) Load latestMetrics snapshot
+    // 3) Grab latest metrics snapshot
     metricsLock.RLock()
     raw := latestMetrics
     metricsLock.RUnlock()
@@ -446,7 +441,7 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
     var full FullMetrics
     _ = json.Unmarshal(blob, &full)
 
-    // 5) Build SimpleMetrics for this IP
+    // 5) Build the real‑time SimpleMetrics
     rt := SimpleMetrics{}
     for _, m := range full.BytesReceivedBySource {
         if m.SourceIP == ip {
@@ -473,30 +468,34 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
     rt.WindowMessages   = full.WindowMessagesBySource[ip]
     rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[ip]
 
-    // 6) Load or compute Aggregated
-    cacheKey := fmt.Sprintf("agg:%s", ip)
+    // 6) Load or compute Aggregated (cached in Redis)
+    aggKey := fmt.Sprintf("agg:%s", ip)
     var agg Aggregated
-    if data, err := redisClient.Get(ctx, cacheKey).Bytes(); err == nil {
+    if data, err := redisClient.Get(ctx, aggKey).Bytes(); err == nil {
         _ = json.Unmarshal(data, &agg)
     } else {
         agg = queryAggregates(ip)
-        if blob, err := json.Marshal(agg); err == nil {
-            redisClient.Set(ctx, cacheKey, blob, time.Duration(settings.CacheTime)*time.Second)
+        if b, err := json.Marshal(agg); err == nil {
+            redisClient.Set(ctx, aggKey, b, time.Duration(settings.CacheTime)*time.Second)
         }
     }
 
-    // 7) Pull the current window’s user IDs
+    // 7) Get the sliding‑window user IDs
     windowIDs := full.WindowUserIDsBySource[ip]
 
-    // 8) Encode and return
-    resp := ResponseMetrics{
-        IPAddress:     ip,
+    // 8) Build and send response WITHOUT the IP field
+    respBody := struct {
+        SimpleMetrics  SimpleMetrics `json:"simple_metrics"`
+        Aggregated     Aggregated    `json:"aggregated"`
+        WindowUserIDs  []string      `json:"window_user_ids"`
+    }{
         SimpleMetrics: rt,
         Aggregated:    agg,
         WindowUserIDs: windowIDs,
     }
+
     w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(resp)
+    json.NewEncoder(w).Encode(respBody)
 }
 
 func queryAggregates(ip string) Aggregated {
