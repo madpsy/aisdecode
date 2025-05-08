@@ -38,7 +38,6 @@
         <th>Type</th>
         <th>Max Static Draught</th>
         <th>NumMessages</th>
-        <!-- ImoNumber removed -->
         <th>True Heading</th>
       </tr>
     </thead>
@@ -55,35 +54,53 @@
 <script>
   let table;
   let midsMapping = {};
+  let atonTypeMapping = {};
+  let shipTypeConfig = {};
 
-  // Load mids.json mapping on page load
-  fetch('/mids.json')
-    .then(response => response.json())
-    .then(data => {
-      midsMapping = data;
-    })
-    .catch(error => console.error('Error fetching mids mapping:', error));
+  // Load all mappings on page load
+  Promise.all([
+    fetch('/mids.json').then(r => r.json()).then(data => midsMapping = data),
+    fetch('/aton_types.json').then(r => r.json()).then(data => atonTypeMapping = data),
+    fetch('/types.json').then(r => r.json()).then(data => shipTypeConfig = data)
+  ]).catch(err => console.error('Error loading mappings:', err));
 
-  // Function to fetch and update the table data
+  // Helper: given a numeric code and the types.json config, return the category name
+  function lookupShipType(code) {
+    const lookup = shipTypeConfig.valueLookup?.[code];
+    if (lookup == null) return code;          // no mapping → return raw code
+    const category = shipTypeConfig.categories
+      .find(cat => cat.id === lookup);
+    return category ? category.name : code;
+  }
+
   function updateData() {
     fetch('/summary')
-      .then(response => response.json())
+      .then(r => r.json())
       .then(data => {
-        let newData = [];
-        Object.keys(data).forEach(userID => {
-          const item = data[userID];
+        const rows = Object.values(data).map(item => {
+          // --- country lookup (unchanged) ---
           let country = '';
           if (item.UserID != null) {
-            const userIdStr = item.UserID.toString();
-            const firstThree = userIdStr.slice(0, 3);
-            const midNum = parseInt(firstThree, 10);
-            if (midsMapping[midNum]) {
-              country = midsMapping[midNum][3] || '';
-            }
+            const mid = parseInt(item.UserID.toString().slice(0,3), 10);
+            country = (midsMapping[mid] && midsMapping[mid][3]) || '';
           }
-          newData.push([
+
+          // --- type description logic ---
+          let typeDesc = item.Type;
+          if (item.AISClass === 'AtoN' && atonTypeMapping[item.Type] != null) {
+            // AtoN mapping
+            typeDesc = atonTypeMapping[item.Type];
+          }
+          else if ((item.AISClass === 'A' || item.AISClass === 'B')
+                   && shipTypeConfig.valueLookup) {
+            // Class A/B mapping
+            typeDesc = lookupShipType(item.Type);
+          }
+          // else leave typeDesc = raw item.Type
+
+          return [
             item.UserID ? `<a href="/?UserID=${item.UserID}" target=_blank>${item.UserID}</a>` : '',
-            country || '',
+            country,
             item.Name || '',
             item.CallSign || '',
             item.AISClass || '',
@@ -93,53 +110,40 @@
             item.Longitude || '',
             item.Cog || '',
             item.Sog || '',
-            item.Type || '',
+            typeDesc,
             item.MaximumStaticDraught || '',
             item.NumMessages || '',
-            // ImoNumber removed here
             item.TrueHeading || ''
-          ]);
+          ];
         });
+
         table.clear();
-        table.rows.add(newData);
+        table.rows.add(rows);
         table.draw(false);
       })
-      .catch(error => console.error('Error fetching state data:', error));
+      .catch(err => console.error('Error fetching state data:', err));
   }
 
   $(document).ready(function() {
-    // Initialize DataTable with explicit column definitions
     table = $('#stateTable').DataTable({
       responsive: true,
       pageLength: 10,
-      lengthMenu: [ [10, 25, 50, 100], [10, 25, 50, 100] ],
+      lengthMenu: [[10,25,50,100],[10,25,50,100]],
       dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>" +
            "<'row'<'col-sm-12'tr>>" +
            "<'row'<'col-sm-5'i><'col-sm-7'p>>",
       order: [[0, "asc"]],
       columns: [
-        { title: "MMSI" },
-        { title: "Country" },
-        { title: "Name" },
-        { title: "CallSign" },
-        { title: "AISClass" },
-        { title: "Destination" },
-        { title: "Last Updated" },
-        { title: "Latitude" },
-        { title: "Longitude" },
-        { title: "Cog" },
-        { title: "Sog" },
-        { title: "Type" },
-        { title: "Max Static Draught" },
-        { title: "NumMessages" },
-        // removed ImoNumber column definition
+        { title: "MMSI" },{ title: "Country" },{ title: "Name" },
+        { title: "CallSign" },{ title: "AISClass" },{ title: "Destination" },
+        { title: "Last Updated" },{ title: "Latitude" },{ title: "Longitude" },
+        { title: "Cog" },{ title: "Sog" },{ title: "Type" },
+        { title: "Max Static Draught" },{ title: "NumMessages" },
         { title: "True Heading" }
       ]
     });
 
-    // Initial data fetch
     updateData();
-    // Poll the source every 5 seconds for updates
     setInterval(updateData, 5000);
   });
 </script>
