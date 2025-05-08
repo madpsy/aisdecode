@@ -381,7 +381,7 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Log list of receivers to debug if IP addresses are being pulled correctly
+    // Log the list of receivers to debug if IP addresses are being pulled correctly
     log.Printf("Filtered Receivers: %+v", list)
 
     // For each receiver in the list, fetch messages based on the ip_address
@@ -389,6 +389,10 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         log.Printf("Fetching messages for IP address: %s", rec.IPAddress)  // Debug log for IP address
 
         // Fetch messages count for each receiver based on ip_address
+        if rec.IPAddress == "" {
+            log.Printf("Error: IP Address is empty for Receiver ID: %d", rec.ID)
+        }
+
         msgs, err := getMessagesByIP(rec.IPAddress)
         if err != nil {
             msgs = 0
