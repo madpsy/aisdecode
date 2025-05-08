@@ -804,7 +804,6 @@ function focusVessel(uid){
   document.getElementById('map').scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
-    // Update vessel markers & fit bounds
 function updateMap() {
   const oldVesselCount = Object.keys(vesselMarkers).length;
   const boundsArr = [], newMarkers = {};
@@ -937,13 +936,34 @@ function updateMap() {
 
   vesselMarkers = newMarkers;
 
-  // After all markers are updated, adjust the map bounds to fit all markers
+  // After all markers are updated, adjust the map bounds to fit all markers if the data is available
   if (autoFit && boundsArr.length) {
     programmaticFit = true;
     map.once('moveend zoomend', () => programmaticFit = false);
     map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
   }
 }
+
+// **Trigger the fitBounds function after data load when the `id` query parameter is used**
+
+window.addEventListener('DOMContentLoaded', () => {
+  const p = new URLSearchParams(location.search);
+
+  // When `id` parameter is set, we delay the fitting of bounds until the markers are rendered
+  if (p.has('id')) {
+    // Assuming that fetch functions for vessels/receivers will trigger data updates
+    fetchMetrics();  // Fetch metrics after page load
+    setTimeout(() => {
+      // After data has loaded, call fitBounds to ensure the map adjusts
+      if (vesselMarkers.length) {
+        const boundsArr = Object.values(vesselMarkers).map(m => m.getLatLng());
+        if (boundsArr.length) {
+          map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+        }
+      }
+    }, 500);  // Add a slight delay to ensure data has been fetched and markers are available
+  }
+});
 
 
     // Fetch metrics, update cards/charts/table
