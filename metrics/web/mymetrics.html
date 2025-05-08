@@ -199,7 +199,7 @@
     background-color: #d0e8ff;
   }
 
-  .receiver-name, .receiver-description {
+  .receiver-name, .receiver-description .receiver-url {
     font-size: 0.8em; /* Reduce the font size */
     font-weight: normal;
   }
@@ -972,7 +972,7 @@ async function fetchReceivers(ip) {
         <h3>Receiver Information</h3>
         <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
         <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
-        <p><strong>Receiver URL:</strong> <a href="${receiver.url}" target="_blank">${receiver.url}</a></p>
+        <p class="receiver-url"><strong>Receiver URL:</strong> <a href="${receiver.url}" target="_blank">${receiver.url}</a></p>
         <div id="receiver-map"></div> <!-- The map will be positioned here -->
       `;
     }
