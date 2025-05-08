@@ -406,6 +406,13 @@
       });
     });
 
+
+function updateURLWithIp(ip) {
+  const url = new URL(window.location);
+  url.searchParams.set('ipaddress', ip); // Set the ipaddress query parameter
+  history.replaceState(null, '', url.toString()); // Update the browser's URL without reloading the page
+}
+
     // Apply override and reset everything
 function applyOverride(ip) {
   console.log("applyOverride function called with IP:", ip);
@@ -939,7 +946,13 @@ async function fetchMetrics() {
     if (!res.ok) throw res.status;
     const data = await res.json();
     const currentIp = data.requested_ip_address; // Use the IP from the API response if available
+
+    // Update the IP in the header
     document.getElementById('ip-address').textContent = currentIp;
+
+    // Update the URL with the requested IP address (without reloading the page)
+    updateURLWithIp(currentIp);
+
     const lbl = new Date().toLocaleTimeString();
 
     cardMetrics.forEach(m => {
@@ -982,7 +995,6 @@ async function fetchMetrics() {
     console.error('Fetch error', e);
   }
 }
-
 
 async function fetchReceivers(ip) {
   try {
