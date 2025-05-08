@@ -407,68 +407,71 @@
     });
 
     // Apply override and reset everything
-    function applyOverride(ip){
-      overrideIp = ip;
-      document.getElementById('ipInput').value = ip;
+function applyOverride(ip){
+  overrideIp = ip;
+  document.getElementById('ipInput').value = ip;
 
-      // reset cards & charts
-      Object.keys(baselines).forEach(k => delete baselines[k]);
-      cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
-      chartMetrics.forEach(m => {
-        const c = charts[m];
-        c.data.labels = [];
-        c.data.datasets[0].data = [];
-        c.update();
-      });
+  // reset cards & charts
+  Object.keys(baselines).forEach(k => delete baselines[k]);
+  cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
+  chartMetrics.forEach(m => {
+    const c = charts[m];
+    c.data.labels = [];
+    c.data.datasets[0].data = [];
+    c.update();
+  });
 
-      // clear vessels & summary
-      seenUserIds.clear();
-      Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
-      vesselMarkers = {};
-      Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
-      Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
-      Object.keys(seenCount).forEach(k => delete seenCount[k]);
-      document.getElementById('summaryBody').innerHTML = '';
-      currentPage = 1;
+  // clear vessels & summary
+  seenUserIds.clear();
+  Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
+  vesselMarkers = {};
+  Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
+  Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
+  Object.keys(seenCount).forEach(k => delete seenCount[k]);
+  document.getElementById('summaryBody').innerHTML = '';
+  currentPage = 1;
 
-      // clear doughnut
-      if(typeDoughnut){
-        typeDoughnut.data.labels = [];
-        typeDoughnut.data.datasets[0].data = [];
-        typeDoughnut.options.plugins.centerText.text = '';
-        typeDoughnut.update();
-      }
+  // clear doughnut
+  if(typeDoughnut){
+    typeDoughnut.data.labels = [];
+    typeDoughnut.data.datasets[0].data = [];
+    typeDoughnut.options.plugins.centerText.text = '';
+    typeDoughnut.update();
+  }
 
-      // reset sorting & pagination
-      autoFit = true;
-      sortField = 'lastSeen'; sortAsc = false;
-      document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
-      document.getElementById('pagination').innerHTML = '';
-    
-      // clear receiver selection & any line
-      selectedReceiverLatLng = null;
-      clearDistanceLine();
-    
-      // clear filter
-      filterTerm = '';
-      document.getElementById('filterInput').value = '';
-    
-      // Clear receiver box content
-      const existingReceiverBox = document.getElementById('receiver-box');
-      if (existingReceiverBox) {
-        existingReceiverBox.remove();
-      }
-    
-      updateSummaryTable();
+  // reset sorting & pagination
+  autoFit = true;
+  sortField = 'lastSeen'; sortAsc = false;
+  document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
+  document.getElementById('pagination').innerHTML = '';
 
-      // update URL
-      const url = new URL(location);
-      ip ? url.searchParams.set('ipaddress', ip) : url.searchParams.delete('ipaddress');
-      history.replaceState(null, '', url);
+  // clear receiver selection & any line
+  selectedReceiverLatLng = null;
+  clearDistanceLine();
 
-      // hide overlay
-      if (overlayDiv) updateOverlay(null);
-    }
+  // clear filter
+  filterTerm = '';
+  document.getElementById('filterInput').value = '';
+
+  // Clear receiver box content
+  const existingReceiverBox = document.getElementById('receiver-box');
+  if (existingReceiverBox) {
+    existingReceiverBox.remove();
+  }
+
+  updateSummaryTable();
+
+  // update URL
+  const url = new URL(location);
+  ip ? url.searchParams.set('ipaddress', ip) : url.searchParams.delete('ipaddress');
+  history.replaceState(null, '', url);
+
+  // hide overlay
+  if (overlayDiv) updateOverlay(null);
+
+  // ** Fetch receivers after applying new IP address **
+  fetchMetrics();  // Ensure we fetch metrics with the updated IP
+}
 
 
     window.addEventListener('DOMContentLoaded', ()=>{
@@ -896,60 +899,60 @@ m.on('click', function(e) {
     }
 
     // Fetch metrics, update cards/charts/table
-    async function fetchMetrics() {
-      try {
-        let url = '/metrics/bysource';
-        const ipToUse = overrideIp || '';  // Use the overridden IP if available
-        if(ipToUse) {
-          url += `?ipaddress=${encodeURIComponent(ipToUse)}`;
-        }
-        const res = await fetch(url);
-        if(!res.ok) throw res.status;
-        const data = await res.json();
-        const currentIp = data.ip_address; // Use the IP from the API response if available
-        document.getElementById('ip-address').textContent = currentIp;
-        const lbl = new Date().toLocaleTimeString();
-
-        cardMetrics.forEach(m => {
-          if(baselines[m]===undefined) baselines[m]=data[m];
-          document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m]-baselines[m]);
-        });
-
-        chartMetrics.forEach(m => {
-          const c = charts[m];
-          c.data.labels.push(lbl);
-          c.data.datasets[0].data.push(data[m]);
-          if(c.data.labels.length>maxPoints){
-            c.data.labels.shift();
-            c.data.datasets[0].data.shift();
-          }
-          c.update();
-        });
-
-        // ** Check if 'messages' value is greater than 0 and call `/receivers` **
-        if (data.messages > 0 && !receivedReceivers) {  // Ensure we only call once
-          receivedReceivers = true;  // Flag to prevent repeated calls
-          fetchReceivers(currentIp); // Pass the current IP, whether overridden or from the API
-        }
-
-        if (Array.isArray(data.window_user_ids)) {
-          data.window_user_ids.forEach(uid => {
-            lastSeenTs[uid] = new Date();
-            seenCount[uid] = (seenCount[uid] || 0) + 1;
-            if (!seenUserIds.has(uid)) {
-              seenUserIds.add(uid);
-              fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
-                .then(r => r.ok ? r.json() : Promise.reject(r.status))
-                .then(json => { summaryCache[uid] = json[uid] || {}; updateSummaryTable(); })
-                .catch(e => console.error(`summary ${uid} error`, e));
-            }
-          });
-          updateSummaryTable();
-        }
-      } catch (e) {
-        console.error('Fetch error', e);
-      }
+async function fetchMetrics() {
+  try {
+    let url = '/metrics/bysource';
+    const ipToUse = overrideIp || '';  // Use the overridden IP if available
+    if(ipToUse) {
+      url += `?ipaddress=${encodeURIComponent(ipToUse)}`;
     }
+    const res = await fetch(url);
+    if(!res.ok) throw res.status;
+    const data = await res.json();
+    const currentIp = data.ip_address; // Use the IP from the API response if available
+    document.getElementById('ip-address').textContent = currentIp;
+    const lbl = new Date().toLocaleTimeString();
+
+    cardMetrics.forEach(m => {
+      if(baselines[m]===undefined) baselines[m]=data[m];
+      document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m]-baselines[m]);
+    });
+
+    chartMetrics.forEach(m => {
+      const c = charts[m];
+      c.data.labels.push(lbl);
+      c.data.datasets[0].data.push(data[m]);
+      if(c.data.labels.length>maxPoints){
+        c.data.labels.shift();
+        c.data.datasets[0].data.shift();
+      }
+      c.update();
+    });
+
+    // ** Check if 'messages' value is greater than 0 and call /receivers **
+    if (data.messages > 0 && !receivedReceivers) {  // Ensure we only call once
+      receivedReceivers = true;  // Flag to prevent repeated calls
+      fetchReceivers(currentIp); // Pass the current IP, whether overridden or from the API
+    }
+
+    if (Array.isArray(data.window_user_ids)) {
+      data.window_user_ids.forEach(uid => {
+        lastSeenTs[uid] = new Date();
+        seenCount[uid] = (seenCount[uid] || 0) + 1;
+        if (!seenUserIds.has(uid)) {
+          seenUserIds.add(uid);
+          fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
+            .then(r => r.ok ? r.json() : Promise.reject(r.status))
+            .then(json => { summaryCache[uid] = json[uid] || {}; updateSummaryTable(); })
+            .catch(e => console.error(`summary ${uid} error`, e));
+        }
+      });
+      updateSummaryTable();
+    }
+  } catch (e) {
+    console.error('Fetch error', e);
+  }
+}
 
 async function fetchReceivers(ip) {
   try {
