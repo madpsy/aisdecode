@@ -936,40 +936,40 @@ async function fetchMetrics() {
   try {
     let url = '/metrics/bysource';
 
-    // Check if 'receiver' is in the URL, and use it if it exists
+    // Extract parameters from the URL
     const params = new URLSearchParams(location.search);
 
     if (overrideReceiverId) {
-      // If there's a receiver ID (either from URL or override), use it for fetching metrics
+      // Use receiver ID from override if present
       url += `?id=${encodeURIComponent(overrideReceiverId)}`;
     } else if (params.has('receiver')) {
-      // If 'receiver' is already in the URL, fetch metrics using the receiver ID from the URL
+      // Use receiver ID from URL if present
       url += `?id=${encodeURIComponent(params.get('receiver'))}`;
     } else if (overrideIp) {
-      // If there's no receiver ID, use the IP address (if not already in the URL)
-      if (!params.has('receiver')) {  // Ensure we don't override 'receiver' if it's already in the URL
+      // Use IP only if no receiver ID in the URL or overrideReceiverId
+      if (!params.has('receiver')) {
         url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
       }
     }
 
-    // Perform the fetch request
+    // Fetch the data from the API
     const res = await fetch(url);
     if (!res.ok) throw res.status;
 
     const data = await res.json();
-    const currentIp = data.requested_ip_address; // Use the IP from the API response if available
+    const currentIp = data.requested_ip_address; // Use IP from the API response if available
 
     // Update the IP in the header
     document.getElementById('ip-address').textContent = currentIp;
 
-    // Only update the URL with the requested IP address if receiver is not in the URL
+    // Only update the URL with the IP address if 'receiver' is not in the URL
     if (!params.has('receiver')) {
       updateURLWithIp(currentIp);
     }
 
-    // Fetch receivers only if they have not been fetched yet
+    // ** Fetch receivers only once **
     if (!receivedReceivers) {
-      fetchReceivers(currentIp);  // Fetch receivers only once
+      fetchReceivers(currentIp); // Fetch receivers using current IP or receiver ID if necessary
       receivedReceivers = true;  // Set the flag to true after fetching
     }
 
@@ -993,13 +993,13 @@ async function fetchMetrics() {
       c.update();
     });
 
-    // ** Fetch receivers only if there are messages and receivers haven't been fetched yet **
-    if (data.messages > 0 && !receivedReceivers) {  // Ensure we only call once
-      receivedReceivers = true;  // Flag to prevent repeated calls
-      fetchReceivers(currentIp); // Fetch receivers using the current IP, whether overridden or from the API
+    // ** Handle messages and fetch receivers if necessary **
+    if (data.messages > 0 && !receivedReceivers) {
+      receivedReceivers = true;
+      fetchReceivers(currentIp); // Use IP or receiver ID to fetch receivers
     }
 
-    // Handle user ID window updates
+    // Update the summary table with new data
     if (Array.isArray(data.window_user_ids)) {
       data.window_user_ids.forEach(uid => {
         lastSeenTs[uid] = new Date();
@@ -1067,24 +1067,42 @@ function updateURLWithIp(ip) {
 
 async function fetchReceivers(ip) {
   try {
-    const res = await fetch(`/receivers?ipaddress=${encodeURIComponent(ip)}`);
-    if (!res.ok) throw res.status;
-    const receivers = await res.json();
-    
-    // Check if a receiver id is returned and use it
-    if (receivers && receivers.length > 0) {
-      const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
-      overrideReceiverId = receiver.id;  // Store the receiver ID for later use
-      console.log('Receiver ID fetched:', overrideReceiverId);
+    const params = new URLSearchParams(location.search);
+    let url = '/receivers';
 
-      // Update the URL with the receiver's ID
-      updateURLWithReceiverId(receiver.id); // Update URL with receiver ID instead of IP
-
-      // Now fetch metrics using the receiver's ID
-      fetchMetrics();
+    // Use receiver ID from the URL if it's present
+    if (params.has('receiver')) {
+      url += `?id=${encodeURIComponent(params.get('receiver'))}`;
+    } else if (ip) {
+      // Use IP address only if no receiver ID in the URL
+      url += `?ipaddress=${encodeURIComponent(ip)}`;
     }
 
+    // Fetch receivers from the API
+    const res = await fetch(url);
+    if (!res.ok) throw res.status;
+
+    const receivers = await res.json();
+
+    // Handle the case where no receivers are found
+    if (!Array.isArray(receivers) || receivers.length === 0) {
+      console.warn('No receivers found');
+      return;
+    }
+
+    // Handle the first receiver in the list
+    const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
+    overrideReceiverId = receiver.id;  // Store the receiver ID for later use
+    console.log('Receiver ID fetched:', overrideReceiverId);
+
+    // Update the URL with the receiver's ID
+    updateURLWithReceiverId(receiver.id); // Update URL with receiver ID instead of IP
+
+    // Now fetch metrics using the receiver's ID
+    fetchMetrics();
+
     // Continue with normal receiver handling...
+
     const ipHeading = document.getElementById('ip-address');
     
     // Clear previous receiver info
@@ -1096,60 +1114,50 @@ async function fetchReceivers(ip) {
     receiverBox.id = 'receiver-box';
     
     // Display receiver information
-    if (receivers.length === 0) {
-      receiverBox.innerHTML = '<p>No receiver found</p>';
-    } else {
-      const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
-      receiverBox.innerHTML = `
-        <h3>Receiver Information</h3>
-        <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
-        <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
-        <p class="receiver-url"><strong>URL:</strong>
-          ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
-        </p>
-        <div id="receiver-map"></div> <!-- Receiver map will go here -->
-      `;
-    }
+    receiverBox.innerHTML = `
+      <h3>Receiver Information</h3>
+      <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
+      <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+      <p class="receiver-url"><strong>URL:</strong>
+        ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+      </p>
+      <div id="receiver-map"></div> <!-- Receiver map will go here -->
+    `;
     
     // Insert the receiver box below the IP address heading
     ipHeading.insertAdjacentElement('afterend', receiverBox);
 
     // Initialize the map for the receiver pin only after the DOM is ready
-    if (receivers.length > 0) {
-      const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
+    const receiverMapDiv = document.getElementById('receiver-map');
+    if (receiverMapDiv) {
+      // Initialize the map for the receiver pin
+      const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(receiverMap);
 
-      // Make sure the div for the map exists before initializing
-      const receiverMapDiv = document.getElementById('receiver-map');
-      if (receiverMapDiv) {
-        // Initialize the map for the receiver pin
-        const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(receiverMap);
-
-        L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
-          .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
-      } else {
-        console.error("Receiver map container not found");
-      }
-
-      const firstReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
-      selectedReceiverLatLng = firstReceiverLatLng;
-      // Update the overlay to show the first receiver's position
-      updateOverlay(firstReceiverLatLng);
-      updateSummaryTable();
-
-      // Optionally flash the selection overlay
-      const ov = document.createElement('div');
-      ov.className = 'rx-overlay';
-      ov.textContent = `Selected RX ${receiver.name}`;
-      document.body.appendChild(ov);
-      requestAnimationFrame(() => ov.classList.add('show'));
-      setTimeout(() => {
-        ov.classList.remove('show');
-        ov.addEventListener('transitionend', () => ov.remove(), { once: true });
-      }, 2000);
+      L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
+        .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
+    } else {
+      console.error("Receiver map container not found");
     }
+
+    const firstReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+    selectedReceiverLatLng = firstReceiverLatLng;
+    // Update the overlay to show the first receiver's position
+    updateOverlay(firstReceiverLatLng);
+    updateSummaryTable();
+
+    // Optionally flash the selection overlay
+    const ov = document.createElement('div');
+    ov.className = 'rx-overlay';
+    ov.textContent = `Selected RX ${receiver.name}`;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('show'));
+    setTimeout(() => {
+      ov.classList.remove('show');
+      ov.addEventListener('transitionend', () => ov.remove(), { once: true });
+    }, 2000);
   } catch (e) {
     console.error('Failed to fetch receivers:', e);
   }
