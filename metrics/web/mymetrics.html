@@ -444,15 +444,21 @@
       sortField = 'lastSeen'; sortAsc = false;
       document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
       document.getElementById('pagination').innerHTML = '';
-
+    
       // clear receiver selection & any line
       selectedReceiverLatLng = null;
       clearDistanceLine();
-
+    
       // clear filter
       filterTerm = '';
       document.getElementById('filterInput').value = '';
-
+    
+      // Clear receiver box content
+      const existingReceiverBox = document.getElementById('receiver-box');
+      if (existingReceiverBox) {
+        existingReceiverBox.remove();
+      }
+    
       updateSummaryTable();
 
       // update URL
@@ -463,6 +469,7 @@
       // hide overlay
       if (overlayDiv) updateOverlay(null);
     }
+
 
     window.addEventListener('DOMContentLoaded', ()=>{
       fetch('/types.json')
