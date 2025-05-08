@@ -19,133 +19,140 @@
   </style>
 </head>
 <body>
-<div class="container-fluid p-0">
-  <h2 class="text-center py-3">Vessel Data</h2>
-  <table id="stateTable" class="table table-striped table-bordered">
-    <thead>
-      <tr>
-        <th>MMSI</th>
-        <th>Country</th>
-        <th>Name</th>
-        <th>CallSign</th>
-        <th>AISClass</th>
-        <th>Destination</th>
-        <th>Last Updated</th>
-        <th>Latitude</th>
-        <th>Longitude</th>
-        <th>Cog</th>
-        <th>Sog</th>
-        <th>Type</th>
-        <th>Max Static Draught</th>
-        <th>NumMessages</th>
-        <th>True Heading</th>
-      </tr>
-    </thead>
-    <tbody>
-      <!-- Data rows will be inserted here dynamically -->
-    </tbody>
-  </table>
-</div>
+  <div class="container-fluid p-0">
+    <h2 class="text-center py-3">Vessel Data</h2>
+    <table id="stateTable" class="table table-striped table-bordered">
+      <thead>
+        <tr>
+          <th>MMSI</th>
+          <th>Country</th>
+          <th>Name</th>
+          <th>CallSign</th>
+          <th>AISClass</th>
+          <th>Destination</th>
+          <th>Last Updated</th>
+          <th>Latitude</th>
+          <th>Longitude</th>
+          <th>Cog</th>
+          <th>Sog</th>
+          <th>Type</th>
+          <th>Max Static Draught</th>
+          <th>NumMessages</th>
+          <th>True Heading</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Data rows will be inserted here dynamically -->
+      </tbody>
+    </table>
+  </div>
 
-<!-- Include jQuery -->
-<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-<!-- Include DataTables JS -->
-<script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
-<script>
-  let table;
-  let midsMapping = {};
-  let atonTypeMapping = {};
-  let shipTypeConfig = {};
+  <!-- Include jQuery -->
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+  <!-- Include DataTables JS -->
+  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  <script>
+    let table;
+    let midsMapping = {};
+    let atonTypeMapping = {};
+    let shipTypeConfig = {};
 
-  // Load all mappings on page load
-  Promise.all([
-    fetch('/mids.json').then(r => r.json()).then(data => midsMapping = data),
-    fetch('/aton_types.json').then(r => r.json()).then(data => atonTypeMapping = data),
-    fetch('/types.json').then(r => r.json()).then(data => shipTypeConfig = data)
-  ]).catch(err => console.error('Error loading mappings:', err));
+    // Load all mappings on page load
+    Promise.all([
+      fetch('/mids.json').then(r => r.json()).then(data => midsMapping = data),
+      fetch('/aton_types.json').then(r => r.json()).then(data => atonTypeMapping = data),
+      fetch('/types.json').then(r => r.json()).then(data => shipTypeConfig = data)
+    ]).catch(err => console.error('Error loading mappings:', err));
 
-  // Helper: given a numeric code and the types.json config, return the category name
-  function lookupShipType(code) {
-    const lookup = shipTypeConfig.valueLookup?.[code];
-    if (lookup == null) return code;          // no mapping → return raw code
-    const category = shipTypeConfig.categories
-      .find(cat => cat.id === lookup);
-    return category ? category.name : code;
-  }
+    // Helper: given a numeric code and the types.json config, return the category name
+    function lookupShipType(code) {
+      const lookup = shipTypeConfig.valueLookup?.[code];
+      if (lookup == null) return code;  // no mapping → return raw code
+      const category = shipTypeConfig.categories.find(cat => cat.id === lookup);
+      return category ? category.name : code;
+    }
 
-  function updateData() {
-    fetch('/summary')
-      .then(r => r.json())
-      .then(data => {
-        const rows = Object.values(data).map(item => {
-          // --- country lookup (unchanged) ---
-          let country = '';
-          if (item.UserID != null) {
-            const mid = parseInt(item.UserID.toString().slice(0,3), 10);
-            country = (midsMapping[mid] && midsMapping[mid][3]) || '';
-          }
+    // Helper: format coordinates to 4 decimal places
+    function formatCoordinate(coord) {
+      return (coord != null && !isNaN(coord)) ? coord.toFixed(4) : '';
+    }
 
-          // --- type description logic ---
-          let typeDesc = item.Type;
-          if (item.AISClass === 'AtoN' && atonTypeMapping[item.Type] != null) {
-            // AtoN mapping
-            typeDesc = atonTypeMapping[item.Type];
-          }
-          else if ((item.AISClass === 'A' || item.AISClass === 'B')
-                   && shipTypeConfig.valueLookup) {
-            // Class A/B mapping
-            typeDesc = lookupShipType(item.Type);
-          }
-          // else leave typeDesc = raw item.Type
+    function updateData() {
+      fetch('/summary')
+        .then(r => r.json())
+        .then(data => {
+          const rows = Object.values(data).map(item => {
+            // Country lookup
+            let country = '';
+            if (item.UserID != null) {
+              const mid = parseInt(item.UserID.toString().slice(0,3), 10);
+              country = (midsMapping[mid] && midsMapping[mid][3]) || '';
+            }
 
-          return [
-            item.UserID ? `<a href="/?UserID=${item.UserID}" target=_blank>${item.UserID}</a>` : '',
-            country,
-            item.Name || '',
-            item.CallSign || '',
-            item.AISClass || '',
-            item.Destination || '',
-            item.LastUpdated ? new Date(item.LastUpdated).toLocaleString() : '',
-            item.Latitude || '',
-            item.Longitude || '',
-            item.Cog || '',
-            item.Sog || '',
-            typeDesc,
-            item.MaximumStaticDraught || '',
-            item.NumMessages || '',
-            item.TrueHeading || ''
-          ];
-        });
+            // Type description logic
+            let typeDesc = item.Type;
+            if (item.AISClass === 'AtoN' && atonTypeMapping[item.Type] != null) {
+              // AtoN mapping
+              typeDesc = atonTypeMapping[item.Type];
+            }
+            else if ((item.AISClass === 'A' || item.AISClass === 'B')
+                     && shipTypeConfig.valueLookup) {
+              // Class A/B mapping
+              typeDesc = lookupShipType(item.Type);
+            }
 
-        table.clear();
-        table.rows.add(rows);
-        table.draw(false);
-      })
-      .catch(err => console.error('Error fetching state data:', err));
-  }
+            // Format coordinates
+            const latitude = formatCoordinate(item.Latitude);
+            const longitude = formatCoordinate(item.Longitude);
 
-  $(document).ready(function() {
-    table = $('#stateTable').DataTable({
-      responsive: true,
-      pageLength: 10,
-      lengthMenu: [[10,25,50,100],[10,25,50,100]],
-      dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>" +
-           "<'row'<'col-sm-12'tr>>" +
-           "<'row'<'col-sm-5'i><'col-sm-7'p>>",
-      order: [[0, "asc"]],
-      columns: [
-        { title: "MMSI" },{ title: "Country" },{ title: "Name" },
-        { title: "CallSign" },{ title: "AISClass" },{ title: "Destination" },
-        { title: "Last Updated" },{ title: "Latitude" },{ title: "Longitude" },
-        { title: "Cog" },{ title: "Sog" },{ title: "Type" },
-        { title: "Max Static Draught" },{ title: "NumMessages" },
-        { title: "True Heading" }
-      ]
+            return [
+              item.UserID ? `<a href="/?UserID=${item.UserID}" target="_blank">${item.UserID}</a>` : '',
+              country,
+              item.Name || '',
+              item.CallSign || '',
+              item.AISClass || '',
+              item.Destination || '',
+              item.LastUpdated ? new Date(item.LastUpdated).toLocaleString() : '',
+              latitude,
+              longitude,
+              item.Cog || '',
+              item.Sog || '',
+              typeDesc,
+              item.MaximumStaticDraught || '',
+              item.NumMessages || '',
+              item.TrueHeading || ''
+            ];
+          });
+
+          table.clear();
+          table.rows.add(rows);
+          table.draw(false);
+        })
+        .catch(err => console.error('Error fetching state data:', err));
+    }
+
+    $(document).ready(function() {
+      table = $('#stateTable').DataTable({
+        responsive: true,
+        pageLength: 10,
+        lengthMenu: [[10,25,50,100],[10,25,50,100]],
+        dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>" +
+             "<'row'<'col-sm-12'tr>>" +
+             "<'row'<'col-sm-5'i><'col-sm-7'p>>",
+        order: [[0, "asc"]],
+        columns: [
+          { title: "MMSI" },{ title: "Country" },{ title: "Name" },
+          { title: "CallSign" },{ title: "AISClass" },{ title: "Destination" },
+          { title: "Last Updated" },{ title: "Latitude" },{ title: "Longitude" },
+          { title: "Cog" },{ title: "Sog" },{ title: "Type" },
+          { title: "Max Static Draught" },{ title: "NumMessages" },
+          { title: "True Heading" }
+        ]
+      });
+
+      updateData();
+      setInterval(updateData, 5000);
     });
-
-    updateData();
-    setInterval(updateData, 5000);
-  });
-</script>
+  </script>
 </body>
 </html>
