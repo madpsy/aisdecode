@@ -641,33 +641,38 @@ function loadReceivers() {
         });
       });
 
-      // Check if there's a 'receiver' parameter in the URL, and select it
-      const p = new URLSearchParams(location.search);
-      const receiverIdFromUrl = p.get('receiver');
+      // Ensure the receiversList is populated before accessing the receiverId from URL
+      if (receiversList.length > 0) {
+        const p = new URLSearchParams(location.search);
+        const receiverIdFromUrl = p.get('receiver');
 
-      if (receiverIdFromUrl) {
-        // Ensure the receiverId is a valid number (or string) before searching
-        const receiver = receiversList.find(rx => rx.id.toString() === receiverIdFromUrl);
-        if (receiver) {
-          // Manually set the selection state
-          selectedReceiverLatLng = receiver.latlng;
-          updateOverlay(receiver.latlng);
-          updateSummaryTable();
+        if (receiverIdFromUrl) {
+          // Ensure the receiverId is a valid number (or string) before searching
+          const receiver = receiversList.find(rx => rx.id.toString() === receiverIdFromUrl);
+          if (receiver) {
+            // Manually set the selection state
+            selectedReceiverLatLng = receiver.latlng;
+            updateOverlay(receiver.latlng);
+            updateSummaryTable();
 
-          // Update the URL cleanly without adding the receiver param again
-          const url = new URL(location);
-          url.searchParams.set('receiver', receiver.id);
-          history.replaceState(null, '', url);
+            // Update the URL cleanly without adding the receiver param again
+            const url = new URL(location);
+            url.searchParams.set('receiver', receiver.id);
+            history.replaceState(null, '', url);
 
-          // Fire the click event on the corresponding receiver marker
-          receiver.marker.fire('click', { latlng: receiver.latlng });
-        } else {
-          console.warn(`Receiver with ID ${receiverIdFromUrl} not found in the list.`);
+            // Fire the click event on the corresponding receiver marker
+            receiver.marker.fire('click', { latlng: receiver.latlng });
+          } else {
+            console.warn(`Receiver with ID ${receiverIdFromUrl} not found in the list.`);
+          }
         }
+      } else {
+        console.error('No receivers available in the list to process the receiver ID.');
       }
-
     })
-    .catch(err => console.error('Failed to load receivers', err));
+    .catch(err => {
+      console.error('Failed to load receivers', err);
+    });
 }
 
 
