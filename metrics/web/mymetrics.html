@@ -408,6 +408,7 @@
 
     // Apply override and reset everything
 function applyOverride(ip) {
+  overrideReceiverId = '';
   ip = (ip || '').trim();
   if (!ip) return;
   overrideIp = ip;
@@ -1034,9 +1035,6 @@ async function fetchReceivers(ip) {
       updateOverlay(firstReceiverLatLng);
       updateSummaryTable();
 
-      // Trigger the click for the first receiver on the main map
-      receiversList[0].marker.fire('click', { latlng: firstReceiverLatLng });
-
       // Optionally flash the selection overlay
       const ov = document.createElement('div');
       ov.className = 'rx-overlay';
@@ -1047,9 +1045,6 @@ async function fetchReceivers(ip) {
         ov.classList.remove('show');
         ov.addEventListener('transitionend', () => ov.remove(), { once: true });
       }, 2000);
-
-
-
     }
   } catch (e) {
     console.error('Failed to fetch receivers:', e);
