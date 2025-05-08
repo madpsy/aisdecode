@@ -33,6 +33,12 @@
       position: relative;
       height: 300px;
     }
+    /* Shrink charts on small screens */
+    @media (max-width: 576px) {
+      .chart-container {
+        height: 200px;
+      }
+    }
     /* Image overlay */
     #img-overlay {
       display: none;
@@ -63,8 +69,8 @@
 
   <div class="container-fluid">
     <!-- Header + Time Selector -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h1 class="m-0">Vessel Statistics</h1>
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-column flex-sm-row">
+      <h1 class="m-0 mb-3 mb-sm-0">Vessel Statistics</h1>
       <div>
         <label for="days-select" class="form-label me-2">Time window:</label>
         <select id="days-select" class="form-select d-inline-block w-auto">
@@ -81,23 +87,25 @@
     <div class="card">
       <div class="card-body">
         <h2 class="card-title">Top 10 by Position Reports</h2>
-        <div class="row">
-          <div class="col-lg-6 chart-container">
+        <div class="row gy-3">
+          <div class="col-12 col-md-6 chart-container">
             <canvas id="posChart"></canvas>
           </div>
-          <div class="col-lg-6">
-            <table id="top-positions-table" class="table table-striped table-hover">
-              <thead class="table-light">
-                <tr>
-                  <th>Vessel</th>
-                  <th>Image</th>
-                  <th>Reports</th>
-                  <th>Class</th>
-                  <th>Type</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+          <div class="col-12 col-md-6">
+            <div class="table-responsive">
+              <table id="top-positions-table" class="table table-striped table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Vessel</th>
+                    <th>Image</th>
+                    <th>Reports</th>
+                    <th>Class</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -107,25 +115,27 @@
     <div class="card">
       <div class="card-body">
         <h2 class="card-title">Top 10 by Speed Over Ground</h2>
-        <div class="row">
-          <div class="col-lg-6 chart-container">
+        <div class="row gy-3">
+          <div class="col-12 col-md-6 chart-container">
             <canvas id="sogChart"></canvas>
           </div>
-          <div class="col-lg-6">
-            <table id="top-sog-table" class="table table-striped table-hover">
-              <thead class="table-light">
-                <tr>
-                  <th>Vessel</th>
-                  <th>Image</th>
-                  <th>Max SOG (knots)</th>
-                  <th>Lat</th>
-                  <th>Lon</th>
-                  <th>Class</th>
-                  <th>Type</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+          <div class="col-12 col-md-6">
+            <div class="table-responsive">
+              <table id="top-sog-table" class="table table-striped table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Vessel</th>
+                    <th>Image</th>
+                    <th>Max SOG (knots)</th>
+                    <th>Lat</th>
+                    <th>Lon</th>
+                    <th>Class</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -135,20 +145,22 @@
     <div class="card">
       <div class="card-body">
         <h2 class="card-title">Vessel Type Breakdown</h2>
-        <div class="row">
-          <div class="col-md-6 chart-container">
+        <div class="row gy-3">
+          <div class="col-12 col-md-6 chart-container">
             <canvas id="typeChart"></canvas>
           </div>
-          <div class="col-md-6">
-            <table id="top-types-table" class="table table-striped table-hover">
-              <thead class="table-light">
-                <tr>
-                  <th>Type</th>
-                  <th>Count</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+          <div class="col-12 col-md-6">
+            <div class="table-responsive">
+              <table id="top-types-table" class="table table-striped table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Type</th>
+                    <th>Count</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -177,7 +189,6 @@
         '#8549ba','#e6194b'
       ];
 
-      // Load type descriptions
       async function loadTypeMapping() {
         try {
           typeMapping = await fetch('vessel_types.json').then(r => r.json());
@@ -186,7 +197,6 @@
         }
       }
 
-      // Initialize Chart.js charts
       const sogChart = new Chart($('#sogChart')[0].getContext('2d'), {
         type: 'bar',
         data: { labels: [], datasets: [{ label: 'Max SOG (knots)', data: [] }] },
@@ -207,7 +217,6 @@
         options: { scales: { y: { beginAtZero: true } } }
       });
 
-      // Initialize DataTables once
       const posTable = $('#top-positions-table').DataTable({
         paging: false, info: false, searching: false, order: [[2, 'desc']]
       });
@@ -218,7 +227,6 @@
         paging: false, info: false, searching: false, order: [[1, 'desc']]
       });
 
-      // Fetch & redraw everything
       async function fetchAll() {
         const days = $('#days-select').val();
         await Promise.all([
@@ -244,8 +252,8 @@
             name,
             imgTag,
             v.count,
-            v.ais_class,    // Class column
-            typeDesc        // Type column
+            v.ais_class,
+            typeDesc
           ]);
           posChart.data.labels.push(name);
           posChart.data.datasets[0].data.push(v.count);
@@ -273,8 +281,8 @@
             v.max_sog.toFixed(2),
             v.lat.toFixed(5),
             v.lon.toFixed(5),
-            v.ais_class,   // Class column
-            typeDesc       // Type column
+            v.ais_class,
+            typeDesc
           ]);
           sogChart.data.labels.push(name);
           sogChart.data.datasets[0].data.push(v.max_sog);
@@ -297,21 +305,18 @@
           typeChart.data.datasets[0].data.push(t.count);
         });
 
-        // assign slice colors dynamically
         typeChart.data.datasets[0].backgroundColor = sliceColors.slice(0, data.length);
 
         typeTable.draw();
         typeChart.update();
       }
 
-      // bind controls & initial load
       $('#days-select').on('change', fetchAll);
       (async () => {
         await loadTypeMapping();
         fetchAll();
       })();
 
-      // image overlay handlers
       $(document).on('click', '.thumb', function() {
         const src = $(this).attr('src');
         $('#img-overlay-img').attr('src', src);
