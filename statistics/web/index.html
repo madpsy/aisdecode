@@ -31,12 +31,13 @@
     }
     .chart-container {
       position: relative;
-      height: 300px;
+      height: auto;
+      max-width: 100%;
     }
     /* Shrink charts on small screens */
     @media (max-width: 576px) {
       .chart-container {
-        height: 200px;
+        height: auto;
       }
     }
     /* Image overlay */
@@ -209,7 +210,13 @@
             data: [], backgroundColor: [], borderColor: '#fff', borderWidth: 1
           }]
         },
-        options: { plugins: { legend: { position: 'bottom' } } }
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'bottom' }
+          },
+          aspectRatio: 1,  // Ensures the chart remains circular
+        }
       });
       const posChart = new Chart($('#posChart')[0].getContext('2d'), {
         type: 'bar',
