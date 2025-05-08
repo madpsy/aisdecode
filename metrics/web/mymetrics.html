@@ -455,30 +455,36 @@ function applyOverride(ip) {
   fetchReceivers(ip);
 }
 
-    window.addEventListener('DOMContentLoaded', ()=>{
-      fetch('/types.json')
-        .then(r => r.ok ? r.json() : Promise.reject(r.status))
-        .then(json => { typesConfig = json; initDoughnut(); initMap(); })
-        .catch(e => console.error('types.json error', e));
+window.addEventListener('DOMContentLoaded', () => {
+  fetch('/types.json')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(json => { typesConfig = json; initDoughnut(); initMap(); })
+    .catch(e => console.error('types.json error', e));
 
-      fetch('/mids.json')
-        .then(r => r.ok ? r.json() : Promise.reject(r.status))
-        .then(json => { midMap = json; })
-        .catch(e => console.error('mids.json error', e));
+  fetch('/mids.json')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(json => { midMap = json; })
+    .catch(e => console.error('mids.json error', e));
 
-      const p = new URLSearchParams(location.search);
-      if (p.has('ipaddress')) applyOverride(p.get('ipaddress'));
-      if (p.has('receiver')) overrideReceiverId = p.get('receiver');
-      console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
-      fetchMetrics();
-      setInterval(fetchMetrics, 1000);
-    });
+  const p = new URLSearchParams(location.search);
+  if (p.has('ipaddress')) {
+    applyOverride(p.get('ipaddress'));
+  }
+  
+  if (p.has('receiver')) {
+    // Set the receiverId to the URL's receiver value
+    overrideReceiverId = p.get('receiver');
+    // Fetch metrics by the receiver ID
+    console.log('Fetching metrics with receiver ID:', overrideReceiverId);
+    fetchMetrics();
+    // Fetch receiver info based on the receiver id
+    fetchReceiversById(overrideReceiverId);
+  }
 
-    document.getElementById('applyBtn').onclick = () =>
-      applyOverride(document.getElementById('ipInput').value.trim());
-    document.getElementById('ipInput').onkeydown = e => {
-      if(e.key === 'Enter') applyOverride(document.getElementById('ipInput').value.trim());
-    };
+  // Fetch metrics every second
+  setInterval(fetchMetrics, 1000);
+});
+
 
     // sorting
     document.querySelectorAll('#summaryTable th').forEach(th=>{
@@ -1007,6 +1013,43 @@ async function fetchMetrics() {
   }
 }
 
+function fetchReceiversById(receiverId) {
+  fetch(`/receivers?id=${encodeURIComponent(receiverId)}`)
+    .then(res => res.ok ? res.json() : Promise.reject(res.status))
+    .then(data => {
+      const receiver = Array.isArray(data) ? data[0] : data;
+
+      // Remove existing info box if present
+      const oldBox = document.getElementById('receiver-box');
+      if (oldBox) oldBox.remove();
+
+      // Build and insert new info box with receiver details
+      const box = document.createElement('div');
+      box.id = 'receiver-box';
+      box.innerHTML = `
+        <h3>Receiver Information</h3>
+        <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
+        <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+        <p class="receiver-url"><strong>URL:</strong>
+          ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+        </p>
+        <div id="receiver-map"></div> <!-- Receiver map will go here -->
+      `;
+      document.getElementById('ip-address').insertAdjacentElement('afterend', box);
+
+      // Initialize the map for the receiver's location
+      const mapDiv = document.getElementById('receiver-map');
+      const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(rxMap);
+      L.marker([receiver.latitude, receiver.longitude])
+        .addTo(rxMap)
+        .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
+        .openPopup();
+    })
+    .catch(err => console.error('Error fetching receiver by id:', err));
+}
 
 function updateURLWithIp(ip) {
   const url = new URL(window.location);
