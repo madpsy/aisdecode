@@ -931,14 +931,14 @@ async function fetchMetrics() {
     const lbl = new Date().toLocaleTimeString();
 
     cardMetrics.forEach(m => {
-      if (baselines[m] === undefined) baselines[m] = data[m];
-      document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m] - baselines[m]);
+      if (baselines[m] === undefined) baselines[m] = data.simple_metrics[m];
+      document.querySelector(`#card-${m} p`).textContent = formatNumber(data.simple_metrics[m] - baselines[m]);
     });
 
     chartMetrics.forEach(m => {
       const c = charts[m];
       c.data.labels.push(lbl);
-      c.data.datasets[0].data.push(data[m]);
+      c.data.datasets[0].data.push(data.simple_metrics[m]);
       if (c.data.labels.length > maxPoints) {
         c.data.labels.shift();
         c.data.datasets[0].data.shift();
