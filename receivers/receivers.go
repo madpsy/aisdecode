@@ -340,21 +340,49 @@ func adminReceiversHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Public list: exactly as before, but *without* ip_address
+// Public list: exactly as before, but *without* ip_address
 func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
-    // Parse filters from query parameters
-    filters := map[string]string{
-        "id":        r.URL.Query().Get("id"),
-        "ipaddress": r.URL.Query().Get("ipaddress"),
-    }
-
-    // Call the helper function to get the filtered receivers
-    list, err := getFilteredReceivers(w, filters)
-    if err != nil {
+    // Ensure the connection is alive before performing the query
+    if err := ensureConnection(); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
 
-    // Return the list of receivers in JSON format
+    rows, err := db.Query(`
+        SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address
+        FROM receivers ORDER BY id
+    `)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    defer rows.Close()
+
+    var list []Receiver
+    for rows.Next() {
+        var rec Receiver
+        if err := rows.Scan(
+            &rec.ID, &rec.LastUpdated, &rec.Description,
+            &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.IPAddress,
+        ); err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        // Fetch message count (0 on error)
+        msgs, err := getMessagesByIP(rec.IPAddress)
+        if err != nil {
+            msgs = 0
+        }
+        rec.Messages = msgs
+
+        // Blank out the IP address for public response
+        rec.IPAddress = "" // Omit IP for public response
+
+        list = append(list, rec)
+    }
+
+    // Return the list of receivers in JSON format, excluding IP address
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(list)
 }
