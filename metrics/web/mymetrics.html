@@ -408,6 +408,8 @@
 
     // Apply override and reset everything
 function applyOverride(ip) {
+  ip = (ip || '').trim();
+  if (!ip) return;
   overrideIp = ip;
   document.getElementById('ipInput').value = ip;
 
