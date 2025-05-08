@@ -407,11 +407,11 @@
     });
 
     // Apply override and reset everything
-function applyOverride(ip){
+function applyOverride(ip) {
   overrideIp = ip;
   document.getElementById('ipInput').value = ip;
 
-  // reset cards & charts
+  // Reset cards & charts
   Object.keys(baselines).forEach(k => delete baselines[k]);
   cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
   chartMetrics.forEach(m => {
@@ -421,7 +421,7 @@ function applyOverride(ip){
     c.update();
   });
 
-  // clear vessels & summary
+  // Clear vessels & summary
   seenUserIds.clear();
   Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
   vesselMarkers = {};
@@ -431,25 +431,25 @@ function applyOverride(ip){
   document.getElementById('summaryBody').innerHTML = '';
   currentPage = 1;
 
-  // clear doughnut
-  if(typeDoughnut){
+  // Clear doughnut
+  if (typeDoughnut) {
     typeDoughnut.data.labels = [];
     typeDoughnut.data.datasets[0].data = [];
     typeDoughnut.options.plugins.centerText.text = '';
     typeDoughnut.update();
   }
 
-  // reset sorting & pagination
+  // Reset sorting & pagination
   autoFit = true;
   sortField = 'lastSeen'; sortAsc = false;
-  document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
+  document.querySelectorAll('#summaryTable th .arrow').forEach(a => a.textContent = '');
   document.getElementById('pagination').innerHTML = '';
 
-  // clear receiver selection & any line
+  // Clear receiver selection & any line
   selectedReceiverLatLng = null;
   clearDistanceLine();
 
-  // clear filter
+  // Clear filter
   filterTerm = '';
   document.getElementById('filterInput').value = '';
 
@@ -459,20 +459,20 @@ function applyOverride(ip){
     existingReceiverBox.remove();
   }
 
+  // Update the summary table
   updateSummaryTable();
 
-  // update URL
+  // Update URL
   const url = new URL(location);
   ip ? url.searchParams.set('ipaddress', ip) : url.searchParams.delete('ipaddress');
   history.replaceState(null, '', url);
 
-  // hide overlay
+  // Hide overlay
   if (overlayDiv) updateOverlay(null);
 
-  // ** Fetch receivers after applying new IP address **
-  fetchMetrics();  // Ensure we fetch metrics with the updated IP
+  // Fetch metrics and update data after IP override
+  fetchMetrics();
 }
-
 
     window.addEventListener('DOMContentLoaded', ()=>{
       fetch('/types.json')
@@ -903,26 +903,26 @@ async function fetchMetrics() {
   try {
     let url = '/metrics/bysource';
     const ipToUse = overrideIp || '';  // Use the overridden IP if available
-    if(ipToUse) {
+    if (ipToUse) {
       url += `?ipaddress=${encodeURIComponent(ipToUse)}`;
     }
     const res = await fetch(url);
-    if(!res.ok) throw res.status;
+    if (!res.ok) throw res.status;
     const data = await res.json();
     const currentIp = data.ip_address; // Use the IP from the API response if available
     document.getElementById('ip-address').textContent = currentIp;
     const lbl = new Date().toLocaleTimeString();
 
     cardMetrics.forEach(m => {
-      if(baselines[m]===undefined) baselines[m]=data[m];
-      document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m]-baselines[m]);
+      if (baselines[m] === undefined) baselines[m] = data[m];
+      document.querySelector(`#card-${m} p`).textContent = formatNumber(data[m] - baselines[m]);
     });
 
     chartMetrics.forEach(m => {
       const c = charts[m];
       c.data.labels.push(lbl);
       c.data.datasets[0].data.push(data[m]);
-      if(c.data.labels.length>maxPoints){
+      if (c.data.labels.length > maxPoints) {
         c.data.labels.shift();
         c.data.datasets[0].data.shift();
       }
@@ -953,6 +953,7 @@ async function fetchMetrics() {
     console.error('Fetch error', e);
   }
 }
+
 
 async function fetchReceivers(ip) {
   try {
