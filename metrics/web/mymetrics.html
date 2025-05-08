@@ -650,69 +650,65 @@ function loadReceivers() {
           className: 'receiver-tooltip'
         });
 
+        // Click handler: select this receiver
+        dot.on('click', e => {
+          L.DomEvent.stopPropagation(e);  // Prevent event propagation to map click
+          selectedReceiverLatLng = e.latlng;  // Store the receiver's lat/lng
+          console.log("Receiver selected at:", selectedReceiverLatLng);
+          clearDistanceLine();  // Clear any existing distance line
+          updateOverlay(e.latlng);  // Update the overlay with receiver's coordinates
+          updateSummaryTable();
 
-// Handle receiver selection when clicking on a receiver's dot
-dot.on('click', e => {
-  L.DomEvent.stopPropagation(e);  // Prevent event propagation to map click
-  selectedReceiverLatLng = e.latlng;  // Store the receiver's lat/lng
-  console.log("Receiver selected at:", selectedReceiverLatLng);
-  clearDistanceLine();  // Clear any existing distance line
-  updateOverlay(e.latlng);  // Update the overlay with receiver's coordinates
-  updateSummaryTable();
+          // Fetch this receiver’s details via ?id=<id>
+          fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
+            .then(res => {
+              if (!res.ok) throw new Error(res.status);
+              return res.json();
+            })
+            .then(data => {
+              const receiver = Array.isArray(data) ? data[0] : data;
 
-  // Fetch this receiver’s details via ?id=<id>
-  fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
-    .then(res => {
-      if (!res.ok) throw new Error(res.status);
-      return res.json();
-    })
-    .then(data => {
-      const receiver = Array.isArray(data) ? data[0] : data;
+              // Remove existing info box if present
+              const oldBox = document.getElementById('receiver-box');
+              if (oldBox) oldBox.remove();
 
-      // Remove existing info box if present
-      const oldBox = document.getElementById('receiver-box');
-      if (oldBox) oldBox.remove();
+              // Build and insert new info box with receiver details
+              const box = document.createElement('div');
+              box.id = 'receiver-box';
+              box.innerHTML = `
+                <h3>Receiver Information</h3>
+                <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
+                <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+                <p class="receiver-url"><strong>URL:</strong>
+                  ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+                </p>
+                <div id="receiver-map"></div> <!-- Receiver map will go here -->
+              `;
+              document.getElementById('ip-address').insertAdjacentElement('afterend', box);
 
-      // Build and insert new info box with receiver details
-      const box = document.createElement('div');
-      box.id = 'receiver-box';
-      box.innerHTML = `
-        <h3>Receiver Information</h3>
-        <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
-        <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
-        <p class="receiver-url"><strong>URL:</strong>
-          ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
-        </p>
-        <div id="receiver-map"></div> <!-- Receiver map will go here -->
-      `;
-      document.getElementById('ip-address').insertAdjacentElement('afterend', box);
+              // Initialize the map inside the info box
+              const mapDiv = document.getElementById('receiver-map');
+              const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
+              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+              }).addTo(rxMap);
+              L.marker([receiver.latitude, receiver.longitude])
+                .addTo(rxMap)
+                .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
+                .openPopup();
+            })
+            .catch(err => console.error('Error fetching single receiver:', err));
 
-      // Initialize the map inside the info box
-      const mapDiv = document.getElementById('receiver-map');
-      const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(rxMap);
-      L.marker([receiver.latitude, receiver.longitude])
-        .addTo(rxMap)
-        .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
-        .openPopup();
-    })
-    .catch(err => console.error('Error fetching single receiver:', err));
+          // **Reset all components when selecting a receiver's dot**
+          resetCardsAndCharts();  // Reset all cards and charts with new receiver's data
+          resetMapAndTable();     // Reset the map and table to reflect the new selection
+          resetFilters();         // Reset any applied filters or selections
 
-  // **Reset all components when selecting a receiver's dot**
-  resetCardsAndCharts();  // Reset all cards and charts with new receiver's data
-  resetMapAndTable();     // Reset the map and table to reflect the new selection
-  resetFilters();         // Reset any applied filters or selections
-
-  // Update URL and other states after selecting the receiver
-  overrideReceiverId = r.id;
-  console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
-  fetchMetrics();  // Fetch the metrics for the selected receiver
-
-  // Update the URL with the receiver's ID (and remove IP)
-  updateURLWithReceiverId(r.id);  // This ensures the URL is updated with only the receiver ID
-});
+          // Update the URL with the receiver's ID (and remove IP)
+          overrideReceiverId = r.id;
+          console.log('Receiver ID fetched:', r.id);
+          updateURLWithReceiverId(r.id);  // This ensures the URL is updated with only the receiver ID
+        });
 
         // Store for nearest/override lookup
         receiversList.push({
@@ -722,38 +718,9 @@ dot.on('click', e => {
           latlng: L.latLng(r.latitude, r.longitude)
         });
       });
-
-      // Ensure the receiversList is populated before accessing the receiverId from URL
-      if (receiversList.length > 0) {
-        const p = new URLSearchParams(location.search);
-        const receiverIdFromUrl = p.get('receiver');
-
-        if (receiverIdFromUrl) {
-          // Ensure the receiverId is a valid number (or string) before searching
-          const receiver = receiversList.find(rx => rx.id.toString() === receiverIdFromUrl);
-          if (receiver) {
-            // Manually set the selection state
-            selectedReceiverLatLng = receiver.latlng;
-            updateOverlay(receiver.latlng);
-            updateSummaryTable();
-	    overrideReceiverId = r.id;
-            // Update the URL cleanly without adding the receiver param again
-            const url = new URL(location);
-            url.searchParams.set('receiver', receiver.id);
-            history.replaceState(null, '', url);
-
-            // Fire the click event on the corresponding receiver marker
-            receiver.marker.fire('click', { latlng: receiver.latlng });
-          } else {
-            console.warn(`Receiver with ID ${receiverIdFromUrl} not found in the list.`);
-          }
-        }
-      } else {
-        console.error('No receivers available in the list to process the receiver ID.');
-      }
     })
     .catch(err => {
-      console.error('Failed to load receivers', err);
+      console.error('Failed to load receivers:', err);
     });
 }
 
