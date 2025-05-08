@@ -671,6 +671,7 @@ function loadReceivers() {
           const url = new URL(location);
           url.searchParams.set('receiver', r.id);
           history.replaceState(null, '', url);
+	  overrideReceiverId = r.id;
 	  console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
 	  fetchMetrics();
         });
