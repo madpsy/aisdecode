@@ -660,7 +660,7 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
     }
 
     switch messageID {
-    case 18, 19, 24:
+    case 18, 19:
         if existingAisClass == "A" {
             existingAisClass = "B"
         }
