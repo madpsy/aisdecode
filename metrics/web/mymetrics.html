@@ -464,16 +464,6 @@ function applyOverride(ip) {
   // Update the summary table
   updateSummaryTable();
 
-  // clear any IP override
-  overrideIp = '';
-  // set receiver override
-  overrideReceiverId = r.id;
-  // update URL
-  const url = new URL(location);
-  url.searchParams.set('receiver', r.id);
-  url.searchParams.delete('ipaddress');
-  history.replaceState(null, '', url);
-
   // Hide overlay
   if (overlayDiv) updateOverlay(null);
 
