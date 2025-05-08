@@ -406,6 +406,37 @@
       });
     });
 
+function clearMetrics() {
+    // Reset cards
+    cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
+
+    // Reset charts
+    chartMetrics.forEach(m => {
+        const c = charts[m];
+        c.data.labels = [];
+        c.data.datasets[0].data = [];
+        c.update();
+    });
+
+    // Clear summary table
+    document.getElementById('summaryBody').innerHTML = '';
+
+    // Clear doughnut chart
+    if (typeDoughnut) {
+        typeDoughnut.data.labels = [];
+        typeDoughnut.data.datasets[0].data = [];
+        typeDoughnut.options.plugins.centerText.text = '';
+        typeDoughnut.update();
+    }
+
+    // Reset other variables
+    seenUserIds.clear();
+    vesselMarkers = {};
+    summaryCache = {};
+    lastSeenTs = {};
+    seenCount = {};
+}
+
     // Apply override and reset everything
 function applyOverride(ip) {
   ip = (ip || '').trim();
