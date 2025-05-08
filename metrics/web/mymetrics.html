@@ -209,14 +209,17 @@
     border: 1px solid #ddd;
     margin-top: 20px;
     background-color: #f9f9f9;
+    width: 100%;  /* Ensure it has 100% width of the container */
+    box-sizing: border-box; /* Ensure padding doesn't affect width calculation */
   }
 
   #receiver-map {
     position: absolute;  /* Position the map inside the receiver box */
     top: 16px;           /* Space from the top */
     right: 16px;         /* Space from the right */
-    width: 300px;        /* Set map size */
-    height: 300px;       /* Set map size */
+    width: 280px;        /* Adjust width to fit within the box */
+    height: 280px;       /* Adjust height to fit within the box */
+    overflow: hidden;    /* Prevent content from overflowing */
   }
 </style>
 
