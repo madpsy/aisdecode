@@ -863,14 +863,18 @@ m.on('click', function(e) {
     }
 
     // Fetch metrics, update cards/charts/table
-    async function fetchMetrics(){
+    async function fetchMetrics() {
       try {
         let url = '/metrics/bysource';
-        if(overrideIp) url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
+        const ipToUse = overrideIp || '';  // Use the overridden IP if available
+        if(ipToUse) {
+          url += `?ipaddress=${encodeURIComponent(ipToUse)}`;
+        }
         const res = await fetch(url);
         if(!res.ok) throw res.status;
         const data = await res.json();
-        document.getElementById('ip-address').textContent = data.ip_address;
+        const currentIp = data.ip_address; // Use the IP from the API response if available
+        document.getElementById('ip-address').textContent = currentIp;
         const lbl = new Date().toLocaleTimeString();
 
         cardMetrics.forEach(m => {
@@ -889,22 +893,75 @@ m.on('click', function(e) {
           c.update();
         });
 
-        if(Array.isArray(data.window_user_ids)){
-          data.window_user_ids.forEach(uid=>{
+        // ** Check if 'messages' value is greater than 0 and call `/receivers` **
+        if (data.messages > 0 && !receivedReceivers) {  // Ensure we only call once
+          receivedReceivers = true;  // Flag to prevent repeated calls
+          fetchReceivers(currentIp); // Pass the current IP, whether overridden or from the API
+        }
+
+        if (Array.isArray(data.window_user_ids)) {
+          data.window_user_ids.forEach(uid => {
             lastSeenTs[uid] = new Date();
-            seenCount[uid] = (seenCount[uid]||0)+1;
-            if(!seenUserIds.has(uid)){
+            seenCount[uid] = (seenCount[uid] || 0) + 1;
+            if (!seenUserIds.has(uid)) {
               seenUserIds.add(uid);
               fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
-                .then(r=>r.ok? r.json():Promise.reject(r.status))
-                .then(json=>{ summaryCache[uid]=json[uid]||{}; updateSummaryTable(); })
-                .catch(e=>console.error(`summary ${uid} error`,e));
+                .then(r => r.ok ? r.json() : Promise.reject(r.status))
+                .then(json => { summaryCache[uid] = json[uid] || {}; updateSummaryTable(); })
+                .catch(e => console.error(`summary ${uid} error`, e));
             }
           });
           updateSummaryTable();
         }
-      } catch(e) {
+      } catch (e) {
         console.error('Fetch error', e);
+      }
+    }
+
++ // Adjusted fetchReceivers to take the IP address directly, which can be the overridden one or the one from the API response
+    async function fetchReceivers(ip) {
+      try {
+        const res = await fetch(`/receivers?ipaddress=${encodeURIComponent(ip)}`);
+        if (!res.ok) throw res.status;
+        const receivers = await res.json();
+        
+        // Select the div where the receiver info will be displayed
+        const receiverContainer = document.createElement('div');
+        const ipHeading = document.getElementById('ip-address');
+        
+        // Clear previous receiver info
+        const existingReceiverBox = document.getElementById('receiver-box');
+        if (existingReceiverBox) existingReceiverBox.remove();
+        
+        // Create a new box to hold receiver info
+        const receiverBox = document.createElement('div');
+        receiverBox.id = 'receiver-box';
+        receiverBox.style.padding = '16px';
+        receiverBox.style.border = '1px solid #ddd';
+        receiverBox.style.marginTop = '20px';
+        receiverBox.style.backgroundColor = '#f9f9f9';
+        
+        // Check if the receivers list is empty
+        if (receivers.length === 0) {
+          receiverBox.innerHTML = '<p>No receiver pin found</p>';
+        } else {
+          // Display receiver information
+          const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
+          receiverBox.innerHTML = `
+            <h3>Receiver Information</h3>
+            <p><strong>Name:</strong> ${receiver.name}</p>
+            <p><strong>Description:</strong> ${receiver.description}</p>
+            <p><strong>Latitude:</strong> ${receiver.latitude}</p>
+            <p><strong>Longitude:</strong> ${receiver.longitude}</p>
+            <p><strong>Messages:</strong> ${receiver.messages}</p>
+            <p><a href="${receiver.url}" target="_blank">Receiver URL</a></p>
+          `;
+        }
+        
+        // Insert the receiver box below the IP address heading
+        ipHeading.insertAdjacentElement('afterend', receiverBox);
+      } catch (e) {
+        console.error('Failed to fetch receivers:', e);
       }
     }
 
