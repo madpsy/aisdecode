@@ -542,18 +542,25 @@ function updateOverlay(latlng) {
 
 // Function to reset cards and charts
 function resetCardsAndCharts() {
-  // Reset cards
-  cardMetrics.forEach(m => document.querySelector(`#card-${m} p`).textContent = '0');
+  // Reset cards' displayed values to '0'
+  cardMetrics.forEach(m => {
+    document.querySelector(`#card-${m} p`).textContent = '0';
+  });
+
+  // Reset the underlying stored values (baselines, chart data, etc.)
+  Object.keys(baselines).forEach(key => {
+    delete baselines[key];  // Clear all baselines data
+  });
 
   // Reset charts
   chartMetrics.forEach(m => {
     const c = charts[m];
-    c.data.labels = [];
-    c.data.datasets[0].data = [];
-    c.update();
+    c.data.labels = [];  // Clear the chart labels
+    c.data.datasets[0].data = [];  // Clear the chart data
+    c.update();  // Update the chart with the cleared data
   });
 
-  // Reset the doughnut chart
+  // Clear the doughnut chart data
   if (typeDoughnut) {
     typeDoughnut.data.labels = [];
     typeDoughnut.data.datasets[0].data = [];
