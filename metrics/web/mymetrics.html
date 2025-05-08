@@ -595,11 +595,13 @@ function loadReceivers() {
       return r.json();
     })
     .then(receivers => {
-      if (receivers.length === 0) {
+      // Ensure that we have valid data before continuing
+      if (!Array.isArray(receivers) || receivers.length === 0) {
         console.warn('No receivers found');
+        return;
       }
 
-      // Create the circle markers for all receivers
+      // Populate the receiversList with fetched data
       receivers.forEach(r => {
         const dot = L.circleMarker([r.latitude, r.longitude], {
           radius: 8,
@@ -639,35 +641,36 @@ function loadReceivers() {
         });
       });
 
-      // If the user passed ?receiver= in the URL, force-select it now
-      if (overrideReceiverId && receiversList.length > 0) {
-        // Ensure the receiver is present in the list and match the type correctly
-        const idToMatch = typeof receiversList[0].id === 'number'
-          ? Number(overrideReceiverId)
-          : overrideReceiverId;
+      // Check if there's a 'receiver' parameter in the URL, and select it
+      const p = new URLSearchParams(location.search);
+      const receiverIdFromUrl = p.get('receiver');
 
-        const forced = receiversList.find(rx => rx.id === idToMatch);
-
-        if (forced) {
-          // Manually set selection state
-          selectedReceiverLatLng = forced.latlng;
-          updateOverlay(forced.latlng);
+      if (receiverIdFromUrl) {
+        // Ensure the receiverId is a valid number (or string) before searching
+        const receiver = receiversList.find(rx => rx.id.toString() === receiverIdFromUrl);
+        if (receiver) {
+          // Manually set the selection state
+          selectedReceiverLatLng = receiver.latlng;
+          updateOverlay(receiver.latlng);
           updateSummaryTable();
 
-          // Update the URL cleanly
+          // Update the URL cleanly without adding the receiver param again
           const url = new URL(location);
-          url.searchParams.set('receiver', forced.id);
+          url.searchParams.set('receiver', receiver.id);
           history.replaceState(null, '', url);
 
-          // Fire the click *with* a latlng payload
-          forced.marker.fire('click', { latlng: forced.latlng });
+          // Fire the click event on the corresponding receiver marker
+          receiver.marker.fire('click', { latlng: receiver.latlng });
         } else {
-          console.warn(`Receiver with id ${overrideReceiverId} not found`);
+          console.warn(`Receiver with ID ${receiverIdFromUrl} not found in the list.`);
         }
       }
+
     })
     .catch(err => console.error('Failed to load receivers', err));
 }
+
+
     // Vessel icon creation
     function makeIcon(info, color){
       if(info.Sog > 0.5){
