@@ -259,6 +259,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // 1) include ip_address in the query
     rows, err := db.Query(`
         SELECT id,
                lastupdated,
@@ -266,7 +267,8 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
                latitude,
                longitude,
                name,
-               url
+               url,
+               ip_address
           FROM receivers
          ORDER BY id
     `)
@@ -279,6 +281,8 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     var list []Receiver
     for rows.Next() {
         var rec Receiver
+
+        // 2) scan ip_address too
         if err := rows.Scan(
             &rec.ID,
             &rec.LastUpdated,
@@ -287,10 +291,19 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             &rec.Longitude,
             &rec.Name,
             &rec.URL,
+            &rec.IPAddress,
         ); err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
         }
+
+        // 3) fetch messages count (fallback to 0 on error)
+        msgs, err := getMessagesByIP(rec.IPAddress)
+        if err != nil {
+            msgs = 0
+        }
+        rec.Messages = msgs
+
         list = append(list, rec)
     }
 
