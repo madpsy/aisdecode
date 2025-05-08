@@ -1256,28 +1256,32 @@ async function fetchReceivers(ip) {
       updateDoughnut();
     }
 
-const ipInput  = document.getElementById('ipInput');
-const applyBtn = document.getElementById('applyBtn');
+    const ipInput = document.getElementById('ipInput');
+    const applyBtn = document.getElementById('applyBtn');
 
-// 1. Toggle disabled state as the user types:
-ipInput.addEventListener('input', () => {
-  // trim so spaces don’t count
-  applyBtn.disabled = ipInput.value.trim() === '';
-});
+    // 1. Toggle disabled state as the user types:
+    ipInput.addEventListener('input', () => {
+      // trim so spaces don’t count
+      applyBtn.disabled = ipInput.value.trim() === '';
+    });
 
-// 2. (Extra safety) In your handler, bail out if empty:
-applyBtn.addEventListener('click', () => {
-  const ip = ipInput.value.trim();
-  if (!ip) return;          // nothing to do
-  applyOverride(ip);
-});
+    // 2. (Extra safety) In your handler, bail out if empty:
+    applyBtn.addEventListener('click', () => {
+      const ip = ipInput.value.trim();
+      if (!ip) return;          // nothing to do
+      applyOverride(ip);
+    });
 
-// 3. Also handle Enter-key the same way:
-ipInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && ipInput.value.trim() !== '') {
-    applyOverride(ipInput.value.trim());
-  }
-});
+    // 3. Also handle Enter-key the same way:
+    ipInput.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      const ip = ipInput.value.trim();
+      if (!ip) {
+        e.preventDefault();   // stop any default form‑submit behavior
+        return;
+      }
+      applyOverride(ip);
+    });
 
   </script>
 </body>
