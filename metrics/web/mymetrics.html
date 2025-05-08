@@ -664,8 +664,7 @@ function loadReceivers() {
               }).addTo(rxMap);
               L.marker([receiver.latitude, receiver.longitude])
                .addTo(rxMap)
-               .bindPopup(`<b>${receiver.name}</b><br>
-                         Lat: ${receiver.latitude}<br>
+               .bindPopup(`Lat: ${receiver.latitude}<br>
                          Lon: ${receiver.longitude}`)
                .openPopup();
             })
