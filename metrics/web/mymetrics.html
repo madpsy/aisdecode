@@ -295,7 +295,6 @@
     const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
     const maxPoints    = 60;
     let focusedUid = null;
-    let isReceiverSelected = false;
     let overrideIp = '';
     let overlayDisplayed = false;
     let polylineAdded = false;
@@ -640,10 +639,9 @@ dot.on('click', e => {
   console.log("Receiver selected at:", selectedReceiverLatLng);
   clearDistanceLine();  // Clear any existing distance line
   updateOverlay(e.latlng);  // Update the overlay with receiver's coordinates
-  isReceiverSelected = true;
-  if (selectedReceiverLatLng) {
+  setTimeout(() => {
     updateSummaryTable();
-  }
+  }, 0);
 
   // Fetch this receiver’s details via ?id=<id>
   fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
@@ -1151,6 +1149,7 @@ async function fetchReceivers(ip) {
 
     function updateSummaryTable(){ 
       // Show/hide distance column
+      console.log("Inside updateSummaryTable. Receiver LatLng: ", selectedReceiverLatLng);
       const showDist = !!selectedReceiverLatLng;
       document.querySelectorAll('.distance-col').forEach(el=>{
         el.style.display = showDist ? '' : 'none';
