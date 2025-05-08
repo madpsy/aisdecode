@@ -279,6 +279,8 @@
     const cardsContainer = document.getElementById('cards');
     const chartsContainer = document.getElementById('charts');
 
+    let receivedReceivers = false;
+
     const seenUserIds = new Set(), summaryCache = {}, lastSeenTs = {}, seenCount = {};
     let sortField = 'lastSeen', sortAsc = false;
     let typesConfig = null, typeDoughnut = null;
