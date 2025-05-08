@@ -1067,99 +1067,85 @@ function updateURLWithIp(ip) {
 
 async function fetchReceivers(ip) {
   try {
-    const params = new URLSearchParams(location.search);
-    let url = '/receivers';
+    let url = `/receivers?ipaddress=${encodeURIComponent(ip)}`;
 
-    // Use receiver ID from the URL if it's present
-    if (params.has('receiver')) {
-      url += `?id=${encodeURIComponent(params.get('receiver'))}`;
-    } else if (ip) {
-      // Use IP address only if no receiver ID in the URL
-      url += `?ipaddress=${encodeURIComponent(ip)}`;
-    }
-
-    // Fetch receivers from the API
+    // Make the API request
     const res = await fetch(url);
     if (!res.ok) throw res.status;
 
     const receivers = await res.json();
-
-    // Handle the case where no receivers are found
-    if (!Array.isArray(receivers) || receivers.length === 0) {
-      console.warn('No receivers found');
-      return;
-    }
-
-    // Handle the first receiver in the list
-    const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
-    overrideReceiverId = receiver.id;  // Store the receiver ID for later use
-    console.log('Receiver ID fetched:', overrideReceiverId);
-
-    // Update the URL with the receiver's ID
-    updateURLWithReceiverId(receiver.id); // Update URL with receiver ID instead of IP
-
-    // Now fetch metrics using the receiver's ID
-    fetchMetrics();
-
-    // Continue with normal receiver handling...
-
-    const ipHeading = document.getElementById('ip-address');
     
     // Clear previous receiver info
+    const ipHeading = document.getElementById('ip-address');
     const existingReceiverBox = document.getElementById('receiver-box');
     if (existingReceiverBox) existingReceiverBox.remove();
-    
+
     // Create a new box to hold receiver info
     const receiverBox = document.createElement('div');
     receiverBox.id = 'receiver-box';
-    
-    // Display receiver information
-    receiverBox.innerHTML = `
-      <h3>Receiver Information</h3>
-      <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
-      <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
-      <p class="receiver-url"><strong>URL:</strong>
-        ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
-      </p>
-      <div id="receiver-map"></div> <!-- Receiver map will go here -->
-    `;
-    
-    // Insert the receiver box below the IP address heading
-    ipHeading.insertAdjacentElement('afterend', receiverBox);
 
-    // Initialize the map for the receiver pin only after the DOM is ready
-    const receiverMapDiv = document.getElementById('receiver-map');
-    if (receiverMapDiv) {
-      // Initialize the map for the receiver pin
-      const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(receiverMap);
-
-      L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
-        .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
+    // Check if there are any receivers found
+    if (receivers.length === 0) {
+      receiverBox.innerHTML = '<p>No receiver found</p>';
     } else {
-      console.error("Receiver map container not found");
+      const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
+      receiverBox.innerHTML = `
+        <h3>Receiver Information</h3>
+        <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
+        <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+        <p class="receiver-url"><strong>URL:</strong>
+          ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+        </p>
+        <div id="receiver-map"></div> <!-- Receiver map will go here -->
+      `;
+
+      // Initialize the map for the receiver pin only after the DOM is ready
+      const receiverMapDiv = document.getElementById('receiver-map');
+      if (receiverMapDiv) {
+        const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(receiverMap);
+
+        L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
+          .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
+      } else {
+        console.error("Receiver map container not found");
+      }
+
+      const firstReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+      selectedReceiverLatLng = firstReceiverLatLng;
+      updateOverlay(firstReceiverLatLng);
+      updateSummaryTable();
+
+      // Optionally flash the selection overlay
+      const ov = document.createElement('div');
+      ov.className = 'rx-overlay';
+      ov.textContent = `Selected RX ${receiver.name}`;
+      document.body.appendChild(ov);
+      requestAnimationFrame(() => ov.classList.add('show'));
+      setTimeout(() => {
+        ov.classList.remove('show');
+        ov.addEventListener('transitionend', () => ov.remove(), { once: true });
+      }, 2000);
     }
 
-    const firstReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
-    selectedReceiverLatLng = firstReceiverLatLng;
-    // Update the overlay to show the first receiver's position
-    updateOverlay(firstReceiverLatLng);
-    updateSummaryTable();
-
-    // Optionally flash the selection overlay
-    const ov = document.createElement('div');
-    ov.className = 'rx-overlay';
-    ov.textContent = `Selected RX ${receiver.name}`;
-    document.body.appendChild(ov);
-    requestAnimationFrame(() => ov.classList.add('show'));
-    setTimeout(() => {
-      ov.classList.remove('show');
-      ov.addEventListener('transitionend', () => ov.remove(), { once: true });
-    }, 2000);
+    // Insert the receiver box below the IP address heading
+    ipHeading.insertAdjacentElement('afterend', receiverBox);
   } catch (e) {
     console.error('Failed to fetch receivers:', e);
+
+    // Handle error in case of failure to get receiver information
+    const ipHeading = document.getElementById('ip-address');
+    const existingReceiverBox = document.getElementById('receiver-box');
+    if (existingReceiverBox) existingReceiverBox.remove();
+
+    // Create a new box for "No receiver found"
+    const receiverBox = document.createElement('div');
+    receiverBox.id = 'receiver-box';
+    receiverBox.innerHTML = '<p>No receiver found</p>';
+
+    ipHeading.insertAdjacentElement('afterend', receiverBox);
   }
 }
 
