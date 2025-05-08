@@ -637,10 +637,11 @@ dot.on('click', e => {
   L.DomEvent.stopPropagation(e);  // Prevent event propagation to map click
   selectedReceiverLatLng = e.latlng;  // Store the receiver's lat/lng
   console.log("Receiver selected at:", selectedReceiverLatLng);
-  console.log("Receiver selected at:", selectedReceiverLatLng);
   clearDistanceLine();  // Clear any existing distance line
   updateOverlay(e.latlng);  // Update the overlay with receiver's coordinates
-  updateSummaryTable();  // Update the summary table based on the selected receiver
+  setTimeout(() => {
+    updateSummaryTable();
+  }, 0);
 
   // Fetch this receiver’s details via ?id=<id>
   fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
