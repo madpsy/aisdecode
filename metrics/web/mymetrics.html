@@ -619,27 +619,63 @@ function loadReceivers() {
         });
 
         // Click handler: select this receiver
-        dot.on('click', e => {
-          L.DomEvent.stopPropagation(e);
-          selectedReceiverLatLng = e.latlng;
-          clearDistanceLine();
-          updateOverlay(e.latlng);
-          updateSummaryTable();
+// inside loadReceivers(), in the dot.on('click') callback:
+dot.on('click', e => {
+  L.DomEvent.stopPropagation(e);
+  selectedReceiverLatLng = e.latlng;
+  clearDistanceLine();
+  updateOverlay(e.latlng);
+  updateSummaryTable();
 
-          // Update the URL to include ?receiver=<id>
-          const url = new URL(location);
-          url.searchParams.set('receiver', r.id);
-          history.replaceState(null, '', url);
-        });
+  // === New: fetch this one receiver’s details ===
+  fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
+    .then(res => {
+      if (!res.ok) throw new Error(res.status);
+      return res.json();
+    })
+    .then(data => {
+      // data should be an array or object depending on your API
+      const receiver = Array.isArray(data) ? data[0] : data;
 
-        // Store for nearest/override lookup
-        receiversList.push({
-          id: r.id,
-          name: r.name,
-          marker: dot,
-          latlng: L.latLng(r.latitude, r.longitude)
-        });
-      });
+      // remove any old info box
+      const existing = document.getElementById('receiver-box');
+      if (existing) existing.remove();
+
+      // build a new info box
+      const box = document.createElement('div');
+      box.id = 'receiver-box';
+      box.innerHTML = `
+        <h3>Receiver Information</h3>
+        <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
+        <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+        <p class="receiver-url"><strong>URL:</strong>
+           <a href="${receiver.url}" target="_blank">${receiver.url}</a></p>
+        <div id="receiver-map"></div>
+      `;
+      document.getElementById('ip-address').insertAdjacentElement('afterend', box);
+
+      // initialize the little map inside the box
+      const mapDiv = document.getElementById('receiver-map');
+      const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(rxMap);
+      L.marker([receiver.latitude, receiver.longitude])
+       .addTo(rxMap)
+       .bindPopup(`<b>${receiver.name}</b><br>
+                   Lat: ${receiver.latitude}<br>
+                   Lon: ${receiver.longitude}`)
+       .openPopup();
+    })
+    .catch(err => console.error('Error fetching single receiver:', err));
+  // === end new fetch call ===
+
+  // Update URL
+  const url = new URL(location);
+  url.searchParams.set('receiver', r.id);
+  history.replaceState(null, '', url);
+});
+
 
       // Ensure the receiversList is populated before accessing the receiverId from URL
       if (receiversList.length > 0) {
