@@ -920,7 +920,6 @@ m.on('click', function(e) {
       }
     }
 
-+ // Adjusted fetchReceivers to take the IP address directly, which can be the overridden one or the one from the API response
     async function fetchReceivers(ip) {
       try {
         const res = await fetch(`/receivers?ipaddress=${encodeURIComponent(ip)}`);
