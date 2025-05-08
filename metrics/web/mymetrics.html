@@ -407,10 +407,11 @@
     });
 
 
-function updateURLWithIp(ip) {
+function updateURLWithReceiverId(receiverId) {
   const url = new URL(window.location);
-  url.searchParams.set('ipaddress', ip); // Set the ipaddress query parameter
-  history.replaceState(null, '', url.toString()); // Update the browser's URL without reloading the page
+  url.searchParams.delete('ipaddress');  // Remove ipaddress if receiver id is present
+  url.searchParams.set('receiver', receiverId);  // Set receiver id as query parameter
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
 
 function updateURLWithReceiverId(receiverId) {
@@ -426,8 +427,10 @@ function applyOverride(ip) {
   ip = (ip || '').trim();
   if (!ip) return;
   overrideIp = ip;
-  overrideReceiverId = '';
-  document.getElementById('ipInput').value = ip;
+  overrideReceiverId = '';  // Reset receiver id
+
+  // Update the URL with the new IP address (remove receiver if it's there)
+  updateURLWithIp(ip);
 
   // **Reset all components when applying override**
   resetCardsAndCharts();  // Reset all cards and charts
@@ -699,6 +702,9 @@ dot.on('click', e => {
   overrideReceiverId = r.id;
   console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
   fetchMetrics();  // Fetch the metrics for the selected receiver
+
+  // Update the URL with the receiver's ID (and remove IP)
+  updateURLWithReceiverId(r.id);  // This ensures the URL is updated with only the receiver ID
 });
 
         // Store for nearest/override lookup
@@ -1014,8 +1020,9 @@ async function fetchMetrics() {
 // To ensure the URL is updated with the new IP address without page reload
 function updateURLWithIp(ip) {
   const url = new URL(window.location);
-  url.searchParams.set('ipaddress', ip); // Set the ipaddress query parameter
-  history.replaceState(null, '', url.toString()); // Update the browser's URL without reloading the page
+  url.searchParams.delete('receiver');  // Remove receiver if IP address is used
+  url.searchParams.set('ipaddress', ip);  // Set ipaddress query parameter
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
 
 async function fetchReceivers(ip) {
