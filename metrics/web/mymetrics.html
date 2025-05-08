@@ -494,19 +494,16 @@ map.on('click', e => {
     tgt.closest('.leaflet-popup') ||
     tgt.closest('.distance-tooltip')
   ) {
-    return;
+    return;  // Don't reset anything when clicking on a marker or its popup
   }
 
-  // otherwise clear the previous selection and reset everything
+  // otherwise clear any selection, but do not reset charts/cards
   updateOverlay(null);  // Hide the overlay
-  clearDistanceLine();  // Clear distance line
-  clearSelectedRow();   // Clear selected row
+  clearDistanceLine();  // Clear any distance line
+  clearSelectedRow();   // Clear any selected row
   focusedUid = null;
 
-  // **Reset all components on map click**
-  resetCardsAndCharts();  // Reset all cards and charts
-  resetMapAndTable();     // Reset the map and table
-  resetFilters();         // Reset filters
+  // No reset of cards/charts or data happens here
 });
 
       // create and append overlay
@@ -635,12 +632,13 @@ function loadReceivers() {
         });
 
         // Click handler: select this receiver
-        dot.on('click', e => {
-  L.DomEvent.stopPropagation(e);
-  selectedReceiverLatLng = e.latlng;
-  clearDistanceLine();  // Clear any previous distance lines
-  updateOverlay(e.latlng);  // Update the overlay with the receiver location
-  updateSummaryTable();     // Update the summary table with the new receiver data
+// Handle receiver selection when clicking on a receiver's dot
+dot.on('click', e => {
+  L.DomEvent.stopPropagation(e);  // Prevent event propagation to map click
+  selectedReceiverLatLng = e.latlng;  // Store the receiver's lat/lng
+  clearDistanceLine();  // Clear any existing distance line
+  updateOverlay(e.latlng);  // Update the overlay with receiver's coordinates
+  updateSummaryTable();  // Update the summary table based on the selected receiver
 
   // Fetch this receiver’s details via ?id=<id>
   fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
@@ -682,10 +680,10 @@ function loadReceivers() {
     })
     .catch(err => console.error('Error fetching single receiver:', err));
 
-  // **Reset all components when selecting a receiver**
-  resetCardsAndCharts();  // Reset all cards and charts
-  resetMapAndTable();     // Reset the map and table
-  resetFilters();         // Reset filters
+  // **Reset all components when selecting a receiver's dot**
+  resetCardsAndCharts();  // Reset all cards and charts with new receiver's data
+  resetMapAndTable();     // Reset the map and table to reflect the new selection
+  resetFilters();         // Reset any applied filters or selections
 
   // Update URL and other states after selecting the receiver
   overrideReceiverId = r.id;
