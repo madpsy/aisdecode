@@ -953,6 +953,9 @@ async function fetchMetrics() {
     // Update the URL with the requested IP address (without reloading the page)
     updateURLWithIp(currentIp);
 
+    // Fetch receivers with the updated IP immediately after updating the IP
+    fetchReceivers(currentIp);
+
     const lbl = new Date().toLocaleTimeString();
 
     cardMetrics.forEach(m => {
