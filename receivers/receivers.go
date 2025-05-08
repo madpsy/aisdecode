@@ -378,6 +378,17 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // For each receiver in the list, fetch messages based on the ip_address
+    for i, rec := range list {
+        // Fetch messages count for each receiver based on ip_address
+        msgs, err := getMessagesByIP(rec.IPAddress)
+        if err != nil {
+            msgs = 0
+        }
+        // Set the messages field
+        list[i].Messages = msgs
+    }
+
     // Return the list of receivers in JSON format
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(list)
