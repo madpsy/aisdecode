@@ -295,6 +295,7 @@
     const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
     const maxPoints    = 60;
     let focusedUid = null;
+    let receiverLoadedFromQuery = false;
     let overrideIp = '';
     let overlayDisplayed = false;
     let polylineAdded = false;
@@ -428,6 +429,18 @@ function updateURLWithIp(ip) {
   history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
 
+function onVesselMarkerAdded() {
+  // If the receiver was loaded via the query parameter
+  if (receiverLoadedFromQuery) {
+    // Get bounds of all current markers and fit the map to them
+    const boundsArr = Object.values(vesselMarkers).map(m => m.getLatLng());
+    if (boundsArr.length) {
+      map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+    }
+  }
+}
+
+
 function applyOverride(ip) {
   console.log("applyOverride function called with IP:", ip);
   ip = (ip || '').trim();
@@ -481,7 +494,6 @@ window.addEventListener('DOMContentLoaded', () => {
   // Fetch metrics every second
   setInterval(fetchMetrics, 1000);
 });
-
 
     // sorting
     document.querySelectorAll('#summaryTable th').forEach(th=>{
@@ -926,6 +938,7 @@ function updateMap() {
       m.addTo(map);
       vesselMarkers[uid] = m;
       newMarkers[uid] = m;
+      onVesselMarkerAdded();
     }
   });
 
