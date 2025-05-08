@@ -644,8 +644,12 @@ function loadReceivers() {
                 <h3>Receiver Information</h3>
                 <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
                 <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
-                <p class="receiver-url"><strong>URL:</strong>
-                   <a href="${receiver.url}" target="_blank">${receiver.url}</a></p>
+                <p class="receiver-url"><strong>Receiver URL:</strong>
+      			${receiver.url
+		        ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>`
+		        : 'None'
+		      }
+                </p>
                 <div id="receiver-map"></div>
               `;
               document.getElementById('ip-address').insertAdjacentElement('afterend', box);
@@ -995,7 +999,12 @@ async function fetchReceivers(ip) {
         <h3>Receiver Information</h3>
         <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
         <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
-        <p class="receiver-url"><strong>Receiver URL:</strong> <a href="${receiver.url}" target="_blank">${receiver.url}</a></p>
+        <p class="receiver-url"><strong>URL:</strong>
+            ${receiver.url
+              ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>`
+              : 'None'
+            }
+        </p>
         <div id="receiver-map"></div> <!-- The map will be positioned here -->
       `;
     }
