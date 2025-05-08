@@ -266,7 +266,7 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
 func getMessagesByIP(ipAddress string) (int, error) {
     // Create the URL for the metrics API endpoint.
     metricsURL := fmt.Sprintf("%s/metrics/bysource?ipaddress=%s", settings.MetricsBaseURL, ipAddress)
-    log.Printf("Fetching messages from: %s", metricsURL)  // Debug log for URL
+    //log.Printf("Fetching messages from: %s", metricsURL)  // Debug log for URL
 
     // Send a GET request to the metrics API.
     resp, err := http.Get(metricsURL)
