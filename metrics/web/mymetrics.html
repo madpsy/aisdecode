@@ -413,6 +413,13 @@ function updateURLWithIp(ip) {
   history.replaceState(null, '', url.toString()); // Update the browser's URL without reloading the page
 }
 
+function updateURLWithReceiverId(receiverId) {
+  const url = new URL(window.location);
+  url.searchParams.delete('ipaddress');  // Remove ipaddress query parameter
+  url.searchParams.set('receiver', receiverId);  // Set receiver id as query parameter
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
+}
+
     // Apply override and reset everything
 function applyOverride(ip) {
   console.log("applyOverride function called with IP:", ip);
@@ -1017,7 +1024,20 @@ async function fetchReceivers(ip) {
     if (!res.ok) throw res.status;
     const receivers = await res.json();
     
-    // Select the div where the receiver info will be displayed
+    // Check if a receiver id is returned and use it
+    if (receivers && receivers.length > 0) {
+      const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
+      overrideReceiverId = receiver.id;  // Store the receiver ID for later use
+      console.log('Receiver ID fetched:', overrideReceiverId);
+
+      // Update the URL with the receiver's ID
+      updateURLWithReceiverId(receiver.id); // Update URL with receiver ID instead of IP
+
+      // Now fetch metrics using the receiver's ID
+      fetchMetrics();
+    }
+
+    // Continue with normal receiver handling...
     const ipHeading = document.getElementById('ip-address');
     
     // Clear previous receiver info
@@ -1028,24 +1048,19 @@ async function fetchReceivers(ip) {
     const receiverBox = document.createElement('div');
     receiverBox.id = 'receiver-box';
     
-    // Check if the receivers list is empty
+    // Display receiver information
     if (receivers.length === 0) {
       receiverBox.innerHTML = '<p>No receiver found</p>';
     } else {
-      // Display receiver information
       const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
-
       receiverBox.innerHTML = `
         <h3>Receiver Information</h3>
         <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
         <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
         <p class="receiver-url"><strong>URL:</strong>
-            ${receiver.url
-              ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>`
-              : 'None'
-            }
+          ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
         </p>
-        <div id="receiver-map"></div> <!-- The map will be positioned here -->
+        <div id="receiver-map"></div> <!-- Receiver map will go here -->
       `;
     }
     
@@ -1092,8 +1107,6 @@ async function fetchReceivers(ip) {
     console.error('Failed to fetch receivers:', e);
   }
 }
-
-
 
     function typeNameFor(info) {
       if (info.AISClass === 'AtoN') {
