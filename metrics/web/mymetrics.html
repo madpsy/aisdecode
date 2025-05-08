@@ -433,15 +433,11 @@ function applyOverride(ip) {
   ip = (ip || '').trim();
   if (!ip) return;
   overrideIp = ip;
-  overrideReceiverId = '';  // Reset receiver id
+  overrideReceiverId = '';  // Reset receiver id to force fetching from IP
 
-  // If receiver is set, do not update URL with IP
-  const p = new URLSearchParams(location.search);
-  if (!p.has('receiver')) {
-    // Update the URL with the new IP address (remove receiver if it's there)
-    updateURLWithIp(ip);
-  }
-
+  // Update the URL with the new IP address (remove receiver if it's there)
+  updateURLWithIp(ip);  // Update URL to reflect IP
+  
   // **Reset all components when applying override**
   resetCardsAndCharts();  // Reset all cards and charts
   resetMapAndTable();     // Reset the map and table
@@ -452,8 +448,9 @@ function applyOverride(ip) {
   fetchMetrics();
 
   // Fetch receivers with the new IP immediately after applying override
-  fetchReceivers(ip);
+  fetchReceivers(ip);  // Fetch receivers by IP address
 }
+
 
 window.addEventListener('DOMContentLoaded', () => {
   fetch('/types.json')
@@ -1085,7 +1082,7 @@ async function fetchReceivers(ip) {
     if (params.has('receiver')) {
       url += `?id=${encodeURIComponent(params.get('receiver'))}`;
     } else if (ip) {
-      // Use IP address only if no receiver ID in the URL
+      // Use IP address if no receiver ID in the URL
       url += `?ipaddress=${encodeURIComponent(ip)}`;
     }
 
