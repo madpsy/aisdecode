@@ -931,7 +931,6 @@ async function fetchReceivers(ip) {
     const receivers = await res.json();
     
     // Select the div where the receiver info will be displayed
-    const receiverContainer = document.createElement('div');
     const ipHeading = document.getElementById('ip-address');
     
     // Clear previous receiver info
@@ -960,19 +959,30 @@ async function fetchReceivers(ip) {
         <p><strong>Receiver URL:</strong> <a href="${receiver.url}" target="_blank">${receiver.url}</a></p>
         <div id="receiver-map" style="width: 150px; height: 150px; margin-top: 10px;"></div>
       `;
-
-      // Initialize the map for the receiver pin
-      const receiverMap = L.map('receiver-map').setView([receiver.latitude, receiver.longitude], 14);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(receiverMap);
-
-      L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
-        .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
     }
     
     // Insert the receiver box below the IP address heading
     ipHeading.insertAdjacentElement('afterend', receiverBox);
+
+    // Initialize the map for the receiver pin only after the DOM is ready
+    if (receivers.length > 0) {
+      const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
+
+      // Make sure the div for the map exists before initializing
+      const receiverMapDiv = document.getElementById('receiver-map');
+      if (receiverMapDiv) {
+        // Initialize the map for the receiver pin
+        const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(receiverMap);
+
+        L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
+          .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
+      } else {
+        console.error("Receiver map container not found");
+      }
+    }
   } catch (e) {
     console.error('Failed to fetch receivers:', e);
   }
