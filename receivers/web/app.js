@@ -23,12 +23,18 @@ function applySortAndFilter() {
   // Sort
   receiversData.sort((a, b) => {
     let av = a[sortKey], bv = b[sortKey];
-    if (sortKey === 'id' || sortKey === 'latitude' || sortKey === 'longitude') {
+    
+    // Check if sorting by numeric fields like 'id', 'latitude', 'longitude', or 'messages'
+    if (sortKey === 'id' || sortKey === 'latitude' || sortKey === 'longitude' || sortKey === 'messages') {
       return (av - bv) * sortDir;
     }
+    
+    // For date-based sorting (e.g., 'lastupdated')
     if (sortKey === 'lastupdated') {
       return (new Date(av) - new Date(bv)) * sortDir;
     }
+    
+    // For string-based sorting (e.g., 'name', 'description', 'ip_address')
     av = av.toString().toLowerCase();
     bv = bv.toString().toLowerCase();
     return av.localeCompare(bv) * sortDir;
