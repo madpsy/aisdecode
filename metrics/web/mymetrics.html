@@ -670,6 +670,7 @@ function loadReceivers() {
           const url = new URL(location);
           url.searchParams.set('receiver', r.id);
           history.replaceState(null, '', url);
+	  fetchMetrics();
         });
 
         // Store for nearest/override lookup
