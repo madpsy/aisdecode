@@ -943,14 +943,14 @@ async function fetchMetrics() {
     const receiverId = params.get('id');  // Get receiver ID from the URL
 
     if (receiverId && !receiversFetched) {
-      // Fetch the receiver only if it's not already fetched
+      // If receiverId is present and we haven't fetched yet, fetch the receiver data
       receiversFetched = true;
       fetchReceivers(receiverId);  // Fetch using receiver ID
     } else {
-      let ip = overrideIp || '127.0.0.1'; // Fallback to default IP if not overridden
+      let ip = overrideIp || '127.0.0.1'; // Use overridden IP or default to '127.0.0.1'
       url += `?ipaddress=${encodeURIComponent(ip)}`;
 
-      // Fetch metrics
+      // Fetch metrics for the current IP address
       const res = await fetch(url);
       if (!res.ok) throw res.status;
       const data = await res.json();
@@ -964,10 +964,10 @@ async function fetchMetrics() {
 
       // Fetch receivers with the updated IP after applying the override
       if (!receiversFetched) {
-        fetchReceivers(currentIp);
+        fetchReceivers(currentIp);  // Fetch receivers for the current IP
       }
 
-      // Process chart data
+      // Handle other metric-related actions (cards and charts)
       const lbl = new Date().toLocaleTimeString();
       cardMetrics.forEach(m => {
         if (baselines[m] === undefined) baselines[m] = data.simple_metrics[m];
@@ -1018,19 +1018,22 @@ async function fetchReceivers(ipOrId) {
     let url = '/receivers';
     
     if (isNaN(ipOrId)) {
-      // Use IP address if ipOrId is not a number (it's an IP address)
+      // If it's an IP address, we use the IP query parameter
       url += `?ipaddress=${encodeURIComponent(ipOrId)}`;
-      // Remove ID from URL
+      
+      // Remove the ID from the URL if it's there
       const currentUrl = new URL(window.location);
-      currentUrl.searchParams.delete('id');
-      history.replaceState(null, '', currentUrl.toString());
+      currentUrl.searchParams.delete('id');  // Delete any existing id
+      history.replaceState(null, '', currentUrl.toString());  // Update the URL
+
     } else {
-      // Use the receiver's ID
+      // If it's an ID, we use the ID query parameter
       url += `?id=${encodeURIComponent(ipOrId)}`;
-      // Remove IP from URL
+
+      // Remove the IP from the URL if it's there
       const currentUrl = new URL(window.location);
-      currentUrl.searchParams.delete('ipaddress');
-      history.replaceState(null, '', currentUrl.toString());
+      currentUrl.searchParams.delete('ipaddress');  // Delete any existing ipaddress
+      history.replaceState(null, '', currentUrl.toString());  // Update the URL
     }
 
     const res = await fetch(url);
@@ -1042,17 +1045,10 @@ async function fetchReceivers(ipOrId) {
       return;
     }
 
-    // If a valid receiver is returned, update the URL with the receiver's ID
-    const receiver = receivers[0]; // Assuming the first receiver in the list is the one to use
+    // We assume the first receiver is the one we're interested in
+    const receiver = receivers[0];
 
-    // Update URL only if it's fetched by IP address
-    if (isNaN(ipOrId)) {
-      const currentUrl = new URL(window.location);
-      currentUrl.searchParams.set('id', receiver.id);  // Set the receiver's ID
-      history.replaceState(null, '', currentUrl.toString());  // Update the URL without reloading the page
-    }
-
-    // Proceed with displaying the receiver information in the UI
+    // Display the receiver info
     displayReceiverInfo(receiver);
 
   } catch (e) {
