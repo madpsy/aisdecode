@@ -2727,7 +2727,7 @@ socket.on('metricsData', (data) => {
   const msgPerSec = window_messages;
 
   // Calculate ratio as percentage
-  const forwardedRatioPercent = (window_ratio_forwarded_to_received * 100).toFixed(2); // Convert to percentage
+  const forwardedRatioPercent = (window_ratio_forwarded_to_received * 100).toFixed(0);
 
   // Update the DOM with the new values
   document.getElementById('msg-per-sec').textContent = `${msgPerSec}/sec`;
