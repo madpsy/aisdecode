@@ -48,14 +48,25 @@
     // Request metrics by source (IP address)
     function requestMetricsBySource(ipaddress) {
       console.log(`Sending request for metrics with IP: ${ipaddress}`);
+      // Log the payload (data sent to the server)
+      const payload = { ipaddress: ipaddress };
+      console.log("Sent Payload:", payload);
+      
       // Emit the request to the server with the IP address
-      socket.emit("metrics/bysource", { ipaddress: ipaddress });
+      socket.emit("metrics/bysource", payload);
     }
 
     // Listen for incoming metrics data from the server
     socket.on("metrics/bysource", function(metricsData) {
       console.log("Received metrics data:", metricsData);
       
+      // Log the entire response payload (data received from the server)
+      console.log("Received Payload:", metricsData);
+
+      // Log room info if available (Socket.IO's room functionality)
+      const roomId = socket.id;
+      console.log("Connected to room (socket ID):", roomId);
+
       // Update the table with the received data
       updateTable(metricsData);
     });
