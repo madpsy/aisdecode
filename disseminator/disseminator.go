@@ -86,6 +86,7 @@ var (
 )
 
 var clientConnections map[string]*ClientConnection
+var clientConnectionsMap = make(map[string]*ClientConnection)
 var clientConnectionsMu sync.RWMutex
 var streamShards int // Global variable to store the total number of shards
 
@@ -336,19 +337,14 @@ func (cc *ClientConnection) handleMetricsBySource(client *serverSocket.Socket, d
 }
 
 func handleClientDisconnect(client *serverSocket.Socket) {
-    // Get the client ID as SocketId (already of type SocketId)
     clientID := client.Id()
 
-    // Clean up ongoing requests for this client (if any)
-    for key, ongoingRequest := range ongoingBysourceRequests {
-        if ongoingRequest != nil {
-            close(ongoingRequest)  // Close the channel to stop waiting for it
-            delete(ongoingBysourceRequests, key)  // Remove the entry
-        }
-    }
+    // Lock the map to safely remove the client connection
+    clientConnectionsMu.Lock()
+    delete(clientConnectionsMap, clientID)
+    clientConnectionsMu.Unlock()
 
-    // Log the disconnection (you can skip removing from `connectedClients` here)
-    log.Printf("WebSocket client %s disconnected.", clientID)
+    log.Printf("WebSocket client disconnected: %s", clientID)
 }
 
 
@@ -1898,7 +1894,10 @@ func setupServer(settings *Settings) {
         // Track connected client
         connectedClientsMu.Lock()
         connectedClients[client.Id()] = client
+        clientConnectionsMap[client.Id()] = client
         connectedClientsMu.Unlock()
+
+
 
         // Init this client's subscription set
         clientSubscriptionsMu.Lock()
@@ -2142,50 +2141,30 @@ func setupServer(settings *Settings) {
 	})
 
 client.On("metrics/bysource", func(data ...any) {
-    clientID := client.Id()  // This is the SocketId, which is correct for this purpose
+    clientID := client.Id()  // Get the client ID (SocketId)
 
-    // Convert clientID (SocketId) to string to use as a key in the map
-    clientIDStr := string(clientID)
-
-    // Lock for thread-safe access to connectedClients
-    connectedClientsMu.RLock()
-    _, exists := connectedClients[clientID]  // We just need to check existence
-    connectedClientsMu.RUnlock()
+    // Lock the map to safely access the connections
+    clientConnectionsMu.RLock()
+    clientConn, exists := clientConnectionsMap[clientID]  // Look up the client connection by ID
+    clientConnectionsMu.RUnlock()
 
     if !exists {
-        log.Printf("No ClientConnection found for client %s", clientIDStr)
+        log.Printf("No ClientConnection found for client %s", clientID)
         client.Emit("error", "Client connection not found.")
         return
     }
 
-    // Log the clientConnections before accessing it
-    clientConnectionsMu.RLock()
-    log.Printf("ClientConnections: %+v", clientConnections)  // Debugging line
-    clientConn, exists := clientConnections[clientIDStr]  // Fetch the *ClientConnection from the map using string key
-    clientConnectionsMu.RUnlock()
-
-    if !exists {
-        log.Printf("No ClientConnection available for client %s", clientIDStr)
-        client.Emit("error", "Client connection not found in client connection map.")
-        return
-    }
-
-    // Now that the connection is verified, handle the metrics by source
+    // Process the metrics by source request
     if len(data) > 0 {
         if dataMap, ok := data[0].(map[string]interface{}); ok {
-            // Call the method on ClientConnection (similar to how ais_data is handled)
+            // Pass the request to the connection's handler function
             clientConn.handleMetricsBySource(client, dataMap)
         }
     } else {
-        // Handle empty data case
+        // Handle empty request case
         clientConn.handleMetricsBySource(client, nil)
     }
 })
-
-
-
-
-
 
 
 
