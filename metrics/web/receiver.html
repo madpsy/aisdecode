@@ -274,6 +274,26 @@
   <div id="pagination"></div>
 
   <script>
+
+    // Connect to the server using Socket.IO
+    const socket = io();
+ 
+    // Request metrics by source (IP address or ID)
+    function requestMetricsBySource(identifier, isIpAddress = true) {
+      console.log(`Requesting metrics for ${isIpAddress ? 'IP' : 'ID'}: ${identifier}`);
+      const payload = isIpAddress ? { ipaddress: identifier } : { id: identifier };
+
+      // Emit the request to the server via Socket.IO
+      socket.emit("metrics/bysource", payload);
+    }
+ 
+    // Handle the metrics response from the server
+socket.on("metrics/bysource", function(metricsData) {
+  console.log("Received metrics data:", metricsData);
+  updateTable(metricsData);  // Update the table with metrics
+  updateCharts(metricsData);  // Update the charts with metrics
+});
+
     // Chart.js center-text plugin
     Chart.register({
       id: 'centerText',
@@ -429,28 +449,12 @@ function updateURLWithIp(ip) {
   history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
 
-function applyOverride(ip) {
-  console.log("applyOverride function called with IP:", ip);
-  ip = (ip || '').trim();
-  if (!ip) return;
-  overrideIp = ip;
-  overrideReceiverId = '';  // Reset receiver id to force fetching from IP
+    // Event listener for applying IP address override
+    document.getElementById('applyBtn').addEventListener('click', function() {
+      const ip = document.getElementById('ipInput').value;
+      applyOverride(ip);
+    });
 
-  // Update the URL with the new IP address (remove receiver if it's there)
-  updateURLWithIp(ip);  // Update URL to reflect IP
-  
-  // **Reset all components when applying override**
-  resetCardsAndCharts();  // Reset all cards and charts
-  resetMapAndTable();     // Reset the map and table
-  resetFilters();         // Reset filters
-
-  // Fetch metrics and update data after IP override
-  console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
-  fetchMetrics();
-
-  // Fetch receivers with the new IP immediately after applying override
-  fetchReceivers(ip);  // Fetch receivers by IP address
-}
 
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -468,21 +472,15 @@ window.addEventListener('DOMContentLoaded', () => {
   if (p.has('ipaddress')) {
     applyOverride(p.get('ipaddress'));
   }
-  
+
   if (p.has('receiver')) {
     // Set the receiverId to the URL's receiver value
     overrideReceiverId = p.get('receiver');
-    // Fetch metrics by the receiver ID
     console.log('Fetching metrics with receiver ID:', overrideReceiverId);
-    fetchMetrics();
-    // Fetch receiver info based on the receiver id
+    requestMetricsBySource(overrideReceiverId, false); // Use ID instead of IP address
     fetchReceiversById(overrideReceiverId);
   }
-
-  // Fetch metrics every second
-  setInterval(fetchMetrics, 1000);
 });
-
 
     // sorting
     document.querySelectorAll('#summaryTable th').forEach(th=>{
@@ -947,25 +945,6 @@ function updateMap() {
 
 // **Trigger the fitBounds function after data load when the `id` query parameter is used**
 
-window.addEventListener('DOMContentLoaded', () => {
-  const p = new URLSearchParams(location.search);
-
-  // When `id` parameter is set, we delay the fitting of bounds until the markers are rendered
-  if (p.has('id')) {
-    // Assuming that fetch functions for vessels/receivers will trigger data updates
-    fetchMetrics();  // Fetch metrics after page load
-    setTimeout(() => {
-      // After data has loaded, call fitBounds to ensure the map adjusts
-      if (vesselMarkers.length) {
-        const boundsArr = Object.values(vesselMarkers).map(m => m.getLatLng());
-        if (boundsArr.length) {
-          map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
-        }
-      }
-    }, 500);  // Add a slight delay to ensure data has been fetched and markers are available
-  }
-});
-
 
     // Fetch metrics, update cards/charts/table
 let receiversFetched = false; // Flag to ensure receivers are only fetched once
@@ -973,98 +952,38 @@ let receiversFetched = false; // Flag to ensure receivers are only fetched once
 // Variable to store the fetched IP address
 let currentIp = null;
 
-async function fetchMetrics() {
-  try {
-    // Fetch the IP address if it hasn't been fetched yet
-    if (!currentIp) {
-      const ipRes = await fetch('/myip');
-      if (!ipRes.ok) throw ipRes.status;
-
-      const ipData = await ipRes.json();
-      currentIp = ipData.ip;  // Store the IP from the "ip" field in the response
-
-      // Update the IP address in the header
-      document.getElementById('ip-address').textContent = currentIp;
-
-      // Only update the URL with the IP address if 'receiver' is not in the URL
-      const params = new URLSearchParams(location.search);
-      if (!params.has('receiver')) {
-        updateURLWithIp(currentIp);
+    function updateTable(metricsData) {
+      const tableBody = document.getElementById('summaryBody');
+      tableBody.innerHTML = '';  // Clear the previous table rows
+      const aggregated = metricsData.aggregated || {};
+      for (const [metric, value] of Object.entries(aggregated)) {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${metric}</td><td>${value}</td>`;
+        tableBody.appendChild(row);
       }
     }
 
-    // Construct the URL for fetching metrics with appropriate parameters
-    let url = '/metrics/bysource';
 
-    // Check if overrideReceiverId exists or URL has a receiver ID, otherwise use the current IP
-    const params = new URLSearchParams(location.search);
-    if (overrideReceiverId) {
-      url += `?id=${encodeURIComponent(overrideReceiverId)}`;
-    } else if (params.has('receiver')) {
-      url += `?id=${encodeURIComponent(params.get('receiver'))}`;
-    } else {
-      // If no ID specified, use the fetched IP address
-      url += `?ipaddress=${encodeURIComponent(currentIp)}`;
-    }
-
-    // Fetch the metrics from the backend
-    const res = await fetch(url);
-    if (!res.ok) throw res.status;
-
-    const data = await res.json();
-
-    // Fetch receivers only once
-    if (!receivedReceivers) {
-      fetchReceivers(currentIp); // Fetch receivers using current IP
-      receivedReceivers = true;  // Set the flag to true after fetching
-    }
-
-    const lbl = new Date().toLocaleTimeString(); // Get the current time for chart labels
-
-    // Update card metrics
-    cardMetrics.forEach(m => {
-      if (baselines[m] === undefined) baselines[m] = data.simple_metrics[m];
-      document.querySelector(`#card-${m} p`).textContent = formatNumber(data.simple_metrics[m] - baselines[m]);
-    });
-
-    // Update chart metrics
-    chartMetrics.forEach((m, i) => {
-      const c = charts[m];
-      c.data.labels.push(lbl);
-      c.data.datasets[0].data.push(data.simple_metrics[m]);
-      if (c.data.labels.length > maxPoints) {
-        c.data.labels.shift();  // Remove the oldest label
-        c.data.datasets[0].data.shift();  // Remove the oldest data point
-      }
-      c.update();  // Update the chart with the new data
-    });
-
-    // ** Handle messages and fetch receivers if necessary **
-    if (data.messages > 0 && !receivedReceivers) {
-      receivedReceivers = true;
-      fetchReceivers(currentIp); // Use IP or receiver ID to fetch receivers
-    }
-
-    // Update the summary table with new data
-    if (Array.isArray(data.window_user_ids)) {
-      data.window_user_ids.forEach(uid => {
-        lastSeenTs[uid] = new Date();
-        seenCount[uid] = (seenCount[uid] || 0) + 1;
-        if (!seenUserIds.has(uid)) {
-          seenUserIds.add(uid);
-          fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
-            .then(r => r.ok ? r.json() : Promise.reject(r.status))
-            .then(json => { summaryCache[uid] = json[uid] || {}; updateSummaryTable(); })
-            .catch(e => console.error(`summary ${uid} error`, e));
+    // Function to update the charts with the received metrics data
+    function updateCharts(metricsData) {
+      // Assuming you have a chart for each of your metrics (e.g., window_bytes, messages, etc.)
+      cardMetrics.forEach(m => {
+        const card = document.querySelector(`#card-${m}`);
+        if (card) {
+          card.querySelector('p').textContent = metricsData.simple_metrics[m] || 0;
         }
       });
-      updateSummaryTable();
+      chartMetrics.forEach((metric, index) => {
+        const chart = charts[metric];
+        if (chart) {
+          chart.data.datasets[0].data.push(metricsData.simple_metrics[metric]);
+          chart.update();
+        }
+      });
     }
 
-  } catch (e) {
-    console.error('Fetch error', e);
-  }
-}
+
+
 
 function fetchReceiversById(receiverId) {
   fetch(`/receivers?id=${encodeURIComponent(receiverId)}`)
@@ -1104,13 +1023,25 @@ function fetchReceiversById(receiverId) {
     .catch(err => console.error('Error fetching receiver by id:', err));
 }
 
-function updateURLWithIp(ip) {
-  const url = new URL(window.location);
-  console.log('Updating URL with IP:', ip);
-  url.searchParams.delete('receiver');  // Remove receiver if IP address is used
-  url.searchParams.set('ipaddress', ip);  // Set ipaddress query parameter
-  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
-}
+    // Function to apply override IP address
+    function applyOverride(ip) {
+      console.log("applyOverride function called with IP:", ip);
+      ip = (ip || '').trim();
+      if (!ip) return;
+      
+      // Update the URL with the new IP address
+      updateURLWithIp(ip);
+      
+      // Request metrics with the new IP address
+      requestMetricsBySource(ip);
+    }
+
+    function updateURLWithIp(ip) {
+      const url = new URL(window.location);
+      url.searchParams.delete('receiver');
+      url.searchParams.set('ipaddress', ip);
+      history.replaceState(null, '', url.toString());
+    }
 
 async function fetchReceivers(ip) {
   try {
