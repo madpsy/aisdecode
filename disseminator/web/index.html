@@ -475,7 +475,7 @@
     <span id="status-text">Disconnected</span>
   </div>
   <div id="metrics-display">
-    <div id="msg-per-sec">0 msgs/sec</div>
+    <div id="msg-per-sec">0/sec</div>
     <div id="forwarded-ratio">0%</div>
   </div>
         <label>
@@ -2716,7 +2716,7 @@ socket.on('metricsData', (data) => {
   const forwardedRatioPercent = (window_ratio_forwarded_to_received * 100).toFixed(2); // Convert to percentage
 
   // Update the DOM with the new values
-  document.getElementById('msg-per-sec').textContent = `${msgPerSec} msgs/sec`;
+  document.getElementById('msg-per-sec').textContent = `${msgPerSec}/sec`;
   document.getElementById('forwarded-ratio').textContent = `${forwardedRatioPercent}%`;
 });
 
