@@ -1621,6 +1621,31 @@ func logWithDebug(debug bool, format string, args ...interface{}) {
 	}
 }
 
+func myIPHandler(w http.ResponseWriter, r *http.Request) {
+	ip := r.Header.Get("X-Forwarded-For")
+	if ip != "" {
+		// If there are multiple IPs, the client IP will be the first one
+		// Extract the first IP from the list
+		ip = strings.Split(ip, ",")[0]
+	} else {
+		// Fallback to r.RemoteAddr if X-Forwarded-For is not set
+		ip = r.RemoteAddr
+		if idx := strings.Index(ip, ":"); idx != -1 {
+			ip = ip[:idx]
+		}
+	}
+
+	response := map[string]string{
+		"ip": ip,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Unable to encode response", http.StatusInternalServerError)
+		log.Println("Error encoding response:", err)
+	}
+}
+
 // Load settings from the settings.json file
 func loadSettings(path string) (*Settings, error) {
 	data, err := os.ReadFile(path)
@@ -1850,6 +1875,9 @@ func setupServer(settings *Settings) {
     mux.Handle("/statistics/", statisticsProxy) // statistics JSON endpoints
 
     // HTTP API endpoints
+
+    mux.HandleFunc("/myip", myIPHandler)
+
     mux.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
     	summaryHandler(w, r, conf)
     })
