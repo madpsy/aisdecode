@@ -264,7 +264,7 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
     var queryParam, queryValue string
 
     // Check if the 'id' or 'ipaddress' parameter is present
-    if id, ok := data["id"].(float64); ok {
+    if id, ok := data["id"].(int64); ok {
         idInt := int(id)
         log.Printf("Client %s requested by id: %d", client.Id(), idInt)
         queryParam = "id"
