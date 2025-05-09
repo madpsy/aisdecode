@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"context"
 	"io"
+	"io/ioutil"
 	
 	"github.com/go-redis/redis/v8"
 	"github.com/lib/pq"
@@ -260,14 +261,40 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
 
     log.Printf("Received ipaddress: %s from client %s", ipaddress, client.Id())
 
-    // Create the response including the client ID
-    response := map[string]interface{}{
-        "ipaddress": ipaddress,
-        "clientId":  client.Id(),  // Include the client's ID in the response
+    // Perform a GET request to the external metrics API with the ipaddress as a query parameter
+    url := fmt.Sprintf("%s/metrics/bysource?ipaddress=%s", conf.MetricsBaseURL, ipaddress)
+    resp, err := http.Get(url)
+    if err != nil {
+        log.Printf("Error making GET request to %s: %v", url, err)
+        return
+    }
+    defer resp.Body.Close()
+
+    // Check if the response status is OK
+    if resp.StatusCode != http.StatusOK {
+        log.Printf("Received non-OK response from external API: %d", resp.StatusCode)
+        return
     }
 
+    // Read the response body from the external API
+    body, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        log.Printf("Error reading response body: %v", err)
+        return
+    }
+
+    // Unmarshal the response body into a map (assume JSON response)
+    var apiResponse map[string]interface{}
+    if err := json.Unmarshal(body, &apiResponse); err != nil {
+        log.Printf("Error unmarshalling response body: %v", err)
+        return
+    }
+
+    // Add clientId to the response
+    apiResponse["clientId"] = client.Id()
+
     // Emit the response back to the same client that sent the request
-    if err := client.Emit("metrics/bysource", response); err != nil {
+    if err := client.Emit("metrics/bysource", apiResponse); err != nil {
         log.Printf("Error emitting response for metrics/bysource to client %s: %v", client.Id(), err)
     }
 }
