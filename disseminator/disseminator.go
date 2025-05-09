@@ -261,8 +261,9 @@ func (cc *ClientConnection) ensureDB() error {
 
 func handleMetricsBysource(client *serverSocket.Socket, data map[string]interface{}) {
     var queryParam, queryValue string
+    var oldQueryValue string
 
-    // Determine if the request is by 'id' or 'ipaddress'
+    // Check if the 'id' or 'ipaddress' parameter is present
     if id, ok := data["id"].(float64); ok {
         idInt := int(id)
         log.Printf("Client %s requested by id: %d", client.Id(), idInt)
@@ -279,12 +280,20 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
 
     log.Printf("Received %s: %s from client %s", queryParam, queryValue, client.Id())
 
-    // Lock to ensure that there are no race conditions in modifying activeClients or tickers
+    // Locking for active clients to avoid race conditions
     tickerMu.Lock()
 
-    // If client was previously registered with a different ipaddress, clean it up
-    if oldQueryValue, exists := client.Get("ipaddress"); exists && oldQueryValue != queryValue {
-        // Remove client from the old ipaddress's activeClients map
+    // Check if the client is already requesting this ipaddress/id
+    if currentClients, exists := activeClients[queryValue]; exists {
+        if _, exists := currentClients[client]; exists {
+            // Client is already registered for the same ipaddress, no need to do anything
+            tickerMu.Unlock()
+            return
+        }
+    }
+
+    // If the client was previously requesting a different ipaddress, clean up the old one
+    if oldQueryValue != queryValue && oldQueryValue != "" {
         if currentClients, exists := activeClients[oldQueryValue]; exists {
             delete(currentClients, client)
             // If no clients remain for the old ipaddress, stop the ticker
@@ -293,21 +302,19 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
                     ticker.Stop()
                     delete(clientMetricsBysourceTickers, oldQueryValue)
                     delete(cachedMetricsData, oldQueryValue)
-                    log.Printf("Stopped ticker for ipaddress %s as no clients remain.", oldQueryValue)
                 }
             }
         }
     }
 
-    // Now, register the client under the new ipaddress or id
+    // Register the client to receive updates for the new ipaddress/id
     if activeClients[queryValue] == nil {
         activeClients[queryValue] = make(map[*serverSocket.Socket]struct{})
     }
     activeClients[queryValue][client] = struct{}{}
-
-    // Check if there's already a ticker running for this ipaddress/id
+    
+    // Check if there is already an ongoing ticker for this queryValue
     if _, exists := clientMetricsBysourceTickers[queryValue]; !exists {
-        // No ticker exists for this queryValue, so create a new one
         wg := &sync.WaitGroup{}
         ongoingRequests[queryValue] = wg
         wg.Add(1)
@@ -378,7 +385,6 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
         tickerMu.Unlock()
     })
 }
-
 
 // QueryDatabaseForUser looks up which collector shard handles the given userID,
 // ensures its DB connection is alive, and runs the provided SQL query.
