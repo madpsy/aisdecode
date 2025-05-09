@@ -264,19 +264,27 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
     var queryParam, queryValue string
 
     // Check if the 'id' or 'ipaddress' parameter is present
-    if id, ok := data["id"].(int64); ok {
-        idInt := int(id)
+if idValue, ok := data["id"]; ok {
+    log.Printf("Type of 'id' value: %T", idValue)  // Log the type of the 'id' value
+
+    // Try to assert it as int64
+    if id, ok := idValue.(int64); ok {
+        idInt := int(id)  // Convert int64 to int
         log.Printf("Client %s requested by id: %d", client.Id(), idInt)
         queryParam = "id"
         queryValue = strconv.Itoa(idInt)
-    } else if ip, ok := data["ipaddress"].(string); ok {
-        log.Printf("Client %s requested by ipaddress: %s", client.Id(), ip)
-        queryParam = "ipaddress"
-        queryValue = ip
     } else {
-        log.Printf("Invalid or missing ipaddress/id in data: %v", data)
+        log.Printf("Expected id to be int64, but got: %T", idValue)
         return
     }
+} else if ip, ok := data["ipaddress"].(string); ok {
+    log.Printf("Client %s requested by ipaddress: %s", client.Id(), ip)
+    queryParam = "ipaddress"
+    queryValue = ip
+} else {
+    log.Printf("Invalid or missing ipaddress/id in data: %v", data)
+    return
+}
 
     log.Printf("Received %s: %s from client %s", queryParam, queryValue, client.Id())
 
