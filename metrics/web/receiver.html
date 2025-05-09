@@ -969,28 +969,34 @@ window.addEventListener('DOMContentLoaded', () => {
     // Fetch metrics, update cards/charts/table
 let receiversFetched = false; // Flag to ensure receivers are only fetched once
 
+// Variable to store the fetched IP address
+let currentIp = null;
+
 async function fetchMetrics() {
   try {
-    // First, fetch the IP address from the /myip endpoint
-    const ipRes = await fetch('/myip');
-    if (!ipRes.ok) throw ipRes.status;
+    // Fetch the IP address if it hasn't been fetched yet
+    if (!currentIp) {
+      const ipRes = await fetch('/myip');
+      if (!ipRes.ok) throw ipRes.status;
 
-    const ipData = await ipRes.json();
-    const currentIp = ipData.ip;  // Get the IP from the "ip" field in the response
+      const ipData = await ipRes.json();
+      currentIp = ipData.ip;  // Store the IP from the "ip" field in the response
 
-    // Update the IP address in the header
-    document.getElementById('ip-address').textContent = currentIp;
+      // Update the IP address in the header
+      document.getElementById('ip-address').textContent = currentIp;
 
-    // Only update the URL with the IP address if 'receiver' is not in the URL
-    const params = new URLSearchParams(location.search);
-    if (!params.has('receiver')) {
-      updateURLWithIp(currentIp);
+      // Only update the URL with the IP address if 'receiver' is not in the URL
+      const params = new URLSearchParams(location.search);
+      if (!params.has('receiver')) {
+        updateURLWithIp(currentIp);
+      }
     }
 
     // Construct the URL for fetching metrics with appropriate parameters
     let url = '/metrics/bysource';
 
     // Check if overrideReceiverId exists or URL has a receiver ID, otherwise use the current IP
+    const params = new URLSearchParams(location.search);
     if (overrideReceiverId) {
       url += `?id=${encodeURIComponent(overrideReceiverId)}`;
     } else if (params.has('receiver')) {
