@@ -2149,8 +2149,6 @@ client.On("metrics/bysource", func(data ...any) {
 
     // Lock for thread-safe access to connectedClients
     connectedClientsMu.RLock()
-    // Log the connected clients for debugging
-    log.Printf("Connected Clients: %+v", connectedClients)  // Debugging line
     _, exists := connectedClients[clientID]  // We just need to check existence
     connectedClientsMu.RUnlock()
 
@@ -2172,10 +2170,10 @@ client.On("metrics/bysource", func(data ...any) {
         return
     }
 
-    // Now you have the correct ClientConnection (clientConn), and you can call handleMetricsBySource on it.
+    // Now that the connection is verified, handle the metrics by source
     if len(data) > 0 {
         if dataMap, ok := data[0].(map[string]interface{}); ok {
-            // Call the method on ClientConnection
+            // Call the method on ClientConnection (similar to how ais_data is handled)
             clientConn.handleMetricsBySource(client, dataMap)
         }
     } else {
@@ -2183,6 +2181,7 @@ client.On("metrics/bysource", func(data ...any) {
         clientConn.handleMetricsBySource(client, nil)
     }
 })
+
 
 
 
