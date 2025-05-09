@@ -17,6 +17,7 @@ import (
 	"sync"
 	"runtime"
 	"context"
+	"io"
 	
 	"github.com/go-redis/redis/v8"
 	"github.com/lib/pq"
@@ -1736,6 +1737,9 @@ func setupServer(settings *Settings) {
         client := args[0].(*serverSocket.Socket)
         log.Printf("WebSocket client connected: %s", client.Id())
 
+        // Add the client to the 'metrics' room
+        client.Join("metrics")
+
         // Track connected client
         connectedClientsMu.Lock()
         connectedClients[client.Id()] = client
@@ -2124,6 +2128,67 @@ func main() {
 	            clientSummaryFilters[sockID] = params
 	        }
 	        clientSummaryMu.Unlock()
+	    }
+	}()
+
+	go func() {
+	    ticker := time.NewTicker(1 * time.Second) // Poll every second
+	    defer ticker.Stop()
+
+	    // Create a custom HTTP client with a 2-second timeout
+	    client := &http.Client{
+	        Timeout: 2 * time.Second, // Set a 2-second timeout
+	    }
+
+	    for range ticker.C {
+	        // Fetch /metrics/ingester data from the configured Metrics URL
+	        resp, err := client.Get(fmt.Sprintf("%s/metrics/ingester", conf.MetricsBaseURL))
+	        if err != nil {
+	            log.Printf("Error fetching /metrics/ingester: %v", err)
+	            continue
+	        }
+	        defer resp.Body.Close()
+
+	        if resp.StatusCode != http.StatusOK {
+	            log.Printf("Received non-OK response from /metrics/ingester: %v", resp.StatusCode)
+	            continue
+	        }
+
+	        // Read and parse the response body
+	        body, err := io.ReadAll(resp.Body) // Updated to use io.ReadAll instead of ioutil.ReadAll
+	        if err != nil {
+	            log.Printf("Error reading response body: %v", err)
+	            continue
+	        }
+
+	        // Parse the JSON response
+	        var metrics map[string]interface{}
+	        if err := json.Unmarshal(body, &metrics); err != nil {
+	            log.Printf("Error unmarshalling JSON: %v", err)
+	            continue
+	        }
+
+	        // Extract the relevant fields
+	        selectedMetrics := map[string]interface{}{
+	            "window_messages":               metrics["window_messages"],
+	            "window_messages_forwarded":     metrics["window_messages_forwarded"],
+	            "bytes_received_window":         metrics["bytes_received_window"],
+	            "deduplication_window_sec":      metrics["deduplication_window_sec"],
+	            "downsample_window_sec":         metrics["downsample_window_sec"],
+	            "ratio_forwarded_to_received":   metrics["ratio_forwarded_to_received"],
+	            "shards_missing":                metrics["shards_missing"],
+	            "metric_window_size_sec":        metrics["metric_window_size_sec"], // Added the new field here
+	        }
+
+	        // Emit the selected fields to all clients in the 'metrics' room
+	        connectedClientsMu.RLock()
+	        for _, client := range connectedClients {
+	            // Emit the selected data to the 'metrics' room
+	            if err := client.Emit("metricsData", selectedMetrics); err != nil {
+	                log.Printf("Error emitting data to client %s: %v", client.Id(), err)
+	            }
+	        }
+	        connectedClientsMu.RUnlock()
 	    }
 	}()
 
