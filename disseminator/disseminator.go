@@ -233,13 +233,14 @@ func getSummaryWithRedisCache(p FilterParams, ttl int) (map[string]interface{}, 
 }
 
 func (cc *ClientConnection) handleMetricsBySource(client *serverSocket.Socket, data map[string]interface{}) {
+    // Convert SocketId to string for use in maps
+    clientID := string(client.Id()) // Convert SocketId to string
+
     // Lock for thread-safe access to clientMetricsRequests
     clientMetricsRequestsMu.Lock()
     defer clientMetricsRequestsMu.Unlock()
 
-    // Ensure the client only requests one type at a time
-    clientID := string(client.Id()) // Convert SocketId to string
-
+    // Ensure the client only requests one type of metrics at a time
     if existingRequest, exists := clientMetricsRequests[clientID]; exists && (existingRequest["id"] != "" || existingRequest["ipaddress"] != "") {
         log.Printf("Client %s already has an active metrics request", clientID)
         client.Emit("error", "You can only request one type of metrics at a time.")
@@ -326,8 +327,13 @@ func (cc *ClientConnection) handleMetricsBySource(client *serverSocket.Socket, d
             delete(ongoingBysourceRequests, currentKey)
         }
     }()
-}
 
+    // Emit a response back to the client that the request is being processed
+    client.Emit("metricsBySourceRequest", map[string]interface{}{
+        "status": "in-progress",
+        "message": fmt.Sprintf("Metrics request for client %s is being processed.", clientID),
+    })
+}
 
 func handleClientDisconnect(client *serverSocket.Socket) {
     // Get the client ID as SocketId (already of type SocketId)
@@ -2136,29 +2142,47 @@ func setupServer(settings *Settings) {
 	})
 
 client.On("metrics/bysource", func(data ...any) {
-    // Use client.Id() directly since it's already a SocketId
-    clientID := client.Id()  // client.Id() is already of type SocketId, no need to cast to string
+    clientID := client.Id()  // This is the SocketId, which is correct for this purpose
+
+    // Convert clientID (SocketId) to string to use as a key in the map
+    clientIDStr := string(clientID)
 
     // Lock for thread-safe access to connectedClients
     connectedClientsMu.RLock()
-    cc, exists := connectedClients[clientID]  // Use clientId (SocketId) to look up the connection
+    // The variable `cc` is redundant here, so we remove it
+    _, exists := connectedClients[clientID]  // We just need to check existence
     connectedClientsMu.RUnlock()
 
     if !exists {
-        log.Printf("No ClientConnection found for client %s", clientID)
+        log.Printf("No ClientConnection found for client %s", clientIDStr)
         client.Emit("error", "Client connection not found.")
         return
     }
 
-    // Handle the metrics request using the ClientConnection's method
+    // Now we convert clientID to string for use in clientConnections map
+    clientConnectionsMu.RLock()
+    clientConn, exists := clientConnections[clientIDStr]  // Fetch the *ClientConnection from the map using string key
+    clientConnectionsMu.RUnlock()
+
+    if !exists {
+        log.Printf("No ClientConnection available for client %s", clientIDStr)
+        client.Emit("error", "Client connection not found in client connection map.")
+        return
+    }
+
+    // Now you have the correct ClientConnection (clientConn), and you can call handleMetricsBySource on it.
     if len(data) > 0 {
         if dataMap, ok := data[0].(map[string]interface{}); ok {
-            cc.Emit("metricsData", dataMap)  // Adjust this part to how you want to handle the response
+            // Call the method on ClientConnection
+            clientConn.handleMetricsBySource(client, dataMap)
         }
     } else {
-        cc.Emit("metricsData", nil)  // Adjust to the appropriate action if no data is provided
+        // Handle empty data case
+        clientConn.handleMetricsBySource(client, nil)
     }
 })
+
+
 
 
 
