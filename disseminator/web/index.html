@@ -474,6 +474,10 @@
     <span id="status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: red; display: inline-block; margin-right: 5px;"></span>
     <span id="status-text">Disconnected</span>
   </div>
+  <div id="metrics-display">
+    <div id="msg-per-sec">0 msgs/sec</div>
+    <div id="forwarded-ratio">0%</div>
+  </div>
         <label>
     <input type="checkbox" id="only-focussed">
     Only Tracked
@@ -2701,9 +2705,22 @@ function applyLogFilters() {
           document.getElementById('status-text').textContent = 'Disconnected';
         });
 
-  socket.on('metricsData', (data) => {
-    console.log('Received metrics data:', JSON.stringify(data, null, 2)); // Log the data sent to 'metrics' room
-  });
+socket.on('metricsData', (data) => {
+  console.log('Received metrics data:', JSON.stringify(data, null, 2));
+
+  // Extract the values from the received data
+  const { window_messages, ratio_forwarded_to_received } = data;
+
+  // Calculate messages per second
+  const msgPerSec = window_messages;
+
+  // Calculate ratio as percentage
+  const forwardedRatioPercent = (ratio_forwarded_to_received * 100).toFixed(2); // Convert to percentage
+
+  // Update the DOM with the new values
+  document.getElementById('msg-per-sec').textContent = `${msgPerSec} msgs/sec`;
+  document.getElementById('forwarded-ratio').textContent = `${forwardedRatioPercent}%`;
+});
 
 socket.on("summaryData", (data) => {
   const ageSlider = document.getElementById('age-slider');
