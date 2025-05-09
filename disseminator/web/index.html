@@ -2701,6 +2701,10 @@ function applyLogFilters() {
           document.getElementById('status-text').textContent = 'Disconnected';
         });
 
+  socket.on('metrics', (data) => {
+    console.log('Received metrics data:', JSON.stringify(data, null, 2)); // Log the data sent to 'metrics' room
+  });
+
 socket.on("summaryData", (data) => {
   const ageSlider = document.getElementById('age-slider');
   const maxAgeHours = parseInt(ageSlider.value, 10); // Get max-age from the slider
