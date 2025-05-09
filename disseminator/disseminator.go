@@ -258,17 +258,17 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
         return
     }
 
-    log.Printf("Received ipaddress: %s", ipaddress)
+    log.Printf("Received ipaddress: %s from client %s", ipaddress, client.Id())
 
-    // You can process the ipaddress here or fetch related metrics data
-    // For now, we just send it back in the response
+    // Create the response including the client ID
     response := map[string]interface{}{
         "ipaddress": ipaddress,
+        "clientId":  client.Id(),  // Include the client's ID in the response
     }
 
-    // Emit the response back to the client
+    // Emit the response back to the same client that sent the request
     if err := client.Emit("metrics/bysource", response); err != nil {
-        log.Printf("Error emitting response for metrics/bysource: %v", err)
+        log.Printf("Error emitting response for metrics/bysource to client %s: %v", client.Id(), err)
     }
 }
 
@@ -2046,22 +2046,22 @@ func setupServer(settings *Settings) {
 	    }
 	})
 
-client.On("metrics/bysource", func(args ...interface{}) {
-    // Ensure that the data argument is a map
-    if len(args) < 1 {
-        log.Printf("No data received in 'metrics/bysource' event")
-        return
-    }
+	client.On("metrics/bysource", func(args ...interface{}) {
+	    // Ensure that the data argument is a map
+	    if len(args) < 1 {
+	        log.Printf("No data received in 'metrics/bysource' event")
+	        return
+	    }
 
-    data, ok := args[0].(map[string]interface{})
-    if !ok {
-        log.Printf("Invalid data type: expected map[string]interface{}, got %T", args[0])
-        return
-    }
+	    data, ok := args[0].(map[string]interface{})
+	    if !ok {
+	        log.Printf("Invalid data type: expected map[string]interface{}, got %T", args[0])
+	        return
+	    }
 
-    // Call the new handler function
-    handleMetricsBysource(client, data)
-})
+	    // Call the new handler function
+	    handleMetricsBysource(client, data)
+	})
 
 
         client.On("disconnect", func(...any) {
