@@ -19,19 +19,29 @@
     th { background: #f0f0f0; cursor: pointer; }
     td a { color: #0066cc; text-decoration: none; }
     td a:hover { text-decoration: underline; }
+    .input-group { margin-top: 20px; }
+    .input-group input { padding: 5px; margin-right: 10px; }
   </style>
 </head>
 <body>
-  <h2>IP Address: <span id="ip-address">Loading...</span></h2>
-  
+  <h2>Receiver Dashboard</h2>
+
+  <!-- Input fields for IP Address and ID -->
+  <div class="input-group">
+    <label for="ip-address-input">IP Address:</label>
+    <input type="text" id="ip-address-input" placeholder="Enter IP Address" />
+    <label for="id-input">ID:</label>
+    <input type="text" id="id-input" placeholder="Enter ID" />
+    <button id="submitBtn">Request Metrics</button>
+  </div>
+
+  <h3>Current IP: <span id="ip-address">Loading...</span></h3>
+
   <table id="metricsTable">
     <thead>
       <tr>
-        <th>MMSI</th>
-        <th>Name</th>
-        <th>Type</th>
-        <th>Status</th>
-        <th>Last Seen</th>
+        <th>Metric</th>
+        <th>Value</th>
       </tr>
     </thead>
     <tbody id="tableBody"></tbody>
@@ -41,9 +51,6 @@
   <script>
     // Connect to the Socket.IO server (client-side)
     const socket = io();  // Creates a Socket.IO connection
-
-    // Variable to store the fetched IP address
-    let currentIp = null;
 
     // Request metrics by source (IP address or ID)
     function requestMetricsBySource(identifier, isIpAddress = true) {
@@ -58,16 +65,72 @@
     // Listen for incoming metrics data from the server
     socket.on("metrics/bysource", function(metricsData) {
       console.log("Received metrics data:", metricsData);
-      
+
       // Log the entire response payload (data received from the server)
       console.log("Received Payload:", metricsData);
 
-      // Log room info if available (Socket.IO's room functionality)
-      const roomId = socket.id;
-      console.log("Connected to room (socket ID):", roomId);
-
       // Update the table with the received data
       updateTable(metricsData);
+    });
+
+    // Function to update the table with the received metrics data
+    function updateTable(metricsData) {
+      const tableBody = document.getElementById('tableBody');
+      tableBody.innerHTML = '';  // Clear the previous table rows
+
+      // Render the aggregated data
+      const aggregated = metricsData.aggregated || {};
+      for (const [metric, value] of Object.entries(aggregated)) {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${metric}</td><td>${value}</td>`;
+        tableBody.appendChild(row);
+      }
+
+      // Render the simple metrics
+      const simpleMetrics = metricsData.simple_metrics || {};
+      for (const [metric, value] of Object.entries(simpleMetrics)) {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${metric}</td><td>${value}</td>`;
+        tableBody.appendChild(row);
+      }
+
+      // Render the requested_ip_address
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>Requested IP Address</td><td>${metricsData.requested_ip_address}</td>`;
+      tableBody.appendChild(row);
+
+      // Render window_user_ids (if present) or display a message if null
+      if (metricsData.window_user_ids) {
+        metricsData.window_user_ids.forEach(uid => {
+          const rowData = metricsData.window_user_data[uid] || {};
+          const userRow = document.createElement('tr');
+          userRow.innerHTML = `
+            <td>User ID: ${uid}</td>
+            <td>Name: ${rowData.Name || 'N/A'}, Type: ${rowData.Type || 'N/A'}, Status: ${rowData.Status || 'N/A'}, Last Seen: ${new Date(rowData.LastSeen).toLocaleString() || 'N/A'}
+          `;
+          tableBody.appendChild(userRow);
+        });
+      } else {
+        const noDataRow = document.createElement('tr');
+        noDataRow.innerHTML = `<td colspan="2">No window user IDs available</td>`;
+        tableBody.appendChild(noDataRow);
+      }
+    }
+
+    // Event listener for submitting the request
+    document.getElementById('submitBtn').addEventListener('click', function() {
+      const ip = document.getElementById('ip-address-input').value;
+      const id = document.getElementById('id-input').value;
+
+      if (ip) {
+        // Request metrics using IP address
+        requestMetricsBySource(ip, true);
+      } else if (id) {
+        // Request metrics using ID
+        requestMetricsBySource(id, false);
+      } else {
+        alert("Please enter either an IP address or an ID.");
+      }
     });
 
     // Fetch the IP address once and use it for requests
@@ -77,54 +140,20 @@
         if (!ipRes.ok) throw ipRes.status;
 
         const ipData = await ipRes.json();
-        currentIp = ipData.ip;  // Store the IP from the "ip" field in the response
+        const ip = ipData.ip;  // Store the IP from the "ip" field in the response
 
         // Update the IP address on the page
-        document.getElementById('ip-address').textContent = currentIp;
+        document.getElementById('ip-address').textContent = ip;
 
         // Request metrics with the fetched IP
-        requestMetricsBySource(currentIp);
+        requestMetricsBySource(ip);
       } catch (e) {
         console.error('Error fetching IP address:', e);
       }
     }
 
-    // Function to update the table with the received metrics data
-    function updateTable(metricsData) {
-      const tableBody = document.getElementById('tableBody');
-      tableBody.innerHTML = '';  // Clear the previous table rows
-
-      // Check if `window_user_ids` is present in the response
-      if (metricsData.window_user_ids) {
-        metricsData.window_user_ids.forEach(uid => {
-          const rowData = metricsData.window_user_data[uid];
-          
-          // Create a new table row
-          const row = document.createElement('tr');
-          row.innerHTML = `
-            <td>${uid}</td>
-            <td>${rowData.Name || 'N/A'}</td>
-            <td>${rowData.Type || 'N/A'}</td>
-            <td>${rowData.Status || 'N/A'}</td>
-            <td>${new Date(rowData.LastSeen).toLocaleString() || 'N/A'}</td>
-          `;
-
-          // Append the new row to the table
-          tableBody.appendChild(row);
-        });
-      } else {
-        // Handle case if there are no window_user_ids (no user data)
-        const row = document.createElement('tr');
-        row.innerHTML = `<td colspan="5">No data available for the requested metrics.</td>`;
-        tableBody.appendChild(row);
-      }
-    }
-
     // Initialize by fetching the IP address and requesting metrics
     fetchIpAddressAndRequestMetrics();
-
-    // Example usage: request by ID (uncomment to test)
-    // requestMetricsBySource('your-id-here', false);
   </script>
 </body>
 </html>
