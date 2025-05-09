@@ -2149,7 +2149,8 @@ client.On("metrics/bysource", func(data ...any) {
 
     // Lock for thread-safe access to connectedClients
     connectedClientsMu.RLock()
-    // The variable `cc` is redundant here, so we remove it
+    // Log the connected clients for debugging
+    log.Printf("Connected Clients: %+v", connectedClients)  // Debugging line
     _, exists := connectedClients[clientID]  // We just need to check existence
     connectedClientsMu.RUnlock()
 
@@ -2159,8 +2160,9 @@ client.On("metrics/bysource", func(data ...any) {
         return
     }
 
-    // Now we convert clientID to string for use in clientConnections map
+    // Log the clientConnections before accessing it
     clientConnectionsMu.RLock()
+    log.Printf("ClientConnections: %+v", clientConnections)  // Debugging line
     clientConn, exists := clientConnections[clientIDStr]  // Fetch the *ClientConnection from the map using string key
     clientConnectionsMu.RUnlock()
 
@@ -2181,6 +2183,7 @@ client.On("metrics/bysource", func(data ...any) {
         clientConn.handleMetricsBySource(client, nil)
     }
 })
+
 
 
 
