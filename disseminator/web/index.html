@@ -2701,7 +2701,7 @@ function applyLogFilters() {
           document.getElementById('status-text').textContent = 'Disconnected';
         });
 
-  socket.on('metrics', (data) => {
+  socket.on('metricsData', (data) => {
     console.log('Received metrics data:', JSON.stringify(data, null, 2)); // Log the data sent to 'metrics' room
   });
 

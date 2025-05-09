@@ -2177,7 +2177,8 @@ func main() {
 	            "downsample_window_sec":         metrics["downsample_window_sec"],
 	            "ratio_forwarded_to_received":   metrics["ratio_forwarded_to_received"],
 	            "shards_missing":                metrics["shards_missing"],
-	            "metric_window_size_sec":        metrics["metric_window_size_sec"], // Added the new field here
+	            "metric_window_size_sec":        metrics["metric_window_size_sec"],
+		    "uptime_seconds":                metrics["uptime_seconds"],
 	        }
 
 	        // Emit the selected fields to all clients in the 'metrics' room
