@@ -330,33 +330,18 @@ func (cc *ClientConnection) handleMetricsBySource(client *serverSocket.Socket, d
 
 
 func handleClientDisconnect(client *serverSocket.Socket) {
-    // Get the client ID as SocketId
-    clientID := client.Id() // No need to cast to string explicitly
+    // Get the client ID as SocketId (already of type SocketId)
+    clientID := client.Id()
 
-    // Clean up the client's metrics request tracking when they disconnect
-    clientMetricsRequestsMu.Lock()
-    delete(clientMetricsRequests, string(clientID))  // Cast SocketId to string explicitly when using as map key
-    clientMetricsRequestsMu.Unlock()
-
-    // Remove any ongoing request tracking when the client disconnects
+    // Clean up ongoing requests for this client (if any)
     for key, ongoingRequest := range ongoingBysourceRequests {
-        // Cleanup: Close the channel and remove the ongoing request
         if ongoingRequest != nil {
-            close(ongoingRequest)
-            delete(ongoingBysourceRequests, key)
+            close(ongoingRequest)  // Close the channel to stop waiting for it
+            delete(ongoingBysourceRequests, key)  // Remove the entry
         }
     }
 
-    // Remove the client from the connected clients map using SocketId
-    connectedClientsMu.Lock()
-    delete(connectedClients, clientID)  // This is fine since clientID is already of SocketId type
-    connectedClientsMu.Unlock()
-
-    // Remove the client from their subscriptions
-    clientSubscriptionsMu.Lock()
-    delete(clientSubscriptions, clientID)  // This is fine since clientID is already of SocketId type
-    clientSubscriptionsMu.Unlock()
-
+    // Log the disconnection (you can skip removing from `connectedClients` here)
     log.Printf("WebSocket client %s disconnected.", clientID)
 }
 
@@ -2150,29 +2135,33 @@ func setupServer(settings *Settings) {
 	    }
 	})
 
-	client.On("metrics/bysource", func(data ...any) {
-	    clientID := string(client.Id())  // Assert SocketId to string (if it's a type alias for string)
+client.On("metrics/bysource", func(data ...any) {
+    // Use client.Id() directly since it's already a SocketId
+    clientID := client.Id()  // client.Id() is already of type SocketId, no need to cast to string
 
-	    // Lock for thread-safe access to clientConnections
-	    clientConnectionsMu.RLock()
-	    cc, exists := clientConnections[clientID]  // Use clientID as a string key
-	    clientConnectionsMu.RUnlock()
+    // Lock for thread-safe access to connectedClients
+    connectedClientsMu.RLock()
+    cc, exists := connectedClients[clientID]  // Use clientId (SocketId) to look up the connection
+    connectedClientsMu.RUnlock()
 
-	    if !exists {
-	        log.Printf("No ClientConnection found for client %s", clientID)
-	        client.Emit("error", "Client connection not found.")
-	        return
-	    }
+    if !exists {
+        log.Printf("No ClientConnection found for client %s", clientID)
+        client.Emit("error", "Client connection not found.")
+        return
+    }
 
-	    // Handle the metrics request using the ClientConnection's method
-	    if len(data) > 0 {
-	        if dataMap, ok := data[0].(map[string]interface{}); ok {
-	            cc.handleMetricsBySource(client, dataMap)
-	        }
-	    } else {
-	        cc.handleMetricsBySource(client, nil)
-	    }
-	})
+    // Handle the metrics request using the ClientConnection's method
+    if len(data) > 0 {
+        if dataMap, ok := data[0].(map[string]interface{}); ok {
+            cc.Emit("metricsData", dataMap)  // Adjust this part to how you want to handle the response
+        }
+    } else {
+        cc.Emit("metricsData", nil)  // Adjust to the appropriate action if no data is provided
+    }
+})
+
+
+
 
         client.On("disconnect", func(...any) {
 	    // 1) Grab the list of this client’s active subscriptions
