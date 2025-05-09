@@ -250,6 +250,28 @@ func (cc *ClientConnection) ensureDB() error {
     return nil
 }
 
+func handleMetricsBysource(client *serverSocket.Socket, data map[string]interface{}) {
+    // Extract ipaddress from the data
+    ipaddress, ok := data["ipaddress"].(string)
+    if !ok || ipaddress == "" {
+        log.Printf("Invalid or missing ipaddress in data: %v", data)
+        return
+    }
+
+    log.Printf("Received ipaddress: %s", ipaddress)
+
+    // You can process the ipaddress here or fetch related metrics data
+    // For now, we just send it back in the response
+    response := map[string]interface{}{
+        "ipaddress": ipaddress,
+    }
+
+    // Emit the response back to the client
+    if err := client.Emit("metrics/bysource", response); err != nil {
+        log.Printf("Error emitting response for metrics/bysource: %v", err)
+    }
+}
+
 // QueryDatabaseForUser looks up which collector shard handles the given userID,
 // ensures its DB connection is alive, and runs the provided SQL query.
 func QueryDatabaseForUser(userID, query string) (*sql.Rows, error) {
@@ -2024,37 +2046,23 @@ func setupServer(settings *Settings) {
 	    }
 	})
 
-    client.On("metrics/bysource", func(args ...interface{}) {
-        // Check if the data argument is a map and extract the ipaddress
-        if len(args) < 1 {
-            log.Printf("No data received in 'metrics/bysource' event")
-            return
-        }
+client.On("metrics/bysource", func(args ...interface{}) {
+    // Ensure that the data argument is a map
+    if len(args) < 1 {
+        log.Printf("No data received in 'metrics/bysource' event")
+        return
+    }
 
-        data, ok := args[0].(map[string]interface{})
-        if !ok {
-            log.Printf("Invalid data type: expected map[string]interface{}, got %T", args[0])
-            return
-        }
+    data, ok := args[0].(map[string]interface{})
+    if !ok {
+        log.Printf("Invalid data type: expected map[string]interface{}, got %T", args[0])
+        return
+    }
 
-        // Extract the ipaddress from the data
-        ipaddress, ok := data["ipaddress"].(string)
-        if !ok || ipaddress == "" {
-            log.Printf("Invalid or missing ipaddress in data: %v", data)
-            return
-        }
+    // Call the new handler function
+    handleMetricsBysource(client, data)
+})
 
-        log.Printf("Received ipaddress: %s", ipaddress)
-
-        // Emit back the same ipaddress in the response
-        response := map[string]interface{}{
-            "ipaddress": ipaddress,
-        }
-
-        if err := client.Emit("metrics/bysource", response); err != nil {
-            log.Printf("Error emitting response for metrics/bysource: %v", err)
-        }
-    })
 
         client.On("disconnect", func(...any) {
 	    // 1) Grab the list of this client’s active subscriptions
