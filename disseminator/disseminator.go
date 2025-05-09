@@ -86,7 +86,6 @@ var (
 )
 
 var clientConnections map[string]*ClientConnection
-var clientConnectionsMap = make(map[string]*ClientConnection)
 var clientConnectionsMu sync.RWMutex
 var streamShards int // Global variable to store the total number of shards
 
@@ -231,120 +230,6 @@ func getSummaryWithRedisCache(p FilterParams, ttl int) (map[string]interface{}, 
     }()
 
     return summary, nil
-}
-
-func (cc *ClientConnection) handleMetricsBySource(client *serverSocket.Socket, data map[string]interface{}) {
-    // Convert SocketId to string for use in maps
-    clientID := string(client.Id()) // Convert SocketId to string
-
-    // Lock for thread-safe access to clientMetricsRequests
-    clientMetricsRequestsMu.Lock()
-    defer clientMetricsRequestsMu.Unlock()
-
-    // Ensure the client only requests one type of metrics at a time
-    if existingRequest, exists := clientMetricsRequests[clientID]; exists && (existingRequest["id"] != "" || existingRequest["ipaddress"] != "") {
-        log.Printf("Client %s already has an active metrics request", clientID)
-        client.Emit("error", "You can only request one type of metrics at a time.")
-        return
-    }
-
-    // Ensure that either "id" or "ipaddress" is provided in the request
-    var id, ipaddress string
-    id, _ = data["id"].(string)
-    ipaddress, _ = data["ipaddress"].(string)
-
-    // Validate that either id or ipaddress is provided, but not both
-    if id == "" && ipaddress == "" {
-        client.Emit("error", "You must provide either 'id' or 'ipaddress'.")
-        return
-    }
-    if id != "" && ipaddress != "" {
-        client.Emit("error", "You can only request one type of metric (either 'id' or 'ipaddress').")
-        return
-    }
-
-    // Track the client's request (either id or ipaddress)
-    if clientMetricsRequests[clientID] == nil {
-        clientMetricsRequests[clientID] = make(map[string]string)
-    }
-
-    var currentKey string
-    if id != "" {
-        currentKey = id
-        clientMetricsRequests[clientID]["id"] = id
-    } else if ipaddress != "" {
-        currentKey = ipaddress
-        clientMetricsRequests[clientID]["ipaddress"] = ipaddress
-    }
-
-    // If the client has switched from one request type to another, stop the previous ongoing request.
-    if existingRequestChannel, exists := ongoingBysourceRequests[currentKey]; exists {
-        // Stop the ongoing request by closing the channel and removing the entry
-        close(existingRequestChannel)  // Close the channel to stop waiting for it
-        delete(ongoingBysourceRequests, currentKey)  // Remove from ongoing requests
-    }
-
-    // Now create a new ongoing request channel
-    ongoingRequestChannel := make(chan map[string]interface{})
-    ongoingBysourceRequests[currentKey] = ongoingRequestChannel
-
-    // Fetch metrics from the /metrics/bysource endpoint every second
-    go func() {
-        ticker := time.NewTicker(1 * time.Second)
-        defer ticker.Stop()
-
-        for range ticker.C {
-            var queryParam string
-            if id != "" {
-                queryParam = fmt.Sprintf("id=%s", id)
-            } else if ipaddress != "" {
-                queryParam = fmt.Sprintf("ipaddress=%s", ipaddress)
-            }
-
-            // Request metrics from the API
-            resp, err := http.Get(fmt.Sprintf("%s/metrics/bysource?%s", conf.MetricsBaseURL, queryParam))
-            if err != nil {
-                log.Printf("Error requesting metrics for client %s: %v", clientID, err)
-                continue
-            }
-            defer resp.Body.Close()
-
-            if resp.StatusCode != http.StatusOK {
-                log.Printf("Received non-OK response for client %s: %d", clientID, resp.StatusCode)
-                continue
-            }
-
-            // Parse the response body
-            var metrics map[string]interface{}
-            if err := json.NewDecoder(resp.Body).Decode(&metrics); err != nil {
-                log.Printf("Error parsing metrics response for client %s: %v", clientID, err)
-                continue
-            }
-
-            // Emit the metrics data to all waiting clients
-            ongoingRequestChannel <- metrics
-
-            // Once the data is sent, clear the ongoing request for this id/ipaddress
-            delete(ongoingBysourceRequests, currentKey)
-        }
-    }()
-
-    // Emit a response back to the client that the request is being processed
-    client.Emit("metricsBySourceRequest", map[string]interface{}{
-        "status": "in-progress",
-        "message": fmt.Sprintf("Metrics request for client %s is being processed.", clientID),
-    })
-}
-
-func handleClientDisconnect(client *serverSocket.Socket) {
-    clientID := client.Id()
-
-    // Lock the map to safely remove the client connection
-    clientConnectionsMu.Lock()
-    delete(clientConnectionsMap, clientID)
-    clientConnectionsMu.Unlock()
-
-    log.Printf("WebSocket client disconnected: %s", clientID)
 }
 
 
@@ -1894,7 +1779,6 @@ func setupServer(settings *Settings) {
         // Track connected client
         connectedClientsMu.Lock()
         connectedClients[client.Id()] = client
-        clientConnectionsMap[client.Id()] = client
         connectedClientsMu.Unlock()
 
 
@@ -2140,42 +2024,12 @@ func setupServer(settings *Settings) {
 	    }
 	})
 
-client.On("metrics/bysource", func(data ...any) {
-    clientID := client.Id()  // Get the client ID (SocketId)
-
-    // Lock the map to safely access the connections
-    clientConnectionsMu.RLock()
-    clientConn, exists := clientConnectionsMap[clientID]  // Look up the client connection by ID
-    clientConnectionsMu.RUnlock()
-
-    if !exists {
-        log.Printf("No ClientConnection found for client %s", clientID)
-        client.Emit("error", "Client connection not found.")
-        return
-    }
-
-    // Process the metrics by source request
-    if len(data) > 0 {
-        if dataMap, ok := data[0].(map[string]interface{}); ok {
-            // Pass the request to the connection's handler function
-            clientConn.handleMetricsBySource(client, dataMap)
-        }
-    } else {
-        // Handle empty request case
-        clientConn.handleMetricsBySource(client, nil)
-    }
-})
-
-
-
         client.On("disconnect", func(...any) {
 	    // 1) Grab the list of this client’s active subscriptions
 	    clientSubscriptionsMu.Lock()
 	    subs := clientSubscriptions[client.Id()]
 	    delete(clientSubscriptions, client.Id())
 	    clientSubscriptionsMu.Unlock()
-
-	    handleClientDisconnect(client)
 
 	    // 2) For each userID this client had, check if anyone else still wants it
 	    for userID := range subs {
