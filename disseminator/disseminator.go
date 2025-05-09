@@ -2024,6 +2024,38 @@ func setupServer(settings *Settings) {
 	    }
 	})
 
+    client.On("metrics/bysource", func(args ...interface{}) {
+        // Check if the data argument is a map and extract the ipaddress
+        if len(args) < 1 {
+            log.Printf("No data received in 'metrics/bysource' event")
+            return
+        }
+
+        data, ok := args[0].(map[string]interface{})
+        if !ok {
+            log.Printf("Invalid data type: expected map[string]interface{}, got %T", args[0])
+            return
+        }
+
+        // Extract the ipaddress from the data
+        ipaddress, ok := data["ipaddress"].(string)
+        if !ok || ipaddress == "" {
+            log.Printf("Invalid or missing ipaddress in data: %v", data)
+            return
+        }
+
+        log.Printf("Received ipaddress: %s", ipaddress)
+
+        // Emit back the same ipaddress in the response
+        response := map[string]interface{}{
+            "ipaddress": ipaddress,
+        }
+
+        if err := client.Emit("metrics/bysource", response); err != nil {
+            log.Printf("Error emitting response for metrics/bysource: %v", err)
+        }
+    })
+
         client.On("disconnect", func(...any) {
 	    // 1) Grab the list of this client’s active subscriptions
 	    clientSubscriptionsMu.Lock()
