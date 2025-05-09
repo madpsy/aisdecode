@@ -455,9 +455,6 @@ function updateURLWithIp(ip) {
       applyOverride(ip);
     });
 
-
-
-window.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('DOMContentLoaded', () => {
   fetch('/types.json')
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
