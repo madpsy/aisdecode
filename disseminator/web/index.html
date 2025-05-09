@@ -1051,7 +1051,7 @@ function refreshReceivers() {
               linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
             }
             const popupContent = `
-              <strong>${receiver.name}</strong><br>
+              <strong><a href="/metrics/receiver.html?receiver=%{receiver.id}">${receiver.name}</a></strong><br>
               ${receiver.description}<br>
               Updated: ${updatedLocalTime === "Invalid date" ? updatedLocalTime : updatedLocalTime.toLocaleString()}<br>
               ${linksHTML}
