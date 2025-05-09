@@ -53,14 +53,28 @@
     const socket = io();  // Creates a Socket.IO connection
 
     // Request metrics by source (IP address or ID)
-    function requestMetricsBySource(identifier, isIpAddress = true) {
-      console.log(`Sending request for metrics with ${isIpAddress ? 'IP' : 'ID'}: ${identifier}`);
-      const payload = isIpAddress ? { ipaddress: identifier } : { id: identifier };
-      console.log("Sent Payload:", payload);
-      
-      // Emit the request to the server with the identifier (IP or ID)
-      socket.emit("metrics/bysource", payload);
+function requestMetricsBySource(identifier, isIpAddress = true) {
+  console.log(`Sending request for metrics with ${isIpAddress ? 'IP' : 'ID'}: ${identifier}`);
+
+  let payload;
+  // If it's an IP address, send as a string directly
+  if (isIpAddress) {
+    payload = { ipaddress: identifier };
+  } else {
+    // If it's an ID, ensure that it's sent as a number (int)
+    const idNumber = Number(identifier);  // Convert the ID to a number
+    if (isNaN(idNumber)) {
+      alert("Invalid ID entered. Please enter a valid number.");
+      return;
     }
+    payload = { id: idNumber };
+  }
+
+  console.log("Sent Payload:", payload);
+  
+  // Emit the request to the server with the identifier (IP or ID)
+  socket.emit("metrics/bysource", payload);
+}
 
     // Listen for incoming metrics data from the server
     socket.on("metrics/bysource", function(metricsData) {
@@ -118,20 +132,20 @@
     }
 
     // Event listener for submitting the request
-    document.getElementById('submitBtn').addEventListener('click', function() {
-      const ip = document.getElementById('ip-address-input').value;
-      const id = document.getElementById('id-input').value;
+document.getElementById('submitBtn').addEventListener('click', function() {
+  const ip = document.getElementById('ip-address-input').value;
+  const id = document.getElementById('id-input').value;
 
-      if (ip) {
-        // Request metrics using IP address
-        requestMetricsBySource(ip, true);
-      } else if (id) {
-        // Request metrics using ID
-        requestMetricsBySource(id, false);
-      } else {
-        alert("Please enter either an IP address or an ID.");
-      }
-    });
+  if (ip) {
+    // Request metrics using IP address
+    requestMetricsBySource(ip, true);
+  } else if (id) {
+    // Request metrics using ID
+    requestMetricsBySource(id, false);
+  } else {
+    alert("Please enter either an IP address or an ID.");
+  }
+});
 
     // Fetch the IP address once and use it for requests
     async function fetchIpAddressAndRequestMetrics() {
