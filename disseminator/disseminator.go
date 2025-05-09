@@ -284,16 +284,8 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
     tickerMu.Lock()
 
     // Check if the client was previously requesting a different ipaddress
-    if currentClients, exists := activeClients[queryValue]; exists {
-        if _, exists := currentClients[client]; exists {
-            // Client is already registered for the same ipaddress, no need to do anything
-            tickerMu.Unlock()
-            return
-        }
-    }
-
-    // If the client was already registered for a different ipaddress, remove them
     if oldQueryValue != queryValue && oldQueryValue != "" {
+        // If the client was previously requesting a different ipaddress, clean up the old one
         if currentClients, exists := activeClients[oldQueryValue]; exists {
             delete(currentClients, client)
             // If no clients remain for the old ipaddress, stop the ticker
@@ -385,6 +377,7 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
         tickerMu.Unlock()
     })
 }
+
 
 
 // QueryDatabaseForUser looks up which collector shard handles the given userID,
