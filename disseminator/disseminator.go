@@ -270,8 +270,7 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
 
     // Check if the data for the given ipaddress is already cached
     if cachedResponse, exists := cachedMetricsData[ipaddress]; exists {
-        // If the data is cached, immediately send it to the client
-        cachedResponse["clientId"] = client.Id()
+        // If the data is cached, immediately send it to the client without clientId and requested_ip_address
         if err := client.Emit("metrics/bysource", cachedResponse); err != nil {
             log.Printf("Error emitting cached response for metrics/bysource to client %s: %v", client.Id(), err)
         }
@@ -286,7 +285,6 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
         wg := ongoingRequests[ipaddress]
         wg.Wait()
         cachedResponse := cachedMetricsData[ipaddress]
-        cachedResponse["clientId"] = client.Id()
         if err := client.Emit("metrics/bysource", cachedResponse); err != nil {
             log.Printf("Error emitting response for metrics/bysource to client %s: %v", client.Id(), err)
         }
@@ -341,10 +339,9 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
             }
 
             // Cache the response for later use
-            apiResponse["clientId"] = "cached" // Placeholder clientId for caching
             cachedMetricsData[ipaddress] = apiResponse
 
-            // Emit the response to all clients who requested the same ipaddress
+            // Emit the response to all clients who requested the same ipaddress, without clientId and requested_ip_address
             tickerMu.Lock()
             for _, client := range connectedClients {
                 client.Emit("metrics/bysource", apiResponse)
