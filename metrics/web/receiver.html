@@ -971,46 +971,48 @@ let receiversFetched = false; // Flag to ensure receivers are only fetched once
 
 async function fetchMetrics() {
   try {
-    let url = '/metrics/bysource';
+    // First, fetch the IP address from the /myip endpoint
+    const ipRes = await fetch('/myip');
+    if (!ipRes.ok) throw ipRes.status;
 
-    // Extract parameters from the URL
-    const params = new URLSearchParams(location.search);
+    const ipData = await ipRes.json();
+    const currentIp = ipData.ip;  // Get the IP from the "ip" field in the response
 
-    if (overrideReceiverId) {
-      // Use receiver ID from override if present
-      url += `?id=${encodeURIComponent(overrideReceiverId)}`;
-    } else if (params.has('receiver')) {
-      // Use receiver ID from URL if present
-      url += `?id=${encodeURIComponent(params.get('receiver'))}`;
-    } else if (overrideIp) {
-      // Use IP only if no receiver ID in the URL or overrideReceiverId
-      if (!params.has('receiver')) {
-        url += `?ipaddress=${encodeURIComponent(overrideIp)}`;
-      }
-    }
-
-    // Fetch the data from the API
-    const res = await fetch(url);
-    if (!res.ok) throw res.status;
-
-    const data = await res.json();
-    const currentIp = data.requested_ip_address; // Use IP from the API response if available
-
-    // Update the IP in the header
+    // Update the IP address in the header
     document.getElementById('ip-address').textContent = currentIp;
 
     // Only update the URL with the IP address if 'receiver' is not in the URL
+    const params = new URLSearchParams(location.search);
     if (!params.has('receiver')) {
       updateURLWithIp(currentIp);
     }
 
-    // ** Fetch receivers only once **
+    // Construct the URL for fetching metrics with appropriate parameters
+    let url = '/metrics/bysource';
+
+    // Check if overrideReceiverId exists or URL has a receiver ID, otherwise use the current IP
+    if (overrideReceiverId) {
+      url += `?id=${encodeURIComponent(overrideReceiverId)}`;
+    } else if (params.has('receiver')) {
+      url += `?id=${encodeURIComponent(params.get('receiver'))}`;
+    } else {
+      // If no ID specified, use the fetched IP address
+      url += `?ipaddress=${encodeURIComponent(currentIp)}`;
+    }
+
+    // Fetch the metrics from the backend
+    const res = await fetch(url);
+    if (!res.ok) throw res.status;
+
+    const data = await res.json();
+
+    // Fetch receivers only once
     if (!receivedReceivers) {
-      fetchReceivers(currentIp); // Fetch receivers using current IP or receiver ID if necessary
+      fetchReceivers(currentIp); // Fetch receivers using current IP
       receivedReceivers = true;  // Set the flag to true after fetching
     }
 
-    const lbl = new Date().toLocaleTimeString();
+    const lbl = new Date().toLocaleTimeString(); // Get the current time for chart labels
 
     // Update card metrics
     cardMetrics.forEach(m => {
@@ -1019,15 +1021,15 @@ async function fetchMetrics() {
     });
 
     // Update chart metrics
-    chartMetrics.forEach(m => {
+    chartMetrics.forEach((m, i) => {
       const c = charts[m];
       c.data.labels.push(lbl);
       c.data.datasets[0].data.push(data.simple_metrics[m]);
       if (c.data.labels.length > maxPoints) {
-        c.data.labels.shift();
-        c.data.datasets[0].data.shift();
+        c.data.labels.shift();  // Remove the oldest label
+        c.data.datasets[0].data.shift();  // Remove the oldest data point
       }
-      c.update();
+      c.update();  // Update the chart with the new data
     });
 
     // ** Handle messages and fetch receivers if necessary **
@@ -1051,6 +1053,7 @@ async function fetchMetrics() {
       });
       updateSummaryTable();
     }
+
   } catch (e) {
     console.error('Fetch error', e);
   }
