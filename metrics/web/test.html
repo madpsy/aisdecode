@@ -53,25 +53,25 @@
     const socket = io();  // Creates a Socket.IO connection
 
     // Request metrics by source (IP address or ID)
-function requestMetricsBySource(identifier, isIpAddress = true) {
-  console.log(`Sending request for metrics with ${isIpAddress ? 'IP' : 'ID'}: ${identifier}`);
-  
-  // If it's an ID, ensure that it's sent as a number (int)
-  if (!isIpAddress) {
-    identifier = Number(identifier);  // Convert the ID to a number
-    if (isNaN(identifier)) {
-      alert("Invalid ID entered. Please enter a valid number.");
-      return;
+    function requestMetricsBySource(identifier, isIpAddress = true) {
+      console.log(`Sending request for metrics with ${isIpAddress ? 'IP' : 'ID'}: ${identifier}`);
+      const payload = isIpAddress ? { ipaddress: identifier } : { id: identifier };
+      console.log("Sent Payload:", payload);
+      
+      // Emit the request to the server with the identifier (IP or ID)
+      socket.emit("metrics/bysource", payload);
     }
-  }
 
-  const payload = isIpAddress ? { ipaddress: identifier } : { id: identifier };
-  console.log("Sent Payload:", payload);
-  
-  // Emit the request to the server with the identifier (IP or ID)
-  socket.emit("metrics/bysource", payload);
-}
+    // Listen for incoming metrics data from the server
+    socket.on("metrics/bysource", function(metricsData) {
+      console.log("Received metrics data:", metricsData);
 
+      // Log the entire response payload (data received from the server)
+      console.log("Received Payload:", metricsData);
+
+      // Update the table with the received data
+      updateTable(metricsData);
+    });
 
     // Function to update the table with the received metrics data
     function updateTable(metricsData) {
