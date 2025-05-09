@@ -47,13 +47,14 @@
 
     // Request metrics by source (IP address)
     function requestMetricsBySource(ipaddress) {
+      console.log(`Sending request for metrics with IP: ${ipaddress}`);
       // Emit the request to the server with the IP address
       socket.emit("metrics/bysource", { ipaddress: ipaddress });
     }
 
     // Listen for incoming metrics data from the server
     socket.on("metrics/bysource", function(metricsData) {
-      console.log("Received metrics by source:", metricsData);
+      console.log("Received metrics data:", metricsData);
       
       // Update the table with the received data
       updateTable(metricsData);
