@@ -261,6 +261,7 @@ func (cc *ClientConnection) ensureDB() error {
 
 func handleMetricsBysource(client *serverSocket.Socket, data map[string]interface{}) {
     var queryParam, queryValue string
+    var oldQueryValue string
 
     // Check if the 'id' or 'ipaddress' parameter is present
     if id, ok := data["id"].(float64); ok {
@@ -282,15 +283,31 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
     // Locking for active clients to avoid race conditions
     tickerMu.Lock()
 
-    // Check if the client is already requesting this ipaddress/id
+    // Check if the client was previously requesting a different ipaddress
     if currentClients, exists := activeClients[queryValue]; exists {
         if _, exists := currentClients[client]; exists {
+            // Client is already registered for the same ipaddress, no need to do anything
             tickerMu.Unlock()
             return
         }
     }
 
-    // Register the client to receive updates for the given ipaddress/id
+    // If the client was already registered for a different ipaddress, remove them
+    if oldQueryValue != queryValue && oldQueryValue != "" {
+        if currentClients, exists := activeClients[oldQueryValue]; exists {
+            delete(currentClients, client)
+            // If no clients remain for the old ipaddress, stop the ticker
+            if len(currentClients) == 0 {
+                if ticker, exists := clientMetricsBysourceTickers[oldQueryValue]; exists {
+                    ticker.Stop()
+                    delete(clientMetricsBysourceTickers, oldQueryValue)
+                    delete(cachedMetricsData, oldQueryValue)
+                }
+            }
+        }
+    }
+
+    // Register the client to receive updates for the new ipaddress/id
     if activeClients[queryValue] == nil {
         activeClients[queryValue] = make(map[*serverSocket.Socket]struct{})
     }
@@ -368,6 +385,7 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
         tickerMu.Unlock()
     })
 }
+
 
 // QueryDatabaseForUser looks up which collector shard handles the given userID,
 // ensures its DB connection is alive, and runs the provided SQL query.
