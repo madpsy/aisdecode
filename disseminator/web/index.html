@@ -2706,16 +2706,14 @@ function applyLogFilters() {
         });
 
 socket.on('metricsData', (data) => {
-  console.log('Received metrics data:', JSON.stringify(data, null, 2));
-
   // Extract the values from the received data
-  const { window_messages, ratio_forwarded_to_received } = data;
+  const { window_messages, window_ratio_forwarded_to_received } = data;
 
   // Calculate messages per second
   const msgPerSec = window_messages;
 
   // Calculate ratio as percentage
-  const forwardedRatioPercent = (ratio_forwarded_to_received * 100).toFixed(2); // Convert to percentage
+  const forwardedRatioPercent = (window_ratio_forwarded_to_received * 100).toFixed(2); // Convert to percentage
 
   // Update the DOM with the new values
   document.getElementById('msg-per-sec').textContent = `${msgPerSec} msgs/sec`;

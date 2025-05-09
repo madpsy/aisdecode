@@ -2175,7 +2175,7 @@ func main() {
 	            "bytes_received_window":         metrics["bytes_received_window"],
 	            "window_downsampled":            metrics["window_downsampled"],
 	            "window_deduplicated":           metrics["window_deduplicated"],
-	            "ratio_forwarded_to_received":   metrics["ratio_forwarded_to_received"],
+	            "window_ratio_forwarded_to_received":   metrics["window_ratio_forwarded_to_received"],
 	            "shards_missing":                metrics["shards_missing"],
 	            "metric_window_size_sec":        metrics["metric_window_size_sec"],
 		    "uptime_seconds":                metrics["uptime_seconds"],
