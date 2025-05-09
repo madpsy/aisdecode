@@ -130,8 +130,12 @@ var clientSummaryMu sync.RWMutex
 var clientSubscriptions = make(map[serverSocket.SocketId]map[string]struct{})
 var wsHandlersRegistered = make(map[*clientSocket.Socket]bool)
 
-var clientMetricsBysourceTickers = make(map[string]*time.Ticker)  // Map to track tickers for 'metrics/bysource' by client ID
-var tickerMu sync.Mutex // Mutex to protect the map when accessing tickers
+var (
+    clientMetricsBysourceTickers = make(map[string]*time.Ticker)  // Map to track tickers for 'metrics/bysource' by client ID
+    cachedMetricsData = make(map[string]map[string]interface{})   // Cache to store response for ipaddress
+    ongoingRequests = make(map[string]*sync.WaitGroup)            // Track ongoing requests for each ipaddress
+    tickerMu sync.Mutex // Mutex to protect the map when accessing tickers
+)
 
 // AIS spec: TrueHeading == 511 means “not available”
 const NoTrueHeading = 511.0
@@ -264,23 +268,48 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
 
     log.Printf("Received ipaddress: %s from client %s", ipaddress, client.Id())
 
-    // Stop any existing ticker for this client if it exists
+    // Check if the data for the given ipaddress is already cached
+    if cachedResponse, exists := cachedMetricsData[ipaddress]; exists {
+        // If the data is cached, immediately send it to the client
+        cachedResponse["clientId"] = client.Id()
+        if err := client.Emit("metrics/bysource", cachedResponse); err != nil {
+            log.Printf("Error emitting cached response for metrics/bysource to client %s: %v", client.Id(), err)
+        }
+        return
+    }
+
+    // Check if a request for this ipaddress is already in progress
     tickerMu.Lock()
-    if existingTicker, exists := clientMetricsBysourceTickers[string(client.Id())]; exists {
-        existingTicker.Stop()  // Stop the existing ticker if there's one
+    if _, exists := clientMetricsBysourceTickers[ipaddress]; exists {
+        tickerMu.Unlock()
+        // Wait for the ongoing request to finish and then serve the cached response
+        wg := ongoingRequests[ipaddress]
+        wg.Wait()
+        cachedResponse := cachedMetricsData[ipaddress]
+        cachedResponse["clientId"] = client.Id()
+        if err := client.Emit("metrics/bysource", cachedResponse); err != nil {
+            log.Printf("Error emitting response for metrics/bysource to client %s: %v", client.Id(), err)
+        }
+        return
     }
     tickerMu.Unlock()
+
+    // Start fetching data for this ipaddress
+    wg := &sync.WaitGroup{}
+    ongoingRequests[ipaddress] = wg
+    wg.Add(1)
 
     // Create a new ticker for this client to fetch data every second
     metricsBysourceTicker := time.NewTicker(1 * time.Second)
 
-    // Store the ticker in the map with the string version of the client ID
+    // Store the ticker in the map with the string version of the ipaddress
     tickerMu.Lock()
-    clientMetricsBysourceTickers[string(client.Id())] = metricsBysourceTicker
+    clientMetricsBysourceTickers[ipaddress] = metricsBysourceTicker
     tickerMu.Unlock()
 
-    // Fetch and emit data every second until the client disconnects or sends another request
     go func() {
+        defer wg.Done()
+
         for range metricsBysourceTicker.C {
             // Perform the GET request to the external metrics API with the ipaddress as a query parameter
             url := fmt.Sprintf("%s/metrics/bysource?ipaddress=%s", conf.MetricsBaseURL, ipaddress)
@@ -311,24 +340,25 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
                 return
             }
 
-            // Add clientId to the response
-            apiResponse["clientId"] = client.Id()
+            // Cache the response for later use
+            apiResponse["clientId"] = "cached" // Placeholder clientId for caching
+            cachedMetricsData[ipaddress] = apiResponse
 
-            // Emit the response back to the same client that sent the request
-            if err := client.Emit("metrics/bysource", apiResponse); err != nil {
-                log.Printf("Error emitting response for metrics/bysource to client %s: %v", client.Id(), err)
-                return
+            // Emit the response to all clients who requested the same ipaddress
+            tickerMu.Lock()
+            for _, client := range connectedClients {
+                client.Emit("metrics/bysource", apiResponse)
             }
+            tickerMu.Unlock()
         }
     }()
 
     // Listen for client disconnection
     client.On("disconnect", func(...any) {
-        // Stop the ticker when the client disconnects
         tickerMu.Lock()
-        if ticker, exists := clientMetricsBysourceTickers[string(client.Id())]; exists {
+        if ticker, exists := clientMetricsBysourceTickers[ipaddress]; exists {
             ticker.Stop()
-            delete(clientMetricsBysourceTickers, string(client.Id()))  // Clean up the map
+            delete(clientMetricsBysourceTickers, ipaddress)  // Clean up the map
         }
         tickerMu.Unlock()
     })
