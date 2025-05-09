@@ -327,65 +327,69 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
     activeClients[queryValue][client] = struct{}{}
     tickerMu.Unlock()
 
-    // Start fetching data for this id/ipaddress
-    wg := &sync.WaitGroup{}
-    ongoingRequests[queryValue] = wg
-    wg.Add(1)
-
-    // Create a new ticker for this client to fetch data every second
-    metricsBysourceTicker := time.NewTicker(1 * time.Second)
-
-    // Store the ticker in the map with the string version of the id/ipaddress
+    // Start fetching data for this id/ipaddress if not already in progress
     tickerMu.Lock()
-    clientMetricsBysourceTickers[queryValue] = metricsBysourceTicker
-    tickerMu.Unlock()
+    if _, exists := clientMetricsBysourceTickers[queryValue]; !exists {
+        wg := &sync.WaitGroup{}
+        ongoingRequests[queryValue] = wg
+        wg.Add(1)
 
-    go func() {
-        defer wg.Done()
+        // Create a new ticker for this client to fetch data every second
+        metricsBysourceTicker := time.NewTicker(1 * time.Second)
 
-        for range metricsBysourceTicker.C {
-            // Build the API URL based on the query parameter (either id or ipaddress)
-            url := fmt.Sprintf("%s/metrics/bysource?%s=%s", conf.MetricsBaseURL, queryParam, queryValue)
-            resp, err := http.Get(url)
-            if err != nil {
-                log.Printf("Error making GET request to %s: %v", url, err)
-                return
-            }
-            defer resp.Body.Close()
+        // Store the ticker in the map with the string version of the id/ipaddress
+        clientMetricsBysourceTickers[queryValue] = metricsBysourceTicker
+        tickerMu.Unlock()
 
-            // Check if the response status is OK
-            if resp.StatusCode != http.StatusOK {
-                log.Printf("Received non-OK response from external API: %d", resp.StatusCode)
-                return
-            }
+        go func() {
+            defer wg.Done()
 
-            // Read the response body from the external API
-            body, err := ioutil.ReadAll(resp.Body)
-            if err != nil {
-                log.Printf("Error reading response body: %v", err)
-                return
-            }
-
-            // Unmarshal the response body into a map (assume JSON response)
-            var apiResponse map[string]interface{}
-            if err := json.Unmarshal(body, &apiResponse); err != nil {
-                log.Printf("Error unmarshalling response body: %v", err)
-                return
-            }
-
-            // Cache the response for later use
-            cachedMetricsData[queryValue] = apiResponse
-
-            // Emit the response to all clients who requested the same id/ipaddress, without clientId and requested_ipaddress
-            tickerMu.Lock()
-            for client := range activeClients[queryValue] {
-                if err := client.Emit("metrics/bysource", apiResponse); err != nil {
-                    log.Printf("Error emitting response for metrics/bysource to client %s: %v", client.Id(), err)
+            for range metricsBysourceTicker.C {
+                // Build the API URL based on the query parameter (either id or ipaddress)
+                url := fmt.Sprintf("%s/metrics/bysource?%s=%s", conf.MetricsBaseURL, queryParam, queryValue)
+                resp, err := http.Get(url)
+                if err != nil {
+                    log.Printf("Error making GET request to %s: %v", url, err)
+                    return
                 }
+                defer resp.Body.Close()
+
+                // Check if the response status is OK
+                if resp.StatusCode != http.StatusOK {
+                    log.Printf("Received non-OK response from external API: %d", resp.StatusCode)
+                    return
+                }
+
+                // Read the response body from the external API
+                body, err := ioutil.ReadAll(resp.Body)
+                if err != nil {
+                    log.Printf("Error reading response body: %v", err)
+                    return
+                }
+
+                // Unmarshal the response body into a map (assume JSON response)
+                var apiResponse map[string]interface{}
+                if err := json.Unmarshal(body, &apiResponse); err != nil {
+                    log.Printf("Error unmarshalling response body: %v", err)
+                    return
+                }
+
+                // Cache the response for later use
+                cachedMetricsData[queryValue] = apiResponse
+
+                // Emit the response to all clients who requested the same id/ipaddress, without clientId and requested_ipaddress
+                tickerMu.Lock()
+                for client := range activeClients[queryValue] {
+                    if err := client.Emit("metrics/bysource", apiResponse); err != nil {
+                        log.Printf("Error emitting response for metrics/bysource to client %s: %v", client.Id(), err)
+                    }
+                }
+                tickerMu.Unlock()
             }
-            tickerMu.Unlock()
-        }
-    }()
+        }()
+    } else {
+        tickerMu.Unlock()
+    }
 
     // Listen for client disconnection
     client.On("disconnect", func(...any) {
