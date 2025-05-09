@@ -458,6 +458,7 @@ function updateURLWithIp(ip) {
 
 
 window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', () => {
   fetch('/types.json')
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(json => { typesConfig = json; initDoughnut(); initMap(); })
@@ -474,10 +475,10 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   if (p.has('receiver')) {
-    // Set the receiverId to the URL's receiver value
-    overrideReceiverId = p.get('receiver');
+    // Ensure 'receiver' is an integer before passing it
+    overrideReceiverId = parseInt(p.get('receiver'), 10);
     console.log('Fetching metrics with receiver ID:', overrideReceiverId);
-    requestMetricsBySource(overrideReceiverId, false); // Use ID instead of IP address
+    requestMetricsBySource(overrideReceiverId, false);  // Use ID (as integer) instead of IP address
     fetchReceiversById(overrideReceiverId);
   }
 });
