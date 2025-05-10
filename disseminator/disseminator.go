@@ -1881,6 +1881,8 @@ func setupServer(settings *Settings) {
     metricsProxy := httputil.NewSingleHostReverseProxy(metricsURL)
     statisticsProxy := httputil.NewSingleHostReverseProxy(statisticsURL)
     mux.Handle("/receivers", receiversProxy) // receivers JSON endpoint
+    mux.Handle("/addreceiver", receiversProxy) // addreceiver JSON endpoint
+    mux.Handle("/receiverip", receiversProxy) // receiverip JSON endpoint
     mux.Handle("/metrics/",  metricsProxy) // metrics JSON endpoints
     mux.Handle("/statistics/", statisticsProxy) // statistics JSON endpoints
 
