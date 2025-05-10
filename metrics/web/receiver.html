@@ -494,6 +494,11 @@ window.addEventListener('DOMContentLoaded', () => {
   if (p.has('ipaddress')) {
     applyOverride(p.get('ipaddress'));
   } else if (p.has('receiver')) {
+    // Reset map and table state to ensure proper fitBounds behavior
+    resetCardsAndCharts();
+    resetMapAndTable();
+    resetFilters();
+    
     // Set the receiverId to the URL's receiver value
     overrideReceiverId = p.get('receiver');
     // Fetch metrics by the receiver ID
@@ -1002,7 +1007,7 @@ let receiversFetched = false; // Flag to ensure receivers are only fetched once
 
 // Listen for incoming metrics data from the server
 socket.on("metrics/bysource", function(data) {
-  //console.log("Received metrics data via WebSocket");
+  console.log("Received metrics data via WebSocket");
   
   const currentIp = data.requested_ip_address; // Use IP from the API response if available
 
