@@ -445,20 +445,22 @@ function applyOverride(ip) {
   console.log("Reset currentMessageCount to 0 in applyOverride");
 
   // Update the IP address display to include the override indicator
-  // Only update if it doesn't already contain the override indicator
-  const ipAddress = document.getElementById('ip-address');
-  if (ipAddress) {
-    // Remove any existing override indicators
-    let currentIp = ipAddress.textContent;
-    if (currentIp.includes("(Using IP:")) {
-      currentIp = currentIp.split("(Using IP:")[0].trim();
+  // Wait a short time to ensure the IP address has been set from /myip
+  setTimeout(() => {
+    const ipAddress = document.getElementById('ip-address');
+    if (ipAddress) {
+      // Remove any existing override indicators
+      let currentIp = ipAddress.textContent;
+      if (currentIp.includes("(Using IP:")) {
+        currentIp = currentIp.split("(Using IP:")[0].trim();
+      }
+      console.log("Current IP in display (after removing any existing indicators):", currentIp);
+      console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
+      ipAddress.innerHTML = currentIp + " (Using IP: " + ip + ")";
+    } else {
+      console.error("IP address element not found");
     }
-    console.log("Current IP in display (after removing any existing indicators):", currentIp);
-    console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
-    ipAddress.innerHTML = currentIp + " (Using IP: " + ip + ")";
-  } else {
-    console.error("IP address element not found");
-  }
+  }, 100); // Short delay to ensure IP address is set
 
   // Update the URL with the new IP address (remove receiver if it's there)
   updateURLWithIp(ip);  // Update URL to reflect IP
@@ -561,20 +563,23 @@ window.addEventListener('DOMContentLoaded', () => {
         overrideIp = ip;
         console.log("Setting overrideIp from URL parameter:", overrideIp);
         
-        // Update the IP address display to include the override indicator
-        const ipAddressEl1 = document.getElementById('ip-address');
-        if (ipAddressEl1) {
-          // Remove any existing override indicators
-          let currentIp = ipAddressEl1.textContent;
-          if (currentIp.includes("(Using IP:")) {
-            currentIp = currentIp.split("(Using IP:")[0].trim();
+        // Wait a short time to ensure the IP address has been set from /myip
+        setTimeout(() => {
+          // Update the IP address display to include the override indicator
+          const ipAddressEl1 = document.getElementById('ip-address');
+          if (ipAddressEl1) {
+            // Remove any existing override indicators
+            let currentIp = ipAddressEl1.textContent;
+            if (currentIp.includes("(Using IP:")) {
+              currentIp = currentIp.split("(Using IP:")[0].trim();
+            }
+            console.log("Current IP in display (map init, after removing any existing indicators):", currentIp);
+            console.log("Setting IP display to include override (map init):", currentIp + " (Using IP: " + ip + ")");
+            ipAddressEl1.innerHTML = currentIp + " (Using IP: " + ip + ")";
+          } else {
+            console.error("IP address element not found (map init)");
           }
-          console.log("Current IP in display (map init, after removing any existing indicators):", currentIp);
-          console.log("Setting IP display to include override (map init):", currentIp + " (Using IP: " + ip + ")");
-          ipAddressEl1.innerHTML = currentIp + " (Using IP: " + ip + ")";
-        } else {
-          console.error("IP address element not found (map init)");
-        }
+        }, 100); // Short delay to ensure IP address is set
         
         // Update the input field with the override IP
         const ipInput = document.getElementById('ipInput');
@@ -589,17 +594,20 @@ window.addEventListener('DOMContentLoaded', () => {
         }
         
         // Update the IP address display with the override indicator before applying override
-        const ipAddressEl2 = document.getElementById('ip-address');
-        if (ipAddressEl2) {
-          // Remove any existing override indicators
-          let currentIp = ipAddressEl2.textContent;
-          if (currentIp.includes("(Using IP:")) {
-            currentIp = currentIp.split("(Using IP:")[0].trim();
+        // Wait a short time to ensure the IP address has been set from /myip
+        setTimeout(() => {
+          const ipAddressEl2 = document.getElementById('ip-address');
+          if (ipAddressEl2) {
+            // Remove any existing override indicators
+            let currentIp = ipAddressEl2.textContent;
+            if (currentIp.includes("(Using IP:")) {
+              currentIp = currentIp.split("(Using IP:")[0].trim();
+            }
+            console.log("Current IP before applying override (after removing any existing indicators):", currentIp);
+            console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
+            ipAddressEl2.innerHTML = currentIp + " (Using IP: " + ip + ")";
           }
-          console.log("Current IP before applying override (after removing any existing indicators):", currentIp);
-          console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
-          ipAddressEl2.innerHTML = currentIp + " (Using IP: " + ip + ")";
-        }
+        }, 100); // Short delay to ensure IP address is set
         
         // Apply the override
         applyOverride(ip);
