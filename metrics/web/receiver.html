@@ -1073,16 +1073,27 @@ socket.on("metrics/bysource", function(data) {
 
   // Update our message count tracker
   currentMessageCount = data.messages || 0;
+  console.log("Updated currentMessageCount:", currentMessageCount);
   
   // Update the receiver box message if it exists and no receiver is found
   const receiverBox = document.getElementById('receiver-box');
-  if (receiverBox && !document.querySelector('#receiver-box h3')) {
-    // Only update if this is a "no receiver" box (doesn't have an h3 heading)
-    if (currentMessageCount > 0) {
-      receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+  if (receiverBox) {
+    console.log("Found receiver box, checking if it's a no-receiver box");
+    
+    // Check if this is a "no receiver" box (has the no-receiver-box class)
+    if (receiverBox.classList.contains('no-receiver-box')) {
+      console.log("This is a 'no receiver' box, updating message based on message count:", currentMessageCount);
+      
+      if (currentMessageCount > 0) {
+        receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+      } else {
+        receiverBox.innerHTML = '<p>No receiver found</p>';
+      }
     } else {
-      receiverBox.innerHTML = '<p>No receiver found</p>';
+      console.log("This is a receiver info box, not updating");
     }
+  } else {
+    console.log("No receiver box found");
   }
   
   // Extract parameters from the URL
@@ -1267,6 +1278,7 @@ async function fetchReceivers(ip) {
     // Handle the case where no receivers are found
     if (!Array.isArray(receivers) || receivers.length === 0) {
       console.warn('No receivers found');
+      console.log('Current message count when creating receiver box:', currentMessageCount);
       
       // Clear previous receiver info
       const ipHeading = document.getElementById('ip-address');
@@ -1276,13 +1288,16 @@ async function fetchReceivers(ip) {
       // Create a new box for "No receiver found"
       const receiverBox = document.createElement('div');
       receiverBox.id = 'receiver-box';
+      receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
       
       // Check if we have messages but no receiver using our tracked message count
       if (currentMessageCount > 0) {
         // No receiver found but AIS data is flowing
+        console.log('Setting message to "No receiver found but AIS data is flowing"');
         receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
       } else {
         // No receiver found and no messages
+        console.log('Setting message to "No receiver found"');
         receiverBox.innerHTML = '<p>No receiver found</p>';
       }
 
@@ -1360,6 +1375,7 @@ async function fetchReceivers(ip) {
     }, 2000);
   } catch (e) {
     console.error('Failed to fetch receivers:', e);
+    console.log('Current message count in error handler:', currentMessageCount);
 
     // Handle error in case of failure to get receiver information
     const ipHeading = document.getElementById('ip-address');
@@ -1369,13 +1385,16 @@ async function fetchReceivers(ip) {
     // Create a new box for "No receiver found"
     const receiverBox = document.createElement('div');
     receiverBox.id = 'receiver-box';
+    receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
     
     // Check if we have messages but no receiver using our tracked message count
     if (currentMessageCount > 0) {
       // No receiver found but AIS data is flowing
+      console.log('Setting message to "No receiver found but AIS data is flowing" (error handler)');
       receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
     } else {
       // No receiver found and no messages
+      console.log('Setting message to "No receiver found" (error handler)');
       receiverBox.innerHTML = '<p>No receiver found</p>';
     }
 
