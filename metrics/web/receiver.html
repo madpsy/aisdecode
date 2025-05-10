@@ -324,6 +324,7 @@
     // Map & overlay state
     let map, overlayDiv, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
     let loadedWithReceiver = false; // Flag to track if page was loaded with receiver parameter
+    let initialFitDone = false; // Flag to track if initial fitBounds has been done
     const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
 
     const navigationalStatusMapping = {
@@ -588,7 +589,13 @@ map.on('click', e => {
 
       loadReceivers();
 
-      map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
+      map.on('movestart zoomstart', ()=>{
+        if(!programmaticFit) {
+          console.log("User interacted with map, disabling autoFit");
+          autoFit = false;
+          initialFitDone = true; // Mark initial fit as done when user interacts with map
+        }
+      });
     }
 
 function updateOverlay(latlng) {
@@ -858,9 +865,9 @@ function updateMap() {
   const oldVesselCount = Object.keys(vesselMarkers).length;
   const boundsArr = [], newMarkers = {};
 
-  // Force autoFit to be true if page was loaded with receiver parameter
-  if (loadedWithReceiver) {
-    console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=true");
+  // Force autoFit to be true only for the initial fit when loaded with receiver parameter
+  if (loadedWithReceiver && !initialFitDone) {
+    console.log("updateMap: Forcing autoFit=true for initial fit");
     autoFit = true;
   }
 
@@ -993,12 +1000,18 @@ function updateMap() {
   vesselMarkers = newMarkers;
 
   // After all markers are updated, adjust the map bounds to fit all markers if the data is available
-  console.log("updateMap: autoFit =", autoFit, "boundsArr.length =", boundsArr.length, "loadedWithReceiver =", loadedWithReceiver);
+  console.log("updateMap: autoFit =", autoFit, "boundsArr.length =", boundsArr.length, "loadedWithReceiver =", loadedWithReceiver, "initialFitDone =", initialFitDone);
   if (autoFit && boundsArr.length && map) {
     console.log("updateMap: Fitting bounds to", boundsArr.length, "markers");
     programmaticFit = true;
     map.once('moveend zoomend', () => programmaticFit = false);
     map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+    
+    // Mark that we've done the initial fit
+    if (loadedWithReceiver && !initialFitDone) {
+      console.log("updateMap: Initial fit done, won't force autoFit anymore");
+      initialFitDone = true;
+    }
   } else if (!map) {
     console.error("updateMap: Map not initialized yet!");
   }
