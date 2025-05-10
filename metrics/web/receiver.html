@@ -298,6 +298,7 @@
     const maxPoints    = 60;
     let focusedUid = null;
     let overrideIp = '';
+    let currentMessageCount = 0; // Track message count from socket updates
     
     // Initialize Socket.IO connection
     const socket = io();  // Creates a Socket.IO connection
@@ -440,6 +441,7 @@ function applyOverride(ip) {
   if (!ip) return;
   overrideIp = ip;
   overrideReceiverId = '';  // Reset receiver id to force fetching from IP
+  currentMessageCount = 0;  // Reset message count for the new IP
 
   // Update the URL with the new IP address (remove receiver if it's there)
   updateURLWithIp(ip);  // Update URL to reflect IP
@@ -468,6 +470,8 @@ function fetchUserIP(applyAsOverride = false) {
         console.log('User IP fetched:', data.ip);
         document.getElementById('ip-address').textContent = data.ip;
         if (applyAsOverride) {
+          // Reset message count before applying override with user's IP
+          currentMessageCount = 0;
           applyOverride(data.ip);
         }
       } else {
@@ -511,14 +515,19 @@ window.addEventListener('DOMContentLoaded', () => {
       
       // After map is initialized, handle the query parameters
       if (p.has('ipaddress')) {
+        // Reset message count before applying override
+        currentMessageCount = 0;
         applyOverride(p.get('ipaddress'));
       } else if (p.has('receiver')) {
+        // Reset message count for new receiver
+        currentMessageCount = 0;
         // Now that map is initialized, fetch metrics and receiver info
         console.log('Map initialized, now fetching metrics with receiver ID:', overrideReceiverId);
         fetchMetrics();
         fetchReceiversById(overrideReceiverId);
       } else {
         // No query parameters - fetch user's IP and use it
+        currentMessageCount = 0;
         fetchUserIP(true);
       }
     })
@@ -729,8 +738,11 @@ function loadReceivers() {
           clearDistanceLine();  // Clear any existing distance line
           updateOverlay(e.latlng);  // Update the overlay with receiver's coordinates
           updateSummaryTable();
+          
+          // Reset message count for the new receiver
+          currentMessageCount = 0;
 
-          // Fetch this receiver’s details via ?id=<id>
+          // Fetch this receiver's details via ?id=<id>
           fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
             .then(res => {
               if (!res.ok) throw new Error(res.status);
@@ -1059,6 +1071,20 @@ socket.on("metrics/bysource", function(data) {
   
   const currentIp = data.requested_ip_address; // Use IP from the API response if available
 
+  // Update our message count tracker
+  currentMessageCount = data.messages || 0;
+  
+  // Update the receiver box message if it exists and no receiver is found
+  const receiverBox = document.getElementById('receiver-box');
+  if (receiverBox && !document.querySelector('#receiver-box h3')) {
+    // Only update if this is a "no receiver" box (doesn't have an h3 heading)
+    if (currentMessageCount > 0) {
+      receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+    } else {
+      receiverBox.innerHTML = '<p>No receiver found</p>';
+    }
+  }
+  
   // Extract parameters from the URL
   const params = new URLSearchParams(location.search);
 
@@ -1250,7 +1276,15 @@ async function fetchReceivers(ip) {
       // Create a new box for "No receiver found"
       const receiverBox = document.createElement('div');
       receiverBox.id = 'receiver-box';
-      receiverBox.innerHTML = '<p>No receiver found</p>';
+      
+      // Check if we have messages but no receiver using our tracked message count
+      if (currentMessageCount > 0) {
+        // No receiver found but AIS data is flowing
+        receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+      } else {
+        // No receiver found and no messages
+        receiverBox.innerHTML = '<p>No receiver found</p>';
+      }
 
       ipHeading.insertAdjacentElement('afterend', receiverBox);
       return;
@@ -1335,7 +1369,15 @@ async function fetchReceivers(ip) {
     // Create a new box for "No receiver found"
     const receiverBox = document.createElement('div');
     receiverBox.id = 'receiver-box';
-    receiverBox.innerHTML = '<p>No receiver found</p>';
+    
+    // Check if we have messages but no receiver using our tracked message count
+    if (currentMessageCount > 0) {
+      // No receiver found but AIS data is flowing
+      receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+    } else {
+      // No receiver found and no messages
+      receiverBox.innerHTML = '<p>No receiver found</p>';
+    }
 
     ipHeading.insertAdjacentElement('afterend', receiverBox);
   }
