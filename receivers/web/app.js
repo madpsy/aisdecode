@@ -137,10 +137,31 @@ form.onsubmit = async e => {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload),
   });
+  
   if (!res.ok) {
-    alert('Error: ' + await res.text());
+    const errorText = await res.text();
+    // Check if the error is related to duplicate name
+    if (errorText.includes("already in use")) {
+      // Highlight the name field to indicate the error
+      const nameField = document.getElementById('field-name');
+      nameField.classList.add('error');
+      nameField.focus();
+      
+      // Show a more user-friendly error message
+      alert('Error: ' + errorText + '\nPlease choose a different name.');
+      
+      // Add an event listener to remove the error class when the user starts typing
+      nameField.addEventListener('input', function onInput() {
+        nameField.classList.remove('error');
+        nameField.removeEventListener('input', onInput);
+      }, { once: true });
+    } else {
+      // For other errors, show the generic error message
+      alert('Error: ' + errorText);
+    }
     return;
   }
+  
   form.reset();
   editId = null;
   formTitle.textContent = 'Add New Receiver';

@@ -136,7 +136,7 @@ func createSchema() {
             description VARCHAR(30) NOT NULL,
             latitude DOUBLE PRECISION NOT NULL,
             longitude DOUBLE PRECISION NOT NULL,
-            name VARCHAR(15) NOT NULL,
+            name VARCHAR(15) NOT NULL UNIQUE,
             url TEXT,
 	    ip_address TEXT NOT NULL DEFAULT ''
         );
@@ -147,6 +147,11 @@ func createSchema() {
     _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_receivers_id ON receivers(id);`)
     if err != nil {
         log.Fatalf("Error creating index: %v", err)
+    }
+    // Create a unique index on the name column if it doesn't exist
+    _, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_receivers_name ON receivers(name);`)
+    if err != nil {
+        log.Fatalf("Error creating unique index on name: %v", err)
     }
     // Sync the SERIAL sequence
     _, err = db.Exec(`
@@ -819,5 +824,26 @@ func validateReceiver(r Receiver) error {
             return fmt.Errorf("invalid URL")
         }
     }
+    
+    // Check if the name is already in use by another receiver
+    var count int
+    query := `SELECT COUNT(*) FROM receivers WHERE name = $1`
+    args := []interface{}{r.Name}
+    
+    // If we're updating an existing receiver, exclude it from the check
+    if r.ID > 0 {
+        query += ` AND id != $2`
+        args = append(args, r.ID)
+    }
+    
+    err := db.QueryRow(query, args...).Scan(&count)
+    if err != nil {
+        return fmt.Errorf("database error while checking name uniqueness: %v", err)
+    }
+    
+    if count > 0 {
+        return fmt.Errorf("name '%s' is already in use by another receiver", r.Name)
+    }
+    
     return nil
 }
