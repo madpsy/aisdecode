@@ -1102,6 +1102,14 @@ function fetchReceiversById(receiverId) {
     .then(data => {
       const receiver = Array.isArray(data) ? data[0] : data;
 
+      // Set the selectedReceiverLatLng for map operations
+      selectedReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+      console.log("Set selectedReceiverLatLng from fetchReceiversById:", selectedReceiverLatLng);
+      
+      // Update the overlay to show the receiver's position
+      updateOverlay(selectedReceiverLatLng);
+      updateSummaryTable();
+
       // Remove existing info box if present
       const oldBox = document.getElementById('receiver-box');
       if (oldBox) oldBox.remove();
