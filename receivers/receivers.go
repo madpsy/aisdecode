@@ -488,8 +488,9 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         }
         rec.Messages = msgs
 
-        // Exclude IP Address in public response
+        // Exclude IP Address and Password in public response
         rec.IPAddress = "" // Clear IP address before sending the response
+        rec.Password = ""  // Clear password before sending the response
 
         list = append(list, rec)
     }
