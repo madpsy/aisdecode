@@ -445,12 +445,17 @@ function applyOverride(ip) {
   console.log("Reset currentMessageCount to 0 in applyOverride");
 
   // Update the IP address display to include the override indicator
+  // Only update if it doesn't already contain the override indicator
   const ipAddress = document.getElementById('ip-address');
   if (ipAddress) {
-    const currentIp = ipAddress.textContent.split(' ')[0]; // Get just the IP address
-    console.log("Current IP in display:", currentIp);
-    console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
-    ipAddress.innerHTML = currentIp + " (Using IP: " + ip + ")";
+    if (!ipAddress.textContent.includes("(Using IP:")) {
+      const currentIp = ipAddress.textContent.split(' ')[0]; // Get just the IP address
+      console.log("Current IP in display:", currentIp);
+      console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
+      ipAddress.innerHTML = currentIp + " (Using IP: " + ip + ")";
+    } else {
+      console.log("IP address already contains override indicator, not updating");
+    }
   } else {
     console.error("IP address element not found");
   }
@@ -555,12 +560,12 @@ window.addEventListener('DOMContentLoaded', () => {
         console.log("Setting overrideIp from URL parameter:", overrideIp);
         
         // Update the IP address display to include the override indicator
-        const ipAddress = document.getElementById('ip-address');
-        if (ipAddress) {
-          const currentIp = ipAddress.textContent.split(' ')[0]; // Get just the IP address
+        const ipAddressEl1 = document.getElementById('ip-address');
+        if (ipAddressEl1) {
+          const currentIp = ipAddressEl1.textContent.split(' ')[0]; // Get just the IP address
           console.log("Current IP in display (map init):", currentIp);
           console.log("Setting IP display to include override (map init):", currentIp + " (Using IP: " + ip + ")");
-          ipAddress.innerHTML = currentIp + " (Using IP: " + ip + ")";
+          ipAddressEl1.innerHTML = currentIp + " (Using IP: " + ip + ")";
         } else {
           console.error("IP address element not found (map init)");
         }
@@ -575,6 +580,16 @@ window.addEventListener('DOMContentLoaded', () => {
           if (applyBtn) {
             applyBtn.disabled = false;
           }
+        }
+        
+        // Update the IP address display with the override indicator before applying override
+        const ipAddressEl2 = document.getElementById('ip-address');
+        if (ipAddressEl2) {
+          // Make sure we're using the current IP address text
+          const currentIp = ipAddressEl2.textContent;
+          console.log("Current IP before applying override:", currentIp);
+          console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
+          ipAddressEl2.innerHTML = currentIp + " (Using IP: " + ip + ")";
         }
         
         // Apply the override
