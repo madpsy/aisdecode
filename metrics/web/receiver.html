@@ -325,6 +325,7 @@
     // Map & overlay state
     let map, overlayDiv, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
     let loadedWithReceiver = false; // Flag to track if page was loaded with receiver parameter
+    let loadedWithIpAddress = false; // Flag to track if page was loaded with ipaddress parameter
     const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
 
     const navigationalStatusMapping = {
@@ -476,6 +477,10 @@ function applyOverride(ip) {
 
   // Fetch receivers with the new IP immediately after applying override
   fetchReceivers(ip);  // Fetch receivers by IP address
+  
+  // Set flag to ensure autoFit works for vessel markers with manual IP override
+  loadedWithIpAddress = true;
+  console.log("Setting loadedWithIpAddress=true after manual IP override");
 }
 
 
@@ -526,6 +531,9 @@ window.addEventListener('DOMContentLoaded', () => {
   if (p.has('ipaddress')) {
     // We'll handle this in the map initialization code
     console.log("Page loaded with ipaddress parameter, will handle after map initialization");
+    // Set flag to ensure autoFit works for vessel markers with ipaddress parameter
+    loadedWithIpAddress = true;
+    console.log("Page loaded with ipaddress parameter, setting loadedWithIpAddress =", loadedWithIpAddress);
   }
   
   // Set flag if page was loaded with receiver parameter
@@ -611,6 +619,10 @@ window.addEventListener('DOMContentLoaded', () => {
         
         // Apply the override
         applyOverride(ip);
+        
+        // Set flag to ensure autoFit works for vessel markers with ipaddress parameter
+        loadedWithIpAddress = true;
+        console.log("Setting loadedWithIpAddress=true after applying override from URL parameter");
       } else if (p.has('receiver')) {
         // Reset message count for new receiver
         currentMessageCount = 0;
@@ -992,12 +1004,13 @@ function updateMap() {
   const oldVesselCount = Object.keys(vesselMarkers).length;
   const boundsArr = [], newMarkers = {};
 
-  // Force autoFit to be true if page was loaded with receiver parameter
-  // But only do this once - set loadedWithReceiver to false after using it
-  if (loadedWithReceiver) {
-    console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=true");
+  // Force autoFit to be true if page was loaded with receiver parameter or ipaddress parameter
+  // But only do this once - set flags to false after using them
+  if (loadedWithReceiver || loadedWithIpAddress) {
+    console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=", loadedWithReceiver, "or loadedWithIpAddress=", loadedWithIpAddress);
     autoFit = true;
     loadedWithReceiver = false; // Reset so we don't keep forcing autoFit
+    loadedWithIpAddress = false; // Reset so we don't keep forcing autoFit
   }
 
   // Loop over all user IDs to process each vessel
