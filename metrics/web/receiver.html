@@ -500,23 +500,19 @@ function fetchUserIP(applyAsOverride = false) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  // Always fetch the user's IP for display
-  fetchUserIP(false);
-
   // Ensure autoFit is true when page loads
   autoFit = true;
   console.log("Page loaded, setting autoFit =", autoFit);
 
   const p = new URLSearchParams(location.search);
   
-  // Check if page was loaded with ipaddress parameter and set override indicator
+  // Check if page was loaded with ipaddress parameter
   if (p.has('ipaddress')) {
-    const ip = p.get('ipaddress');
-    overrideIp = ip;
-    const overrideIndicator = document.getElementById('override-indicator');
-    if (overrideIndicator) {
-      overrideIndicator.textContent = ` (Using IP: ${ip})`;
-    }
+    // We'll handle this in the map initialization code
+    console.log("Page loaded with ipaddress parameter, will handle after map initialization");
+  } else {
+    // Only fetch the user's IP for display if we're not using an override IP
+    fetchUserIP(false);
   }
   
   // Set flag if page was loaded with receiver parameter
@@ -543,10 +539,37 @@ window.addEventListener('DOMContentLoaded', () => {
       
       // After map is initialized, handle the query parameters
       if (p.has('ipaddress')) {
+        // Get the IP address from the URL
+        const ip = p.get('ipaddress');
+        
         // Reset message count before applying override
         currentMessageCount = 0;
         console.log("Reset currentMessageCount to 0 for ipaddress parameter");
-        applyOverride(p.get('ipaddress'));
+        
+        // Set the override IP
+        overrideIp = ip;
+        console.log("Setting overrideIp from URL parameter:", overrideIp);
+        
+        // Update the override indicator
+        const overrideIndicator = document.getElementById('override-indicator');
+        if (overrideIndicator) {
+          overrideIndicator.textContent = ` (Using IP: ${ip})`;
+        }
+        
+        // Update the input field with the override IP
+        const ipInput = document.getElementById('ipInput');
+        if (ipInput) {
+          ipInput.value = ip;
+          
+          // Enable the Apply button
+          const applyBtn = document.getElementById('applyBtn');
+          if (applyBtn) {
+            applyBtn.disabled = false;
+          }
+        }
+        
+        // Apply the override
+        applyOverride(ip);
       } else if (p.has('receiver')) {
         // Reset message count for new receiver
         currentMessageCount = 0;
@@ -1308,6 +1331,24 @@ async function fetchReceivers(ip) {
   try {
     const params = new URLSearchParams(location.search);
     let url = '/receivers';
+
+    // Make sure overrideIp is set if we're using an IP address
+    if (ip) {
+      overrideIp = ip;
+      console.log("Setting overrideIp in fetchReceivers:", overrideIp);
+      
+      // Update the input field with the override IP
+      const ipInput = document.getElementById('ipInput');
+      if (ipInput) {
+        ipInput.value = ip;
+        
+        // Enable the Apply button
+        const applyBtn = document.getElementById('applyBtn');
+        if (applyBtn) {
+          applyBtn.disabled = false;
+        }
+      }
+    }
 
     // Use receiver ID from the URL if it's present
     if (params.has('receiver')) {
