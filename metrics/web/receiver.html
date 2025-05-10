@@ -234,7 +234,7 @@
     <button id="applyBtn" disabled>Apply</button>
   </div>
 
-  <h2>Your IP: <span id="ip-address">127.0.0.1</span><span id="override-indicator"></span></h2>
+  <h2>Your IP: <span id="ip-address">127.0.0.1</span></h2>
 
   <div class="cards" id="cards"></div>
   <div class="charts" id="charts"></div>
@@ -444,13 +444,15 @@ function applyOverride(ip) {
   currentMessageCount = 0;  // Reset message count for the new IP
   console.log("Reset currentMessageCount to 0 in applyOverride");
 
-  // Update the override indicator
-  const overrideIndicator = document.getElementById('override-indicator');
-  if (overrideIndicator) {
-    overrideIndicator.textContent = ` (Using IP: ${ip})`;
-    overrideIndicator.style.display = 'inline'; // Ensure it's displayed inline
+  // Update the IP address display to include the override indicator
+  const ipAddress = document.getElementById('ip-address');
+  if (ipAddress) {
+    const currentIp = ipAddress.textContent.split(' ')[0]; // Get just the IP address
+    console.log("Current IP in display:", currentIp);
+    console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
+    ipAddress.innerHTML = currentIp + " (Using IP: " + ip + ")";
   } else {
-    console.error("Override indicator element not found");
+    console.error("IP address element not found");
   }
 
   // Update the URL with the new IP address (remove receiver if it's there)
@@ -486,11 +488,11 @@ function fetchUserIP(applyAsOverride = false) {
           console.log("Reset currentMessageCount to 0 in fetchUserIP");
           applyOverride(data.ip);
         } else {
-          // Clear the override indicator when not using an override
-          const overrideIndicator = document.getElementById('override-indicator');
-          if (overrideIndicator) {
-            overrideIndicator.textContent = '';
-            overrideIndicator.style.display = 'none'; // Hide it completely
+          // Clear the override indicator by updating the IP address display
+          const ipAddress = document.getElementById('ip-address');
+          if (ipAddress) {
+            // Just show the IP address without the override indicator
+            ipAddress.textContent = ipAddress.textContent.split(' ')[0];
           }
           overrideIp = '';
         }
@@ -552,11 +554,15 @@ window.addEventListener('DOMContentLoaded', () => {
         overrideIp = ip;
         console.log("Setting overrideIp from URL parameter:", overrideIp);
         
-        // Update the override indicator
-        const overrideIndicator = document.getElementById('override-indicator');
-        if (overrideIndicator) {
-          overrideIndicator.textContent = ` (Using IP: ${ip})`;
-          overrideIndicator.style.display = 'inline'; // Ensure it's displayed inline
+        // Update the IP address display to include the override indicator
+        const ipAddress = document.getElementById('ip-address');
+        if (ipAddress) {
+          const currentIp = ipAddress.textContent.split(' ')[0]; // Get just the IP address
+          console.log("Current IP in display (map init):", currentIp);
+          console.log("Setting IP display to include override (map init):", currentIp + " (Using IP: " + ip + ")");
+          ipAddress.innerHTML = currentIp + " (Using IP: " + ip + ")";
+        } else {
+          console.error("IP address element not found (map init)");
         }
         
         // Update the input field with the override IP
@@ -802,10 +808,11 @@ function loadReceivers() {
           
           // Clear the override IP since we're now using a specific receiver
           overrideIp = '';
-          const overrideIndicator = document.getElementById('override-indicator');
-          if (overrideIndicator) {
-            overrideIndicator.textContent = '';
-            overrideIndicator.style.display = 'none'; // Hide it completely
+          // Clear the override indicator by updating the IP address display
+          const ipAddress = document.getElementById('ip-address');
+          if (ipAddress) {
+            // Just show the IP address without the override indicator
+            ipAddress.textContent = ipAddress.textContent.split(' ')[0];
           }
 
           // Fetch this receiver's details via ?id=<id>
