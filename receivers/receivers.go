@@ -61,6 +61,7 @@ type ReceiverInput struct {
     Name        string   `json:"name"`
     URL         *string  `json:"url,omitempty"`
     Password    *string  `json:"password,omitempty"`
+    IPAddress   *string  `json:"ip_address,omitempty"`
 }
 
 type ReceiverPatch struct {
@@ -70,6 +71,7 @@ type ReceiverPatch struct {
     Name        *string   `json:"name,omitempty"`
     URL         *string   `json:"url,omitempty"`
     Password    *string   `json:"password,omitempty"`
+    IPAddress   *string   `json:"ip_address,omitempty"`
 }
 
 var (
@@ -610,17 +612,14 @@ func generateRandomPassword() (string, error) {
 }
 
 func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
-    // 1) extract client IP
-    ip := getClientIP(r)
-
-    // 2) decode JSON body
+    // 1) decode JSON body
     var input ReceiverInput
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
         http.Error(w, "invalid JSON", http.StatusBadRequest)
         return
     }
 
-    // 3) Generate a random password if not provided
+    // 2) Generate a random password if not provided
     password := ""
     if input.Password != nil {
         password = *input.Password
@@ -633,6 +632,12 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    // 3) Use provided IP address or empty string if not provided
+    ipAddress := ""
+    if input.IPAddress != nil {
+        ipAddress = *input.IPAddress
+    }
+
     // 4) build Receiver and validate
     rec := Receiver{
         Description: input.Description,
@@ -641,6 +646,7 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         Name:        input.Name,
         URL:         input.URL,
         Password:    password,
+        IPAddress:   ipAddress,
     }
     if err := validateReceiver(rec); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
@@ -659,15 +665,12 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
             password
         ) VALUES ($1,$2,$3,$4,$5,$6,$7)
         RETURNING id, lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip, rec.Password).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password).
         Scan(&rec.ID, &rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-
-    // 5) populate IPAddress on the struct for JSON response
-    rec.IPAddress = ip
 
     // 6) send response
     w.Header().Set("Content-Type", "application/json")
@@ -709,18 +712,17 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
 }
 
 func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    // 1) extract client IP
-    ip := getClientIP(r)
-
-    // 2) decode JSON body
+    // 1) decode JSON body
     var input ReceiverInput
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
         http.Error(w, "invalid JSON", http.StatusBadRequest)
         return
     }
 
-    // 3) Get current password if not provided in the input
+    // 2) Get current password and IP address if not provided in the input
     var password string
+    var ipAddress string
+    
     if input.Password != nil {
         password = *input.Password
     } else {
@@ -731,8 +733,19 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
             return
         }
     }
+    
+    if input.IPAddress != nil {
+        ipAddress = *input.IPAddress
+    } else {
+        // Fetch the current IP address from the database
+        err := db.QueryRow(`SELECT ip_address FROM receivers WHERE id = $1`, id).Scan(&ipAddress)
+        if err != nil && err != sql.ErrNoRows {
+            http.Error(w, "Failed to retrieve current IP address", http.StatusInternalServerError)
+            return
+        }
+    }
 
-    // 4) build Receiver and validate
+    // 3) build Receiver and validate
     rec := Receiver{
         ID:          id,
         Description: input.Description,
@@ -741,13 +754,14 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         Name:        input.Name,
         URL:         input.URL,
         Password:    password,
+        IPAddress:   ipAddress,
     }
     if err := validateReceiver(rec); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
-    // 5) UPSERT including ip_address and password
+    // 4) UPSERT including ip_address and password
     err := db.QueryRow(`
         INSERT INTO receivers (
             id,
@@ -769,15 +783,12 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
               password    = EXCLUDED.password,
               lastupdated = NOW()
         RETURNING lastupdated
-    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip, rec.Password).
+    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-
-    // 5) populate IPAddress on the struct for JSON response
-    rec.IPAddress = ip
 
     // 6) send response
     w.Header().Set("Content-Type", "application/json")
@@ -785,10 +796,7 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
 }
 
 func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    // 1) extract client IP
-    ip := getClientIP(r)
-
-    // 2) decode JSON body
+    // 1) decode JSON body
     var patch ReceiverPatch
     if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
         http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -839,6 +847,9 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     if patch.Password != nil {
         rec.Password = *patch.Password
     }
+    if patch.IPAddress != nil {
+        rec.IPAddress = *patch.IPAddress
+    }
 
     // 5) validate updated rec
     if err := validateReceiver(rec); err != nil {
@@ -859,15 +870,12 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
                lastupdated  = NOW()
          WHERE id = $8
          RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip, rec.Password, rec.ID).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password, rec.ID).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-
-    // 7) populate IPAddress on the struct for JSON response
-    rec.IPAddress = ip
 
     // 8) send response
     w.Header().Set("Content-Type", "application/json")

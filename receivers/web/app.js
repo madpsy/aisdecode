@@ -16,6 +16,7 @@ let sortDir       = 1; // 1 = ascending, -1 = descending
 async function loadReceivers() {
   const res = await fetch('/admin/receivers');
   receiversData = await res.json();
+  console.log('Receivers data:', receiversData); // Debug: Log the receivers data
   applySortAndFilter();
 }
 
@@ -56,6 +57,7 @@ function applySortAndFilter() {
 function renderList(list) {
   tbody.innerHTML = '';
   list.forEach(r => {
+    console.log('Rendering receiver:', r.id, 'Password:', r.password); // Debug: Log each receiver's password
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${r.id}</td>
@@ -71,7 +73,7 @@ function renderList(list) {
         }
       </td>
       <td>${r.ip_address}</td>
-      <td>${r.password || '—'}</td>
+      <td>${r.password !== undefined ? r.password : '—'}</td>
       <td>${r.messages !== undefined && r.messages !== null ? r.messages : 'No messages'}</td>
       <td>
         <a class="action" data-id="${r.id}">Edit</a>
@@ -102,6 +104,7 @@ function startEdit(id) {
   fetch(`/admin/receivers/${id}`)
     .then(r => r.json())
     .then(r => {
+      console.log('Editing receiver:', r.id, 'Password:', r.password); // Debug: Log the password when editing
       editId = r.id;
       formTitle.textContent = 'Edit Receiver #' + r.id;
       document.getElementById('field-id').value          = r.id;
@@ -110,7 +113,8 @@ function startEdit(id) {
       document.getElementById('field-latitude').value    = r.latitude;
       document.getElementById('field-longitude').value   = r.longitude;
       document.getElementById('field-url').value         = r.url ?? '';
-      document.getElementById('field-password').value    = r.password ?? '';
+      document.getElementById('field-ip-address').value  = r.ip_address ?? '';
+      document.getElementById('field-password').value    = r.password !== undefined ? r.password : '';
       
       // Show regenerate button when editing
       document.getElementById('regenerate-password').style.display = 'inline-block';
@@ -121,6 +125,7 @@ cancelBtn.onclick = () => {
   editId = null;
   formTitle.textContent = 'Add New Receiver';
   form.reset();
+  document.getElementById('field-ip-address').value = '';
   document.getElementById('field-password').value = '';
   // Hide regenerate button for new receivers (will be auto-generated)
   document.getElementById('regenerate-password').style.display = 'none';
@@ -166,6 +171,10 @@ form.onsubmit = async e => {
   const urlVal = document.getElementById('field-url').value.trim();
   if (urlVal) payload.url = urlVal;
   
+  // Include IP address in payload if it exists
+  const ipAddressVal = document.getElementById('field-ip-address').value.trim();
+  if (ipAddressVal) payload.ip_address = ipAddressVal;
+  
   // Include password in payload if it exists
   const passwordVal = document.getElementById('field-password').value.trim();
   if (passwordVal) payload.password = passwordVal;
@@ -206,6 +215,7 @@ form.onsubmit = async e => {
   form.reset();
   editId = null;
   formTitle.textContent = 'Add New Receiver';
+  document.getElementById('field-ip-address').value = '';
   document.getElementById('field-password').value = '';
   document.getElementById('regenerate-password').style.display = 'none';
   loadReceivers();
