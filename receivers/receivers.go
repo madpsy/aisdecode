@@ -1,17 +1,19 @@
 package main
 
 import (
+    "crypto/rand"
     "database/sql"
     "encoding/json"
     "fmt"
     "io/ioutil"
     "log"
+    "math/big"
+    "net"
     "net/http"
     "net/url"
     "strconv"
     "strings"
     "time"
-    "net"
 
     _ "github.com/lib/pq"
 )
@@ -36,6 +38,7 @@ type Receiver struct {
     Name        string     `json:"name"`
     URL         *string    `json:"url,omitempty"`
     IPAddress   string     `json:"ip_address,omitempty"`
+    Password    string     `json:"password,omitempty"`
     Messages    int        `json:"messages"`
 }
 
@@ -45,6 +48,7 @@ type ReceiverInput struct {
     Longitude   float64  `json:"longitude"`
     Name        string   `json:"name"`
     URL         *string  `json:"url,omitempty"`
+    Password    *string  `json:"password,omitempty"`
 }
 
 type ReceiverPatch struct {
@@ -53,6 +57,7 @@ type ReceiverPatch struct {
     Longitude   *float64  `json:"longitude,omitempty"`
     Name        *string   `json:"name,omitempty"`
     URL         *string   `json:"url,omitempty"`
+    Password    *string   `json:"password,omitempty"`
 }
 
 var (
@@ -116,6 +121,7 @@ func main() {
     // Admin API: full CRUD under /admin/receivers
     http.HandleFunc("/admin/receivers", adminReceiversHandler)
     http.HandleFunc("/admin/receivers/", adminReceiverHandler)
+    http.HandleFunc("/admin/receivers/regenerate-password/", adminRegeneratePasswordHandler)
 
     // Serve static files at /admin/
     http.Handle(
@@ -138,7 +144,8 @@ func createSchema() {
             longitude DOUBLE PRECISION NOT NULL,
             name VARCHAR(15) NOT NULL UNIQUE,
             url TEXT,
-	    ip_address TEXT NOT NULL DEFAULT ''
+            ip_address TEXT NOT NULL DEFAULT '',
+            password VARCHAR(20) NOT NULL DEFAULT ''
         );
     `)
     if err != nil {
@@ -564,6 +571,22 @@ func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
     }
 }
 
+// generateRandomPassword creates a random 8-character password
+func generateRandomPassword() (string, error) {
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    password := make([]byte, 8)
+    
+    for i := range password {
+        n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+        if err != nil {
+            return "", err
+        }
+        password[i] = charset[n.Int64()]
+    }
+    
+    return string(password), nil
+}
+
 func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
     // 1) extract client IP
     ip := getClientIP(r)
@@ -575,20 +598,34 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 3) build Receiver and validate
+    // 3) Generate a random password if not provided
+    password := ""
+    if input.Password != nil {
+        password = *input.Password
+    } else {
+        var err error
+        password, err = generateRandomPassword()
+        if err != nil {
+            http.Error(w, "Failed to generate password", http.StatusInternalServerError)
+            return
+        }
+    }
+
+    // 4) build Receiver and validate
     rec := Receiver{
         Description: input.Description,
         Latitude:    input.Latitude,
         Longitude:   input.Longitude,
         Name:        input.Name,
         URL:         input.URL,
+        Password:    password,
     }
     if err := validateReceiver(rec); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
-    // 4) INSERT including ip_address
+    // 5) INSERT including ip_address and password
     err := db.QueryRow(`
         INSERT INTO receivers (
             description,
@@ -596,10 +633,11 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
             longitude,
             name,
             url,
-            ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6)
+            ip_address,
+            password
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
         RETURNING id, lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip, rec.Password).
         Scan(&rec.ID, &rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -619,11 +657,11 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
     var rec Receiver
     // Query the receiver from the database.
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address
+        SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address, password
         FROM receivers WHERE id = $1
     `, id).Scan(
         &rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.IPAddress,
+        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.IPAddress, &rec.Password,
     )
     if err == sql.ErrNoRows {
         w.WriteHeader(http.StatusNotFound)
@@ -659,7 +697,20 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         return
     }
 
-    // 3) build Receiver and validate
+    // 3) Get current password if not provided in the input
+    var password string
+    if input.Password != nil {
+        password = *input.Password
+    } else {
+        // Fetch the current password from the database
+        err := db.QueryRow(`SELECT password FROM receivers WHERE id = $1`, id).Scan(&password)
+        if err != nil && err != sql.ErrNoRows {
+            http.Error(w, "Failed to retrieve current password", http.StatusInternalServerError)
+            return
+        }
+    }
+
+    // 4) build Receiver and validate
     rec := Receiver{
         ID:          id,
         Description: input.Description,
@@ -667,13 +718,14 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         Longitude:   input.Longitude,
         Name:        input.Name,
         URL:         input.URL,
+        Password:    password,
     }
     if err := validateReceiver(rec); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
-    // 4) UPSERT including ip_address
+    // 5) UPSERT including ip_address and password
     err := db.QueryRow(`
         INSERT INTO receivers (
             id,
@@ -682,8 +734,9 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
             longitude,
             name,
             url,
-            ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+            ip_address,
+            password
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         ON CONFLICT (id) DO UPDATE
           SET description = EXCLUDED.description,
               latitude    = EXCLUDED.latitude,
@@ -691,9 +744,10 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
               name        = EXCLUDED.name,
               url         = EXCLUDED.url,
               ip_address  = EXCLUDED.ip_address,
+              password    = EXCLUDED.password,
               lastupdated = NOW()
         RETURNING lastupdated
-    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip).
+    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip, rec.Password).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -722,7 +776,7 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     // 3) load existing record
     var rec Receiver
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address
+        SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address, password
         FROM receivers WHERE id = $1
     `, id).Scan(
         &rec.ID,
@@ -733,6 +787,7 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
         &rec.Name,
         &rec.URL,
         &rec.IPAddress,
+        &rec.Password,
     )
     if err == sql.ErrNoRows {
         w.WriteHeader(http.StatusNotFound)
@@ -752,11 +807,65 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     if patch.Longitude != nil {
         rec.Longitude = *patch.Longitude
     }
+    
+    // adminRegeneratePasswordHandler handles POST /admin/receivers/regenerate-password/{id}
+    func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost {
+            w.WriteHeader(http.StatusMethodNotAllowed)
+            return
+        }
+    
+        // Extract receiver ID from URL
+        parts := strings.Split(r.URL.Path, "/")
+        if len(parts) < 5 {
+            http.Error(w, "Invalid URL format", http.StatusBadRequest)
+            return
+        }
+        
+        id, err := strconv.Atoi(parts[4])
+        if err != nil {
+            http.Error(w, "Invalid receiver ID", http.StatusBadRequest)
+            return
+        }
+    
+        // Generate a new random password
+        newPassword, err := generateRandomPassword()
+        if err != nil {
+            http.Error(w, "Failed to generate password", http.StatusInternalServerError)
+            return
+        }
+    
+        // Update the password in the database
+        var lastUpdated time.Time
+        err = db.QueryRow(`
+            UPDATE receivers
+            SET password = $1, lastupdated = NOW()
+            WHERE id = $2
+            RETURNING lastupdated
+        `, newPassword, id).Scan(&lastUpdated)
+    
+        if err == sql.ErrNoRows {
+            http.Error(w, "Receiver not found", http.StatusNotFound)
+            return
+        } else if err != nil {
+            http.Error(w, "Database error", http.StatusInternalServerError)
+            return
+        }
+    
+        // Return the new password
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(map[string]string{
+            "password": newPassword,
+        })
+    }
     if patch.Name != nil {
         rec.Name = *patch.Name
     }
     if patch.URL != nil {
         rec.URL = patch.URL
+    }
+    if patch.Password != nil {
+        rec.Password = *patch.Password
     }
 
     // 5) validate updated rec
@@ -774,10 +883,11 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
                name         = $4,
                url          = $5,
                ip_address   = $6,
+               password     = $7,
                lastupdated  = NOW()
-         WHERE id = $7
+         WHERE id = $8
          RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip, rec.ID).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, ip, rec.Password, rec.ID).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)

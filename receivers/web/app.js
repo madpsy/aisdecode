@@ -71,6 +71,7 @@ function renderList(list) {
         }
       </td>
       <td>${r.ip_address}</td>
+      <td>${r.password || '—'}</td>
       <td>${r.messages !== undefined && r.messages !== null ? r.messages : 'No messages'}</td>
       <td>
         <a class="action" data-id="${r.id}">Edit</a>
@@ -109,6 +110,10 @@ function startEdit(id) {
       document.getElementById('field-latitude').value    = r.latitude;
       document.getElementById('field-longitude').value   = r.longitude;
       document.getElementById('field-url').value         = r.url ?? '';
+      document.getElementById('field-password').value    = r.password ?? '';
+      
+      // Show regenerate button when editing
+      document.getElementById('regenerate-password').style.display = 'inline-block';
     });
 }
 
@@ -116,7 +121,39 @@ cancelBtn.onclick = () => {
   editId = null;
   formTitle.textContent = 'Add New Receiver';
   form.reset();
+  document.getElementById('field-password').value = '';
+  // Hide regenerate button for new receivers (will be auto-generated)
+  document.getElementById('regenerate-password').style.display = 'none';
 };
+
+// Handle password regeneration
+document.getElementById('regenerate-password').addEventListener('click', function(e) {
+  e.preventDefault();
+  
+  if (!editId) {
+    // For new receivers, just clear the field - a new password will be generated on save
+    document.getElementById('field-password').value = '';
+    return;
+  }
+  
+  // For existing receivers, call the API to regenerate the password
+  fetch(`/admin/receivers/regenerate-password/${editId}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'}
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('Failed to regenerate password');
+    }
+    return response.json();
+  })
+  .then(data => {
+    document.getElementById('field-password').value = data.password;
+  })
+  .catch(error => {
+    alert('Error: ' + error.message);
+  });
+});
 
 form.onsubmit = async e => {
   e.preventDefault();
@@ -128,6 +165,10 @@ form.onsubmit = async e => {
   };
   const urlVal = document.getElementById('field-url').value.trim();
   if (urlVal) payload.url = urlVal;
+  
+  // Include password in payload if it exists
+  const passwordVal = document.getElementById('field-password').value.trim();
+  if (passwordVal) payload.password = passwordVal;
   const method = editId ? 'PUT'  : 'POST';
   const url    = editId
                 ? `/admin/receivers/${editId}`
@@ -165,6 +206,8 @@ form.onsubmit = async e => {
   form.reset();
   editId = null;
   formTitle.textContent = 'Add New Receiver';
+  document.getElementById('field-password').value = '';
+  document.getElementById('regenerate-password').style.display = 'none';
   loadReceivers();
 };
 
@@ -188,4 +231,8 @@ function updateHeaderIndicators() {
   });
 }
 
-window.addEventListener('load', loadReceivers);
+window.addEventListener('load', () => {
+  loadReceivers();
+  // Hide regenerate button initially (for new receivers)
+  document.getElementById('regenerate-password').style.display = 'none';
+});
