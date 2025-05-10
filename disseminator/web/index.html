@@ -3405,6 +3405,15 @@ window.addEventListener('load', () => {
               
               // Open the tooltip for this receiver
               receiverMarkers[receiverId].openTooltip();
+              
+              // Simulate a click on the marker to ensure tooltip is displayed
+              setTimeout(() => {
+                // Fire a click event on the marker
+                receiverMarkers[receiverId].fire('click');
+                
+                // If that doesn't work, try to open the popup which might make the tooltip visible
+                receiverMarkers[receiverId].openPopup();
+              }, 500);
             }
           }, 1000);
         }
