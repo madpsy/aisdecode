@@ -738,6 +738,10 @@ function loadReceivers() {
           overrideReceiverId = r.id;
           console.log('Receiver ID fetched:', r.id);
           updateURLWithReceiverId(r.id);  // This ensures the URL is updated with only the receiver ID
+          
+          // Send a WebSocket request with the new receiver ID
+          console.log('Sending WebSocket request for receiver ID:', r.id);
+          fetchMetrics();
         });
 
         // Store for nearest/override lookup
