@@ -232,6 +232,7 @@
     <label for="ipInput">Override IP Address:</label>
     <input type="text" id="ipInput" placeholder="e.g. 44.31.231.4" />
     <button id="applyBtn" disabled>Apply</button>
+    <button id="clearBtn">Clear</button>
   </div>
 
   <h2>Your IP: <span id="ip-address">127.0.0.1</span></h2>
@@ -1754,10 +1755,44 @@ async function fetchReceivers(ip) {
 
     const ipInput = document.getElementById('ipInput');
     const applyBtn = document.getElementById('applyBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    // Function to clear IP override and reset to user's real IP
+    function clearIpOverride() {
+      // Clear the input field
+      ipInput.value = '';
+      
+      // Reset the override IP
+      overrideIp = '';
+      overrideReceiverId = '';  // Reset receiver id
+      
+      // Update the URL to remove the ipaddress parameter
+      const url = new URL(window.location);
+      url.searchParams.delete('ipaddress');
+      history.replaceState(null, '', url.toString());
+      
+      // Reset message count
+      currentMessageCount = 0;
+      
+      // Update the IP address display to show only the user's real IP
+      fetchUserIP(false);
+      
+      // Reset all components
+      resetCardsAndCharts();
+      resetMapAndTable(true);
+      resetFilters();
+      
+      // Fetch metrics and receivers with the user's real IP
+      fetchMetrics();
+      fetchReceivers();
+      
+      // Disable the Apply button
+      applyBtn.disabled = true;
+    }
 
     // 1. Toggle disabled state as the user types:
     ipInput.addEventListener('input', () => {
-      // trim so spaces don’t count
+      // trim so spaces don't count
       applyBtn.disabled = ipInput.value.trim() === '';
     });
 
@@ -1768,7 +1803,10 @@ async function fetchReceivers(ip) {
       applyOverride(ip);
     });
 
-    // 3. Also handle Enter-key the same way:
+    // 3. Add event listener for the Clear button:
+    clearBtn.addEventListener('click', clearIpOverride);
+
+    // 4. Also handle Enter-key the same way:
     ipInput.addEventListener('keydown', e => {
       if (e.key !== 'Enter') return;
       const ip = ipInput.value.trim();
