@@ -442,6 +442,7 @@ function applyOverride(ip) {
   overrideIp = ip;
   overrideReceiverId = '';  // Reset receiver id to force fetching from IP
   currentMessageCount = 0;  // Reset message count for the new IP
+  console.log("Reset currentMessageCount to 0 in applyOverride");
 
   // Update the URL with the new IP address (remove receiver if it's there)
   updateURLWithIp(ip);  // Update URL to reflect IP
@@ -472,6 +473,7 @@ function fetchUserIP(applyAsOverride = false) {
         if (applyAsOverride) {
           // Reset message count before applying override with user's IP
           currentMessageCount = 0;
+          console.log("Reset currentMessageCount to 0 in fetchUserIP");
           applyOverride(data.ip);
         }
       } else {
@@ -517,10 +519,12 @@ window.addEventListener('DOMContentLoaded', () => {
       if (p.has('ipaddress')) {
         // Reset message count before applying override
         currentMessageCount = 0;
+        console.log("Reset currentMessageCount to 0 for ipaddress parameter");
         applyOverride(p.get('ipaddress'));
       } else if (p.has('receiver')) {
         // Reset message count for new receiver
         currentMessageCount = 0;
+        console.log("Reset currentMessageCount to 0 for receiver parameter");
         // Now that map is initialized, fetch metrics and receiver info
         console.log('Map initialized, now fetching metrics with receiver ID:', overrideReceiverId);
         fetchMetrics();
@@ -528,6 +532,7 @@ window.addEventListener('DOMContentLoaded', () => {
       } else {
         // No query parameters - fetch user's IP and use it
         currentMessageCount = 0;
+        console.log("Reset currentMessageCount to 0 for default case");
         fetchUserIP(true);
       }
     })
@@ -741,6 +746,7 @@ function loadReceivers() {
           
           // Reset message count for the new receiver
           currentMessageCount = 0;
+          console.log("Reset currentMessageCount to 0 in receiver marker click handler");
 
           // Fetch this receiver's details via ?id=<id>
           fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
@@ -1072,8 +1078,9 @@ socket.on("metrics/bysource", function(data) {
   const currentIp = data.requested_ip_address; // Use IP from the API response if available
 
   // Update our message count tracker
-  currentMessageCount = data.messages || 0;
-  console.log("Updated currentMessageCount:", currentMessageCount);
+  // Use the same data source as the cards (simple_metrics.messages)
+  currentMessageCount = data.simple_metrics?.messages || 0;
+  console.log("Updated currentMessageCount:", currentMessageCount, "from simple_metrics.messages");
   
   // Update the receiver box message if it exists and no receiver is found
   const receiverBox = document.getElementById('receiver-box');
@@ -1083,10 +1090,13 @@ socket.on("metrics/bysource", function(data) {
     // Check if this is a "no receiver" box (has the no-receiver-box class)
     if (receiverBox.classList.contains('no-receiver-box')) {
       console.log("This is a 'no receiver' box, updating message based on message count:", currentMessageCount);
+      console.log("Full data object:", JSON.stringify(data));
       
       if (currentMessageCount > 0) {
+        console.log("Message count > 0, updating to show 'AIS data is flowing'");
         receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
       } else {
+        console.log("Message count = 0, updating to show 'No receiver found'");
         receiverBox.innerHTML = '<p>No receiver found</p>';
       }
     } else {
