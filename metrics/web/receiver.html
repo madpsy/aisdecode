@@ -341,7 +341,10 @@
         distancePolyline = null,
         distanceLabel = null,
         overrideReceiverId = '',
-        receiversList = [];
+        receiversList = [],
+        // Radius circles variables
+        radiusCircles = [],
+        radiusLabels = [];
 
     // **Filter term & row‐highlight helpers**
     let filterTerm = '';
@@ -364,11 +367,113 @@
                 Math.sin(dLon/2)**2;
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
+    
+    // Convert kilometers to nautical miles
+    function kmToNM(km) {
+      return km * 0.539957;
+    }
 
     // Remove existing line + label
     function clearDistanceLine(){
       if(distancePolyline){ map.removeLayer(distancePolyline); distancePolyline = null; }
       if(distanceLabel){ map.removeLayer(distanceLabel); distanceLabel = null; }
+      clearRadiusCircles();
+    }
+    
+    // Remove existing radius circles and labels
+    function clearRadiusCircles() {
+      radiusCircles.forEach(circle => {
+        if(circle) map.removeLayer(circle);
+      });
+      radiusCircles = [];
+      
+      radiusLabels.forEach(label => {
+        if(label) map.removeLayer(label);
+      });
+      radiusLabels = [];
+    }
+    
+    // Calculate maximum distance from receiver to any vessel
+    function calculateMaxDistance() {
+      if (!selectedReceiverLatLng) return 0;
+      
+      let maxDistance = 0;
+      seenUserIds.forEach(uid => {
+        if (uid.length !== 9) return;
+        const info = summaryCache[uid];
+        if (!info) return;
+        const { Latitude: lat, Longitude: lon } = info;
+        if (typeof lat !== 'number' || typeof lon !== 'number') return;
+        
+        const distance = haversineDistance(
+          selectedReceiverLatLng.lat,
+          selectedReceiverLatLng.lng,
+          lat, lon
+        );
+        
+        if (distance > maxDistance) {
+          maxDistance = distance;
+        }
+      });
+      
+      return maxDistance;
+    }
+    
+    // Draw radius circles around the receiver
+    function drawRadiusCircles() {
+      if (!selectedReceiverLatLng || !map) return;
+      
+      // Clear existing circles and labels
+      clearRadiusCircles();
+      
+      // Calculate maximum distance from receiver to any vessel
+      const maxDistanceKm = calculateMaxDistance();
+      if (maxDistanceKm <= 0) return;
+      
+      // Create 3 evenly spaced circles
+      for (let i = 1; i <= 3; i++) {
+        const radiusKm = maxDistanceKm * i / 3;
+        const radiusMeters = radiusKm * 1000; // Leaflet uses meters for circle radius
+        
+        // Create circle
+        const circle = L.circle(selectedReceiverLatLng, {
+          radius: radiusMeters,
+          color: 'blue',
+          fillColor: 'transparent',
+          weight: 1.5,
+          opacity: 0.7
+        }).addTo(map);
+        
+        radiusCircles.push(circle);
+        
+        // Convert to nautical miles for the label
+        const radiusNM = kmToNM(radiusKm).toFixed(1);
+        
+        // Calculate position for the label (east of the center)
+        const labelLatLng = calculateLabelPosition(selectedReceiverLatLng, radiusKm);
+        
+        // Create label
+        const label = L.tooltip({
+          permanent: true,
+          direction: 'center',
+          className: 'distance-tooltip'
+        })
+        .setLatLng(labelLatLng)
+        .setContent(`${radiusNM} NM`)
+        .addTo(map);
+        
+        radiusLabels.push(label);
+      }
+    }
+    
+    // Calculate position for radius label (east of center)
+    function calculateLabelPosition(center, radiusKm) {
+      // Convert radius from km to degrees longitude (approximate)
+      // This is a simplified calculation that works for small distances
+      const radiusLng = radiusKm / (111.32 * Math.cos(center.lat * Math.PI / 180));
+      
+      // Position the label to the east of the center
+      return L.latLng(center.lat, center.lng + radiusLng);
     }
 
     // Helpers
@@ -781,7 +886,7 @@ function resetMapAndTable(isReceiverChange = false) {
   Object.keys(seenCount).forEach(k => delete seenCount[k]);
   document.getElementById('summaryBody').innerHTML = '';
   currentPage = 1;
-  clearDistanceLine();
+  clearDistanceLine(); // This now also clears radius circles
 
   // Reset sorting & pagination
   // Only reset autoFit if this is a receiver change
@@ -843,9 +948,10 @@ function loadReceivers() {
           L.DomEvent.stopPropagation(e);  // Prevent event propagation to map click
           selectedReceiverLatLng = e.latlng;  // Store the receiver's lat/lng
           console.log("Receiver selected at:", selectedReceiverLatLng);
-          clearDistanceLine();  // Clear any existing distance line
+          clearDistanceLine();  // Clear any existing distance line and radius circles
           updateOverlay(e.latlng);  // Update the overlay with receiver's coordinates
           updateSummaryTable();
+          drawRadiusCircles(); // Draw radius circles around the selected receiver
           
           // Reset message count for the new receiver
           currentMessageCount = 0;
@@ -1004,6 +1110,7 @@ function focusVessel(uid){
 function updateMap() {
   const oldVesselCount = Object.keys(vesselMarkers).length;
   const boundsArr = [], newMarkers = {};
+  let vesselsUpdated = false;
 
   // Force autoFit to be true if page was loaded with receiver parameter or ipaddress parameter
   // But only do this once - set flags to false after using them
@@ -1141,6 +1248,11 @@ function updateMap() {
   });
 
   vesselMarkers = newMarkers;
+  
+  // If vessels were updated and a receiver is selected, update the radius circles
+  if (selectedReceiverLatLng) {
+    drawRadiusCircles();
+  }
 
   // After all markers are updated, adjust the map bounds to fit all markers if the data is available
   console.log("updateMap: autoFit =", autoFit, "boundsArr.length =", boundsArr.length, "loadedWithReceiver =", loadedWithReceiver);
@@ -1335,6 +1447,9 @@ function fetchReceiversById(receiverId) {
       // Update the overlay to show the receiver's position
       updateOverlay(selectedReceiverLatLng);
       updateSummaryTable();
+      
+      // Draw radius circles around the selected receiver
+      drawRadiusCircles();
 
       // Remove existing info box if present
       const oldBox = document.getElementById('receiver-box');
@@ -1545,6 +1660,9 @@ async function fetchReceivers(ip) {
     // Update the overlay to show the first receiver's position
     updateOverlay(firstReceiverLatLng);
     updateSummaryTable();
+    
+    // Draw radius circles around the selected receiver
+    drawRadiusCircles();
 
     // Optionally flash the selection overlay
     const ov = document.createElement('div');
