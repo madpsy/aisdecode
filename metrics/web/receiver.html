@@ -234,7 +234,7 @@
     <button id="applyBtn" disabled>Apply</button>
   </div>
 
-  <h2>Your IP: <span id="ip-address">127.0.0.1</span></h2>
+  <h2>Your IP: <span id="ip-address">127.0.0.1</span><span id="override-indicator"></span></h2>
 
   <div class="cards" id="cards"></div>
   <div class="charts" id="charts"></div>
@@ -444,6 +444,9 @@ function applyOverride(ip) {
   currentMessageCount = 0;  // Reset message count for the new IP
   console.log("Reset currentMessageCount to 0 in applyOverride");
 
+  // Update the override indicator
+  document.getElementById('override-indicator').textContent = ` (Using IP: ${ip})`;
+
   // Update the URL with the new IP address (remove receiver if it's there)
   updateURLWithIp(ip);  // Update URL to reflect IP
   
@@ -470,11 +473,16 @@ function fetchUserIP(applyAsOverride = false) {
       if (data && data.ip) {
         console.log('User IP fetched:', data.ip);
         document.getElementById('ip-address').textContent = data.ip;
+        
         if (applyAsOverride) {
           // Reset message count before applying override with user's IP
           currentMessageCount = 0;
           console.log("Reset currentMessageCount to 0 in fetchUserIP");
           applyOverride(data.ip);
+        } else {
+          // Clear the override indicator when not using an override
+          document.getElementById('override-indicator').textContent = '';
+          overrideIp = '';
         }
       } else {
         console.error('Invalid response from /myip endpoint');
@@ -747,6 +755,10 @@ function loadReceivers() {
           // Reset message count for the new receiver
           currentMessageCount = 0;
           console.log("Reset currentMessageCount to 0 in receiver marker click handler");
+          
+          // Clear the override IP since we're now using a specific receiver
+          overrideIp = '';
+          document.getElementById('override-indicator').textContent = '';
 
           // Fetch this receiver's details via ?id=<id>
           fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
@@ -1094,7 +1106,12 @@ socket.on("metrics/bysource", function(data) {
       
       if (currentMessageCount > 0) {
         console.log("Message count > 0, updating to show 'AIS data is flowing'");
-        receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+        // Check if we're using an override IP
+        if (overrideIp) {
+          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for IP ${overrideIp}. Add a receiver?</p>`;
+        } else {
+          receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+        }
       } else {
         console.log("Message count = 0, updating to show 'No receiver found'");
         receiverBox.innerHTML = '<p>No receiver found</p>';
@@ -1304,7 +1321,12 @@ async function fetchReceivers(ip) {
       if (currentMessageCount > 0) {
         // No receiver found but AIS data is flowing
         console.log('Setting message to "No receiver found but AIS data is flowing"');
-        receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+        // Check if we're using an override IP
+        if (overrideIp) {
+          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for IP ${overrideIp}. Add a receiver?</p>`;
+        } else {
+          receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+        }
       } else {
         // No receiver found and no messages
         console.log('Setting message to "No receiver found"');
@@ -1401,7 +1423,12 @@ async function fetchReceivers(ip) {
     if (currentMessageCount > 0) {
       // No receiver found but AIS data is flowing
       console.log('Setting message to "No receiver found but AIS data is flowing" (error handler)');
-      receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+      // Check if we're using an override IP
+      if (overrideIp) {
+        receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for IP ${overrideIp}. Add a receiver?</p>`;
+      } else {
+        receiverBox.innerHTML = '<p>No receiver found but AIS data is flowing for your IP. Add a receiver?</p>';
+      }
     } else {
       // No receiver found and no messages
       console.log('Setting message to "No receiver found" (error handler)');
