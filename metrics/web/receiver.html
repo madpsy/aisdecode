@@ -871,11 +871,9 @@ function updateMap() {
   const boundsArr = [], newMarkers = {};
 
   // Force autoFit to be true if page was loaded with receiver parameter
-  // But only do this once - set loadedWithReceiver to false after using it
   if (loadedWithReceiver) {
     console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=true");
     autoFit = true;
-    loadedWithReceiver = false; // Reset so we don't keep forcing autoFit
   }
 
   // Loop over all user IDs to process each vessel
@@ -1011,7 +1009,10 @@ function updateMap() {
   if (autoFit && boundsArr.length && map) {
     console.log("updateMap: Fitting bounds to", boundsArr.length, "markers");
     programmaticFit = true;
-    map.once('moveend zoomend', () => programmaticFit = false);
+    map.once('moveend zoomend', () => {
+      programmaticFit = false;
+      console.log("Programmatic fit complete");
+    });
     map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
   } else if (!map) {
     console.error("updateMap: Map not initialized yet!");
