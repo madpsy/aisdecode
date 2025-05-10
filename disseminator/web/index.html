@@ -3398,23 +3398,44 @@ window.addEventListener('load', () => {
           const receiverId = String(receiver.id);
           
           // Wait a moment for receiver markers to be created
+          // Increase timeout to ensure markers are fully initialized
           setTimeout(() => {
             if (receiverMarkers[receiverId]) {
               // Zoom to the receiver marker
               map.setView([receiver.latitude, receiver.longitude], 13);
               
-              // Force close and reopen the tooltip to ensure it's displayed
-              receiverMarkers[receiverId].closeTooltip();
-              receiverMarkers[receiverId].openTooltip();
+              // Get the marker and ensure it has a tooltip
+              const marker = receiverMarkers[receiverId];
+              
+              // Remove any existing tooltip and create a new one
+              marker.unbindTooltip();
+              marker.bindTooltip(`${receiver.name} (RX)`, {
+                permanent: true,
+                interactive: true,
+                direction: 'top',
+                className: 'receiver-tooltip',
+                opacity: 1.0
+              });
+              
+              // Force the tooltip to be shown
+              marker.openTooltip();
               
               // Highlight the receiver marker temporarily
-              const markerElement = receiverMarkers[receiverId].getElement();
+              const markerElement = marker.getElement();
               if (markerElement) {
                 markerElement.classList.add('enlarge');
                 setTimeout(() => markerElement.classList.remove('enlarge'), 1500);
               }
+              
+              // Add a second attempt to open the tooltip after a longer delay
+              setTimeout(() => {
+                if (marker && marker.getTooltip()) {
+                  marker.closeTooltip();
+                  marker.openTooltip();
+                }
+              }, 500);
             }
-          }, 1000);
+          }, 2000); // Increased timeout to 2 seconds
         }
       })
       .catch(error => {
