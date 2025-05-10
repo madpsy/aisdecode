@@ -2174,7 +2174,10 @@ async function fetchReceivers(ip) {
             
             <div style="margin-bottom: 8px;">
               <label for="edit-receiver-new-password">New Password (optional):</label>
-              <input type="password" id="edit-receiver-new-password" style="width: 100%; padding: 4px; margin-top: 2px;">
+              <div style="display: flex; gap: 8px;">
+                <input type="password" id="edit-receiver-new-password" style="flex: 1; padding: 4px; margin-top: 2px;">
+                <button type="button" id="generate-password-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-top: 2px;">Generate</button>
+              </div>
               <small style="color: #666;">Leave blank to keep current password</small>
             </div>
             
@@ -2245,6 +2248,19 @@ async function fetchReceivers(ip) {
                 console.error('Error fetching user IP:', error);
                 alert('Failed to fetch your IP address. Please enter it manually.');
               });
+          });
+          
+          // Add event listener to the "Generate Password" button
+          document.getElementById('generate-password-btn').addEventListener('click', function() {
+            // Generate a random 8-character alphanumeric password
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let password = '';
+            for (let i = 0; i < 8; i++) {
+              password += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            
+            // Populate the password field with the generated password
+            document.getElementById('edit-receiver-new-password').value = password;
           });
           
           // Function to validate IP address format
