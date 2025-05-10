@@ -500,10 +500,9 @@ window.addEventListener('DOMContentLoaded', () => {
     // No query parameters - fetch user's IP and use it
     fetchUserIP();
   }
-
-  // Fetch metrics every second
-  setInterval(fetchMetrics, 1000);
+// No need to fetch metrics every second - the server sends updates automatically
 });
+
 
 
     // sorting
