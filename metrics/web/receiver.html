@@ -485,21 +485,30 @@ function fetchUserIP(applyAsOverride = false) {
     .then(data => {
       if (data && data.ip) {
         console.log('User IP fetched:', data.ip);
-        document.getElementById('ip-address').textContent = data.ip;
         
-        if (applyAsOverride) {
-          // Reset message count before applying override with user's IP
-          currentMessageCount = 0;
-          console.log("Reset currentMessageCount to 0 in fetchUserIP");
-          applyOverride(data.ip);
+        // Check if we're using an override IP from the URL
+        const params = new URLSearchParams(location.search);
+        if (params.has('ipaddress')) {
+          console.log('Not updating IP display because ipaddress parameter is present');
+          // Don't update the display, just store the IP internally
         } else {
-          // Clear the override indicator by updating the IP address display
-          const ipAddress = document.getElementById('ip-address');
-          if (ipAddress) {
-            // Just show the IP address without the override indicator
-            ipAddress.textContent = ipAddress.textContent.split(' ')[0];
+          // Only update the display if we're not using an override IP
+          document.getElementById('ip-address').textContent = data.ip;
+          
+          if (applyAsOverride) {
+            // Reset message count before applying override with user's IP
+            currentMessageCount = 0;
+            console.log("Reset currentMessageCount to 0 in fetchUserIP");
+            applyOverride(data.ip);
+          } else {
+            // Clear the override indicator by updating the IP address display
+            const ipAddress = document.getElementById('ip-address');
+            if (ipAddress) {
+              // Just show the IP address without the override indicator
+              ipAddress.textContent = ipAddress.textContent.split(' ')[0];
+            }
+            overrideIp = '';
           }
-          overrideIp = '';
         }
       } else {
         console.error('Invalid response from /myip endpoint');
@@ -509,9 +518,6 @@ function fetchUserIP(applyAsOverride = false) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  // Always fetch the user's IP for display
-  fetchUserIP(false);
-
   // Ensure autoFit is true when page loads
   autoFit = true;
   console.log("Page loaded, setting autoFit =", autoFit);
@@ -522,6 +528,19 @@ window.addEventListener('DOMContentLoaded', () => {
   if (p.has('ipaddress')) {
     // We'll handle this in the map initialization code
     console.log("Page loaded with ipaddress parameter, will handle after map initialization");
+    // Only fetch the user's IP for internal use, don't display it
+    fetch('/myip')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(data => {
+        if (data && data.ip) {
+          console.log('User IP fetched (not displaying):', data.ip);
+          // Don't update the display, just store the IP
+        }
+      })
+      .catch(e => console.error('Error fetching user IP:', e));
+  } else {
+    // Only fetch the user's IP for display if we're not using an override IP
+    fetchUserIP(false);
   }
   
   // Set flag if page was loaded with receiver parameter
@@ -1196,8 +1215,8 @@ socket.on("metrics/bysource", function(data) {
   // Extract parameters from the URL
   const params = new URLSearchParams(location.search);
 
-  // Only update the URL with the IP address if 'receiver' is not in the URL
-  if (!params.has('receiver')) {
+  // Only update the URL with the IP address if 'receiver' is not in the URL and 'ipaddress' is not in the URL
+  if (!params.has('receiver') && !params.has('ipaddress')) {
     updateURLWithIp(currentIp);
   }
 
