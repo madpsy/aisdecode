@@ -481,6 +481,10 @@ window.addEventListener('DOMContentLoaded', () => {
   // Always fetch the user's IP for display
   fetchUserIP(false);
 
+  // Ensure autoFit is true when page loads
+  autoFit = true;
+  console.log("Page loaded, setting autoFit =", autoFit);
+
   const p = new URLSearchParams(location.search);
   
   // Set flag if page was loaded with receiver parameter
@@ -594,6 +598,7 @@ map.on('click', e => {
         if(!programmaticFit) {
           console.log("User interacted with map, disabling autoFit");
           autoFit = false;
+          console.log("autoFit is now:", autoFit);
         }
       });
     }
@@ -836,7 +841,7 @@ function focusVessel(uid){
   if (selectedReceiverLatLng) {
     const vesselLatLng   = marker.getLatLng();
     const bounds         = L.latLngBounds([ selectedReceiverLatLng, vesselLatLng ]);
-    autoFit               = false;
+    // Don't set autoFit = false here, as this is not user interaction
     programmaticFit        = true;
     map.once('moveend zoomend', () => programmaticFit = false);
     map.fitBounds(bounds, { padding: [30,30] });
@@ -856,7 +861,7 @@ function focusVessel(uid){
 
   } else {
     // fallback to just centering on vessel
-    autoFit        = false;
+    // Don't set autoFit = false here, as this is not user interaction
     programmaticFit = true;
     map.once('moveend zoomend', () => programmaticFit = false);
     map.flyTo(marker.getLatLng(), 11);
@@ -871,9 +876,11 @@ function updateMap() {
   const boundsArr = [], newMarkers = {};
 
   // Force autoFit to be true if page was loaded with receiver parameter
+  // But only do this once - set loadedWithReceiver to false after using it
   if (loadedWithReceiver) {
     console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=true");
     autoFit = true;
+    loadedWithReceiver = false; // Reset so we don't keep forcing autoFit
   }
 
   // Loop over all user IDs to process each vessel
@@ -1017,7 +1024,7 @@ function updateMap() {
   } else if (!map) {
     console.error("updateMap: Map not initialized yet!");
   } else if (!autoFit) {
-    console.log("updateMap: Skipping fitBounds because user has interacted with map");
+    console.log("updateMap: Skipping fitBounds because autoFit is false");
   }
 }
 
@@ -1065,6 +1072,9 @@ socket.on("metrics/bysource", function(data) {
     fetchReceivers(currentIp); // Fetch receivers using current IP or receiver ID if necessary
     receivedReceivers = true;  // Set the flag to true after fetching
   }
+  
+  // Debug log to track autoFit state after processing data
+  console.log("After processing metrics data, autoFit =", autoFit);
 
   const lbl = new Date().toLocaleTimeString();
 
@@ -1091,6 +1101,9 @@ socket.on("metrics/bysource", function(data) {
     receivedReceivers = true;
     fetchReceivers(currentIp); // Use IP or receiver ID to fetch receivers
   }
+  
+  // Debug log to track autoFit state after processing data
+  console.log("After processing metrics data, autoFit =", autoFit);
   
   // Debug log to track autoFit state after processing data
   console.log("After processing metrics data, autoFit =", autoFit);
