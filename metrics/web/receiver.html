@@ -324,7 +324,6 @@
     // Map & overlay state
     let map, overlayDiv, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
     let loadedWithReceiver = false; // Flag to track if page was loaded with receiver parameter
-    let userInteracted = false; // New flag to track if user has interacted with the map
     const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
 
     const navigationalStatusMapping = {
@@ -589,24 +588,13 @@ map.on('click', e => {
 
       loadReceivers();
 
-      // Add comprehensive event handlers for all map interaction events
-      // This ensures autoFit is disabled when the user interacts with the map in any way
-      const mapInteractionEvents = ['movestart', 'zoomstart', 'dragstart', 'mousedown'];
-      
-      mapInteractionEvents.forEach(eventType => {
-        map.on(eventType, (e) => {
-          if (!programmaticFit) {
-            console.log(`User interacted with map (${eventType}), disabling autoFit`);
-            autoFit = false;
-            userInteracted = true; // Mark that user has interacted with the map
-            loadedWithReceiver = false; // Also reset this flag to prevent re-enabling autoFit
-          }
-        });
-      });
-      
-      // Also add a handler for when programmatic fit ends
-      map.on('moveend zoomend', () => {
-        console.log("Map moveend/zoomend event, programmaticFit =", programmaticFit);
+      // When user interacts with the map (zoom or move), disable autoFit
+      // This prevents annoying automatic bounds adjustments after user interaction
+      map.on('movestart zoomstart', (e)=>{
+        if(!programmaticFit) {
+          console.log("User interacted with map, disabling autoFit");
+          autoFit = false;
+        }
       });
     }
 
@@ -678,7 +666,6 @@ function resetMapAndTable(isReceiverChange = false) {
   if (isReceiverChange) {
     console.log("Receiver changed, enabling autoFit");
     autoFit = true;
-    userInteracted = false; // Reset user interaction flag when receiver changes
   }
   sortField = 'lastSeen';
   sortAsc = false;
@@ -884,16 +871,9 @@ function updateMap() {
   const boundsArr = [], newMarkers = {};
 
   // Force autoFit to be true if page was loaded with receiver parameter
-  // But only do this once - set loadedWithReceiver to false after using it
   if (loadedWithReceiver) {
     console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=true");
     autoFit = true;
-    loadedWithReceiver = false; // Reset so we don't keep forcing autoFit
-  }
-  
-  // If user has interacted with the map, ensure autoFit stays false
-  if (userInteracted) {
-    autoFit = false;
   }
 
   // Loop over all user IDs to process each vessel
@@ -1025,29 +1005,18 @@ function updateMap() {
   vesselMarkers = newMarkers;
 
   // After all markers are updated, adjust the map bounds to fit all markers if the data is available
-  console.log("updateMap: autoFit =", autoFit, "boundsArr.length =", boundsArr.length, "loadedWithReceiver =", loadedWithReceiver, "userInteracted =", userInteracted);
-  
-  // Only fit bounds if autoFit is true AND we have markers AND the map exists
-  // We now have multiple safeguards to ensure autoFit is false after user interaction
-  if (autoFit && boundsArr.length && map && !userInteracted) {
+  console.log("updateMap: autoFit =", autoFit, "boundsArr.length =", boundsArr.length, "loadedWithReceiver =", loadedWithReceiver);
+  if (autoFit && boundsArr.length && map) {
     console.log("updateMap: Fitting bounds to", boundsArr.length, "markers");
     programmaticFit = true;
-    
-    // Use a timeout to ensure programmaticFit is reset even if the event doesn't fire
-    setTimeout(() => {
-      programmaticFit = false;
-      console.log("Programmatic fit timeout reset");
-    }, 1000);
-    
     map.once('moveend zoomend', () => {
       programmaticFit = false;
       console.log("Programmatic fit complete");
     });
-    
     map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
   } else if (!map) {
     console.error("updateMap: Map not initialized yet!");
-  } else if (!autoFit || userInteracted) {
+  } else if (!autoFit) {
     console.log("updateMap: Skipping fitBounds because user has interacted with map");
   }
 }
