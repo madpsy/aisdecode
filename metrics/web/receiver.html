@@ -2164,6 +2164,15 @@ async function fetchReceivers(ip) {
             </div>
             
             <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-ip">IP Address (optional):</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="edit-receiver-ip" placeholder="Enter IP address" style="flex: 1; padding: 4px; margin-top: 2px;">
+                <button type="button" id="use-my-ip-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-top: 2px;">Use my IP</button>
+              </div>
+              <small style="color: #666;">Leave blank to keep current IP address</small>
+            </div>
+            
+            <div style="margin-bottom: 8px;">
               <label for="edit-receiver-new-password">New Password (optional):</label>
               <input type="password" id="edit-receiver-new-password" style="width: 100%; padding: 4px; margin-top: 2px;">
               <small style="color: #666;">Leave blank to keep current password</small>
@@ -2218,9 +2227,58 @@ async function fetchReceivers(ip) {
             }
           }
           
+          // Add event listener to the "Use my IP" button
+          document.getElementById('use-my-ip-btn').addEventListener('click', function() {
+            // Fetch the user's IP from /myip
+            fetch('/myip')
+              .then(response => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+              })
+              .then(data => {
+                if (data && data.ip) {
+                  // Populate the IP address field
+                  document.getElementById('edit-receiver-ip').value = data.ip;
+                }
+              })
+              .catch(error => {
+                console.error('Error fetching user IP:', error);
+                alert('Failed to fetch your IP address. Please enter it manually.');
+              });
+          });
+          
+          // Function to validate IP address format
+          function isValidIPAddress(ip) {
+            // Regular expression for IPv4 address
+            const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+            if (!ipv4Regex.test(ip)) return false;
+            
+            // Check each octet is in range 0-255
+            const octets = ip.split('.');
+            for (let i = 0; i < octets.length; i++) {
+              const octet = parseInt(octets[i]);
+              if (octet < 0 || octet > 255) return false;
+            }
+            
+            return true;
+          }
+          
           // Handle form submission
           document.getElementById('edit-receiver-form').addEventListener('submit', function(e) {
             e.preventDefault();
+            
+            // Clear previous errors
+            const errorElement = document.getElementById('edit-form-error');
+            errorElement.style.display = 'none';
+            errorElement.textContent = '';
+            
+            // Validate IP address if provided
+            const ipAddress = document.getElementById('edit-receiver-ip').value.trim();
+            if (ipAddress && !isValidIPAddress(ipAddress)) {
+              errorElement.textContent = 'Please enter a valid IP address (e.g., 192.168.1.1)';
+              errorElement.style.display = 'block';
+              return;
+            }
             
             const formData = {
               id: parseInt(document.getElementById('edit-receiver-id').value),
@@ -2232,16 +2290,16 @@ async function fetchReceivers(ip) {
               url: document.getElementById('edit-receiver-url').value || undefined
             };
             
+            // Add IP address only if provided
+            if (ipAddress) {
+              formData.ip_address = ipAddress;
+            }
+            
             // Add new password only if provided
             const newPassword = document.getElementById('edit-receiver-new-password').value;
             if (newPassword) {
               formData.new_password = newPassword;
             }
-            
-            // Clear previous errors
-            const errorElement = document.getElementById('edit-form-error');
-            errorElement.style.display = 'none';
-            errorElement.textContent = '';
             
             // Submit the form to the editreceiver endpoint
             fetch('/editreceiver', {
