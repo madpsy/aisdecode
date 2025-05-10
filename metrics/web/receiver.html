@@ -234,7 +234,7 @@
     <button id="applyBtn" disabled>Apply</button>
   </div>
 
-  <h2>Your IP: <span id="ip-address">127.0.0.1</span> <span id="override-indicator"></span></h2>
+  <h2>Your IP: <span id="ip-address">127.0.0.1</span><span id="override-indicator"></span></h2>
 
   <div class="cards" id="cards"></div>
   <div class="charts" id="charts"></div>
@@ -448,6 +448,7 @@ function applyOverride(ip) {
   const overrideIndicator = document.getElementById('override-indicator');
   if (overrideIndicator) {
     overrideIndicator.textContent = ` (Using IP: ${ip})`;
+    overrideIndicator.style.display = 'inline'; // Ensure it's displayed inline
   } else {
     console.error("Override indicator element not found");
   }
@@ -489,6 +490,7 @@ function fetchUserIP(applyAsOverride = false) {
           const overrideIndicator = document.getElementById('override-indicator');
           if (overrideIndicator) {
             overrideIndicator.textContent = '';
+            overrideIndicator.style.display = 'none'; // Hide it completely
           }
           overrideIp = '';
         }
@@ -500,6 +502,9 @@ function fetchUserIP(applyAsOverride = false) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+  // Always fetch the user's IP for display
+  fetchUserIP(false);
+
   // Ensure autoFit is true when page loads
   autoFit = true;
   console.log("Page loaded, setting autoFit =", autoFit);
@@ -510,9 +515,6 @@ window.addEventListener('DOMContentLoaded', () => {
   if (p.has('ipaddress')) {
     // We'll handle this in the map initialization code
     console.log("Page loaded with ipaddress parameter, will handle after map initialization");
-  } else {
-    // Only fetch the user's IP for display if we're not using an override IP
-    fetchUserIP(false);
   }
   
   // Set flag if page was loaded with receiver parameter
@@ -554,6 +556,7 @@ window.addEventListener('DOMContentLoaded', () => {
         const overrideIndicator = document.getElementById('override-indicator');
         if (overrideIndicator) {
           overrideIndicator.textContent = ` (Using IP: ${ip})`;
+          overrideIndicator.style.display = 'inline'; // Ensure it's displayed inline
         }
         
         // Update the input field with the override IP
@@ -802,6 +805,7 @@ function loadReceivers() {
           const overrideIndicator = document.getElementById('override-indicator');
           if (overrideIndicator) {
             overrideIndicator.textContent = '';
+            overrideIndicator.style.display = 'none'; // Hide it completely
           }
 
           // Fetch this receiver's details via ?id=<id>
