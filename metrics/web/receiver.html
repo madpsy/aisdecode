@@ -1893,6 +1893,11 @@ async function fetchReceivers(ip) {
         <h4 style="margin-top: 0;">Receiver Created Successfully!</h4>
         <p>Add this to your crontab to keep your receiver's IP updated (runs once per hour):</p>
         <pre id="crontab-entry" style="background: #f5f5f5; padding: 8px; overflow-x: auto; white-space: pre-wrap; font-size: 0.9em;"></pre>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button id="copy-crontab" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Copy to clipboard</button>
+          <button id="continue-button" style="background-color: #4CAF50; color: white; border: none; padding: 4px 8px; cursor: pointer;">Continue to receiver page</button>
+        </div>
+        <p id="countdown" style="font-size: 0.8em; margin-top: 8px;"></p>
       </div>
     `;
     
@@ -2031,14 +2036,56 @@ async function fetchReceivers(ip) {
               setTimeout(() => notification.remove(), 1000);
             }, 5000);
             
-            // Delay updating the URL and fetching receiver details to ensure the crontab entry is visible
-            setTimeout(() => {
+            // Add copy to clipboard functionality
+            document.getElementById('copy-crontab').addEventListener('click', function() {
+              const crontabText = document.getElementById('crontab-entry').textContent;
+              navigator.clipboard.writeText(crontabText).then(
+                function() {
+                  // Success feedback
+                  this.textContent = "Copied!";
+                  setTimeout(() => {
+                    this.textContent = "Copy to clipboard";
+                  }, 2000);
+                }.bind(this),
+                function() {
+                  // Error feedback
+                  this.textContent = "Failed to copy";
+                  setTimeout(() => {
+                    this.textContent = "Copy to clipboard";
+                  }, 2000);
+                }.bind(this)
+              );
+            });
+            
+            // Add continue button functionality
+            document.getElementById('continue-button').addEventListener('click', function() {
               // Update the URL with the new receiver ID
               updateURLWithReceiverId(data.id);
               
               // Fetch the receiver details to update the UI
               fetchReceiversById(data.id);
-            }, 10000); // 10 second delay to give user time to see and copy the crontab entry
+            });
+            
+            // Don't automatically redirect - let the user decide when to continue
+            // Instead, show a countdown that can be canceled
+            let countdownSeconds = 60;
+            const countdownEl = document.getElementById('countdown');
+            
+            const updateCountdown = () => {
+              countdownEl.textContent = `Page will update automatically in ${countdownSeconds} seconds. Click "Continue to receiver page" to proceed immediately.`;
+              
+              if (countdownSeconds > 0) {
+                countdownSeconds--;
+                setTimeout(updateCountdown, 1000);
+              } else {
+                // When countdown reaches zero, update the page
+                updateURLWithReceiverId(data.id);
+                fetchReceiversById(data.id);
+              }
+            };
+            
+            // Start the countdown
+            updateCountdown();
           }
         })
         .catch(error => {
