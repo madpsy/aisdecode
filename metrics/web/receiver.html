@@ -2259,8 +2259,34 @@ async function fetchReceivers(ip) {
               password += chars.charAt(Math.floor(Math.random() * chars.length));
             }
             
+            // Get the password field
+            const passwordField = document.getElementById('edit-receiver-new-password');
+            
+            // Change the input type to "text" to make the password visible
+            passwordField.type = "text";
+            
             // Populate the password field with the generated password
-            document.getElementById('edit-receiver-new-password').value = password;
+            passwordField.value = password;
+            
+            // Copy the password to clipboard
+            navigator.clipboard.writeText(password).then(
+              () => {
+                // Success feedback - change button text temporarily
+                const generateBtn = document.getElementById('generate-password-btn');
+                const originalText = generateBtn.textContent;
+                generateBtn.textContent = "Copied!";
+                
+                // Restore button text after 2 seconds
+                setTimeout(() => {
+                  generateBtn.textContent = originalText;
+                }, 2000);
+              },
+              () => {
+                // Error handling if clipboard copy fails
+                console.error('Failed to copy password to clipboard');
+                alert('Could not copy to clipboard. Your password has been generated but you\'ll need to copy it manually.');
+              }
+            );
           });
           
           // Function to validate IP address format
