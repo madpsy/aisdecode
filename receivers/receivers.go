@@ -120,7 +120,7 @@ func main() {
 
     createSchema()
 
-    // Public API: only GET /receivers
+    // Public API: GET /receivers and POST /addreceiver
     http.HandleFunc("/receivers", func(w http.ResponseWriter, r *http.Request) {
         if r.Method != http.MethodGet {
             w.WriteHeader(http.StatusMethodNotAllowed)
@@ -129,6 +129,9 @@ func main() {
         // public list: no IP
         handleListReceiversPublic(w, r)
     })
+    
+    // Public endpoint to add a new receiver
+    http.HandleFunc("/addreceiver", handleAddReceiver)
 
     http.HandleFunc("/admin/getip", adminGetIPHandler)
 
@@ -963,6 +966,132 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         http.Error(w, "Failed to generate password", http.StatusInternalServerError)
         return
+    }
+    
+    // handleAddReceiver handles POST /addreceiver
+    // This is a public endpoint that allows adding a new receiver
+    // It requires name, description, lat, long, and ipaddress
+    // URL is optional, and password is automatically generated
+    func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
+        // Only allow POST method
+        if r.Method != http.MethodPost {
+            w.WriteHeader(http.StatusMethodNotAllowed)
+            return
+        }
+    
+        // Parse JSON request body
+        var input struct {
+            Name        string   `json:"name"`
+            Description string   `json:"description"`
+            Latitude    float64  `json:"latitude"`
+            Longitude   float64  `json:"longitude"`
+            IPAddress   string   `json:"ipaddress"`
+            URL         *string  `json:"url,omitempty"`
+        }
+    
+        if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+            http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+            return
+        }
+    
+        // Validate required fields
+        if input.Name == "" {
+            http.Error(w, "name is required", http.StatusBadRequest)
+            return
+        }
+        if input.Description == "" {
+            http.Error(w, "description is required", http.StatusBadRequest)
+            return
+        }
+        if input.IPAddress == "" {
+            http.Error(w, "ipaddress is required", http.StatusBadRequest)
+            return
+        }
+    
+        // Generate a random password
+        password, err := generateRandomPassword()
+        if err != nil {
+            http.Error(w, "Failed to generate password: "+err.Error(), http.StatusInternalServerError)
+            return
+        }
+    
+        // Create receiver object
+        rec := Receiver{
+            Description: input.Description,
+            Latitude:    input.Latitude,
+            Longitude:   input.Longitude,
+            Name:        input.Name,
+            URL:         input.URL,
+            Password:    password,
+            IPAddress:   input.IPAddress,
+        }
+    
+        // Validate the receiver
+        if err := validateReceiver(rec); err != nil {
+            http.Error(w, err.Error(), http.StatusBadRequest)
+            return
+        }
+    
+        // Ensure database connection
+        if err := ensureConnection(); err != nil {
+            http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
+            return
+        }
+        
+        // Check if there's already a receiver with the same IP address
+        var existingCount int
+        err = db.QueryRow(`SELECT COUNT(*) FROM receivers WHERE ip_address = $1`, input.IPAddress).Scan(&existingCount)
+        if err != nil {
+            http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+            return
+        }
+        
+        if existingCount > 0 {
+            http.Error(w, fmt.Sprintf("IP address '%s' is already in use by another receiver", input.IPAddress), http.StatusBadRequest)
+            return
+        }
+        
+        // Check if the IP address has a message count > 0
+        messageCount, err := getMessagesByIP(input.IPAddress)
+        if err != nil {
+            http.Error(w, "Failed to verify message count: "+err.Error(), http.StatusInternalServerError)
+            return
+        }
+        
+        if messageCount <= 0 {
+            http.Error(w, fmt.Sprintf("IP address '%s' has no messages", input.IPAddress), http.StatusBadRequest)
+            return
+        }
+    
+        // Insert the new receiver into the database
+        err = db.QueryRow(`
+            INSERT INTO receivers (
+                description,
+                latitude,
+                longitude,
+                name,
+                url,
+                ip_address,
+                password
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+            RETURNING id, lastupdated
+        `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password).
+            Scan(&rec.ID, &rec.LastUpdated)
+        
+        if err != nil {
+            // Check for name uniqueness violation
+            if strings.Contains(err.Error(), "unique constraint") && strings.Contains(err.Error(), "idx_receivers_name") {
+                http.Error(w, fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name), http.StatusBadRequest)
+                return
+            }
+            http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+            return
+        }
+    
+        // Return the complete receiver object including password
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusCreated)
+        json.NewEncoder(w).Encode(rec)
     }
 
     // Update the password in the database
