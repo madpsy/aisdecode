@@ -446,7 +446,7 @@ function applyOverride(ip) {
   
   // **Reset all components when applying override**
   resetCardsAndCharts();  // Reset all cards and charts
-  resetMapAndTable();     // Reset the map and table
+  resetMapAndTable(true); // Reset the map and table, with autoFit=true since receiver changed
   resetFilters();         // Reset filters
 
   // Fetch metrics and update data after IP override
@@ -490,7 +490,7 @@ window.addEventListener('DOMContentLoaded', () => {
     
     // Reset map and table state to ensure proper fitBounds behavior
     resetCardsAndCharts();
-    resetMapAndTable();
+    resetMapAndTable(true); // Pass true to indicate this is a receiver change
     resetFilters();
     
     // Set the receiverId to the URL's receiver value
@@ -588,7 +588,14 @@ map.on('click', e => {
 
       loadReceivers();
 
-      map.on('movestart zoomstart', ()=>{ if(!programmaticFit) autoFit = false; });
+      // When user interacts with the map (zoom or move), disable autoFit
+      // This prevents annoying automatic bounds adjustments after user interaction
+      map.on('movestart zoomstart', (e)=>{
+        if(!programmaticFit) {
+          console.log("User interacted with map, disabling autoFit");
+          autoFit = false;
+        }
+      });
     }
 
 function updateOverlay(latlng) {
@@ -641,7 +648,8 @@ function resetCardsAndCharts() {
 }
 
 // Function to reset map and table
-function resetMapAndTable() {
+// isReceiverChange: true when called due to receiver change, false otherwise
+function resetMapAndTable(isReceiverChange = false) {
   // Clear vessels & summary
   seenUserIds.clear();
   Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
@@ -654,7 +662,11 @@ function resetMapAndTable() {
   clearDistanceLine();
 
   // Reset sorting & pagination
-  autoFit = true;
+  // Only reset autoFit if this is a receiver change
+  if (isReceiverChange) {
+    console.log("Receiver changed, enabling autoFit");
+    autoFit = true;
+  }
   sortField = 'lastSeen';
   sortAsc = false;
   document.querySelectorAll('#summaryTable th .arrow').forEach(a => a.textContent = '');
@@ -755,7 +767,7 @@ function loadReceivers() {
 
           // **Reset all components when selecting a receiver's dot**
           resetCardsAndCharts();  // Reset all cards and charts with new receiver's data
-          resetMapAndTable();     // Reset the map and table to reflect the new selection
+          resetMapAndTable(true); // Reset the map and table, with autoFit=true since receiver changed
           resetFilters();         // Reset any applied filters or selections
 
           // Update the URL with the receiver's ID (and remove IP)
