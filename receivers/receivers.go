@@ -1098,8 +1098,8 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
             ip_address,
             password
         ) VALUES ($1,$2,$3,$4,$5,$6,$7)
-        RETURNING id, lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password).
+        RETURNING id, lastupdated`,
+        rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password).
         Scan(&rec.ID, &rec.LastUpdated)
     
     if err != nil {
