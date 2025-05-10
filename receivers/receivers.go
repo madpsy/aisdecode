@@ -968,16 +968,18 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // handleAddReceiver handles POST /addreceiver
-    // This is a public endpoint that allows adding a new receiver
-    // It requires name, description, lat, long, and ipaddress
-    // URL is optional, and password is automatically generated
-    func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
-        // Only allow POST method
-        if r.Method != http.MethodPost {
-            w.WriteHeader(http.StatusMethodNotAllowed)
-            return
-        }
+}
+
+// handleAddReceiver handles POST /addreceiver
+// This is a public endpoint that allows adding a new receiver
+// It requires name, description, lat, long, and ipaddress
+// URL is optional, and password is automatically generated
+func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
+    // Only allow POST method
+    if r.Method != http.MethodPost {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        return
+    }
     
         // Parse JSON request body
         var input struct {
