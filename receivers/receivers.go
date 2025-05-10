@@ -133,6 +133,9 @@ func main() {
     // Public endpoint to add a new receiver
     http.HandleFunc("/addreceiver", handleAddReceiver)
     
+    // Public endpoint to edit a receiver
+    http.HandleFunc("/editreceiver", handleEditReceiver)
+    
     // Public endpoint to update receiver IP address
     http.HandleFunc("/receiverip", handleReceiverIP)
 
@@ -1088,6 +1091,148 @@ func handleReceiverIP(w http.ResponseWriter, r *http.Request) {
         "ip_address": ipAddress,
         "updated_at": lastUpdated,
     })
+}
+
+// handleEditReceiver handles POST /editreceiver
+// This is a public endpoint that allows editing an existing receiver
+// It requires id and password for authentication
+// Users can update all fields including their own password
+func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
+    // Only allow POST method
+    if r.Method != http.MethodPost {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        return
+    }
+
+    // Parse JSON request body
+    var input struct {
+        ID          int       `json:"id"`
+        Password    string    `json:"password"`
+        Description *string   `json:"description,omitempty"`
+        Latitude    *float64  `json:"latitude,omitempty"`
+        Longitude   *float64  `json:"longitude,omitempty"`
+        Name        *string   `json:"name,omitempty"`
+        URL         *string   `json:"url,omitempty"`
+        IPAddress   *string   `json:"ip_address,omitempty"`
+        NewPassword *string   `json:"new_password,omitempty"`
+    }
+
+    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+        http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    // Validate required fields
+    if input.ID <= 0 {
+        http.Error(w, "id is required and must be positive", http.StatusBadRequest)
+        return
+    }
+    if input.Password == "" {
+        http.Error(w, "password is required", http.StatusBadRequest)
+        return
+    }
+
+    // Ensure database connection
+    if err := ensureConnection(); err != nil {
+        http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Fetch the current receiver to verify password and get existing values
+    var rec Receiver
+    err := db.QueryRow(`
+        SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address, password
+        FROM receivers WHERE id = $1
+    `, input.ID).Scan(
+        &rec.ID,
+        &rec.LastUpdated,
+        &rec.Description,
+        &rec.Latitude,
+        &rec.Longitude,
+        &rec.Name,
+        &rec.URL,
+        &rec.IPAddress,
+        &rec.Password,
+    )
+    if err == sql.ErrNoRows {
+        http.Error(w, "Receiver not found", http.StatusNotFound)
+        return
+    } else if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Check if password matches
+    if input.Password != rec.Password {
+        http.Error(w, "Invalid password", http.StatusUnauthorized)
+        return
+    }
+
+    // Apply updates to the receiver
+    if input.Description != nil {
+        rec.Description = *input.Description
+    }
+    if input.Latitude != nil {
+        rec.Latitude = *input.Latitude
+    }
+    if input.Longitude != nil {
+        rec.Longitude = *input.Longitude
+    }
+    if input.Name != nil {
+        rec.Name = strings.ToUpper(*input.Name)
+    }
+    if input.URL != nil {
+        rec.URL = input.URL
+    }
+    if input.IPAddress != nil {
+        rec.IPAddress = *input.IPAddress
+    }
+    if input.NewPassword != nil {
+        rec.Password = *input.NewPassword
+    }
+
+    // Validate the updated receiver
+    if err := validateReceiver(rec); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    // Update the receiver in the database
+    err = db.QueryRow(`
+        UPDATE receivers
+        SET description  = $1,
+            latitude     = $2,
+            longitude    = $3,
+            name         = $4,
+            url          = $5,
+            ip_address   = $6,
+            password     = $7,
+            lastupdated  = NOW()
+        WHERE id = $8
+        RETURNING lastupdated
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password, rec.ID).
+        Scan(&rec.LastUpdated)
+    
+    if err != nil {
+        // Check for name uniqueness violation
+        if strings.Contains(err.Error(), "unique constraint") && strings.Contains(err.Error(), "idx_receivers_name") {
+            http.Error(w, fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name), http.StatusBadRequest)
+            return
+        }
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Get message count for the updated receiver
+    messages, err := getMessagesByIP(rec.IPAddress)
+    if err != nil {
+        messages = 0
+    }
+    rec.Messages = messages
+
+    // Return the updated receiver
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(rec)
 }
 
 // handleAddReceiver handles POST /addreceiver
