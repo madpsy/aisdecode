@@ -1009,10 +1009,15 @@ function updateMap() {
   if (autoFit && boundsArr.length && map) {
     console.log("updateMap: Fitting bounds to", boundsArr.length, "markers");
     programmaticFit = true;
-    map.once('moveend zoomend', () => programmaticFit = false);
+    map.once('moveend zoomend', () => {
+      programmaticFit = false;
+      console.log("Programmatic fit complete");
+    });
     map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
   } else if (!map) {
     console.error("updateMap: Map not initialized yet!");
+  } else if (!autoFit) {
+    console.log("updateMap: Skipping fitBounds because user has interacted with map");
   }
 }
 
@@ -1043,7 +1048,7 @@ let receiversFetched = false; // Flag to ensure receivers are only fetched once
 
 // Listen for incoming metrics data from the server
 socket.on("metrics/bysource", function(data) {
-  console.log("Received metrics data via WebSocket");
+  console.log("Received metrics data via WebSocket, autoFit =", autoFit);
   
   const currentIp = data.requested_ip_address; // Use IP from the API response if available
 
@@ -1086,6 +1091,9 @@ socket.on("metrics/bysource", function(data) {
     receivedReceivers = true;
     fetchReceivers(currentIp); // Use IP or receiver ID to fetch receivers
   }
+  
+  // Debug log to track autoFit state after processing data
+  console.log("After processing metrics data, autoFit =", autoFit);
 
   // Update the summary table with new data
   if (Array.isArray(data.window_user_ids)) {
