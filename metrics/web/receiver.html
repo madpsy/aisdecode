@@ -1551,7 +1551,7 @@ async function fetchReceivers(ip) {
     } else {
       // No receiver found and no messages
       console.log('Setting message to "No receiver found" (error handler)');
-      receiverBox.innerHTML = '<p>No receiver found</p>';
+      receiverBox.innerHTML = '<p>No receiver found. Click <a href="/feed.html" target="_blank">here</a> to find out how to feed data.</p>';
     }
 
     ipHeading.insertAdjacentElement('afterend', receiverBox);
