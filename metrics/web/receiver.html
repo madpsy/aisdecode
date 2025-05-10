@@ -1122,12 +1122,19 @@ function updateMap() {
   let vesselsUpdated = false;
 
   // Force autoFit to be true if page was loaded with receiver parameter or ipaddress parameter
-  // But only do this once - set flags to false after using them
+  // Only reset the flags if we actually have vessel markers to display
   if (loadedWithReceiver || loadedWithIpAddress) {
     console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=", loadedWithReceiver, "or loadedWithIpAddress=", loadedWithIpAddress);
     autoFit = true;
-    loadedWithReceiver = false; // Reset so we don't keep forcing autoFit
-    loadedWithIpAddress = false; // Reset so we don't keep forcing autoFit
+    
+    // Only reset the flags if we have vessel markers to display
+    if (Object.keys(vesselMarkers).length > 0 || seenUserIds.size > 0) {
+      console.log("Resetting loadedWithReceiver/loadedWithIpAddress flags because we have vessel data");
+      loadedWithReceiver = false;
+      loadedWithIpAddress = false;
+    } else {
+      console.log("Keeping loadedWithReceiver/loadedWithIpAddress flags because we don't have vessel data yet");
+    }
   }
 
   // Loop over all user IDs to process each vessel
@@ -1264,15 +1271,26 @@ function updateMap() {
   }
 
   // After all markers are updated, adjust the map bounds to fit all markers if the data is available
-  console.log("updateMap: autoFit =", autoFit, "boundsArr.length =", boundsArr.length, "loadedWithReceiver =", loadedWithReceiver);
-  if (autoFit && boundsArr.length && map) {
-    console.log("updateMap: Fitting bounds to", boundsArr.length, "markers");
-    programmaticFit = true;
-    map.once('moveend zoomend', () => {
-      programmaticFit = false;
-      console.log("Programmatic fit complete");
-    });
-    map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+  console.log("updateMap: autoFit =", autoFit, "boundsArr.length =", boundsArr.length, "loadedWithReceiver =", loadedWithReceiver, "loadedWithIpAddress =", loadedWithIpAddress);
+  if (autoFit && map) {
+    if (boundsArr.length) {
+      console.log("updateMap: Fitting bounds to", boundsArr.length, "markers");
+      programmaticFit = true;
+      map.once('moveend zoomend', () => {
+        programmaticFit = false;
+        console.log("Programmatic fit complete");
+      });
+      map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+    } else if (selectedReceiverLatLng && (loadedWithReceiver || loadedWithIpAddress)) {
+      // If we have a selected receiver but no vessels yet, center on the receiver
+      console.log("updateMap: No vessels yet, centering on selected receiver");
+      programmaticFit = true;
+      map.once('moveend zoomend', () => {
+        programmaticFit = false;
+        console.log("Programmatic fit complete");
+      });
+      map.setView(selectedReceiverLatLng, 10);
+    }
   } else if (!map) {
     console.error("updateMap: Map not initialized yet!");
   } else if (!autoFit) {
@@ -1430,10 +1448,22 @@ function fetchMetrics() {
   } else if (params.has('receiver')) {
     // Use receiver ID from URL if present
     payload = { id: Number(params.get('receiver')) };
+    
+    // Ensure loadedWithReceiver flag is set if we're using a receiver ID from the URL
+    if (!loadedWithReceiver) {
+      console.log("Setting loadedWithReceiver=true in fetchMetrics because receiver parameter is present");
+      loadedWithReceiver = true;
+    }
   } else if (overrideIp) {
     // Use IP only if no receiver ID in the URL or overrideReceiverId
     if (!params.has('receiver')) {
       payload = { ipaddress: overrideIp };
+      
+      // Ensure loadedWithIpAddress flag is set if we're using an IP address
+      if (!loadedWithIpAddress) {
+        console.log("Setting loadedWithIpAddress=true in fetchMetrics because we're using an IP address");
+        loadedWithIpAddress = true;
+      }
     }
   }
   
