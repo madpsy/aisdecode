@@ -1851,7 +1851,7 @@ async function fetchReceivers(ip) {
       <h3>Create New Receiver</h3>
       <p style="margin-bottom: 8px;">AIS data is flowing from ${overrideIp ? `IP ${overrideIp}` : 'your IP'}</p>
       
-      <form id="receiver-form" style="font-size: 0.9em;">
+      <form id="receiver-form" style="font-size: 0.8em;">
         <div style="margin-bottom: 8px;">
           <label for="receiver-name">Name:</label>
           <input type="text" id="receiver-name" required style="width: 100%; padding: 4px; margin-top: 2px;">
@@ -1889,10 +1889,10 @@ async function fetchReceivers(ip) {
         </div>
       </form>
       
-      <div id="success-result" style="display: none; margin-top: 12px;">
-        <h4 style="margin-top: 0;">Receiver Created Successfully!</h4>
+      <div id="success-result" style="display: none; margin-top: 12px; font-size: 0.8em;">
+        <h4 style="margin-top: 0; font-size: 1em;">Receiver Created Successfully!</h4>
         <p>Add this to your crontab to keep your receiver's IP updated (runs once per hour):</p>
-        <pre id="crontab-entry" style="background: #f5f5f5; padding: 8px; overflow-x: auto; white-space: pre-wrap; font-size: 0.9em;"></pre>
+        <pre id="crontab-entry" style="background: #f5f5f5; padding: 6px; overflow-x: auto; white-space: pre-wrap; font-size: 0.8em;"></pre>
         <div style="display: flex; gap: 8px; margin-top: 8px;">
           <button id="copy-crontab" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Copy to clipboard</button>
           <button id="continue-button" style="background-color: #4CAF50; color: white; border: none; padding: 4px 8px; cursor: pointer;">Continue to receiver page</button>
@@ -2068,7 +2068,7 @@ async function fetchReceivers(ip) {
             const countdownEl = document.getElementById('countdown');
             
             const updateCountdown = () => {
-              countdownEl.textContent = `Page will update automatically in ${countdownSeconds} seconds. Click "Continue to receiver page" to proceed immediately.`;
+              countdownEl.textContent = `Auto-update in ${countdownSeconds}s. Click "Continue" to proceed now.`;
               
               if (countdownSeconds > 0) {
                 countdownSeconds--;
