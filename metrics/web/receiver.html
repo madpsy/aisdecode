@@ -234,7 +234,7 @@
     <button id="applyBtn" disabled>Apply</button>
   </div>
 
-  <h2>Your IP: <span id="ip-address">127.0.0.1</span><span id="override-indicator"></span></h2>
+  <h2>Your IP: <span id="ip-address">127.0.0.1</span> <span id="override-indicator"></span></h2>
 
   <div class="cards" id="cards"></div>
   <div class="charts" id="charts"></div>
@@ -445,7 +445,12 @@ function applyOverride(ip) {
   console.log("Reset currentMessageCount to 0 in applyOverride");
 
   // Update the override indicator
-  document.getElementById('override-indicator').textContent = ` (Using IP: ${ip})`;
+  const overrideIndicator = document.getElementById('override-indicator');
+  if (overrideIndicator) {
+    overrideIndicator.textContent = ` (Using IP: ${ip})`;
+  } else {
+    console.error("Override indicator element not found");
+  }
 
   // Update the URL with the new IP address (remove receiver if it's there)
   updateURLWithIp(ip);  // Update URL to reflect IP
@@ -481,7 +486,10 @@ function fetchUserIP(applyAsOverride = false) {
           applyOverride(data.ip);
         } else {
           // Clear the override indicator when not using an override
-          document.getElementById('override-indicator').textContent = '';
+          const overrideIndicator = document.getElementById('override-indicator');
+          if (overrideIndicator) {
+            overrideIndicator.textContent = '';
+          }
           overrideIp = '';
         }
       } else {
@@ -500,6 +508,16 @@ window.addEventListener('DOMContentLoaded', () => {
   console.log("Page loaded, setting autoFit =", autoFit);
 
   const p = new URLSearchParams(location.search);
+  
+  // Check if page was loaded with ipaddress parameter and set override indicator
+  if (p.has('ipaddress')) {
+    const ip = p.get('ipaddress');
+    overrideIp = ip;
+    const overrideIndicator = document.getElementById('override-indicator');
+    if (overrideIndicator) {
+      overrideIndicator.textContent = ` (Using IP: ${ip})`;
+    }
+  }
   
   // Set flag if page was loaded with receiver parameter
   if (p.has('receiver')) {
@@ -758,7 +776,10 @@ function loadReceivers() {
           
           // Clear the override IP since we're now using a specific receiver
           overrideIp = '';
-          document.getElementById('override-indicator').textContent = '';
+          const overrideIndicator = document.getElementById('override-indicator');
+          if (overrideIndicator) {
+            overrideIndicator.textContent = '';
+          }
 
           // Fetch this receiver's details via ?id=<id>
           fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
