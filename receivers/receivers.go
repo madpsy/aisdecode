@@ -924,6 +924,14 @@ func validateReceiver(r Receiver) error {
         }
     }
     
+    // Validate password length
+    if len(r.Password) < 8 {
+        return fmt.Errorf("password must be at least 8 characters")
+    }
+    if len(r.Password) > 20 {
+        return fmt.Errorf("password must be no more than 20 characters")
+    }
+    
     // Check if the name is already in use by another receiver
     var count int
     query := `SELECT COUNT(*) FROM receivers WHERE name = $1`
@@ -971,6 +979,36 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
     newPassword, err := generateRandomPassword()
     if err != nil {
         http.Error(w, "Failed to generate password", http.StatusInternalServerError)
+        return
+    }
+    
+    // Fetch the current receiver to validate with the new password
+    var rec Receiver
+    err = db.QueryRow(`
+        SELECT id, description, latitude, longitude, name, url, ip_address
+        FROM receivers WHERE id = $1
+    `, id).Scan(
+        &rec.ID,
+        &rec.Description,
+        &rec.Latitude,
+        &rec.Longitude,
+        &rec.Name,
+        &rec.URL,
+        &rec.IPAddress,
+    )
+    
+    if err == sql.ErrNoRows {
+        http.Error(w, "Receiver not found", http.StatusNotFound)
+        return
+    } else if err != nil {
+        http.Error(w, "Database error", http.StatusInternalServerError)
+        return
+    }
+    
+    // Set the new password and validate
+    rec.Password = newPassword
+    if err := validateReceiver(rec); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
