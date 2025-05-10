@@ -212,7 +212,8 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
                longitude,
                name,
                url,
-               ip_address
+               ip_address,
+               password
           FROM receivers`
     
     var (
@@ -263,6 +264,7 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
             &rec.Name,
             &rec.URL,
             &rec.IPAddress,  // Ensure this is correctly mapped
+            &rec.Password,   // Add password field
         ); err != nil {
             return nil, err
         }
