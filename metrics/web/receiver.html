@@ -457,6 +457,23 @@ function applyOverride(ip) {
 }
 
 
+// Function to fetch user's IP address from /myip endpoint
+function fetchUserIP() {
+  console.log('Fetching user IP from /myip endpoint');
+  fetch('/myip')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(data => {
+      if (data && data.ip) {
+        console.log('User IP fetched:', data.ip);
+        document.getElementById('ip-address').textContent = data.ip;
+        applyOverride(data.ip);
+      } else {
+        console.error('Invalid response from /myip endpoint');
+      }
+    })
+    .catch(e => console.error('Error fetching user IP:', e));
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   fetch('/types.json')
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
@@ -471,9 +488,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const p = new URLSearchParams(location.search);
   if (p.has('ipaddress')) {
     applyOverride(p.get('ipaddress'));
-  }
-  
-  if (p.has('receiver')) {
+  } else if (p.has('receiver')) {
     // Set the receiverId to the URL's receiver value
     overrideReceiverId = p.get('receiver');
     // Fetch metrics by the receiver ID
@@ -481,6 +496,9 @@ window.addEventListener('DOMContentLoaded', () => {
     fetchMetrics();
     // Fetch receiver info based on the receiver id
     fetchReceiversById(overrideReceiverId);
+  } else {
+    // No query parameters - fetch user's IP and use it
+    fetchUserIP();
   }
 
   // Fetch metrics every second
