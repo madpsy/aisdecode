@@ -234,7 +234,7 @@
     <button id="applyBtn" disabled>Apply</button>
   </div>
 
-  <h2>IP Address: <span id="ip-address">127.0.0.1</span></h2>
+  <h2>Your IP: <span id="ip-address">127.0.0.1</span></h2>
 
   <div class="cards" id="cards"></div>
   <div class="charts" id="charts"></div>
@@ -458,7 +458,7 @@ function applyOverride(ip) {
 
 
 // Function to fetch user's IP address from /myip endpoint
-function fetchUserIP() {
+function fetchUserIP(applyAsOverride = false) {
   console.log('Fetching user IP from /myip endpoint');
   fetch('/myip')
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
@@ -466,7 +466,9 @@ function fetchUserIP() {
       if (data && data.ip) {
         console.log('User IP fetched:', data.ip);
         document.getElementById('ip-address').textContent = data.ip;
-        applyOverride(data.ip);
+        if (applyAsOverride) {
+          applyOverride(data.ip);
+        }
       } else {
         console.error('Invalid response from /myip endpoint');
       }
@@ -485,6 +487,9 @@ window.addEventListener('DOMContentLoaded', () => {
     .then(json => { midMap = json; })
     .catch(e => console.error('mids.json error', e));
 
+  // Always fetch the user's IP for display
+  fetchUserIP(false);
+
   const p = new URLSearchParams(location.search);
   if (p.has('ipaddress')) {
     applyOverride(p.get('ipaddress'));
@@ -498,7 +503,7 @@ window.addEventListener('DOMContentLoaded', () => {
     fetchReceiversById(overrideReceiverId);
   } else {
     // No query parameters - fetch user's IP and use it
-    fetchUserIP();
+    fetchUserIP(true);
   }
 // No need to fetch metrics every second - the server sends updates automatically
 });
@@ -1000,9 +1005,6 @@ socket.on("metrics/bysource", function(data) {
   console.log("Received metrics data via WebSocket");
   
   const currentIp = data.requested_ip_address; // Use IP from the API response if available
-
-  // Update the IP in the header
-  document.getElementById('ip-address').textContent = currentIp;
 
   // Extract parameters from the URL
   const params = new URLSearchParams(location.search);
