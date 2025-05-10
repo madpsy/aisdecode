@@ -3367,6 +3367,53 @@ window.addEventListener('load', () => {
     filterInput.dispatchEvent(new Event('input'));
   }
 
+  // Check for receiver based on user's IP
+  const checkForUserReceiver = () => {
+    // First get the user's IP
+    fetch('/myip')
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Failed to get user IP: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(ipData => {
+        if (ipData && ipData.ip) {
+          // Now query for receivers with this IP
+          return fetch(`/receivers?ipaddress=${ipData.ip}`);
+        } else {
+          throw new Error('No IP address returned');
+        }
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Failed to get receivers: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(receivers => {
+        // Check if any receivers were returned and have an ID
+        if (Array.isArray(receivers) && receivers.length > 0 && receivers[0].id) {
+          const receiver = receivers[0];
+          const receiverId = String(receiver.id);
+          
+          // Wait a moment for receiver markers to be created
+          setTimeout(() => {
+            if (receiverMarkers[receiverId]) {
+              // Zoom to the receiver marker
+              map.setView([receiver.latitude, receiver.longitude], 13);
+              
+              // Open the tooltip for this receiver
+              receiverMarkers[receiverId].openTooltip();
+            }
+          }, 1000);
+        }
+      })
+      .catch(error => {
+        console.error('Error checking for user receiver:', error);
+      });
+  };
+
   // If UserID is provided, fetch the state and center the map accordingly.
   if (UserIDParam) {
     fetch(`/state?UserID=${UserIDParam}`)
@@ -3390,6 +3437,9 @@ window.addEventListener('load', () => {
       .catch(error => {
         console.error('Error fetching summary:', error);
       });
+  } else {
+    // Only check for user receiver if no UserID parameter is provided
+    checkForUserReceiver();
   }
 
   updateStationaryMarkers();
