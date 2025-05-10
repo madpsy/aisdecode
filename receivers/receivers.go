@@ -38,7 +38,7 @@ type Receiver struct {
     Name        string     `json:"name"`
     URL         *string    `json:"url,omitempty"`
     IPAddress   string     `json:"ip_address,omitempty"`
-    Password    string     `json:"password,omitempty"`
+    Password    string     `json:"password"`
     Messages    int        `json:"messages"`
 }
 
