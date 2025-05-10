@@ -42,6 +42,18 @@ type Receiver struct {
     Messages    int        `json:"messages"`
 }
 
+// PublicReceiver is used for public API responses without sensitive fields
+type PublicReceiver struct {
+    ID          int        `json:"id"`
+    LastUpdated time.Time  `json:"lastupdated"`
+    Description string     `json:"description"`
+    Latitude    float64    `json:"latitude"`
+    Longitude   float64    `json:"longitude"`
+    Name        string     `json:"name"`
+    URL         *string    `json:"url,omitempty"`
+    Messages    int        `json:"messages"`
+}
+
 type ReceiverInput struct {
     Description string   `json:"description"`
     Latitude    float64  `json:"latitude"`
@@ -470,7 +482,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     }
     defer rows.Close()
 
-    var list []Receiver
+    var list []PublicReceiver
     for rows.Next() {
         var rec Receiver
         if err := rows.Scan(
@@ -486,13 +498,20 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         if err != nil {
             msgs = 0
         }
-        rec.Messages = msgs
 
-        // Exclude IP Address and Password in public response
-        rec.IPAddress = "" // Clear IP address before sending the response
-        rec.Password = ""  // Clear password before sending the response
+        // Convert to PublicReceiver (which doesn't include password or IP address)
+        publicRec := PublicReceiver{
+            ID:          rec.ID,
+            LastUpdated: rec.LastUpdated,
+            Description: rec.Description,
+            Latitude:    rec.Latitude,
+            Longitude:   rec.Longitude,
+            Name:        rec.Name,
+            URL:         rec.URL,
+            Messages:    msgs,
+        }
 
-        list = append(list, rec)
+        list = append(list, publicRec)
     }
 
     // If no receivers are found, return an empty array instead of null
