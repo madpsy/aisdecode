@@ -2010,13 +2010,9 @@ async function fetchReceivers(ip) {
             // Generate a random minute for the cron job (0-59)
             const randomMinute = Math.floor(Math.random() * 60);
             
-            // Create the crontab entry
-            const crontabEntry = `${randomMinute} * * * * curl -X POST http://localhost:8080/receiverip \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "id": ${data.id},
-    "password": "${data.password}"
-  }'`;
+            // Create the crontab entry as a one-liner
+            const baseUrl = window.location.origin;
+            const crontabEntry = `${randomMinute} * * * * curl -X POST ${baseUrl}/receiverip -H "Content-Type: application/json" -d '{"id": ${data.id}, "password": "${data.password}"}'`;
             
             // Show the success message and crontab entry
             document.getElementById('crontab-entry').textContent = crontabEntry;
