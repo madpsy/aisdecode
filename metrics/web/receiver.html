@@ -323,6 +323,7 @@
 
     // Map & overlay state
     let map, overlayDiv, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
+    let loadedWithReceiver = false; // Flag to track if page was loaded with receiver parameter
     const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
 
     const navigationalStatusMapping = {
@@ -494,6 +495,10 @@ window.addEventListener('DOMContentLoaded', () => {
   if (p.has('ipaddress')) {
     applyOverride(p.get('ipaddress'));
   } else if (p.has('receiver')) {
+    // Set flag to indicate page was loaded with receiver parameter
+    loadedWithReceiver = true;
+    console.log("Page loaded with receiver parameter, setting loadedWithReceiver =", loadedWithReceiver);
+    
     // Reset map and table state to ensure proper fitBounds behavior
     resetCardsAndCharts();
     resetMapAndTable();
@@ -501,11 +506,21 @@ window.addEventListener('DOMContentLoaded', () => {
     
     // Set the receiverId to the URL's receiver value
     overrideReceiverId = p.get('receiver');
-    // Fetch metrics by the receiver ID
-    console.log('Fetching metrics with receiver ID:', overrideReceiverId);
-    fetchMetrics();
-    // Fetch receiver info based on the receiver id
-    fetchReceiversById(overrideReceiverId);
+    
+    // Wait for map initialization before fetching metrics
+    fetch('/types.json')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(json => {
+        typesConfig = json;
+        initDoughnut();
+        initMap();
+        
+        // Now that map is initialized, fetch metrics and receiver info
+        console.log('Map initialized, now fetching metrics with receiver ID:', overrideReceiverId);
+        fetchMetrics();
+        fetchReceiversById(overrideReceiverId);
+      })
+      .catch(e => console.error('types.json error', e));
   } else {
     // No query parameters - fetch user's IP and use it
     fetchUserIP(true);
@@ -844,6 +859,12 @@ function updateMap() {
   const oldVesselCount = Object.keys(vesselMarkers).length;
   const boundsArr = [], newMarkers = {};
 
+  // Force autoFit to be true if page was loaded with receiver parameter
+  if (loadedWithReceiver) {
+    console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=true");
+    autoFit = true;
+  }
+
   // Loop over all user IDs to process each vessel
   seenUserIds.forEach(uid => {
     if (uid.length !== 9) return;
@@ -973,10 +994,14 @@ function updateMap() {
   vesselMarkers = newMarkers;
 
   // After all markers are updated, adjust the map bounds to fit all markers if the data is available
-  if (autoFit && boundsArr.length) {
+  console.log("updateMap: autoFit =", autoFit, "boundsArr.length =", boundsArr.length, "loadedWithReceiver =", loadedWithReceiver);
+  if (autoFit && boundsArr.length && map) {
+    console.log("updateMap: Fitting bounds to", boundsArr.length, "markers");
     programmaticFit = true;
     map.once('moveend zoomend', () => programmaticFit = false);
     map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+  } else if (!map) {
+    console.error("updateMap: Map not initialized yet!");
   }
 }
 
