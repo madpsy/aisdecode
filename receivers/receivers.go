@@ -808,56 +808,6 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
         rec.Longitude = *patch.Longitude
     }
     
-    // adminRegeneratePasswordHandler handles POST /admin/receivers/regenerate-password/{id}
-    func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
-        if r.Method != http.MethodPost {
-            w.WriteHeader(http.StatusMethodNotAllowed)
-            return
-        }
-    
-        // Extract receiver ID from URL
-        parts := strings.Split(r.URL.Path, "/")
-        if len(parts) < 5 {
-            http.Error(w, "Invalid URL format", http.StatusBadRequest)
-            return
-        }
-        
-        id, err := strconv.Atoi(parts[4])
-        if err != nil {
-            http.Error(w, "Invalid receiver ID", http.StatusBadRequest)
-            return
-        }
-    
-        // Generate a new random password
-        newPassword, err := generateRandomPassword()
-        if err != nil {
-            http.Error(w, "Failed to generate password", http.StatusInternalServerError)
-            return
-        }
-    
-        // Update the password in the database
-        var lastUpdated time.Time
-        err = db.QueryRow(`
-            UPDATE receivers
-            SET password = $1, lastupdated = NOW()
-            WHERE id = $2
-            RETURNING lastupdated
-        `, newPassword, id).Scan(&lastUpdated)
-    
-        if err == sql.ErrNoRows {
-            http.Error(w, "Receiver not found", http.StatusNotFound)
-            return
-        } else if err != nil {
-            http.Error(w, "Database error", http.StatusInternalServerError)
-            return
-        }
-    
-        // Return the new password
-        w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(map[string]string{
-            "password": newPassword,
-        })
-    }
     if patch.Name != nil {
         rec.Name = *patch.Name
     }
@@ -956,4 +906,55 @@ func validateReceiver(r Receiver) error {
     }
     
     return nil
+}
+
+// adminRegeneratePasswordHandler handles POST /admin/receivers/regenerate-password/{id}
+func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        return
+    }
+
+    // Extract receiver ID from URL
+    parts := strings.Split(r.URL.Path, "/")
+    if len(parts) < 5 {
+        http.Error(w, "Invalid URL format", http.StatusBadRequest)
+        return
+    }
+    
+    id, err := strconv.Atoi(parts[4])
+    if err != nil {
+        http.Error(w, "Invalid receiver ID", http.StatusBadRequest)
+        return
+    }
+
+    // Generate a new random password
+    newPassword, err := generateRandomPassword()
+    if err != nil {
+        http.Error(w, "Failed to generate password", http.StatusInternalServerError)
+        return
+    }
+
+    // Update the password in the database
+    var lastUpdated time.Time
+    err = db.QueryRow(`
+        UPDATE receivers
+        SET password = $1, lastupdated = NOW()
+        WHERE id = $2
+        RETURNING lastupdated
+    `, newPassword, id).Scan(&lastUpdated)
+
+    if err == sql.ErrNoRows {
+        http.Error(w, "Receiver not found", http.StatusNotFound)
+        return
+    } else if err != nil {
+        http.Error(w, "Database error", http.StatusInternalServerError)
+        return
+    }
+
+    // Return the new password
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]string{
+        "password": newPassword,
+    })
 }
