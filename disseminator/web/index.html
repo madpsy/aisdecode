@@ -3398,55 +3398,15 @@ window.addEventListener('load', () => {
           const receiverId = String(receiver.id);
           
           // Wait a moment for receiver markers to be created
-          // Use a longer timeout to ensure everything is initialized
           setTimeout(() => {
             if (receiverMarkers[receiverId]) {
-              const marker = receiverMarkers[receiverId];
-              const position = [receiver.latitude, receiver.longitude];
-              
               // Zoom to the receiver marker
-              map.setView(position, 13);
+              map.setView([receiver.latitude, receiver.longitude], 13);
               
-              // Highlight the receiver marker
-              const markerElement = marker.getElement();
-              if (markerElement) {
-                markerElement.classList.add('enlarge');
-                setTimeout(() => markerElement.classList.remove('enlarge'), 1500);
-              }
-              
-              // Create a custom tooltip-like popup
-              const customTooltip = L.popup({
-                className: 'receiver-tooltip',
-                closeButton: false,
-                autoClose: false,
-                closeOnEscapeKey: false,
-                closeOnClick: false,
-                offset: [0, -15]
-              })
-              .setLatLng(position)
-              .setContent(`<div style="font-weight:bold;">${receiver.name} (RX)</div>`)
-              .openOn(map);
-              
-              // Store the custom tooltip for later reference
-              if (!window.customTooltips) window.customTooltips = {};
-              window.customTooltips[receiverId] = customTooltip;
-              
-              // Make sure the tooltip stays visible when the map is moved
-              map.on('moveend', function updateTooltipPosition() {
-                if (window.customTooltips && window.customTooltips[receiverId]) {
-                  window.customTooltips[receiverId].setLatLng(marker.getLatLng());
-                }
-              });
-              
-              // Make sure the popup stays open
-              setTimeout(() => {
-                if (window.customTooltips && window.customTooltips[receiverId] &&
-                    !map.hasLayer(window.customTooltips[receiverId])) {
-                  window.customTooltips[receiverId].openOn(map);
-                }
-              }, 1000);
+              // Open the tooltip for this receiver
+              receiverMarkers[receiverId].openTooltip();
             }
-          }, 2000);
+          }, 1000);
         }
       })
       .catch(error => {
