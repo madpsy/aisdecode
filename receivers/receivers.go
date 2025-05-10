@@ -804,9 +804,6 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     if patch.Latitude != nil {
         rec.Latitude = *patch.Latitude
     }
-    if patch.Longitude != nil {
-        rec.Longitude = *patch.Longitude
-    }
     
     // adminRegeneratePasswordHandler handles POST /admin/receivers/regenerate-password/{id}
     func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
@@ -847,6 +844,19 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
         if err == sql.ErrNoRows {
             http.Error(w, "Receiver not found", http.StatusNotFound)
             return
+        } else if err != nil {
+            http.Error(w, "Database error", http.StatusInternalServerError)
+            return
+        }
+    
+        // Return the new password
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(map[string]string{
+            "password": newPassword,
+        })
+    }
+    if patch.Longitude != nil {
+        rec.Longitude = *patch.Longitude
         } else if err != nil {
             http.Error(w, "Database error", http.StatusInternalServerError)
             return
