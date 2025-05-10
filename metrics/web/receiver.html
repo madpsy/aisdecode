@@ -1865,11 +1865,11 @@ async function fetchReceivers(ip) {
         <div style="display: flex; gap: 8px; margin-bottom: 8px;">
           <div style="flex: 1;">
             <label for="receiver-latitude">Latitude:</label>
-            <input type="number" id="receiver-latitude" step="0.0001" required style="width: 100%; padding: 4px; margin-top: 2px;">
+            <input type="number" id="receiver-latitude" step="any" required style="width: 100%; padding: 4px; margin-top: 2px;">
           </div>
           <div style="flex: 1;">
             <label for="receiver-longitude">Longitude:</label>
-            <input type="number" id="receiver-longitude" step="0.0001" required style="width: 100%; padding: 4px; margin-top: 2px;">
+            <input type="number" id="receiver-longitude" step="any" required style="width: 100%; padding: 4px; margin-top: 2px;">
           </div>
         </div>
         
@@ -2018,11 +2018,27 @@ async function fetchReceivers(ip) {
             document.getElementById('success-result').style.display = 'block';
             document.getElementById('receiver-form').style.display = 'none';
             
-            // Update the URL with the new receiver ID
-            updateURLWithReceiverId(data.id);
+            // Show a notification that the crontab entry has been created
+            const notification = document.createElement('div');
+            notification.style.cssText = 'position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background-color: #4CAF50; color: white; padding: 16px; border-radius: 4px; z-index: 9999; text-align: center;';
+            notification.textContent = 'Receiver created successfully! See the crontab entry below.';
+            document.body.appendChild(notification);
             
-            // Fetch the receiver details to update the UI
-            fetchReceiversById(data.id);
+            // Remove the notification after 5 seconds
+            setTimeout(() => {
+              notification.style.opacity = '0';
+              notification.style.transition = 'opacity 1s';
+              setTimeout(() => notification.remove(), 1000);
+            }, 5000);
+            
+            // Delay updating the URL and fetching receiver details to ensure the crontab entry is visible
+            setTimeout(() => {
+              // Update the URL with the new receiver ID
+              updateURLWithReceiverId(data.id);
+              
+              // Fetch the receiver details to update the UI
+              fetchReceiversById(data.id);
+            }, 10000); // 10 second delay to give user time to see and copy the crontab entry
           }
         })
         .catch(error => {
