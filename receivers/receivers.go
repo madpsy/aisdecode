@@ -649,7 +649,7 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         Description: input.Description,
         Latitude:    input.Latitude,
         Longitude:   input.Longitude,
-        Name:        input.Name,
+        Name:        strings.ToUpper(input.Name),
         URL:         input.URL,
         Password:    password,
         IPAddress:   ipAddress,
@@ -757,7 +757,7 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         Description: input.Description,
         Latitude:    input.Latitude,
         Longitude:   input.Longitude,
-        Name:        input.Name,
+        Name:        strings.ToUpper(input.Name),
         URL:         input.URL,
         Password:    password,
         IPAddress:   ipAddress,
@@ -845,7 +845,7 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     }
     
     if patch.Name != nil {
-        rec.Name = *patch.Name
+        rec.Name = strings.ToUpper(*patch.Name)
     }
     if patch.URL != nil {
         rec.URL = patch.URL
@@ -1142,7 +1142,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         Description: input.Description,
         Latitude:    input.Latitude,
         Longitude:   input.Longitude,
-        Name:        input.Name,
+        Name:        strings.ToUpper(input.Name),
         URL:         input.URL,
         Password:    password,
         IPAddress:   input.IPAddress,
