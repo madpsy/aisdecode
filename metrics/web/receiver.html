@@ -1002,7 +1002,7 @@ let receiversFetched = false; // Flag to ensure receivers are only fetched once
 
 // Listen for incoming metrics data from the server
 socket.on("metrics/bysource", function(data) {
-  console.log("Received metrics data via WebSocket");
+  //console.log("Received metrics data via WebSocket");
   
   const currentIp = data.requested_ip_address; // Use IP from the API response if available
 
