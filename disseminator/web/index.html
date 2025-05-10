@@ -3403,8 +3403,16 @@ window.addEventListener('load', () => {
               // Zoom to the receiver marker
               map.setView([receiver.latitude, receiver.longitude], 13);
               
-              // Open the tooltip for this receiver
+              // Force close and reopen the tooltip to ensure it's displayed
+              receiverMarkers[receiverId].closeTooltip();
               receiverMarkers[receiverId].openTooltip();
+              
+              // Highlight the receiver marker temporarily
+              const markerElement = receiverMarkers[receiverId].getElement();
+              if (markerElement) {
+                markerElement.classList.add('enlarge');
+                setTimeout(() => markerElement.classList.remove('enlarge'), 1500);
+              }
             }
           }, 1000);
         }
