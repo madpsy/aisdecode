@@ -989,9 +989,18 @@ function loadReceivers() {
                 <p class="receiver-url"><strong>URL:</strong>
                   ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
                 </p>
+                <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-bottom: 10px;">Edit Receiver</button>
                 <div id="receiver-map"></div> <!-- Receiver map will go here -->
               `;
               document.getElementById('ip-address').insertAdjacentElement('afterend', box);
+              
+              // Add event listener to the edit button
+              setTimeout(() => {
+                const editButton = document.getElementById('edit-receiver-btn');
+                if (editButton) {
+                  editButton.addEventListener('click', () => showEditReceiverForm(receiver.id));
+                }
+              }, 0);
 
               // Initialize the map inside the info box
               const mapDiv = document.getElementById('receiver-map');
