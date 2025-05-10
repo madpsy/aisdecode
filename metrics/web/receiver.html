@@ -1331,7 +1331,7 @@ socket.on("metrics/bysource", function(data) {
         }
       } else {
         console.log("Message count = 0, updating to show 'No receiver found'");
-        receiverBox.innerHTML = '<p>No receiver found</p>';
+        receiverBox.innerHTML = '<p>No receiver found at this IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>';
       }
     } else {
       console.log("This is a receiver info box, not updating");
@@ -1587,7 +1587,7 @@ async function fetchReceivers(ip) {
       } else {
         // No receiver found and no messages
         console.log('Setting message to "No receiver found"');
-        receiverBox.innerHTML = '<p>No receiver found</p>';
+        receiverBox.innerHTML = '<p>No receiver found at this IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>';
       }
 
       ipHeading.insertAdjacentElement('afterend', receiverBox);
