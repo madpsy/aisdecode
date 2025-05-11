@@ -350,34 +350,23 @@
         
         console.log("State data structure:", st);
         
-        // Extract unique receiver IDs from state data
-        if (st.Vessels) {
-          console.log("Vessels data:", st.Vessels);
-          const uniqueReceivers = new Set();
-          
-          // Try to extract receiver IDs from vessels
-          Object.values(st.Vessels).forEach(vessel => {
-            console.log("Vessel data:", vessel);
-            
-            // Check for ReceiverIDs array
-            if (vessel.ReceiverIDs && Array.isArray(vessel.ReceiverIDs)) {
-              vessel.ReceiverIDs.forEach(id => uniqueReceivers.add(id));
-            }
-            
-            // Also check for ReceiverID (singular) property
-            if (vessel.ReceiverID !== undefined && vessel.ReceiverID !== null) {
-              uniqueReceivers.add(vessel.ReceiverID);
-            }
-            
-            // Check for ReceiverID in the packet data
-            if (vessel.Packet && vessel.Packet.ReceiverID) {
-              uniqueReceivers.add(vessel.Packet.ReceiverID);
-            }
-          });
-          
-          receiverList = Array.from(uniqueReceivers);
-          console.log("Found receiver IDs:", receiverList);
+        // The state data is the vessel object itself, not nested in a Vessels object
+        const uniqueReceivers = new Set();
+        
+        // Check for ReceiverIDs array directly in the state object
+        if (st.ReceiverIDs && Array.isArray(st.ReceiverIDs)) {
+          console.log("Found ReceiverIDs array:", st.ReceiverIDs);
+          st.ReceiverIDs.forEach(id => uniqueReceivers.add(id));
         }
+        
+        // Also check for ReceiverID (singular) property
+        if (st.ReceiverID !== undefined && st.ReceiverID !== null) {
+          console.log("Found ReceiverID:", st.ReceiverID);
+          uniqueReceivers.add(st.ReceiverID);
+        }
+        
+        receiverList = Array.from(uniqueReceivers);
+        console.log("Found receiver IDs from state:", receiverList);
       } catch (err) {
         console.error("Error fetching state data:", err);
       }
