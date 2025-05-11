@@ -262,8 +262,8 @@ func fetchReceiverData(baseURL string) {
     // Fetch data immediately on startup
     updateReceiverMapping(client, baseURL)
 
-    // Then fetch every 60 seconds
-    ticker := time.NewTicker(60 * time.Second)
+    // Then fetch every 5 seconds
+    ticker := time.NewTicker(5 * time.Second)
     defer ticker.Stop()
 
     for range ticker.C {
