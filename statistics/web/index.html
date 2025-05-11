@@ -100,6 +100,13 @@
     .word-cloud-text:hover {
       opacity: 0.8;
     }
+    /* Ensure no underlines on word cloud links */
+    #word-cloud-container a {
+      text-decoration: none !important;
+    }
+    #word-cloud-container a:hover {
+      text-decoration: none !important;
+    }
   </style>
 </head>
 <body>
@@ -676,7 +683,7 @@
         
         // Prepare word cloud data
         const words = data.map(d => ({
-          text: d.name || `ID:${d.user_id}`,
+          text: d.name || `${d.user_id}`,
           size: fontScale(d.count),
           userId: d.user_id,
           count: d.count
@@ -690,8 +697,11 @@
           .rotate(() => 0) // No rotation for better readability
           .font('Segoe UI')
           .fontSize(d => d.size)
+          .spiral('archimedean') // Use archimedean spiral for better distribution
           .on('end', draw);
         
+        // Fix for word cloud not showing all words
+        console.log(`Rendering word cloud with ${words.length} words`);
         layout.start();
         
         // Draw the word cloud
@@ -702,11 +712,16 @@
             .append('g')
             .attr('transform', `translate(${width/2},${height/2})`);
           
-          svg.selectAll('text')
+          // Create a group for each word that contains both the link and text
+          const wordGroups = svg.selectAll('g')
             .data(words)
             .enter()
-            .append('a')
-            .attr('href', d => `/?UserID=${d.userId}`)
+            .append('g')
+            .attr('transform', d => `translate(${d.x},${d.y})`);
+          
+          // Add the link with text inside
+          wordGroups.append('a')
+            .attr('xlink:href', d => `/?UserID=${d.userId}`)
             .attr('target', '_blank')
             .append('text')
             .attr('class', 'word-cloud-text')
@@ -720,10 +735,12 @@
               return greyShades[i % greyShades.length];
             })
             .attr('text-anchor', 'middle')
-            .attr('transform', d => `translate(${d.x},${d.y})`)
             .text(d => d.text)
             .append('title') // Tooltip showing count
             .text(d => `${d.text}: ${d.count} messages`);
+            
+          // Log the number of words actually rendered
+          console.log(`Rendered ${wordGroups.size()} words in the cloud`);
         }
       }
 
