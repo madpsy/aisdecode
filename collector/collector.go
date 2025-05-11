@@ -8,6 +8,7 @@ import (
     "encoding/json"
     "flag"
     "fmt"
+    "io"
     "log"
     "net"
     "net/http"
@@ -44,10 +45,17 @@ type Settings struct {
     ExternalLookupTimeout int      `json:"external_lookup_timeout"`
     MinimumDistance       float64  `json:"minimum_distance"`
     TimeFiltersRaw        map[string]string  `json:"time_filters"`  // JSON holds strings ("1h", "30m", …)
+    ReceiversBaseURL      string   `json:"receivers_base_url"`      // URL for fetching receiver data
 }
 
 var settings *Settings
 var db *sql.DB
+
+// Map to store IP address to receiver ID mapping
+var (
+    receiverIPToIDMap = make(map[string]int)
+    receiverMapMutex  sync.RWMutex
+)
 
 type Position struct {
     Lat, Lon float64
@@ -193,7 +201,8 @@ func main() {
             source_ip VARCHAR(45),
             user_id INT,
             message_id INT,
-	    raw_sentence TEXT
+     raw_sentence TEXT,
+            receiver_id INT
         );
     `)
     if err != nil {
@@ -210,7 +219,8 @@ func main() {
             image_url TEXT,
             name TEXT,
             ext_lookup_complete BOOLEAN DEFAULT FALSE,
-            source_ip VARCHAR(45)
+            source_ip VARCHAR(45),
+            receiver_id INT
         );
     `)
     if err != nil {
@@ -233,8 +243,85 @@ func main() {
     }
     log.Printf("Sent request to ingester: %s", string(requestJSON))
 
+    // Start a goroutine to periodically fetch receiver information if URL is provided
+    if settings.ReceiversBaseURL != "" {
+        go fetchReceiverData(settings.ReceiversBaseURL)
+    }
+
     go handleIngesterMessages(settings, ingConn, requestJSON, settings.Debug, db)
     select {}
+}
+
+// Function to fetch receiver data and update the IP to ID mapping
+func fetchReceiverData(baseURL string) {
+    // Create a custom HTTP client with a 5-second timeout
+    client := &http.Client{
+        Timeout: 5 * time.Second,
+    }
+
+    // Fetch data immediately on startup
+    updateReceiverMapping(client, baseURL)
+
+    // Then fetch every 60 seconds
+    ticker := time.NewTicker(60 * time.Second)
+    defer ticker.Stop()
+
+    for range ticker.C {
+        updateReceiverMapping(client, baseURL)
+    }
+}
+
+// Function to update the receiver IP to ID mapping
+func updateReceiverMapping(client *http.Client, baseURL string) {
+    url := fmt.Sprintf("%s/admin/receivers", baseURL)
+    resp, err := client.Get(url)
+    if err != nil {
+        log.Printf("Error fetching receivers data: %v", err)
+        return // Preserve previous mapping on error
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        log.Printf("Received non-OK response from receivers API: %d", resp.StatusCode)
+        return // Preserve previous mapping on error
+    }
+
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        log.Printf("Error reading receivers response body: %v", err)
+        return // Preserve previous mapping on error
+    }
+
+    var receivers []struct {
+        ID        int    `json:"id"`
+        IPAddress string `json:"ip_address"`
+    }
+
+    if err := json.Unmarshal(body, &receivers); err != nil {
+        log.Printf("Error unmarshalling receivers data: %v", err)
+        return // Preserve previous mapping on error
+    }
+
+    // Create a new map to avoid partial updates
+    newMap := make(map[string]int)
+    for _, receiver := range receivers {
+        if receiver.IPAddress != "" {
+            newMap[receiver.IPAddress] = receiver.ID
+        }
+    }
+
+    // Only update the global map if we have at least one entry
+    if len(newMap) == 0 {
+        log.Printf("Received empty receivers list, preserving previous mapping")
+        return // Preserve previous mapping if new data is empty
+    }
+
+    // Update the global map atomically
+    receiverMapMutex.Lock()
+    receiverIPToIDMap = newMap
+    receiverMapMutex.Unlock()
+
+    log.Printf("Updated receiver mapping with %d entries", len(newMap))
 }
 
 // ── HTTP SERVER ──────────────────────────────────────────────────────────────
@@ -610,8 +697,16 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
         }
     }
 
-    // 7) Always update the state table
-    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, userID, messageIDf, message.SourceIP); err != nil {
+    // 7) Look up receiver ID from source IP
+    var receiverID interface{} = nil // Use nil (SQL NULL) as default
+    receiverMapMutex.RLock()
+    if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
+        receiverID = id // Only set a value if mapping exists
+    }
+    receiverMapMutex.RUnlock()
+
+    // 8) Always update the state table
+    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, userID, messageIDf, message.SourceIP, receiverID); err != nil {
         log.Printf("Error storing state: %v", err)
     }
 
@@ -620,7 +715,15 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
         if settings.Debug {
             log.Printf("Storing MessageID=%d for user %d", mid, userID)
         }
-        if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, settings); err != nil {
+        // Look up receiver ID from source IP
+        var receiverID interface{} = nil // Use nil (SQL NULL) as default
+        receiverMapMutex.RLock()
+        if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
+            receiverID = id // Only set a value if mapping exists
+        }
+        receiverMapMutex.RUnlock()
+
+        if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, receiverID, settings); err != nil {
             log.Printf("Error storing message: %v", err)
         }
     }
@@ -628,7 +731,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
     return nil
 }
 
-func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, userID int, messageID float64, sourceIP string) error {
+func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, userID int, messageID float64, sourceIP string, receiverID interface{}) error {
     var existingPacketJSON []byte
     var existingAisClass string
     var existingCount int
@@ -687,16 +790,17 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
 
     _, err = db.Exec(`
         INSERT INTO state
-          (packet, shard_id, timestamp, user_id, ais_class, count, image_url, name, ext_lookup_complete, source_ip)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          (packet, shard_id, timestamp, user_id, ais_class, count, image_url, name, ext_lookup_complete, source_ip, receiver_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         ON CONFLICT (user_id) DO UPDATE SET
           packet              = EXCLUDED.packet,
           shard_id            = EXCLUDED.shard_id,
           timestamp           = EXCLUDED.timestamp,
           ais_class           = EXCLUDED.ais_class,
           count               = state.count + 1,
-          source_ip           = EXCLUDED.source_ip
-    `, packetJSON, shardID, timestamp, userID, existingAisClass, existingCount, "", "", existingLookupComplete, sourceIP)
+          source_ip           = EXCLUDED.source_ip,
+          receiver_id         = EXCLUDED.receiver_id
+    `, packetJSON, shardID, timestamp, userID, existingAisClass, existingCount, "", "", existingLookupComplete, sourceIP, receiverID)
     if err != nil {
         return fmt.Errorf("Error inserting or updating state table: %v", err)
     }
@@ -754,10 +858,10 @@ func externalLookupAndUpdate(db *sql.DB, userID int) {
     }
 }
 
-func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, rawSentence string, settings *Settings) error {
-    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`
-    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence)
+func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, rawSentence string, receiverID interface{}, settings *Settings) error {
+    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence, receiver_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID)
     if err != nil {
         log.Printf("Error executing query: %v", err)
         if isDatabaseConnectionError(err) {
@@ -767,7 +871,7 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
                 log.Printf("Failed to reconnect to the database: %v", err)
                 return err
             }
-            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence)
+            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID)
             if err != nil {
                 log.Printf("Error executing query after reconnecting: %v", err)
                 return err
