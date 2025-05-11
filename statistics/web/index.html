@@ -75,13 +75,20 @@
       display: none; /* Hidden by default, shown when a receiver is selected */
     }
     .map-ring-label {
-      background-color: white;
-      border: 1px solid #666;
-      border-radius: 4px;
+      background-color: transparent;
       padding: 2px 6px;
       font-size: 12px;
       white-space: nowrap;
+      font-weight: bold;
+      text-shadow: 1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white;
+    }
+    .vessel-tooltip {
+      background-color: rgba(255, 255, 255, 0.8);
+      border: none;
       box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
     }
   </style>
 </head>
@@ -214,6 +221,7 @@
                     <th>Receiver</th>
                     <th>Class</th>
                     <th>Type</th>
+                    <th>Timestamp</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -462,13 +470,17 @@
           // Convert distance from meters to kilometers for display
           const distanceKm = (v.distance / 1000).toFixed(2);
           
+          // Format timestamp to local time
+          const timestamp = v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A';
+          
           distanceTable.row.add([
             nameLink,
             imgTag,
             distanceKm,
             receiverName,
             v.ais_class,
-            typeDesc
+            typeDesc,
+            timestamp
           ]);
           distanceChart.data.labels.push(name);
           distanceChart.data.datasets[0].data.push(v.distance / 1000); // Convert to km for chart
@@ -516,9 +528,25 @@
                   iconSize: [8, 8]
                 });
                 
+                // Format timestamp for popup
+                const timestamp = v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A';
+                
                 const marker = L.marker([v.lat, v.lon], {icon: vesselIcon})
                   .addTo(distanceMap)
-                  .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}`);
+                  .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
+                
+                // Add permanent tooltip showing vessel name/ID
+                const tooltip = L.tooltip({
+                  permanent: true,
+                  direction: 'top',
+                  className: 'vessel-tooltip',
+                  offset: [0, -5]
+                })
+                .setContent(v.name || `ID: ${v.user_id}`)
+                .setLatLng([v.lat, v.lon]);
+                
+                distanceMap.addLayer(tooltip);
+                distanceCircles.push(tooltip); // Add to circles array so it gets cleared with other elements
                 
                 vesselMarkers.push(marker);
               }
@@ -563,7 +591,8 @@
                   html: `<div class="map-ring-label">${nmDistance} NM</div>`,
                   className: '',
                   iconAnchor: [0, 10]
-                })
+                }),
+                interactive: false // Make label non-interactive
               }).addTo(distanceMap);
               
               distanceCircles.push(label);
