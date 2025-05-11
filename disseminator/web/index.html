@@ -623,7 +623,8 @@
 	let receiverPolyline = null;
 	let receiverDistanceLabel = null;
 	let lastReceiverUpdateTime = 0;
-	const RECEIVER_UPDATE_THROTTLE = 500; // ms
+	const RECEIVER_UPDATE_THROTTLE = 250; // ms - reduced from 500ms to be more responsive
+	let receiverUpdateInterval = null; // For periodic updates
 
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
@@ -745,6 +746,12 @@ map.on('click', () => {
       }
       map.removeLayer(receiverDistanceLabel);
       receiverDistanceLabel = null;
+    }
+    
+    // Clear any existing update interval
+    if (receiverUpdateInterval) {
+      clearInterval(receiverUpdateInterval);
+      receiverUpdateInterval = null;
     }
     
     focusedVessel = null;
@@ -3130,8 +3137,18 @@ function updateVesselReceiverConnection(UserID) {
   }
   lastReceiverUpdateTime = now;
   
+  // Ensure we're still working with the focused vessel
+  if (focusedVessel !== UserID) {
+    return; // Don't update if this is no longer the focused vessel
+  }
+  
   const vessel = vesselData[UserID];
   if (!vessel) return;
+  
+  // Ensure vessel has valid coordinates
+  if (typeof vessel.Latitude !== 'number' || typeof vessel.Longitude !== 'number') {
+    return; // Skip if vessel doesn't have valid coordinates
+  }
   
   // Check for receiver ID in different possible fields
   // First try receiver_id from ais_data events
@@ -3146,6 +3163,12 @@ function updateVesselReceiverConnection(UserID) {
   if (receiverId !== null && receiverId !== undefined && receiverMarkers[receiverId]) {
     const vesselLatLng = [vessel.Latitude, vessel.Longitude];
     const receiverLatLng = receiverMarkers[receiverId].getLatLng();
+    
+    // Double-check that both coordinates are valid
+    if (!vesselLatLng[0] || !vesselLatLng[1] || !receiverLatLng.lat || !receiverLatLng.lng) {
+      console.warn("Invalid coordinates for vessel-receiver connection");
+      return;
+    }
     
     // Calculate the midpoint for the label
     const midLat = (vesselLatLng[0] + receiverLatLng.lat) / 2;
@@ -3221,6 +3244,12 @@ function focusOnVessel(UserID, initialFocus = true) {
     map.removeLayer(receiverDistanceLabel);
     receiverDistanceLabel = null;
   }
+  
+  // Clear any existing update interval
+  if (receiverUpdateInterval) {
+    clearInterval(receiverUpdateInterval);
+    receiverUpdateInterval = null;
+  }
   if (focusedVessel && focusedVessel !== UserID) {
     const prevMarker = vesselMarkers[focusedVessel];
     if (prevMarker) {
@@ -3294,6 +3323,22 @@ function focusOnVessel(UserID, initialFocus = true) {
   // Ensure we call this after a short delay to allow the vessel data to be fully loaded
   setTimeout(() => {
     updateVesselReceiverConnection(UserID);
+    
+    // Clear any existing update interval
+    if (receiverUpdateInterval) {
+      clearInterval(receiverUpdateInterval);
+    }
+    
+    // Set up a periodic update to ensure the connection stays visible
+    receiverUpdateInterval = setInterval(() => {
+      if (focusedVessel === UserID) {
+        updateVesselReceiverConnection(UserID);
+      } else {
+        // Stop updating if this is no longer the focused vessel
+        clearInterval(receiverUpdateInterval);
+        receiverUpdateInterval = null;
+      }
+    }, 2000); // Update every 2 seconds
   }, 100);
 
   // Now add the focused vessel’s polyline (if it exists) based on the "show-paths" checkbox.
