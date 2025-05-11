@@ -1554,6 +1554,8 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
         ARRAY_AGG(DISTINCT receiver_id) AS receiver_ids
       FROM messages
       WHERE user_id = %d
+        AND receiver_id IS NOT NULL
+        AND receiver_id != 0
       GROUP BY user_id
     )
     SELECT
@@ -1649,7 +1651,11 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
         }
         
         // Add array of unique receiver IDs
-        merged["ReceiverIDs"] = receiverIDs
+        if len(receiverIDs) > 0 {
+            merged["ReceiverIDs"] = receiverIDs
+        } else {
+            merged["ReceiverIDs"] = []int64{}
+        }
     }
 
     // 5) Return as JSON
