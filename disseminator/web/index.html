@@ -3135,17 +3135,6 @@ function calculateBearing(lat1, lon1, lat2, lon2) {
 
 // Function to update the vessel-receiver connection
 function updateVesselReceiverConnection(UserID) {
-  // Remove any existing polyline and label
-  if (receiverPolyline) {
-    map.removeLayer(receiverPolyline);
-    receiverPolyline = null;
-  }
-  
-  if (receiverDistanceLabel) {
-    map.removeLayer(receiverDistanceLabel);
-    receiverDistanceLabel = null;
-  }
-  
   const vessel = vesselData[UserID];
   if (!vessel) return;
   
@@ -3163,14 +3152,6 @@ function updateVesselReceiverConnection(UserID) {
     const vesselLatLng = [vessel.Latitude, vessel.Longitude];
     const receiverLatLng = receiverMarkers[receiverId].getLatLng();
     
-    // Create a grey polyline between vessel and receiver
-    receiverPolyline = L.polyline([vesselLatLng, receiverLatLng], {
-      color: 'grey',
-      weight: 2,
-      opacity: 0.7,
-      dashArray: '5, 5'
-    }).addTo(map);
-    
     // Calculate the midpoint for the label
     const midLat = (vesselLatLng[0] + receiverLatLng.lat) / 2;
     const midLng = (vesselLatLng[1] + receiverLatLng.lng) / 2;
@@ -3187,18 +3168,47 @@ function updateVesselReceiverConnection(UserID) {
       vesselLatLng[0], vesselLatLng[1]
     ).toFixed(0);
     
-    // Create a label at the midpoint showing the distance and bearing
-    receiverDistanceLabel = L.marker([midLat, midLng], {
-      icon: L.divIcon({
+    // Create or update the HTML content for the label
+    const labelHtml = `<div style="background-color: white; padding: 2px 5px; border-radius: 3px; font-size: 12px; border: 1px solid grey; text-align: center;">
+                        <div>${distance} km</div>
+                        <div>${bearing}°</div>
+                      </div>`;
+    
+    // If polyline doesn't exist, create it
+    if (!receiverPolyline) {
+      receiverPolyline = L.polyline([vesselLatLng, receiverLatLng], {
+        color: 'grey',
+        weight: 2,
+        opacity: 0.7,
+        dashArray: '5, 5'
+      }).addTo(map);
+    } else {
+      // Update existing polyline
+      receiverPolyline.setLatLngs([vesselLatLng, receiverLatLng]);
+    }
+    
+    // If label doesn't exist, create it
+    if (!receiverDistanceLabel) {
+      receiverDistanceLabel = L.marker([midLat, midLng], {
+        icon: L.divIcon({
+          className: 'distance-label',
+          html: labelHtml,
+          iconSize: [60, 40],
+          iconAnchor: [30, 20]
+        })
+      }).addTo(map);
+    } else {
+      // Update existing label position
+      receiverDistanceLabel.setLatLng([midLat, midLng]);
+      
+      // Update the icon content
+      receiverDistanceLabel.setIcon(L.divIcon({
         className: 'distance-label',
-        html: `<div style="background-color: white; padding: 2px 5px; border-radius: 3px; font-size: 12px; border: 1px solid grey; text-align: center;">
-                <div>${distance} km</div>
-                <div>${bearing}°</div>
-              </div>`,
+        html: labelHtml,
         iconSize: [60, 40],
         iconAnchor: [30, 20]
-      })
-    }).addTo(map);
+      }));
+    }
   }
 }
 
