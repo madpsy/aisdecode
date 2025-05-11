@@ -42,8 +42,15 @@ type distanceVessel struct {
 
 // typeCount is the JSON shape returned by /statistics/stats/top-types.
 type typeCount struct {
-    Type  string `json:"type"`
-    Count int    `json:"count"`
+	Type  string `json:"type"`
+	Count int    `json:"count"`
+}
+
+// userCount is the JSON shape returned by /statistics/stats/user-counts.
+type userCount struct {
+	UserID int    `json:"user_id"`
+	Name   string `json:"name,omitempty"`
+	Count  int    `json:"count"`
 }
 
 // posVessel is the JSON shape returned by /statistics/stats/top-positions.
@@ -109,13 +116,14 @@ func StartServer(port int) {
 }
 
 func registerHandlers(mux *http.ServeMux) {
-    fs := http.FileServer(http.Dir("web"))
-    mux.Handle("/statistics/", http.StripPrefix("/statistics/", fs))
+	fs := http.FileServer(http.Dir("web"))
+	mux.Handle("/statistics/", http.StripPrefix("/statistics/", fs))
 
-    mux.HandleFunc("/statistics/stats/top-sog", topSogHandler)
-    mux.HandleFunc("/statistics/stats/top-types", topTypesHandler)
-    mux.HandleFunc("/statistics/stats/top-positions", topPositionsHandler)
-    mux.HandleFunc("/statistics/stats/top-distance", topDistanceHandler)
+	mux.HandleFunc("/statistics/stats/top-sog", topSogHandler)
+	mux.HandleFunc("/statistics/stats/top-types", topTypesHandler)
+	mux.HandleFunc("/statistics/stats/top-positions", topPositionsHandler)
+	mux.HandleFunc("/statistics/stats/top-distance", topDistanceHandler)
+	mux.HandleFunc("/statistics/stats/user-counts", userCountsHandler)
 }
 
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
@@ -593,6 +601,118 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
             ReceiverID: r.receiverID,
             AISClass:   r.aisClass, // Set AIS class directly from query result
         }
+    }
+    
+    // userCountsHandler returns statistics about unique userIDs and their message counts.
+    func userCountsHandler(w http.ResponseWriter, r *http.Request) {
+    	days := parseDaysParam(r)
+    	receiverID := parseReceiverIDParam(r)
+    	
+    	// Include receiver_id in cache key if specified
+    	var cacheKey string
+    	if receiverID > 0 {
+    		cacheKey = fmt.Sprintf("user-counts:%dd:r%d", days, receiverID)
+    	} else {
+    		cacheKey = fmt.Sprintf("user-counts:%dd", days)
+    	}
+    
+    	var users []userCount
+    	if ok, _ := cacheGet(cacheKey, &users); ok {
+    		// Enrich with vessel metadata
+    		ids := make([]int, len(users))
+    		for i, u := range users {
+    			ids[i] = u.UserID
+    		}
+    		meta, err := fetchVesselMetadata(ids)
+    		if err != nil {
+    			log.Printf("userCountsHandler: metadata fetch error: %v", err)
+    		} else {
+    			for i := range users {
+    				if m, ok := meta[users[i].UserID]; ok {
+    					users[i].Name = m.Name
+    				}
+    			}
+    		}
+    		respondJSON(w, users)
+    		return
+    	}
+    
+    	// Build query with optional receiver_id filter
+    	var qry string
+    	if receiverID > 0 {
+    		qry = fmt.Sprintf(`
+    			SELECT user_id,
+    				   COUNT(*) AS cnt
+    			  FROM messages
+    			 WHERE timestamp >= now() - INTERVAL '%d days'
+    			   AND receiver_id = %d
+    			 GROUP BY user_id
+    			 ORDER BY cnt DESC
+    			 LIMIT 1000
+    		`, days, receiverID)
+    	} else {
+    		qry = fmt.Sprintf(`
+    			SELECT user_id,
+    				   COUNT(*) AS cnt
+    			  FROM messages
+    			 WHERE timestamp >= now() - INTERVAL '%d days'
+    			 GROUP BY user_id
+    			 ORDER BY cnt DESC
+    			 LIMIT 1000
+    		`, days)
+    	}
+    
+    	shardResults, err := QueryDatabasesForAllShards(qry)
+    	if err != nil {
+    		respondError(w, err)
+    		return
+    	}
+    
+    	countMap := make(map[int]int)
+    	for _, recs := range shardResults {
+    		for _, rec := range recs {
+    			uid, _ := parseInt(rec["user_id"])
+    			cnt, _ := parseInt(rec["cnt"])
+    			countMap[uid] += cnt
+    		}
+    	}
+    
+    	users = make([]userCount, 0, len(countMap))
+    	for uid, cnt := range countMap {
+    		users = append(users, userCount{
+    			UserID: uid,
+    			Count:  cnt,
+    		})
+    	}
+    
+    	// Sort by count in descending order
+    	sort.Slice(users, func(i, j int) bool {
+    		return users[i].Count > users[j].Count
+    	})
+    
+    	// Limit to 1000 results
+    	if len(users) > 1000 {
+    		users = users[:1000]
+    	}
+    
+    	// Enrich with vessel metadata
+    	ids := make([]int, len(users))
+    	for i, u := range users {
+    		ids[i] = u.UserID
+    	}
+    	meta, err := fetchVesselMetadata(ids)
+    	if err != nil {
+    		log.Printf("userCountsHandler: metadata fetch error: %v", err)
+    	} else {
+    		for i := range users {
+    			if m, ok := meta[users[i].UserID]; ok {
+    				users[i].Name = m.Name
+    			}
+    		}
+    	}
+    
+    	cacheSet(cacheKey, users)
+    	respondJSON(w, users)
     }
 
     // Enrich with vessel metadata (name, image URL, and type only - we already have AIS class)

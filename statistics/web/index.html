@@ -90,6 +90,16 @@
       border-radius: 3px;
       font-size: 11px;
     }
+    /* Word cloud styles */
+    .word-cloud-text {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      cursor: pointer;
+      color: #555;
+      text-decoration: none !important;
+    }
+    .word-cloud-text:hover {
+      opacity: 0.8;
+    }
   </style>
 </head>
 <body>
@@ -233,6 +243,20 @@
       <!-- Map container - only shown when a receiver is selected -->
       <div id="distance-map"></div>
     </div>
+
+    <!-- User Message Counts Word Cloud -->
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title">User Message Counts</h2>
+        <div class="row gy-3">
+          <div class="col-12">
+            <div id="word-cloud-container" class="chart-container" style="height: 400px;">
+              <!-- Word cloud will be rendered here -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Image overlay -->
@@ -249,6 +273,9 @@
   <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- D3.js and d3-cloud for Word Cloud -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/jasondavies/d3-cloud/build/d3.layout.cloud.js"></script>
 
   <script>
     $(function() {
@@ -336,7 +363,8 @@
           fetchTopPositions(days, receiverId),
           fetchTopSog(days, receiverId),
           fetchTopTypes(days, receiverId),
-          fetchTopDistance(days, receiverId)
+          fetchTopDistance(days, receiverId),
+          fetchUserCounts(days, receiverId)
         ]);
       }
 
@@ -606,6 +634,97 @@
         } else {
           // Hide map if no receiver is selected or no data
           $('#distance-map').hide();
+        }
+      }
+
+      // Word cloud for user message counts
+      async function fetchUserCounts(days, receiverId) {
+        let url = `/statistics/stats/user-counts?days=${days}`;
+        if (receiverId) {
+          url += `&receiver_id=${receiverId}`;
+        }
+        
+        try {
+          const data = await (await fetch(url)).json();
+          renderWordCloud(data);
+        } catch (error) {
+          console.error("Error fetching user counts:", error);
+          document.getElementById('word-cloud-container').innerHTML =
+            '<div class="alert alert-danger">Failed to load user counts data</div>';
+        }
+      }
+
+      function renderWordCloud(data) {
+        // Clear previous word cloud
+        document.getElementById('word-cloud-container').innerHTML = '';
+        
+        if (!data || data.length === 0) {
+          document.getElementById('word-cloud-container').innerHTML =
+            '<div class="alert alert-info">No user data available</div>';
+          return;
+        }
+
+        // Set dimensions
+        const width = document.getElementById('word-cloud-container').offsetWidth;
+        const height = 400;
+        
+        // Calculate font sizes based on counts
+        const maxCount = Math.max(...data.map(d => d.count));
+        const minCount = Math.min(...data.map(d => d.count));
+        const fontScale = d3.scaleLog()
+          .domain([Math.max(1, minCount), maxCount])
+          .range([12, 60]);
+        
+        // Prepare word cloud data
+        const words = data.map(d => ({
+          text: d.name || `ID:${d.user_id}`,
+          size: fontScale(d.count),
+          userId: d.user_id,
+          count: d.count
+        }));
+        
+        // Create word cloud layout
+        const layout = d3.layout.cloud()
+          .size([width, height])
+          .words(words)
+          .padding(5)
+          .rotate(() => 0) // No rotation for better readability
+          .font('Segoe UI')
+          .fontSize(d => d.size)
+          .on('end', draw);
+        
+        layout.start();
+        
+        // Draw the word cloud
+        function draw(words) {
+          const svg = d3.select('#word-cloud-container').append('svg')
+            .attr('width', width)
+            .attr('height', height)
+            .append('g')
+            .attr('transform', `translate(${width/2},${height/2})`);
+          
+          svg.selectAll('text')
+            .data(words)
+            .enter()
+            .append('a')
+            .attr('href', d => `/?UserID=${d.userId}`)
+            .attr('target', '_blank')
+            .append('text')
+            .attr('class', 'word-cloud-text')
+            .style('font-size', d => `${d.size}px`)
+            .style('fill', (d, i) => {
+              // Use a modern grey color palette
+              const greyShades = [
+                '#4a4a4a', '#5a5a5a', '#6a6a6a', '#7a7a7a',
+                '#8a8a8a', '#9a9a9a', '#aaaaaa'
+              ];
+              return greyShades[i % greyShades.length];
+            })
+            .attr('text-anchor', 'middle')
+            .attr('transform', d => `translate(${d.x},${d.y})`)
+            .text(d => d.text)
+            .append('title') // Tooltip showing count
+            .text(d => `${d.text}: ${d.count} messages`);
         }
       }
 
