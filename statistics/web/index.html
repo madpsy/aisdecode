@@ -360,12 +360,25 @@
         typeChart.update();
       }
 
+      // Parse URL query parameters
+      function getQueryParam(name) {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get(name);
+      }
+      
       $('#days-select, #receiver-select').on('change', fetchAll);
       (async () => {
         await Promise.all([
           loadTypeMapping(),
           loadReceivers()
         ]);
+        
+        // Check for receiver_id in URL and select it in dropdown if present
+        const receiverId = getQueryParam('receiver_id');
+        if (receiverId) {
+          $('#receiver-select').val(receiverId);
+        }
+        
         fetchAll();
       })();
 
