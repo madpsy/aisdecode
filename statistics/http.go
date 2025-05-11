@@ -103,7 +103,15 @@ func registerHandlers(mux *http.ServeMux) {
 
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
-    cacheKey := fmt.Sprintf("top-sog:%dd", days)
+    receiverID := parseReceiverIDParam(r)
+    
+    // Include receiver_id in cache key if specified
+    var cacheKey string
+    if receiverID > 0 {
+        cacheKey = fmt.Sprintf("top-sog:%dd:r%d", days, receiverID)
+    } else {
+        cacheKey = fmt.Sprintf("top-sog:%dd", days)
+    }
 
     var vs []vessel
     if ok, _ := cacheGet(cacheKey, &vs); ok {
@@ -112,19 +120,38 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    qry := fmt.Sprintf(`
-        SELECT DISTINCT ON (m.user_id)
-               m.user_id,
-               (m.packet->>'Sog')::float       AS max_sog,
-               m.timestamp,
-               (m.packet->>'Latitude')::float  AS lat,
-               (m.packet->>'Longitude')::float AS lon
-          FROM messages m
-         WHERE m.message_id IN (1,2,3,18,19)
-           AND (m.packet->>'Sog')::float <> 102.3
-           AND m.timestamp >= now() - INTERVAL '%d days'
-         ORDER BY m.user_id, max_sog DESC
-    `, days)
+    // Build query with optional receiver_id filter
+    var qry string
+    if receiverID > 0 {
+        qry = fmt.Sprintf(`
+            SELECT DISTINCT ON (m.user_id)
+                   m.user_id,
+                   (m.packet->>'Sog')::float       AS max_sog,
+                   m.timestamp,
+                   (m.packet->>'Latitude')::float  AS lat,
+                   (m.packet->>'Longitude')::float AS lon
+              FROM messages m
+             WHERE m.message_id IN (1,2,3,18,19)
+               AND (m.packet->>'Sog')::float <> 102.3
+               AND m.timestamp >= now() - INTERVAL '%d days'
+               AND m.receiver_id = %d
+             ORDER BY m.user_id, max_sog DESC
+        `, days, receiverID)
+    } else {
+        qry = fmt.Sprintf(`
+            SELECT DISTINCT ON (m.user_id)
+                   m.user_id,
+                   (m.packet->>'Sog')::float       AS max_sog,
+                   m.timestamp,
+                   (m.packet->>'Latitude')::float  AS lat,
+                   (m.packet->>'Longitude')::float AS lon
+              FROM messages m
+             WHERE m.message_id IN (1,2,3,18,19)
+               AND (m.packet->>'Sog')::float <> 102.3
+               AND m.timestamp >= now() - INTERVAL '%d days'
+             ORDER BY m.user_id, max_sog DESC
+        `, days)
+    }
 
     shardResults, err := QueryDatabasesForAllShards(qry)
     if err != nil {
@@ -182,7 +209,15 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
 
 func topTypesHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
-    cacheKey := fmt.Sprintf("top-types:%dd", days)
+    receiverID := parseReceiverIDParam(r)
+    
+    // Include receiver_id in cache key if specified
+    var cacheKey string
+    if receiverID > 0 {
+        cacheKey = fmt.Sprintf("top-types:%dd:r%d", days, receiverID)
+    } else {
+        cacheKey = fmt.Sprintf("top-types:%dd", days)
+    }
 
     var counts []typeCount
     if ok, _ := cacheGet(cacheKey, &counts); ok {
@@ -190,15 +225,30 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    qry := fmt.Sprintf(`
-        SELECT (packet->>'Type') AS vessel_type,
-               COUNT(*)               AS cnt
-          FROM state
-         WHERE timestamp >= now() - INTERVAL '%d days'
-           AND (packet->>'Type') IS NOT NULL
-           AND TRIM((packet->>'Type')) <> ''
-         GROUP BY vessel_type
-    `, days)
+    // Build query with optional receiver_id filter
+    var qry string
+    if receiverID > 0 {
+        qry = fmt.Sprintf(`
+            SELECT (packet->>'Type') AS vessel_type,
+                   COUNT(*)               AS cnt
+              FROM state
+             WHERE timestamp >= now() - INTERVAL '%d days'
+               AND (packet->>'Type') IS NOT NULL
+               AND TRIM((packet->>'Type')) <> ''
+               AND receiver_id = %d
+             GROUP BY vessel_type
+        `, days, receiverID)
+    } else {
+        qry = fmt.Sprintf(`
+            SELECT (packet->>'Type') AS vessel_type,
+                   COUNT(*)               AS cnt
+              FROM state
+             WHERE timestamp >= now() - INTERVAL '%d days'
+               AND (packet->>'Type') IS NOT NULL
+               AND TRIM((packet->>'Type')) <> ''
+             GROUP BY vessel_type
+        `, days)
+    }
 
     shardResults, err := QueryDatabasesForAllShards(qry)
     if err != nil {
@@ -236,7 +286,15 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
 
 func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
-    cacheKey := fmt.Sprintf("top-positions:%dd", days)
+    receiverID := parseReceiverIDParam(r)
+    
+    // Include receiver_id in cache key if specified
+    var cacheKey string
+    if receiverID > 0 {
+        cacheKey = fmt.Sprintf("top-positions:%dd:r%d", days, receiverID)
+    } else {
+        cacheKey = fmt.Sprintf("top-positions:%dd", days)
+    }
 
     var ps []posVessel
     if ok, _ := cacheGet(cacheKey, &ps); ok {
@@ -244,14 +302,28 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    qry := fmt.Sprintf(`
-        SELECT user_id,
-               COUNT(*) AS cnt
-          FROM messages
-         WHERE message_id IN (1,2,3,18,19)
-           AND timestamp >= now() - INTERVAL '%d days'
-         GROUP BY user_id
-    `, days)
+    // Build query with optional receiver_id filter
+    var qry string
+    if receiverID > 0 {
+        qry = fmt.Sprintf(`
+            SELECT user_id,
+                   COUNT(*) AS cnt
+              FROM messages
+             WHERE message_id IN (1,2,3,18,19)
+               AND timestamp >= now() - INTERVAL '%d days'
+               AND receiver_id = %d
+             GROUP BY user_id
+        `, days, receiverID)
+    } else {
+        qry = fmt.Sprintf(`
+            SELECT user_id,
+                   COUNT(*) AS cnt
+              FROM messages
+             WHERE message_id IN (1,2,3,18,19)
+               AND timestamp >= now() - INTERVAL '%d days'
+             GROUP BY user_id
+        `, days)
+    }
 
     shardResults, err := QueryDatabasesForAllShards(qry)
     if err != nil {
@@ -298,6 +370,16 @@ func parseDaysParam(r *http.Request) int {
         }
     }
     return days
+}
+
+// parseReceiverIDParam reads 'receiver_id' query param, returns -1 if not specified.
+func parseReceiverIDParam(r *http.Request) int {
+    if rid := r.URL.Query().Get("receiver_id"); rid != "" {
+        if n, err := strconv.Atoi(rid); err == nil && n > 0 {
+            return n
+        }
+    }
+    return -1 // -1 indicates no receiver_id filter
 }
 
 // respondJSON serializes v as JSON to the response.
