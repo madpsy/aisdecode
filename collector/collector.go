@@ -343,7 +343,10 @@ func updateReceiverMapping(client *http.Client, baseURL string) {
     receiverLocations = newLocationMap
     receiverMapMutex.Unlock()
 
-    log.Printf("Updated receiver mapping with %d entries", len(newIPMap))
+    // Only log updates if in debug mode
+    if settings.Debug {
+        log.Printf("Updated receiver mapping with %d entries", len(newIPMap))
+    }
 }
 
 // ── HTTP SERVER ──────────────────────────────────────────────────────────────
