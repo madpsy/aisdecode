@@ -1526,7 +1526,7 @@ function fetchReceiversById(receiverId) {
       box.id = 'receiver-box';
       box.innerHTML = `
         <div class="receiver-info-content">
-          <h3>Receiver Information</h3>
+          <h3>Receiver Information (<a href="/statistics/?receiver_id=${receiver.id}" target="_blank">Statistics</a>)</h3>
           <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
           <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
           <p class="receiver-url"><strong>URL:</strong>
@@ -1687,7 +1687,7 @@ async function fetchReceivers(ip) {
     
     // Display receiver information
     receiverBox.innerHTML = `
-      <h3>Receiver Information</h3>
+      <h3>Receiver Information (<a href="/statistics/?receiver_id=${receiver.id}" target="_blank">Statistics</a>)</h3>
       <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
       <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
       <p class="receiver-url"><strong>URL:</strong>
