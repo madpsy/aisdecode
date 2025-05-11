@@ -283,12 +283,13 @@
 
         data.forEach(v => {
           const name = v.name || v.user_id;
+          const nameLink = `<a href="/?UserID=${v.user_id}" target="_blank">${name}</a>`;
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
           const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
           posTable.row.add([
-            name,
+            nameLink,
             imgTag,
             v.count,
             v.ais_class,
@@ -314,12 +315,13 @@
 
         data.forEach(v => {
           const name = v.name || v.user_id;
+          const nameLink = `<a href="/?UserID=${v.user_id}" target="_blank">${name}</a>`;
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
           const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
           sogTable.row.add([
-            name,
+            nameLink,
             imgTag,
             v.max_sog.toFixed(2),
             v.lat.toFixed(5),
