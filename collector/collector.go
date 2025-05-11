@@ -931,6 +931,11 @@ func calculateDistance(packetJSON []byte, receiverID interface{}) (float64, bool
         return 0, false
     }
     
+    // Check for invalid coordinates (91, 181 are invalid values)
+    if vesselLat == 91.0 || vesselLon == 181.0 {
+        return 0, false
+    }
+    
     // Calculate distance using haversine formula and round to nearest meter
     distance := haversine(receiverLoc.Latitude, receiverLoc.Longitude, vesselLat, vesselLon)
     return math.Round(distance), true
