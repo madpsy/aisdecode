@@ -2027,24 +2027,7 @@ if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
   lines.push(`Message Types: ${codeSpans.join(', ')}`);
 }
 
-// Always add a Receiver line, but handle different cases
-if (data.ReceiverID === undefined || data.ReceiverID === null) {
-  // Case 1: No ReceiverID available
-  lines.push(`Receiver: None`);
-} else {
-  // Case 2: ReceiverID exists
-  // Look up the receiver name from receiverData
-  if (receiverData[data.ReceiverID] && receiverData[data.ReceiverID].Name) {
-    // Case 2a: Receiver found in mapping
-    const receiverName = receiverData[data.ReceiverID].Name;
-    lines.push(`Receiver: <a href="/metrics/receiver.html?receiver=${data.ReceiverID}" target="_blank">${receiverName}</a>`);
-  } else {
-    // Case 2b: Receiver not found in mapping, use ID as fallback
-    lines.push(`Receiver: <a href="/metrics/receiver.html?receiver=${data.ReceiverID}" target="_blank">ID: ${data.ReceiverID}</a>`);
-  }
-}
-
-// Add the list of all receivers that have reported this vessel
+// Add the list of receivers that have reported this vessel
 if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
   // Create links for each receiver ID
   const receiverLinks = data.ReceiverIDs.map(id => {
@@ -2056,7 +2039,10 @@ if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.leng
   });
   
   // Join the links with commas
-  lines.push(`All Receivers: ${receiverLinks.join(', ')}`);
+  lines.push(`Receivers: ${receiverLinks.join(', ')}`);
+} else {
+  // No receivers available
+  lines.push(`Receivers: None`);
 }
 
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
