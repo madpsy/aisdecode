@@ -984,7 +984,7 @@ function loadReceivers() {
               box.id = 'receiver-box';
               box.innerHTML = `
                 <h3>Receiver Information</h3>
-                <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
+                <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
                 <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
                 <p class="receiver-url"><strong>URL:</strong>
                   ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
@@ -1499,7 +1499,7 @@ function fetchReceiversById(receiverId) {
       box.id = 'receiver-box';
       box.innerHTML = `
         <h3>Receiver Information</h3>
-        <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
+        <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
         <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
         <p class="receiver-url"><strong>URL:</strong>
           ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
@@ -1659,7 +1659,7 @@ async function fetchReceivers(ip) {
     // Display receiver information
     receiverBox.innerHTML = `
       <h3>Receiver Information</h3>
-      <p class="receiver-name"><strong>Name:</strong> ${receiver.name}</p>
+      <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
       <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
       <p class="receiver-url"><strong>URL:</strong>
         ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
@@ -2028,7 +2028,7 @@ async function fetchReceivers(ip) {
       
       <form id="receiver-form" style="font-size: 0.8em;">
         <div style="margin-bottom: 8px;">
-          <label for="receiver-name">Name:</label>
+          <label for="receiver-name">Callsign/Name:</label>
           <input type="text" id="receiver-name" required style="width: 100%; padding: 4px; margin-top: 2px;">
         </div>
         
@@ -2295,7 +2295,7 @@ async function fetchReceivers(ip) {
             </div>
             
             <div style="margin-bottom: 8px;">
-              <label for="edit-receiver-name">Name:</label>
+              <label for="edit-receiver-name">Callsign/Name:</label>
               <input type="text" id="edit-receiver-name" value="${receiver.name}" required style="width: 100%; padding: 4px; margin-top: 2px;">
             </div>
             
