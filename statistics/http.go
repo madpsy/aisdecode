@@ -446,7 +446,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Build query with optional receiver_id filter
+    // Build query with optional receiver_id filter and exclude SAR vessels
     var qry string
     if receiverID > 0 {
         qry = fmt.Sprintf(`
@@ -456,12 +456,15 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
                    m.timestamp,
                    (m.packet->>'Latitude')::float  AS lat,
                    (m.packet->>'Longitude')::float AS lon,
-                   m.receiver_id
-              FROM messages m
-             WHERE m.distance IS NOT NULL
-               AND m.timestamp >= now() - INTERVAL '%d days'
-               AND m.receiver_id = %d
-             ORDER BY m.user_id, m.receiver_id, m.distance DESC
+                   m.receiver_id,
+                   s.ais_class
+               FROM messages m
+               LEFT JOIN state s ON m.user_id = s.user_id
+              WHERE m.distance IS NOT NULL
+                AND m.timestamp >= now() - INTERVAL '%d days'
+                AND m.receiver_id = %d
+                AND (s.ais_class IS NULL OR s.ais_class != 'SAR')
+              ORDER BY m.user_id, m.receiver_id, m.distance DESC
         `, days, receiverID)
     } else {
         qry = fmt.Sprintf(`
@@ -471,11 +474,14 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
                    m.timestamp,
                    (m.packet->>'Latitude')::float  AS lat,
                    (m.packet->>'Longitude')::float AS lon,
-                   m.receiver_id
-              FROM messages m
-             WHERE m.distance IS NOT NULL
-               AND m.timestamp >= now() - INTERVAL '%d days'
-             ORDER BY m.user_id, m.receiver_id, m.distance DESC
+                   m.receiver_id,
+                   s.ais_class
+               FROM messages m
+               LEFT JOIN state s ON m.user_id = s.user_id
+              WHERE m.distance IS NOT NULL
+                AND m.timestamp >= now() - INTERVAL '%d days'
+                AND (s.ais_class IS NULL OR s.ais_class != 'SAR')
+              ORDER BY m.user_id, m.receiver_id, m.distance DESC
         `, days)
     }
 
@@ -503,12 +509,21 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
             lon, _ := parseFloat(rec["lon"])
             recID, _ := parseInt(rec["receiver_id"])
             
+            // Extract AIS class directly from the query result
+            var aisClass string
+            if v, ok := rec["ais_class"].(string); ok {
+                aisClass = v
+            } else if b, ok := rec["ais_class"].([]byte); ok {
+                aisClass = string(b)
+            }
+            
             allResults = append(allResults, struct {
                 userID     int
                 distance   int
                 timestamp  time.Time
                 lat, lon   float64
                 receiverID int
+                aisClass   string
             }{
                 userID:     uid,
                 distance:   dist,
@@ -516,6 +531,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
                 lat:        lat,
                 lon:        lon,
                 receiverID: recID,
+                aisClass:   aisClass,
             })
         }
     }
@@ -527,6 +543,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
         timestamp  time.Time
         lat, lon   float64
         receiverID int
+        aisClass   string
     })
     
     for _, r := range allResults {
@@ -546,6 +563,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
         timestamp  time.Time
         lat, lon   float64
         receiverID int
+        aisClass   string
     }, 0, len(uniquePairs))
     
     for _, r := range uniquePairs {
@@ -572,10 +590,11 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
             Lat:        r.lat,
             Lon:        r.lon,
             ReceiverID: r.receiverID,
+            AISClass:   r.aisClass, // Set AIS class directly from query result
         }
     }
 
-    // Enrich with vessel metadata
+    // Enrich with vessel metadata (name, image URL, and type only - we already have AIS class)
     ids := make([]int, len(vs))
     for i, v := range vs {
         ids[i] = v.UserID
@@ -588,7 +607,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
             if m, ok := meta[vs[i].UserID]; ok {
                 vs[i].Name = m.Name
                 vs[i].ImageURL = m.ImageURL
-                vs[i].AISClass = m.AISClass
+                // We already have AISClass from the query
                 vs[i].Type = m.Type
             }
         }
