@@ -9,6 +9,8 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <!-- DataTables CSS -->
   <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 
   <style>
     body {
@@ -63,6 +65,23 @@
       max-height: 90%;
       border-radius: 5px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    }
+    #distance-map {
+      height: 400px;
+      width: 100%;
+      margin-top: 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      display: none; /* Hidden by default, shown when a receiver is selected */
+    }
+    .map-ring-label {
+      background-color: white;
+      border: 1px solid #666;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 12px;
+      white-space: nowrap;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
     }
   </style>
 </head>
@@ -203,6 +222,8 @@
           </div>
         </div>
       </div>
+      <!-- Map container - only shown when a receiver is selected -->
+      <div id="distance-map"></div>
     </div>
   </div>
 
@@ -218,6 +239,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <script>
     $(function() {
@@ -398,6 +421,11 @@
         typeChart.update();
       }
 
+      // Map and map layers
+      let distanceMap = null;
+      let vesselMarkers = [];
+      let distanceCircles = [];
+      
       async function fetchTopDistance(days, receiverId) {
         let url = `/statistics/stats/top-distance?days=${days}`;
         if (receiverId) {
@@ -407,6 +435,14 @@
         distanceTable.clear();
         distanceChart.data.labels = [];
         distanceChart.data.datasets[0].data = [];
+        
+        // Clear existing map markers and circles
+        if (distanceMap) {
+          vesselMarkers.forEach(marker => marker.remove());
+          distanceCircles.forEach(circle => circle.remove());
+          vesselMarkers = [];
+          distanceCircles = [];
+        }
 
         data.forEach(v => {
           const name = v.name || v.user_id;
@@ -440,6 +476,108 @@
 
         distanceTable.draw();
         distanceChart.update();
+        
+        // Create or update map if a specific receiver is selected
+        if (receiverId && data.length > 0) {
+          // Show map container
+          $('#distance-map').show();
+          
+          // Find the selected receiver
+          const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
+          
+          if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
+            // Initialize map if it doesn't exist
+            if (!distanceMap) {
+              distanceMap = L.map('distance-map').setView([selectedReceiver.latitude, selectedReceiver.longitude], 8);
+              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              }).addTo(distanceMap);
+            } else {
+              distanceMap.setView([selectedReceiver.latitude, selectedReceiver.longitude], 8);
+            }
+            
+            // Add receiver marker
+            const receiverIcon = L.divIcon({
+              html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+              className: 'receiver-marker',
+              iconSize: [12, 12]
+            });
+            
+            L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
+              .addTo(distanceMap)
+              .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
+            
+            // Add vessel markers
+            data.forEach(v => {
+              if (v.lat && v.lon) {
+                const vesselIcon = L.divIcon({
+                  html: `<div style="background-color: #0074D9; width: 8px; height: 8px; border-radius: 50%; border: 2px solid white;"></div>`,
+                  className: 'vessel-marker',
+                  iconSize: [8, 8]
+                });
+                
+                const marker = L.marker([v.lat, v.lon], {icon: vesselIcon})
+                  .addTo(distanceMap)
+                  .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}`);
+                
+                vesselMarkers.push(marker);
+              }
+            });
+            
+            // Find max distance for the outermost ring
+            const maxDistance = Math.max(...data.map(v => v.distance));
+            
+            // Create three concentric rings
+            const ringDistances = [
+              maxDistance / 3,
+              (maxDistance * 2) / 3,
+              maxDistance
+            ];
+            
+            // Convert meters to nautical miles (1 nautical mile = 1852 meters)
+            const metersToNM = (meters) => (meters / 1852).toFixed(1);
+            
+            // Add the rings
+            ringDistances.forEach((distance, i) => {
+              const circle = L.circle([selectedReceiver.latitude, selectedReceiver.longitude], {
+                radius: distance,
+                color: '#3388ff',
+                fillColor: '#3388ff',
+                fillOpacity: 0.05,
+                weight: 1
+              }).addTo(distanceMap);
+              
+              distanceCircles.push(circle);
+              
+              // Add distance label
+              const nmDistance = metersToNM(distance);
+              const point = distanceMap.latLngToLayerPoint([selectedReceiver.latitude, selectedReceiver.longitude]);
+              const radius = distance / 111320; // Approximate degrees per meter at the equator
+              
+              // Calculate a point on the circle (east of center)
+              const labelLat = selectedReceiver.latitude;
+              const labelLng = selectedReceiver.longitude + (radius / Math.cos(selectedReceiver.latitude * Math.PI / 180));
+              
+              const label = L.marker([labelLat, labelLng], {
+                icon: L.divIcon({
+                  html: `<div class="map-ring-label">${nmDistance} NM</div>`,
+                  className: '',
+                  iconAnchor: [0, 10]
+                })
+              }).addTo(distanceMap);
+              
+              distanceCircles.push(label);
+            });
+            
+            // Fit bounds to include all vessels and the receiver
+            const bounds = vesselMarkers.map(marker => marker.getLatLng());
+            bounds.push([selectedReceiver.latitude, selectedReceiver.longitude]);
+            distanceMap.fitBounds(L.latLngBounds(bounds), { padding: [50, 50] });
+          }
+        } else {
+          // Hide map if no receiver is selected or no data
+          $('#distance-map').hide();
+        }
       }
 
       // Parse URL query parameters
