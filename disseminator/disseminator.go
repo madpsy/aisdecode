@@ -2434,48 +2434,55 @@ func main() {
 }
 
 // Function to update the receiver IP to ID mapping
+// If any error occurs during the update process, the previous mapping is preserved
 func updateReceiverMapping(client *http.Client, receiversBaseURL string) {
-	   url := fmt.Sprintf("%s/admin/receivers", receiversBaseURL)
-	   resp, err := client.Get(url)
-	   if err != nil {
-	       log.Printf("Error fetching receivers data: %v", err)
-	       return
-	   }
-	   defer resp.Body.Close()
+    url := fmt.Sprintf("%s/admin/receivers", receiversBaseURL)
+    resp, err := client.Get(url)
+    if err != nil {
+        log.Printf("Error fetching receivers data: %v", err)
+        return // Preserve previous mapping on error
+    }
+    defer resp.Body.Close()
 
-	   if resp.StatusCode != http.StatusOK {
-	       log.Printf("Received non-OK response from receivers API: %d", resp.StatusCode)
-	       return
-	   }
+    if resp.StatusCode != http.StatusOK {
+        log.Printf("Received non-OK response from receivers API: %d", resp.StatusCode)
+        return // Preserve previous mapping on error
+    }
 
-	   body, err := io.ReadAll(resp.Body)
-	   if err != nil {
-	       log.Printf("Error reading receivers response body: %v", err)
-	       return
-	   }
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        log.Printf("Error reading receivers response body: %v", err)
+        return // Preserve previous mapping on error
+    }
 
-	   var receivers []struct {
-	       ID        int    `json:"id"`
-	       IPAddress string `json:"ip_address"`
-	   }
+    var receivers []struct {
+        ID        int    `json:"id"`
+        IPAddress string `json:"ip_address"`
+    }
 
-	   if err := json.Unmarshal(body, &receivers); err != nil {
-	       log.Printf("Error unmarshalling receivers data: %v", err)
-	       return
-	   }
+    if err := json.Unmarshal(body, &receivers); err != nil {
+        log.Printf("Error unmarshalling receivers data: %v", err)
+        return // Preserve previous mapping on error
+    }
 
-	   // Create a new map to avoid partial updates
-	   newMap := make(map[string]int)
-	   for _, receiver := range receivers {
-	       if receiver.IPAddress != "" {
-	           newMap[receiver.IPAddress] = receiver.ID
-	       }
-	   }
+    // Create a new map to avoid partial updates
+    newMap := make(map[string]int)
+    for _, receiver := range receivers {
+        if receiver.IPAddress != "" {
+            newMap[receiver.IPAddress] = receiver.ID
+        }
+    }
 
-	   // Update the global map atomically
-	   receiverMapMutex.Lock()
-	   receiverIPToIDMap = newMap
-	   receiverMapMutex.Unlock()
+    // Only update the global map if we have at least one entry
+    if len(newMap) == 0 {
+        log.Printf("Received empty receivers list, preserving previous mapping")
+        return // Preserve previous mapping if new data is empty
+    }
 
-	   log.Printf("Updated receiver mapping with %d entries", len(newMap))
+    // Update the global map atomically
+    receiverMapMutex.Lock()
+    receiverIPToIDMap = newMap
+    receiverMapMutex.Unlock()
+
+    log.Printf("Updated receiver mapping with %d entries", len(newMap))
 }
