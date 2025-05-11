@@ -503,11 +503,21 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
     }
 
     // 6) Build payload for Socket.IO emit
+    
+    // Look up receiver ID from source IP
+    var receiverID interface{} = nil
+    receiverMapMutex.RLock()
+    if id, exists := receiverIPToIDMap[msg.SourceIP]; exists {
+        receiverID = id
+    }
+    receiverMapMutex.RUnlock()
+    
     emitPayload := map[string]interface{}{
-        "data":      packet,
-        "type":      packet["MessageID"],
-        "timestamp": msg.Timestamp,
-	"raw_sentence": msg.RawSentence,
+        "data":         packet,
+        "type":         packet["MessageID"],
+        "timestamp":    msg.Timestamp,
+        "raw_sentence": msg.RawSentence,
+        "receiver_id":  receiverID,
     }
 
     // 7) Emit to any subscribers
