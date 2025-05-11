@@ -111,6 +111,14 @@
     </label>
   </div>
 
+  <div class="row" id="receiver-selector" style="display:none;">
+    <label>Receiver:
+      <select id="receiver-select">
+        <option value="">All</option>
+      </select>
+    </label>
+  </div>
+
   <div class="row">
     <label>From <input type="datetime-local" id="start"/></label>
     <label>To   <input type="datetime-local" id="end"/></label>
@@ -265,10 +273,13 @@
     (async () => {
       const userID        = qsParam('UserID'),
             msgID         = qsParam('MessageID'),
+            receiverID    = qsParam('ReceiverID'),
             errorEl       = document.getElementById('error'),
             mainTitle     = document.getElementById('main-title'),
             typeDiv       = document.getElementById('type-selector'),
             typeSelect    = document.getElementById('message-type-select'),
+            receiverDiv   = document.getElementById('receiver-selector'),
+            receiverSelect= document.getElementById('receiver-select'),
             startInput    = document.getElementById('start'),
             endInput      = document.getElementById('end'),
             fieldsSel     = document.getElementById('fields'),
@@ -331,10 +342,22 @@
       }
 
       let available = [];
+      let receiverList = [];
       try {
         const r = await fetch(`/state?UserID=${userID}`, { cache:'no-store' });
         const st = await r.json();
         available = st.MessageTypes||[];
+        
+        // Extract unique receiver IDs from state data
+        if (st.Vessels) {
+          const uniqueReceivers = new Set();
+          Object.values(st.Vessels).forEach(vessel => {
+            if (vessel.ReceiverIDs) {
+              vessel.ReceiverIDs.forEach(id => uniqueReceivers.add(id));
+            }
+          });
+          receiverList = Array.from(uniqueReceivers);
+        }
       } catch {}
 
       let typeMap = {};
@@ -353,6 +376,39 @@
         typeDiv.style.display='';
         typeSelect.onchange = () => {
           setSearch(new URLSearchParams({UserID:userID,MessageID:typeSelect.value}));
+        };
+      }
+      
+      // Populate receiver dropdown if we have receivers
+      if (receiverList.length > 0) {
+        receiverDiv.style.display = '';
+        
+        // Sort receivers by ID for consistent display
+        receiverList.sort((a, b) => a - b);
+        
+        receiverList.forEach(id => {
+          const o = document.createElement('option');
+          o.value = id;
+          
+          // Use receiver name if available, otherwise just show ID
+          const receiver = receivers[id];
+          o.textContent = receiver ? `${receiver.name} (ID ${id})` : `Receiver ${id}`;
+          
+          if (String(id) === receiverID) o.selected = true;
+          receiverSelect.append(o);
+        });
+        
+        receiverSelect.onchange = () => {
+          const params = new URLSearchParams({
+            UserID: userID,
+            MessageID: typeSelect.value || msgID
+          });
+          
+          if (receiverSelect.value) {
+            params.append('ReceiverID', receiverSelect.value);
+          }
+          
+          setSearch(params);
         };
       }
 
@@ -741,6 +797,11 @@ resultsAs.onchange = () => {
           end:   new Date(e).toISOString(),
           limit: '2000'
         });
+        
+        // Add ReceiverID to query if a specific receiver is selected
+        if (receiverSelect.value) {
+          params.append('ReceiverID', receiverSelect.value);
+        }
         try {
           rangeData = await (await fetch(`/latestmessages?${params}`, {cache:'no-store'})).json();
         } catch {
@@ -778,6 +839,7 @@ resultsAs.onchange = () => {
         startInput.value = '';
         endInput.value = '';
         fieldsSel.selectedIndex = -1;
+        receiverSelect.value = ''; // Reset receiver selection to "All"
         downloadRow.style.display = 'none';
         paginationRow.style.display = 'none';
         rngDiv.style.display = 'none';
