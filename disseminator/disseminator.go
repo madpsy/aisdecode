@@ -840,10 +840,11 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 2) Optional MessageID, DAC, FI
+    // 2) Optional MessageID, DAC, FI, ReceiverID
     var (
         messageID int64
         dac, fi   int
+        receiverID int64
     )
     if v := q.Get("MessageID"); v != "" {
         if x, err := strconv.ParseInt(v, 10, 64); err == nil && x >= 0 {
@@ -866,6 +867,16 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             fi = x
         } else {
             http.Error(w, "Invalid FI", http.StatusBadRequest)
+            return
+        }
+    }
+    
+    // Parse optional ReceiverID
+    if v := q.Get("ReceiverID"); v != "" {
+        if x, err := strconv.ParseInt(v, 10, 64); err == nil && x >= 0 {
+            receiverID = x
+        } else {
+            http.Error(w, "Invalid ReceiverID", http.StatusBadRequest)
             return
         }
     }
@@ -975,21 +986,24 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             exprs = append(exprs, a.expr)
         }
 
+        whereClause := fmt.Sprintf("user_id = %d AND timestamp >= '%s' AND timestamp <= '%s'",
+            userID, startTime.Format(time.RFC3339Nano), endTime.Format(time.RFC3339Nano))
+        
+        // Add ReceiverID filter if provided
+        if receiverID > 0 {
+            whereClause += fmt.Sprintf(" AND receiver_id = %d", receiverID)
+        }
+        
         query := fmt.Sprintf(`
             SELECT
               %s,
               %s
             FROM messages
-            WHERE user_id = %d
-              AND timestamp >= '%s'
-              AND timestamp <= '%s'
+            WHERE %s
             GROUP BY bucket
             ORDER BY bucket ASC
             LIMIT 2000;
-        `, bucketCol, strings.Join(exprs, ", "), userID,
-            startTime.Format(time.RFC3339Nano),
-            endTime.Format(time.RFC3339Nano),
-        )
+        `, bucketCol, strings.Join(exprs, ", "), whereClause)
         // log.Printf("SQL Query: %s", query)
 
         rows, err := QueryDatabaseForUser(userIDStr, query)
@@ -1044,6 +1058,9 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
     if q.Get("FI") != "" {
         where = append(where,
             fmt.Sprintf("(packet->'ApplicationID'->>'FunctionIdentifier')::int = %d", fi))
+    }
+    if receiverID > 0 {
+        where = append(where, fmt.Sprintf("receiver_id = %d", receiverID))
     }
     if !startTime.IsZero() {
         where = append(where,
