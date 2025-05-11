@@ -22,6 +22,22 @@ type vessel struct {
     Lat       float64   `json:"lat,omitempty"`
     Lon       float64   `json:"lon,omitempty"`
     Count     int       `json:"count,omitempty"`
+    Distance  int       `json:"distance,omitempty"`  // for top-distance
+}
+
+// distanceVessel is the JSON shape returned by /statistics/stats/top-distance.
+type distanceVessel struct {
+    UserID    int       `json:"user_id"`
+    Name      string    `json:"name,omitempty"`
+    ImageURL  string    `json:"image_url,omitempty"`
+    AISClass  string    `json:"ais_class,omitempty"`
+    Type      string    `json:"type,omitempty"`
+    Distance  int       `json:"distance"`
+    Timestamp time.Time `json:"timestamp,omitempty"`
+    Lat       float64   `json:"lat,omitempty"`
+    Lon       float64   `json:"lon,omitempty"`
+    ReceiverID int      `json:"receiver_id,omitempty"`
+    ReceiverName string `json:"receiver_name,omitempty"`
 }
 
 // typeCount is the JSON shape returned by /statistics/stats/top-types.
@@ -99,6 +115,7 @@ func registerHandlers(mux *http.ServeMux) {
     mux.HandleFunc("/statistics/stats/top-sog", topSogHandler)
     mux.HandleFunc("/statistics/stats/top-types", topTypesHandler)
     mux.HandleFunc("/statistics/stats/top-positions", topPositionsHandler)
+    mux.HandleFunc("/statistics/stats/top-distance", topDistanceHandler)
 }
 
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
@@ -391,4 +408,160 @@ func respondJSON(w http.ResponseWriter, v interface{}) {
 // respondError sends a 500 status with the error message.
 func respondError(w http.ResponseWriter, err error) {
     http.Error(w, fmt.Sprintf("internal error: %v", err), http.StatusInternalServerError)
+}
+
+func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
+    days := parseDaysParam(r)
+    receiverID := parseReceiverIDParam(r)
+    
+    // Include receiver_id in cache key if specified
+    var cacheKey string
+    if receiverID > 0 {
+        cacheKey = fmt.Sprintf("top-distance:%dd:r%d", days, receiverID)
+    } else {
+        cacheKey = fmt.Sprintf("top-distance:%dd", days)
+    }
+
+    var vs []distanceVessel
+    if ok, _ := cacheGet(cacheKey, &vs); ok {
+        // Enrich with vessel metadata
+        ids := make([]int, len(vs))
+        for i, v := range vs {
+            ids[i] = v.UserID
+        }
+        meta, err := fetchVesselMetadata(ids)
+        if err != nil {
+            log.Printf("topDistanceHandler: metadata fetch error: %v", err)
+        } else {
+            for i := range vs {
+                if m, ok := meta[vs[i].UserID]; ok {
+                    vs[i].Name = m.Name
+                    vs[i].ImageURL = m.ImageURL
+                    vs[i].AISClass = m.AISClass
+                    vs[i].Type = m.Type
+                }
+            }
+        }
+        respondJSON(w, vs)
+        return
+    }
+
+    // Build query with optional receiver_id filter
+    var qry string
+    if receiverID > 0 {
+        qry = fmt.Sprintf(`
+            SELECT m.user_id,
+                   m.distance,
+                   m.timestamp,
+                   (m.packet->>'Latitude')::float  AS lat,
+                   (m.packet->>'Longitude')::float AS lon,
+                   m.receiver_id
+              FROM messages m
+             WHERE m.distance IS NOT NULL
+               AND m.timestamp >= now() - INTERVAL '%d days'
+               AND m.receiver_id = %d
+             ORDER BY m.distance DESC
+             LIMIT 10
+        `, days, receiverID)
+    } else {
+        qry = fmt.Sprintf(`
+            SELECT m.user_id,
+                   m.distance,
+                   m.timestamp,
+                   (m.packet->>'Latitude')::float  AS lat,
+                   (m.packet->>'Longitude')::float AS lon,
+                   m.receiver_id
+              FROM messages m
+             WHERE m.distance IS NOT NULL
+               AND m.timestamp >= now() - INTERVAL '%d days'
+             ORDER BY m.distance DESC
+             LIMIT 10
+        `, days)
+    }
+
+    shardResults, err := QueryDatabasesForAllShards(qry)
+    if err != nil {
+        respondError(w, err)
+        return
+    }
+
+    // Collect all results from all shards
+    allResults := make([]struct {
+        userID     int
+        distance   int
+        timestamp  time.Time
+        lat, lon   float64
+        receiverID int
+    }, 0)
+
+    for _, recs := range shardResults {
+        for _, rec := range recs {
+            uid, _ := parseInt(rec["user_id"])
+            dist, _ := parseInt(rec["distance"])
+            ts, _ := parseTime(rec["timestamp"])
+            lat, _ := parseFloat(rec["lat"])
+            lon, _ := parseFloat(rec["lon"])
+            recID, _ := parseInt(rec["receiver_id"])
+            
+            allResults = append(allResults, struct {
+                userID     int
+                distance   int
+                timestamp  time.Time
+                lat, lon   float64
+                receiverID int
+            }{
+                userID:     uid,
+                distance:   dist,
+                timestamp:  ts,
+                lat:        lat,
+                lon:        lon,
+                receiverID: recID,
+            })
+        }
+    }
+
+    // Sort by distance (descending)
+    sort.Slice(allResults, func(i, j int) bool {
+        return allResults[i].distance > allResults[j].distance
+    })
+
+    // Take top 10
+    if len(allResults) > 10 {
+        allResults = allResults[:10]
+    }
+
+    // Convert to distanceVessel objects
+    vs = make([]distanceVessel, len(allResults))
+    for i, r := range allResults {
+        vs[i] = distanceVessel{
+            UserID:     r.userID,
+            Distance:   r.distance,
+            Timestamp:  r.timestamp,
+            Lat:        r.lat,
+            Lon:        r.lon,
+            ReceiverID: r.receiverID,
+        }
+    }
+
+    // Enrich with vessel metadata
+    ids := make([]int, len(vs))
+    for i, v := range vs {
+        ids[i] = v.UserID
+    }
+    meta, err := fetchVesselMetadata(ids)
+    if err != nil {
+        log.Printf("topDistanceHandler: metadata fetch error: %v", err)
+    } else {
+        for i := range vs {
+            if m, ok := meta[vs[i].UserID]; ok {
+                vs[i].Name = m.Name
+                vs[i].ImageURL = m.ImageURL
+                vs[i].AISClass = m.AISClass
+                vs[i].Type = m.Type
+            }
+        }
+    }
+
+    cacheSet(cacheKey, vs)
+    respondJSON(w, vs)
 }

@@ -175,6 +175,35 @@
         </div>
       </div>
     </div>
+
+    <!-- Top 10 by Distance -->
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title">Top 10 by Distance (Vessel to Receiver)</h2>
+        <div class="row gy-3">
+          <div class="col-12 col-md-6 chart-container">
+            <canvas id="distanceChart"></canvas>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="table-responsive">
+              <table id="top-distance-table" class="table table-striped table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Vessel</th>
+                    <th>Image</th>
+                    <th>Distance (km)</th>
+                    <th>Receiver</th>
+                    <th>Class</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Image overlay -->
@@ -230,6 +259,11 @@
         data: { labels: [], datasets: [{ label: 'Max SOG (knots)', data: [] }] },
         options: { scales: { y: { beginAtZero: true } } }
       });
+      const distanceChart = new Chart($('#distanceChart')[0].getContext('2d'), {
+        type: 'bar',
+        data: { labels: [], datasets: [{ label: 'Distance (km)', data: [] }] },
+        options: { scales: { y: { beginAtZero: true } } }
+      });
       const typeChart = new Chart($('#typeChart')[0].getContext('2d'), {
         type: 'pie',
         data: {
@@ -260,6 +294,9 @@
       const typeTable = $('#top-types-table').DataTable({
         paging: false, info: false, searching: false, order: [[1, 'desc']]
       });
+      const distanceTable = $('#top-distance-table').DataTable({
+        paging: false, info: false, searching: false, order: [[2, 'desc']]
+      });
 
       async function fetchAll() {
         const days = $('#days-select').val();
@@ -267,7 +304,8 @@
         await Promise.all([
           fetchTopPositions(days, receiverId),
           fetchTopSog(days, receiverId),
-          fetchTopTypes(days, receiverId)
+          fetchTopTypes(days, receiverId),
+          fetchTopDistance(days, receiverId)
         ]);
       }
 
@@ -358,6 +396,50 @@
 
         typeTable.draw();
         typeChart.update();
+      }
+
+      async function fetchTopDistance(days, receiverId) {
+        let url = `/statistics/stats/top-distance?days=${days}`;
+        if (receiverId) {
+          url += `&receiver_id=${receiverId}`;
+        }
+        const data = await (await fetch(url)).json();
+        distanceTable.clear();
+        distanceChart.data.labels = [];
+        distanceChart.data.datasets[0].data = [];
+
+        data.forEach(v => {
+          const name = v.name || v.user_id;
+          const nameLink = `<a href="/?UserID=${v.user_id}" target="_blank">${name}</a>`;
+          const imgTag = v.image_url
+            ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
+            : '';
+          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
+          
+          // Find receiver name from receivers array
+          let receiverName = v.receiver_id;
+          const receiver = receivers.find(r => r.id === v.receiver_id);
+          if (receiver) {
+            receiverName = receiver.name;
+          }
+          
+          // Convert distance from meters to kilometers for display
+          const distanceKm = (v.distance / 1000).toFixed(2);
+          
+          distanceTable.row.add([
+            nameLink,
+            imgTag,
+            distanceKm,
+            receiverName,
+            v.ais_class,
+            typeDesc
+          ]);
+          distanceChart.data.labels.push(name);
+          distanceChart.data.datasets[0].data.push(v.distance / 1000); // Convert to km for chart
+        });
+
+        distanceTable.draw();
+        distanceChart.update();
       }
 
       // Parse URL query parameters
