@@ -2095,13 +2095,20 @@ async function fetchReceivers(ip) {
     
     // Initialize the map after the form is added to the DOM
     setTimeout(() => {
-      const locationMap = L.map('location-map').setView([0, 0], 2);
+      // Default to center of London
+      const defaultLat = 51.5074;
+      const defaultLng = -0.1278;
+      const locationMap = L.map('location-map').setView([defaultLat, defaultLng], 10);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(locationMap);
       
       // Add a draggable marker
-      const marker = L.marker([0, 0], { draggable: true }).addTo(locationMap);
+      const marker = L.marker([defaultLat, defaultLng], { draggable: true }).addTo(locationMap);
+      
+      // Set default values in form fields
+      document.getElementById('receiver-latitude').value = defaultLat.toFixed(6);
+      document.getElementById('receiver-longitude').value = defaultLng.toFixed(6);
       
       // Update form fields when marker is moved
       marker.on('dragend', function(e) {
