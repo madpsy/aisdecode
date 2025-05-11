@@ -1066,7 +1066,8 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
               message_id,
               packet,
               raw_sentence,
-              timestamp
+              timestamp,
+              receiver_id
             FROM messages
             WHERE %s
             ORDER BY
@@ -1081,7 +1082,8 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
               message_id,
               packet,
               raw_sentence,
-              timestamp
+              timestamp,
+              receiver_id
             FROM messages
             WHERE %s
             ORDER BY timestamp DESC
@@ -1102,16 +1104,18 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         Timestamp   string          `json:"Timestamp"`
         Packet      json.RawMessage `json:"Packet"`
         RawSentence *string         `json:"RawSentence"`
+        ReceiverID  *int            `json:"ReceiverID,omitempty"`
     }
     var results []entry
 
     for rows.Next() {
         var (
-            e       entry
-            ts      time.Time
-            rawSent sql.NullString
+            e           entry
+            ts          time.Time
+            rawSent     sql.NullString
+            receiverID  sql.NullInt64
         )
-        if err := rows.Scan(&e.MessageID, &e.Packet, &rawSent, &ts); err != nil {
+        if err := rows.Scan(&e.MessageID, &e.Packet, &rawSent, &ts, &receiverID); err != nil {
             http.Error(w, fmt.Sprintf("Scan error: %v", err), http.StatusInternalServerError)
             return
         }
@@ -1119,6 +1123,13 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
             e.RawSentence = &rawSent.String
         }
         e.Timestamp = ts.UTC().Format(time.RFC3339Nano)
+        
+        // Add ReceiverID if available
+        if receiverID.Valid {
+            val := int(receiverID.Int64)
+            e.ReceiverID = &val
+        }
+        
         results = append(results, e)
     }
 
