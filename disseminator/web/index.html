@@ -2027,16 +2027,21 @@ if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
   lines.push(`Message Types: ${codeSpans.join(', ')}`);
 }
 
-// Add ReceiverID if available
-if (data.ReceiverID !== undefined && data.ReceiverID !== null) {
+// Always add a Receiver line, but handle different cases
+if (data.ReceiverID === undefined || data.ReceiverID === null) {
+  // Case 1: No ReceiverID available
+  lines.push(`Receiver: None`);
+} else {
+  // Case 2: ReceiverID exists
   // Look up the receiver name from receiverData
-  let receiverName = "Unknown";
-  if (receiverData[data.ReceiverID]) {
-    receiverName = receiverData[data.ReceiverID].Name;
+  if (receiverData[data.ReceiverID] && receiverData[data.ReceiverID].Name) {
+    // Case 2a: Receiver found in mapping
+    const receiverName = receiverData[data.ReceiverID].Name;
+    lines.push(`Receiver: <a href="/metrics/receiver.html?receiver=${data.ReceiverID}" target="_blank">${receiverName}</a>`);
+  } else {
+    // Case 2b: Receiver not found in mapping, use ID as fallback
+    lines.push(`Receiver: <a href="/metrics/receiver.html?receiver=${data.ReceiverID}" target="_blank">ID: ${data.ReceiverID}</a>`);
   }
-  
-  // Create a link to the receiver metrics page
-  lines.push(`Receiver: <a href="/metrics/receiver.html?receiver=${data.ReceiverID}" target="_blank">${receiverName}</a>`);
 }
 
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
