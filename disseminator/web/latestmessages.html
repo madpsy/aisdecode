@@ -411,7 +411,7 @@
           
           // Use receiver name if available, otherwise just show ID
           const receiver = receivers[id];
-          o.textContent = receiver ? `${receiver.name} (ID ${id})` : `Receiver ${id}`;
+          o.textContent = receiver ? `${receiver.name}` : `Receiver ${id}`;
           
           if (String(id) === receiverID) o.selected = true;
           receiverSelect.append(o);
