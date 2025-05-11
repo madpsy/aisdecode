@@ -64,6 +64,18 @@
       background:#f9f9f9;border:1px solid #eee;border-radius:4px;
       font-family:monospace;white-space:pre-wrap;
     }
+    .receiver-info {
+      margin-top:.5rem;padding:.5rem;
+      background:#f0f8ff;border:1px solid #ddf;border-radius:4px;
+      font-size:0.9rem;
+    }
+    .receiver-info a {
+      color:#0066cc;
+      text-decoration:none;
+    }
+    .receiver-info a:hover {
+      text-decoration:underline;
+    }
     #single-raw {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
@@ -150,8 +162,7 @@
 
     <div id="single-table"></div>
     <div class="raw-sentence" id="single-raw"></div>
-    <div id="single-table"></div>
-    <div class="raw-sentence" id="single-raw"></div>
+    <div class="receiver-info" id="single-receiver"></div>
   </div>
 
   <div id="range-view" style="display:none;">
@@ -276,6 +287,7 @@
             rngDiv        = document.getElementById('range-view'),
             singleTbl     = document.getElementById('single-table'),
             singleRaw     = document.getElementById('single-raw'),
+            singleReceiver= document.getElementById('single-receiver'),
             prevBtn       = document.getElementById('prev'),
             nextBtn       = document.getElementById('next'),
             counterDiv    = document.getElementById('counter'),
@@ -303,6 +315,19 @@
         mainTitle.textContent = `Latest Messages for ${sum[userID]?.Name.trim()||userID}`;
       } catch {
         mainTitle.textContent = `Latest Messages for ${userID}`;
+      }
+
+      // Fetch receiver data
+      let receivers = {};
+      try {
+        const receiverResponse = await fetch('/receivers', { cache:'no-store' });
+        const receiverData = await receiverResponse.json();
+        receiverData.forEach(receiver => {
+          receivers[receiver.id] = receiver;
+        });
+        console.log('Loaded receiver data:', receivers);
+      } catch (err) {
+        console.error('Error fetching receiver data:', err);
       }
 
       let available = [];
@@ -420,10 +445,26 @@ resultsAs.onchange = () => {
         document.getElementById('single-timestamp').textContent = ts;
       
         // 3) Render the packet table & raw sentence
-        singleTbl.innerHTML  = makeSingleHTML(m);
+        singleTbl.innerHTML = makeSingleHTML(m);
         singleRaw.textContent = m.RawSentence;
+        
+        // 4) Render receiver information if available
+        if (m.ReceiverID !== null && m.ReceiverID !== undefined) {
+          const receiverId = m.ReceiverID;
+          const receiver = receivers[receiverId];
+          
+          if (receiver) {
+            singleReceiver.innerHTML = `Receiver: <a href="/metrics/receiver.html?receiver=${receiverId}" target="_blank">${receiver.name}</a>`;
+          } else {
+            singleReceiver.innerHTML = `Receiver ID: <a href="/metrics/receiver.html?receiver=${receiverId}" target="_blank">${receiverId}</a>`;
+          }
+          singleReceiver.style.display = '';
+        } else {
+          singleReceiver.innerHTML = 'Receiver: Unknown';
+          singleReceiver.style.display = '';
+        }
       
-        // 4) Enable/disable prev-next buttons
+        // 5) Enable/disable prev-next buttons
         prevBtn.disabled = idx === 0;
         nextBtn.disabled = idx === allMsgs.length - 1;
       }
