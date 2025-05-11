@@ -405,7 +405,12 @@
       receiverDiv.style.display = '';
       console.log("Populating receiver dropdown with:", receiverList);
       
-      // Populate receiver dropdown
+      // Clear any existing options except the "All" option
+      while (receiverSelect.options.length > 1) {
+        receiverSelect.remove(1);
+      }
+      
+      // Populate receiver dropdown with available receivers
       if (receiverList.length > 0) {
         
         // Sort receivers by ID for consistent display
