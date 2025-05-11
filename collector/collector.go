@@ -209,7 +209,8 @@ func main() {
             count INT DEFAULT 1,
             image_url TEXT,
             name TEXT,
-            ext_lookup_complete BOOLEAN DEFAULT FALSE
+            ext_lookup_complete BOOLEAN DEFAULT FALSE,
+            source_ip VARCHAR(45)
         );
     `)
     if err != nil {
@@ -610,7 +611,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
     }
 
     // 7) Always update the state table
-    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, userID, messageIDf); err != nil {
+    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, userID, messageIDf, message.SourceIP); err != nil {
         log.Printf("Error storing state: %v", err)
     }
 
@@ -627,7 +628,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
     return nil
 }
 
-func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, userID int, messageID float64) error {
+func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, userID int, messageID float64, sourceIP string) error {
     var existingPacketJSON []byte
     var existingAisClass string
     var existingCount int
@@ -686,15 +687,16 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
 
     _, err = db.Exec(`
         INSERT INTO state
-          (packet, shard_id, timestamp, user_id, ais_class, count, image_url, name, ext_lookup_complete)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          (packet, shard_id, timestamp, user_id, ais_class, count, image_url, name, ext_lookup_complete, source_ip)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         ON CONFLICT (user_id) DO UPDATE SET
           packet              = EXCLUDED.packet,
           shard_id            = EXCLUDED.shard_id,
           timestamp           = EXCLUDED.timestamp,
           ais_class           = EXCLUDED.ais_class,
-          count               = state.count + 1
-    `, packetJSON, shardID, timestamp, userID, existingAisClass, existingCount, "", "", existingLookupComplete)
+          count               = state.count + 1,
+          source_ip           = EXCLUDED.source_ip
+    `, packetJSON, shardID, timestamp, userID, existingAisClass, existingCount, "", "", existingLookupComplete, sourceIP)
     if err != nil {
         return fmt.Errorf("Error inserting or updating state table: %v", err)
     }
