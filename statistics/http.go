@@ -498,6 +498,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
         timestamp  time.Time
         lat, lon   float64
         receiverID int
+        aisClass   string
     }, 0)
 
     for _, recs := range shardResults {
