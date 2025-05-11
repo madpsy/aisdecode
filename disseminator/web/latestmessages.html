@@ -348,17 +348,39 @@
         const st = await r.json();
         available = st.MessageTypes||[];
         
+        console.log("State data structure:", st);
+        
         // Extract unique receiver IDs from state data
         if (st.Vessels) {
+          console.log("Vessels data:", st.Vessels);
           const uniqueReceivers = new Set();
+          
+          // Try to extract receiver IDs from vessels
           Object.values(st.Vessels).forEach(vessel => {
-            if (vessel.ReceiverIDs) {
+            console.log("Vessel data:", vessel);
+            
+            // Check for ReceiverIDs array
+            if (vessel.ReceiverIDs && Array.isArray(vessel.ReceiverIDs)) {
               vessel.ReceiverIDs.forEach(id => uniqueReceivers.add(id));
             }
+            
+            // Also check for ReceiverID (singular) property
+            if (vessel.ReceiverID !== undefined && vessel.ReceiverID !== null) {
+              uniqueReceivers.add(vessel.ReceiverID);
+            }
+            
+            // Check for ReceiverID in the packet data
+            if (vessel.Packet && vessel.Packet.ReceiverID) {
+              uniqueReceivers.add(vessel.Packet.ReceiverID);
+            }
           });
+          
           receiverList = Array.from(uniqueReceivers);
+          console.log("Found receiver IDs:", receiverList);
         }
-      } catch {}
+      } catch (err) {
+        console.error("Error fetching state data:", err);
+      }
 
       let typeMap = {};
       try {
@@ -379,9 +401,12 @@
         };
       }
       
-      // Populate receiver dropdown if we have receivers
+      // Always show the receiver dropdown, even if we don't have receivers
+      receiverDiv.style.display = '';
+      console.log("Populating receiver dropdown with:", receiverList);
+      
+      // Populate receiver dropdown
       if (receiverList.length > 0) {
-        receiverDiv.style.display = '';
         
         // Sort receivers by ID for consistent display
         receiverList.sort((a, b) => a - b);
@@ -426,6 +451,18 @@
       const baseFlat    = flatten(allMsgs[0].Packet);
       const allFields   = Object.keys(baseFlat).sort();
       const numericOnly = allFields.filter(k => typeof baseFlat[k] === 'number');
+      
+      // Now that we have allMsgs, check for ReceiverIDs in the messages
+      if (allMsgs && allMsgs.length > 0) {
+        const msgReceivers = new Set(receiverList);
+        allMsgs.forEach(msg => {
+          if (msg.ReceiverID !== null && msg.ReceiverID !== undefined) {
+            msgReceivers.add(msg.ReceiverID);
+          }
+        });
+        receiverList = Array.from(msgReceivers);
+        console.log("Receiver IDs including from messages:", receiverList);
+      }
     
       // Helper to build the selector options
       function buildFieldSelector(fields) {
