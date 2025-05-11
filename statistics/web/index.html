@@ -1,690 +1,842 @@
-package main
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vessel Statistics</title>
 
-import (
-    "encoding/json"
-    "fmt"
-    "log"
-    "net/http"
-    "sort"
-    "strconv"
-    "time"
-)
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- DataTables CSS -->
+  <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 
-// vessel is the JSON shape returned by /statistics/stats/top-sog.
-type vessel struct {
-    UserID    int       `json:"user_id"`
-    Name      string    `json:"name,omitempty"`
-    ImageURL  string    `json:"image_url,omitempty"`
-    AISClass  string    `json:"ais_class,omitempty"` // new
-    Type      string    `json:"type,omitempty"`      // new
-    MaxSog    float64   `json:"max_sog,omitempty"`
-    Timestamp time.Time `json:"timestamp,omitempty"`
-    Lat       float64   `json:"lat,omitempty"`
-    Lon       float64   `json:"lon,omitempty"`
-    Count     int       `json:"count,omitempty"`
-    Distance  int       `json:"distance,omitempty"`  // for top-distance
-}
-
-// distanceVessel is the JSON shape returned by /statistics/stats/top-distance.
-type distanceVessel struct {
-    UserID    int       `json:"user_id"`
-    Name      string    `json:"name,omitempty"`
-    ImageURL  string    `json:"image_url,omitempty"`
-    AISClass  string    `json:"ais_class,omitempty"`
-    Type      string    `json:"type,omitempty"`
-    Distance  int       `json:"distance"`
-    Timestamp time.Time `json:"timestamp,omitempty"`
-    Lat       float64   `json:"lat,omitempty"`
-    Lon       float64   `json:"lon,omitempty"`
-    ReceiverID int      `json:"receiver_id,omitempty"`
-    ReceiverName string `json:"receiver_name,omitempty"`
-}
-
-// typeCount is the JSON shape returned by /statistics/stats/top-types.
-type typeCount struct {
-	Type  string `json:"type"`
-	Count int    `json:"count"`
-}
-
-// userCount is the JSON shape returned by /statistics/stats/user-counts.
-type userCount struct {
-	UserID int    `json:"user_id"`
-	Name   string `json:"name,omitempty"`
-	Count  int    `json:"count"`
-}
-
-// posVessel is the JSON shape returned by /statistics/stats/top-positions.
-type posVessel struct {
-    UserID   int    `json:"user_id"`
-    Name     string `json:"name"`
-    ImageURL string `json:"image_url"`
-    AISClass string `json:"ais_class,omitempty"` // new
-    Type     string `json:"type,omitempty"`      // new
-    Count    int    `json:"count"`
-}
-
-// enrichVessels looks up and injects Name/ImageURL/AISClass/Type for each vessel in-place.
-func enrichVessels(vs []vessel) []vessel {
-    ids := make([]int, len(vs))
-    for i, v := range vs {
-        ids[i] = v.UserID
+  <style>
+    body {
+      background-color: #f8f9fa;
+      padding: 2rem;
+      font-family: sans-serif;
     }
-    meta, err := fetchVesselMetadata(ids)
-    if err != nil {
-        log.Printf("enrichVessels: metadata fetch error: %v", err)
-        return vs
+    h1, h2 {
+      color: #343a40;
     }
-    for i := range vs {
-        if m, ok := meta[vs[i].UserID]; ok {
-            vs[i].Name     = m.Name
-            vs[i].ImageURL = m.ImageURL
-            vs[i].AISClass = m.AISClass
-            vs[i].Type     = m.Type
+    .card {
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      margin-bottom: 2rem;
+    }
+    .thumb {
+      width: 50px;
+      height: auto;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .chart-container {
+      position: relative;
+      height: auto;
+      max-width: 100%;
+    }
+    /* Shrink charts on small screens */
+    @media (max-width: 576px) {
+      .chart-container {
+        height: auto;
+      }
+    }
+    /* Image overlay */
+    #img-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8);
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+    #img-overlay-close {
+      position: absolute;
+      top: 20px; right: 30px;
+      color: #fff;
+      font-size: 30px;
+      cursor: pointer;
+    }
+    #img-overlay-img {
+      max-width: 90%;
+      max-height: 90%;
+      border-radius: 5px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    }
+    #distance-map {
+      height: 400px;
+      width: 100%;
+      margin-top: 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      display: none; /* Hidden by default, shown when a receiver is selected */
+    }
+    .map-ring-label {
+      background-color: transparent;
+      padding: 2px 6px;
+      font-size: 12px;
+      white-space: nowrap;
+      font-weight: bold;
+      text-shadow: 1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white;
+    }
+    .vessel-tooltip {
+      background-color: rgba(255, 255, 255, 0.8);
+      border: none;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
+    /* Word cloud styles */
+    .word-cloud-text {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      cursor: pointer;
+      color: #555;
+      text-decoration: none !important;
+    }
+    .word-cloud-text:hover {
+      opacity: 0.8;
+    }
+    /* Ensure no underlines on word cloud links */
+    #word-cloud-container a {
+      text-decoration: none !important;
+    }
+    #word-cloud-container a:hover {
+      text-decoration: none !important;
+    }
+    /* Ensure word cloud container is responsive */
+    #word-cloud-container {
+      width: 100%;
+      overflow: hidden;
+    }
+    #word-cloud-container svg {
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container-fluid">
+    <!-- Header + Time Selector -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-column flex-sm-row">
+      <h1 class="m-0 mb-3 mb-sm-0">Vessel Statistics</h1>
+      <div class="d-flex align-items-center">
+        <div class="me-3">
+          <label for="receiver-select" class="form-label me-2">Receiver:</label>
+          <select id="receiver-select" class="form-select d-inline-block w-auto">
+            <option value="" selected>All</option>
+            <!-- Receivers will be loaded dynamically -->
+          </select>
+        </div>
+        <div>
+          <label for="days-select" class="form-label me-2">Time window:</label>
+          <select id="days-select" class="form-select d-inline-block w-auto">
+            <option value="1">1 day</option>
+            <option value="2">2 days</option>
+            <option value="7" selected>7 days</option>
+            <option value="14">14 days</option>
+            <option value="30">30 days</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top 10 by Position Reports -->
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title">Top 10 by Position Reports</h2>
+        <div class="row gy-3">
+          <div class="col-12 col-md-6 chart-container">
+            <canvas id="posChart"></canvas>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="table-responsive">
+              <table id="top-positions-table" class="table table-striped table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Vessel</th>
+                    <th>Image</th>
+                    <th>Reports</th>
+                    <th>Class</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top 10 by Speed Over Ground -->
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title">Top 10 by Speed Over Ground</h2>
+        <div class="row gy-3">
+          <div class="col-12 col-md-6 chart-container">
+            <canvas id="sogChart"></canvas>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="table-responsive">
+              <table id="top-sog-table" class="table table-striped table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Vessel</th>
+                    <th>Image</th>
+                    <th>Max SOG (knots)</th>
+                    <th>Lat</th>
+                    <th>Lon</th>
+                    <th>Class</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Vessel Type Breakdown -->
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title">Vessel Type Breakdown</h2>
+        <div class="row gy-3">
+          <div class="col-12 col-md-6 chart-container">
+            <canvas id="typeChart"></canvas>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="table-responsive">
+              <table id="top-types-table" class="table table-striped table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Type</th>
+                    <th>Count</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top 10 by Distance -->
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title">Top 10 by Distance (Vessel to Receiver)</h2>
+        <div class="row gy-3">
+          <div class="col-12 col-md-6 chart-container">
+            <canvas id="distanceChart"></canvas>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="table-responsive">
+              <table id="top-distance-table" class="table table-striped table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Vessel</th>
+                    <th>Image</th>
+                    <th>Distance (km)</th>
+                    <th>Receiver</th>
+                    <th>Class</th>
+                    <th>Type</th>
+                    <th>Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Map container - only shown when a receiver is selected -->
+      <div id="distance-map"></div>
+    </div>
+
+    <!-- User Message Counts Word Cloud -->
+    <div class="card">
+      <div class="card-body">
+        <div class="row gy-3">
+          <div class="col-12">
+            <div id="word-cloud-container" class="chart-container" style="height: 400px;">
+              <!-- Word cloud will be rendered here -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image overlay -->
+  <div id="img-overlay">
+    <span id="img-overlay-close">&times;</span>
+    <img id="img-overlay-img" src="" alt="Enlarged vessel image">
+  </div>
+
+  <!-- Dependencies -->
+  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- D3.js and d3-cloud for Word Cloud -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/jasondavies/d3-cloud/build/d3.layout.cloud.js"></script>
+
+  <script>
+    $(function() {
+      let typeMapping = {};
+      let receivers = [];
+      const sliceColors = [
+        '#4dc9f6','#f67019','#f53794','#537bc4',
+        '#acc236','#166a8f','#00a950','#58595b',
+        '#8549ba','#e6194b'
+      ];
+
+      async function loadTypeMapping() {
+        try {
+          typeMapping = await fetch('vessel_types.json').then(r => r.json());
+        } catch (e) {
+          console.error('Failed to load type mapping:', e);
         }
-    }
-    return vs
-}
-
-// enrichPosVessels looks up and injects Name/ImageURL/AISClass/Type for each posVessel in-place.
-func enrichPosVessels(ps []posVessel) []posVessel {
-    ids := make([]int, len(ps))
-    for i, v := range ps {
-        ids[i] = v.UserID
-    }
-    meta, err := fetchVesselMetadata(ids)
-    if err != nil {
-        log.Printf("enrichPosVessels: metadata fetch error: %v", err)
-        return ps
-    }
-    for i := range ps {
-        if m, ok := meta[ps[i].UserID]; ok {
-            ps[i].Name     = m.Name
-            ps[i].ImageURL = m.ImageURL
-            ps[i].AISClass = m.AISClass
-            ps[i].Type     = m.Type
+      }
+      
+      async function loadReceivers() {
+        try {
+          receivers = await fetch('/receivers').then(r => r.json());
+          const select = $('#receiver-select');
+          
+          // Sort receivers by name
+          receivers.sort((a, b) => a.name.localeCompare(b.name));
+          
+          // Add receivers to dropdown
+          receivers.forEach(receiver => {
+            select.append(`<option value="${receiver.id}">${receiver.name}</option>`);
+          });
+        } catch (e) {
+          console.error('Failed to load receivers:', e);
         }
-    }
-    return ps
-}
+      }
 
-func StartServer(port int) {
-    mux := http.NewServeMux()
-    registerHandlers(mux)
-    addr := fmt.Sprintf(":%d", port)
-    log.Printf("Listening on %s...", addr)
-    log.Fatal(http.ListenAndServe(addr, mux))
-}
+      const sogChart = new Chart($('#sogChart')[0].getContext('2d'), {
+        type: 'bar',
+        data: { labels: [], datasets: [{ label: 'Max SOG (knots)', data: [] }] },
+        options: { scales: { y: { beginAtZero: true } } }
+      });
+      const distanceChart = new Chart($('#distanceChart')[0].getContext('2d'), {
+        type: 'bar',
+        data: { labels: [], datasets: [{ label: 'Distance (km)', data: [] }] },
+        options: { scales: { y: { beginAtZero: true } } }
+      });
+      const typeChart = new Chart($('#typeChart')[0].getContext('2d'), {
+        type: 'pie',
+        data: {
+          labels: [], datasets: [{
+            data: [], backgroundColor: [], borderColor: '#fff', borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'bottom' }
+          },
+          aspectRatio: 1,  // Ensures the chart remains circular
+        }
+      });
+      const posChart = new Chart($('#posChart')[0].getContext('2d'), {
+        type: 'bar',
+        data: { labels: [], datasets: [{ label: 'Reports', data: [] }] },
+        options: { scales: { y: { beginAtZero: true } } }
+      });
 
-func registerHandlers(mux *http.ServeMux) {
-	fs := http.FileServer(http.Dir("web"))
-	mux.Handle("/statistics/", http.StripPrefix("/statistics/", fs))
+      const posTable = $('#top-positions-table').DataTable({
+        paging: false, info: false, searching: false, order: [[2, 'desc']]
+      });
+      const sogTable = $('#top-sog-table').DataTable({
+        paging: false, info: false, searching: false, order: [[2, 'desc']]
+      });
+      const typeTable = $('#top-types-table').DataTable({
+        paging: false, info: false, searching: false, order: [[1, 'desc']]
+      });
+      const distanceTable = $('#top-distance-table').DataTable({
+        paging: false, info: false, searching: false, order: [[2, 'desc']]
+      });
 
-	mux.HandleFunc("/statistics/stats/top-sog", topSogHandler)
-	mux.HandleFunc("/statistics/stats/top-types", topTypesHandler)
-	mux.HandleFunc("/statistics/stats/top-positions", topPositionsHandler)
-	mux.HandleFunc("/statistics/stats/top-distance", topDistanceHandler)
-	mux.HandleFunc("/statistics/stats/user-counts", userCountsHandler)
-}
+      async function fetchAll() {
+        const days = $('#days-select').val();
+        const receiverId = $('#receiver-select').val();
+        await Promise.all([
+          fetchTopPositions(days, receiverId),
+          fetchTopSog(days, receiverId),
+          fetchTopTypes(days, receiverId),
+          fetchTopDistance(days, receiverId),
+          fetchUserCounts(days, receiverId)
+        ]);
+      }
 
-func topSogHandler(w http.ResponseWriter, r *http.Request) {
-    days := parseDaysParam(r)
-    receiverID := parseReceiverIDParam(r)
-    
-    // Include receiver_id in cache key if specified
-    var cacheKey string
-    if receiverID > 0 {
-        cacheKey = fmt.Sprintf("top-sog:%dd:r%d", days, receiverID)
-    } else {
-        cacheKey = fmt.Sprintf("top-sog:%dd", days)
-    }
+      async function fetchTopPositions(days, receiverId) {
+        let url = `/statistics/stats/top-positions?days=${days}`;
+        if (receiverId) {
+          url += `&receiver_id=${receiverId}`;
+        }
+        const data = await (await fetch(url)).json();
+        posTable.clear();
+        posChart.data.labels = [];
+        posChart.data.datasets[0].data = [];
 
-    var vs []vessel
-    if ok, _ := cacheGet(cacheKey, &vs); ok {
-        vs = enrichVessels(vs)
-        respondJSON(w, vs)
-        return
-    }
+        data.forEach(v => {
+          const name = v.name || v.user_id;
+          const nameLink = `<a href="/?UserID=${v.user_id}" target="_blank">${name}</a>`;
+          const imgTag = v.image_url
+            ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
+            : '';
+          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
+          posTable.row.add([
+            nameLink,
+            imgTag,
+            v.count,
+            v.ais_class,
+            typeDesc
+          ]);
+          posChart.data.labels.push(name);
+          posChart.data.datasets[0].data.push(v.count);
+        });
 
-    // Build query with optional receiver_id filter
-    var qry string
-    if receiverID > 0 {
-        qry = fmt.Sprintf(`
-            SELECT DISTINCT ON (m.user_id)
-                   m.user_id,
-                   (m.packet->>'Sog')::float       AS max_sog,
-                   m.timestamp,
-                   (m.packet->>'Latitude')::float  AS lat,
-                   (m.packet->>'Longitude')::float AS lon
-              FROM messages m
-             WHERE m.message_id IN (1,2,3,18,19)
-               AND (m.packet->>'Sog')::float <> 102.3
-               AND m.timestamp >= now() - INTERVAL '%d days'
-               AND m.receiver_id = %d
-             ORDER BY m.user_id, max_sog DESC
-        `, days, receiverID)
-    } else {
-        qry = fmt.Sprintf(`
-            SELECT DISTINCT ON (m.user_id)
-                   m.user_id,
-                   (m.packet->>'Sog')::float       AS max_sog,
-                   m.timestamp,
-                   (m.packet->>'Latitude')::float  AS lat,
-                   (m.packet->>'Longitude')::float AS lon
-              FROM messages m
-             WHERE m.message_id IN (1,2,3,18,19)
-               AND (m.packet->>'Sog')::float <> 102.3
-               AND m.timestamp >= now() - INTERVAL '%d days'
-             ORDER BY m.user_id, max_sog DESC
-        `, days)
-    }
+        posTable.draw();
+        posChart.update();
+      }
 
-    shardResults, err := QueryDatabasesForAllShards(qry)
-    if err != nil {
-        respondError(w, err)
-        return
-    }
+      async function fetchTopSog(days, receiverId) {
+        let url = `/statistics/stats/top-sog?days=${days}`;
+        if (receiverId) {
+          url += `&receiver_id=${receiverId}`;
+        }
+        const data = await (await fetch(url)).json();
+        sogTable.clear();
+        sogChart.data.labels = [];
+        sogChart.data.datasets[0].data = [];
 
-    maxMap := make(map[int]struct {
-        sog float64
-        ts  time.Time
-        lat float64
-        lon float64
-    })
-    for _, recs := range shardResults {
-        for _, rec := range recs {
-            uid, _ := parseInt(rec["user_id"])
-            sog, _ := parseFloat(rec["max_sog"])
-            ts, _ := parseTime(rec["timestamp"])
-            lat, _ := parseFloat(rec["lat"])
-            lon, _ := parseFloat(rec["lon"])
-            prev := maxMap[uid]
-            if sog > prev.sog {
-                maxMap[uid] = struct {
-                    sog float64
-                    ts  time.Time
-                    lat float64
-                    lon float64
-                }{sog, ts, lat, lon}
+        data.forEach(v => {
+          const name = v.name || v.user_id;
+          const nameLink = `<a href="/?UserID=${v.user_id}" target="_blank">${name}</a>`;
+          const imgTag = v.image_url
+            ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
+            : '';
+          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
+          sogTable.row.add([
+            nameLink,
+            imgTag,
+            v.max_sog.toFixed(2),
+            v.lat.toFixed(5),
+            v.lon.toFixed(5),
+            v.ais_class,
+            typeDesc
+          ]);
+          sogChart.data.labels.push(name);
+          sogChart.data.datasets[0].data.push(v.max_sog);
+        });
+
+        sogTable.draw();
+        sogChart.update();
+      }
+
+      async function fetchTopTypes(days, receiverId) {
+        let url = `/statistics/stats/top-types?days=${days}`;
+        if (receiverId) {
+          url += `&receiver_id=${receiverId}`;
+        }
+        const data = await (await fetch(url)).json();
+        typeTable.clear();
+        typeChart.data.labels = [];
+        typeChart.data.datasets[0].data = [];
+
+        data.forEach((t, i) => {
+          const desc = typeMapping[t.type] || t.type;
+          typeTable.row.add([ desc, t.count ]);
+          typeChart.data.labels.push(desc);
+          typeChart.data.datasets[0].data.push(t.count);
+        });
+
+        typeChart.data.datasets[0].backgroundColor = sliceColors.slice(0, data.length);
+
+        typeTable.draw();
+        typeChart.update();
+      }
+
+      // Map and map layers
+      let distanceMap = null;
+      let vesselMarkers = [];
+      let distanceCircles = [];
+      
+      async function fetchTopDistance(days, receiverId) {
+        let url = `/statistics/stats/top-distance?days=${days}`;
+        if (receiverId) {
+          url += `&receiver_id=${receiverId}`;
+        }
+        const data = await (await fetch(url)).json();
+        distanceTable.clear();
+        distanceChart.data.labels = [];
+        distanceChart.data.datasets[0].data = [];
+        
+        // Clear existing map markers and circles
+        if (distanceMap) {
+          vesselMarkers.forEach(marker => marker.remove());
+          distanceCircles.forEach(circle => circle.remove());
+          vesselMarkers = [];
+          distanceCircles = [];
+        }
+
+        data.forEach(v => {
+          const name = v.name || v.user_id;
+          const nameLink = `<a href="/?UserID=${v.user_id}" target="_blank">${name}</a>`;
+          const imgTag = v.image_url
+            ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
+            : '';
+          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
+          
+          // Find receiver name from receivers array
+          let receiverName = v.receiver_id;
+          const receiver = receivers.find(r => r.id === v.receiver_id);
+          if (receiver) {
+            receiverName = receiver.name;
+          }
+          
+          // Convert distance from meters to kilometers for display
+          const distanceKm = (v.distance / 1000).toFixed(2);
+          
+          // Format timestamp to local time
+          const timestamp = v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A';
+          
+          distanceTable.row.add([
+            nameLink,
+            imgTag,
+            distanceKm,
+            receiverName,
+            v.ais_class,
+            typeDesc,
+            timestamp
+          ]);
+          distanceChart.data.labels.push(name);
+          distanceChart.data.datasets[0].data.push(v.distance / 1000); // Convert to km for chart
+        });
+
+        distanceTable.draw();
+        distanceChart.update();
+        
+        // Create or update map if a specific receiver is selected
+        if (receiverId && data.length > 0) {
+          // Show map container
+          $('#distance-map').show();
+          
+          // Find the selected receiver
+          const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
+          
+          if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
+            // Initialize map if it doesn't exist
+            if (!distanceMap) {
+              distanceMap = L.map('distance-map').setView([selectedReceiver.latitude, selectedReceiver.longitude], 8);
+              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              }).addTo(distanceMap);
+            } else {
+              distanceMap.setView([selectedReceiver.latitude, selectedReceiver.longitude], 8);
             }
-        }
-    }
-
-    vs = make([]vessel, 0, len(maxMap))
-    for uid, d := range maxMap {
-        vs = append(vs, vessel{
-            UserID:    uid,
-            MaxSog:    d.sog,
-            Timestamp: d.ts,
-            Lat:       d.lat,
-            Lon:       d.lon,
-        })
-    }
-
-    sort.Slice(vs, func(i, j int) bool {
-        return vs[i].MaxSog > vs[j].MaxSog
-    })
-    if len(vs) > 10 {
-        vs = vs[:10]
-    }
-
-    vs = enrichVessels(vs)
-    cacheSet(cacheKey, vs)
-    respondJSON(w, vs)
-}
-
-func topTypesHandler(w http.ResponseWriter, r *http.Request) {
-    days := parseDaysParam(r)
-    receiverID := parseReceiverIDParam(r)
-    
-    // Include receiver_id in cache key if specified
-    var cacheKey string
-    if receiverID > 0 {
-        cacheKey = fmt.Sprintf("top-types:%dd:r%d", days, receiverID)
-    } else {
-        cacheKey = fmt.Sprintf("top-types:%dd", days)
-    }
-
-    var counts []typeCount
-    if ok, _ := cacheGet(cacheKey, &counts); ok {
-        respondJSON(w, counts)
-        return
-    }
-
-    // Build query with optional receiver_id filter
-    var qry string
-    if receiverID > 0 {
-        qry = fmt.Sprintf(`
-            SELECT (packet->>'Type') AS vessel_type,
-                   COUNT(*)               AS cnt
-              FROM state
-             WHERE timestamp >= now() - INTERVAL '%d days'
-               AND (packet->>'Type') IS NOT NULL
-               AND TRIM((packet->>'Type')) <> ''
-               AND receiver_id = %d
-             GROUP BY vessel_type
-        `, days, receiverID)
-    } else {
-        qry = fmt.Sprintf(`
-            SELECT (packet->>'Type') AS vessel_type,
-                   COUNT(*)               AS cnt
-              FROM state
-             WHERE timestamp >= now() - INTERVAL '%d days'
-               AND (packet->>'Type') IS NOT NULL
-               AND TRIM((packet->>'Type')) <> ''
-             GROUP BY vessel_type
-        `, days)
-    }
-
-    shardResults, err := QueryDatabasesForAllShards(qry)
-    if err != nil {
-        respondError(w, err)
-        return
-    }
-
-    agg := make(map[string]int)
-    for _, recs := range shardResults {
-        for _, rec := range recs {
-            typ, _ := parseString(rec["vessel_type"])
-            if typ == "" {
-                continue
-            }
-            cnt, _ := parseInt(rec["cnt"])
-            agg[typ] += cnt
-        }
-    }
-
-    counts = make([]typeCount, 0, len(agg))
-    for typ, cnt := range agg {
-        counts = append(counts, typeCount{Type: typ, Count: cnt})
-    }
-
-    sort.Slice(counts, func(i, j int) bool {
-        return counts[i].Count > counts[j].Count
-    })
-    if len(counts) > 10 {
-        counts = counts[:10]
-    }
-
-    cacheSet(cacheKey, counts)
-    respondJSON(w, counts)
-}
-
-func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
-    days := parseDaysParam(r)
-    receiverID := parseReceiverIDParam(r)
-    
-    // Include receiver_id in cache key if specified
-    var cacheKey string
-    if receiverID > 0 {
-        cacheKey = fmt.Sprintf("top-positions:%dd:r%d", days, receiverID)
-    } else {
-        cacheKey = fmt.Sprintf("top-positions:%dd", days)
-    }
-
-    var ps []posVessel
-    if ok, _ := cacheGet(cacheKey, &ps); ok {
-        respondJSON(w, ps)
-        return
-    }
-
-    // Build query with optional receiver_id filter
-    var qry string
-    if receiverID > 0 {
-        qry = fmt.Sprintf(`
-            SELECT user_id,
-                   COUNT(*) AS cnt
-              FROM messages
-             WHERE message_id IN (1,2,3,18,19)
-               AND timestamp >= now() - INTERVAL '%d days'
-               AND receiver_id = %d
-             GROUP BY user_id
-        `, days, receiverID)
-    } else {
-        qry = fmt.Sprintf(`
-            SELECT user_id,
-                   COUNT(*) AS cnt
-              FROM messages
-             WHERE message_id IN (1,2,3,18,19)
-               AND timestamp >= now() - INTERVAL '%d days'
-             GROUP BY user_id
-        `, days)
-    }
-
-    shardResults, err := QueryDatabasesForAllShards(qry)
-    if err != nil {
-        respondError(w, err)
-        return
-    }
-
-    countMap := make(map[int]int)
-    for _, recs := range shardResults {
-        for _, rec := range recs {
-            uid, _ := parseInt(rec["user_id"])
-            cnt, _ := parseInt(rec["cnt"])
-            countMap[uid] += cnt
-        }
-    }
-
-    raw := make([]struct{ uid, cnt int }, 0, len(countMap))
-    for uid, cnt := range countMap {
-        raw = append(raw, struct{ uid, cnt int }{uid, cnt})
-    }
-    sort.Slice(raw, func(i, j int) bool {
-        return raw[i].cnt > raw[j].cnt
-    })
-    if len(raw) > 10 {
-        raw = raw[:10]
-    }
-
-    ps = make([]posVessel, len(raw))
-    for i, r := range raw {
-        ps[i] = posVessel{UserID: r.uid, Count: r.cnt}
-    }
-
-    ps = enrichPosVessels(ps)
-    cacheSet(cacheKey, ps)
-    respondJSON(w, ps)
-}
-
-// parseDaysParam reads 'days' query param, defaults to 1.
-func parseDaysParam(r *http.Request) int {
-    days := 1
-    if d := r.URL.Query().Get("days"); d != "" {
-        if n, err := strconv.Atoi(d); err == nil && n > 0 {
-            days = n
-        }
-    }
-    return days
-}
-
-// parseReceiverIDParam reads 'receiver_id' query param, returns -1 if not specified.
-func parseReceiverIDParam(r *http.Request) int {
-    if rid := r.URL.Query().Get("receiver_id"); rid != "" {
-        if n, err := strconv.Atoi(rid); err == nil && n > 0 {
-            return n
-        }
-    }
-    return -1 // -1 indicates no receiver_id filter
-}
-
-// respondJSON serializes v as JSON to the response.
-func respondJSON(w http.ResponseWriter, v interface{}) {
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(v)
-}
-
-// respondError sends a 500 status with the error message.
-func respondError(w http.ResponseWriter, err error) {
-    http.Error(w, fmt.Sprintf("internal error: %v", err), http.StatusInternalServerError)
-}
-
-func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
-    days := parseDaysParam(r)
-    receiverID := parseReceiverIDParam(r)
-    
-    // Include receiver_id in cache key if specified
-    var cacheKey string
-    if receiverID > 0 {
-        cacheKey = fmt.Sprintf("top-distance:%dd:r%d", days, receiverID)
-    } else {
-        cacheKey = fmt.Sprintf("top-distance:%dd", days)
-    }
-
-    var vs []distanceVessel
-    if ok, _ := cacheGet(cacheKey, &vs); ok {
-        // Enrich with vessel metadata
-        ids := make([]int, len(vs))
-        for i, v := range vs {
-            ids[i] = v.UserID
-        }
-        meta, err := fetchVesselMetadata(ids)
-        if err != nil {
-            log.Printf("topDistanceHandler: metadata fetch error: %v", err)
-        } else {
-            for i := range vs {
-                if m, ok := meta[vs[i].UserID]; ok {
-                    vs[i].Name = m.Name
-                    vs[i].ImageURL = m.ImageURL
-                    vs[i].AISClass = m.AISClass
-                    vs[i].Type = m.Type
-                }
-            }
-        }
-        respondJSON(w, vs)
-        return
-    }
-
-    // Build query with optional receiver_id filter and exclude SAR vessels
-    var qry string
-    if receiverID > 0 {
-        qry = fmt.Sprintf(`
-            SELECT DISTINCT ON (m.user_id, m.receiver_id)
-                   m.user_id,
-                   m.distance,
-                   m.timestamp,
-                   (m.packet->>'Latitude')::float  AS lat,
-                   (m.packet->>'Longitude')::float AS lon,
-                   m.receiver_id,
-                   s.ais_class
-               FROM messages m
-               LEFT JOIN state s ON m.user_id = s.user_id
-              WHERE m.distance IS NOT NULL
-                AND m.timestamp >= now() - INTERVAL '%d days'
-                AND m.receiver_id = %d
-                AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE'))
-              ORDER BY m.user_id, m.receiver_id, m.distance DESC
-        `, days, receiverID)
-    } else {
-        qry = fmt.Sprintf(`
-            SELECT DISTINCT ON (m.user_id, m.receiver_id)
-                   m.user_id,
-                   m.distance,
-                   m.timestamp,
-                   (m.packet->>'Latitude')::float  AS lat,
-                   (m.packet->>'Longitude')::float AS lon,
-                   m.receiver_id,
-                   s.ais_class
-               FROM messages m
-               LEFT JOIN state s ON m.user_id = s.user_id
-              WHERE m.distance IS NOT NULL
-                AND m.timestamp >= now() - INTERVAL '%d days'
-                AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE'))
-              ORDER BY m.user_id, m.receiver_id, m.distance DESC
-        `, days)
-    }
-
-    shardResults, err := QueryDatabasesForAllShards(qry)
-    if err != nil {
-        respondError(w, err)
-        return
-    }
-
-    // Collect all results from all shards
-    allResults := make([]struct {
-        userID     int
-        distance   int
-        timestamp  time.Time
-        lat, lon   float64
-        receiverID int
-        aisClass   string
-    }, 0)
-    
-    for _, recs := range shardResults {
-        for _, rec := range recs {
-            uid, _ := parseInt(rec["user_id"])
-            dist, _ := parseInt(rec["distance"])
-            ts, _ := parseTime(rec["timestamp"])
-            lat, _ := parseFloat(rec["lat"])
-            lon, _ := parseFloat(rec["lon"])
-            rid, _ := parseInt(rec["receiver_id"])
-            aisClass, _ := parseString(rec["ais_class"])
             
-            allResults = append(allResults, struct {
-                userID     int
-                distance   int
-                timestamp  time.Time
-                lat, lon   float64
-                receiverID int
-                aisClass   string
-            }{uid, dist, ts, lat, lon, rid, aisClass})
+            // Add receiver marker
+            const receiverIcon = L.divIcon({
+              html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+              className: 'receiver-marker',
+              iconSize: [12, 12]
+            });
+            
+            L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
+              .addTo(distanceMap)
+              .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
+            
+            // Add vessel markers
+            data.forEach(v => {
+              if (v.lat && v.lon) {
+                const vesselIcon = L.divIcon({
+                  html: `<div style="background-color: #0074D9; width: 8px; height: 8px; border-radius: 50%; border: 2px solid white;"></div>`,
+                  className: 'vessel-marker',
+                  iconSize: [8, 8]
+                });
+                
+                // Format timestamp for popup
+                const timestamp = v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A';
+                
+                const marker = L.marker([v.lat, v.lon], {icon: vesselIcon})
+                  .addTo(distanceMap)
+                  .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
+                
+                // Add permanent tooltip showing vessel name/ID
+                const tooltip = L.tooltip({
+                  permanent: true,
+                  direction: 'top',
+                  className: 'vessel-tooltip',
+                  offset: [0, -5]
+                })
+                .setContent(v.name || `ID: ${v.user_id}`)
+                .setLatLng([v.lat, v.lon]);
+                
+                distanceMap.addLayer(tooltip);
+                distanceCircles.push(tooltip); // Add to circles array so it gets cleared with other elements
+                
+                vesselMarkers.push(marker);
+              }
+            });
+            
+            // Find max distance for the outermost ring
+            const maxDistance = Math.max(...data.map(v => v.distance));
+            
+            // Create three concentric rings
+            const ringDistances = [
+              maxDistance / 3,
+              (maxDistance * 2) / 3,
+              maxDistance
+            ];
+            
+            // Convert meters to nautical miles (1 nautical mile = 1852 meters)
+            const metersToNM = (meters) => (meters / 1852).toFixed(1);
+            
+            // Add the rings
+            ringDistances.forEach((distance, i) => {
+              const circle = L.circle([selectedReceiver.latitude, selectedReceiver.longitude], {
+                radius: distance,
+                color: '#3388ff',
+                fillColor: '#3388ff',
+                fillOpacity: 0.05,
+                weight: 1
+              }).addTo(distanceMap);
+              
+              distanceCircles.push(circle);
+              
+              // Add distance label
+              const nmDistance = metersToNM(distance);
+              const point = distanceMap.latLngToLayerPoint([selectedReceiver.latitude, selectedReceiver.longitude]);
+              const radius = distance / 111320; // Approximate degrees per meter at the equator
+              
+              // Calculate a point on the circle (east of center)
+              const labelLat = selectedReceiver.latitude;
+              const labelLng = selectedReceiver.longitude + (radius / Math.cos(selectedReceiver.latitude * Math.PI / 180));
+              
+              const label = L.marker([labelLat, labelLng], {
+                icon: L.divIcon({
+                  html: `<div class="map-ring-label">${nmDistance} NM</div>`,
+                  className: '',
+                  iconAnchor: [0, 10]
+                }),
+                interactive: false // Make label non-interactive
+              }).addTo(distanceMap);
+              
+              distanceCircles.push(label);
+            });
+            
+            // Fit bounds to include all vessels and the receiver
+            const bounds = vesselMarkers.map(marker => marker.getLatLng());
+            bounds.push([selectedReceiver.latitude, selectedReceiver.longitude]);
+            distanceMap.fitBounds(L.latLngBounds(bounds), { padding: [50, 50] });
+          }
+        } else {
+          // Hide map if no receiver is selected or no data
+          $('#distance-map').hide();
         }
-    }
-    
-    // Sort by distance (descending)
-    sort.Slice(allResults, func(i, j int) bool {
-        return allResults[i].distance > allResults[j].distance
-    })
-    
-    // Take top 10
-    if len(allResults) > 10 {
-        allResults = allResults[:10]
-    }
+      }
 
-    // Convert to distanceVessel objects
-    vs = make([]distanceVessel, len(allResults))
-    for i, r := range allResults {
-        vs[i] = distanceVessel{
-            UserID:     r.userID,
-            Distance:   r.distance,
-            Timestamp:  r.timestamp,
-            Lat:        r.lat,
-            Lon:        r.lon,
-            ReceiverID: r.receiverID,
-            AISClass:   r.aisClass, // Set AIS class directly from query result
+      // Word cloud for user message counts
+      async function fetchUserCounts(days, receiverId) {
+        let url = `/statistics/stats/user-counts?days=${days}`;
+        if (receiverId) {
+          url += `&receiver_id=${receiverId}`;
         }
-    }
-    
-    // Enrich with vessel metadata (name, image URL, and type only - we already have AIS class)
-    ids := make([]int, len(vs))
-    for i, v := range vs {
-        ids[i] = v.UserID
-    }
-    meta, err := fetchVesselMetadata(ids)
-    if err != nil {
-        log.Printf("topDistanceHandler: metadata fetch error: %v", err)
-    } else {
-        for i := range vs {
-            if m, ok := meta[vs[i].UserID]; ok {
-                vs[i].Name = m.Name
-                vs[i].ImageURL = m.ImageURL
-                // We already have AISClass from the query
-                vs[i].Type = m.Type
-            }
+        
+        try {
+          const data = await (await fetch(url)).json();
+          renderWordCloud(data);
+        } catch (error) {
+          console.error("Error fetching user counts:", error);
+          document.getElementById('word-cloud-container').innerHTML =
+            '<div class="alert alert-danger">Failed to load user counts data</div>';
         }
-    }
+      }
 
-    cacheSet(cacheKey, vs)
-    respondJSON(w, vs)
-}
+      function renderWordCloud(data) {
+        // Clear previous word cloud
+        document.getElementById('word-cloud-container').innerHTML = '';
+        
+        if (!data || data.length === 0) {
+          document.getElementById('word-cloud-container').innerHTML =
+            '<div class="alert alert-info">No user data available</div>';
+          return;
+        }
 
-// userCountsHandler returns statistics about unique userIDs and their message counts.
-func userCountsHandler(w http.ResponseWriter, r *http.Request) {
-	days := parseDaysParam(r)
-	receiverID := parseReceiverIDParam(r)
-	
-	// Include receiver_id in cache key if specified
-	var cacheKey string
-	if receiverID > 0 {
-		cacheKey = fmt.Sprintf("user-counts:%dd:r%d", days, receiverID)
-	} else {
-		cacheKey = fmt.Sprintf("user-counts:%dd", days)
-	}
+        // Set dimensions
+        const width = document.getElementById('word-cloud-container').offsetWidth;
+        const height = 400;
+        
+        // Calculate font sizes based on counts
+        const maxCount = Math.max(...data.map(d => d.count));
+        const minCount = Math.min(...data.map(d => d.count));
+        const fontScale = d3.scaleLog()
+          .domain([Math.max(1, minCount), maxCount])
+          .range([12, 60]);
+        
+        // Prepare word cloud data - only include entries with non-empty name
+        const words = data
+          .filter(d => d.name) // Only include entries with a non-empty name
+          .map(d => ({
+            text: d.name,
+            size: fontScale(d.count),
+            userId: d.user_id,
+            count: d.count
+          }));
+        
+        // Check if we have any words to display after filtering
+        if (words.length === 0) {
+          document.getElementById('word-cloud-container').innerHTML =
+            '<div class="alert alert-info">No vessels with names available</div>';
+          return;
+        }
+        
+        // Create word cloud layout
+        const layout = d3.layout.cloud()
+          .size([width, height])
+          .words(words)
+          .padding(5)
+          .rotate(() => 0) // No rotation for better readability
+          .font('Segoe UI')
+          .fontSize(d => {
+            // Adjust font size based on container width for better responsiveness
+            const scaleFactor = Math.min(1, width / 500); // Scale down on narrow screens
+            return d.size * scaleFactor;
+          })
+          .spiral('archimedean') // Use archimedean spiral for better distribution
+          .on('end', draw);
+        
+        // Fix for word cloud not showing all words
+        console.log(`Rendering word cloud with ${words.length} words`);
+        layout.start();
+        
+        // Draw the word cloud
+        function draw(words) {
+          const svg = d3.select('#word-cloud-container').append('svg')
+            .attr('width', width)
+            .attr('height', height)
+            .attr('viewBox', `0 0 ${width} ${height}`) // Add viewBox for better scaling
+            .attr('preserveAspectRatio', 'xMidYMid meet') // Preserve aspect ratio while scaling
+            .append('g')
+            .attr('transform', `translate(${width/2},${height/2})`);
+          
+          // Create a group for each word that contains both the link and text
+          const wordGroups = svg.selectAll('g')
+            .data(words)
+            .enter()
+            .append('g')
+            .attr('transform', d => {
+              // Ensure words stay within boundaries
+              const x = Math.max(-width/2 + d.size/2, Math.min(width/2 - d.size/2, d.x));
+              const y = Math.max(-height/2 + d.size/2, Math.min(height/2 - d.size/2, d.y));
+              return `translate(${x},${y})`;
+            });
+          
+          // Add the link with text inside
+          wordGroups.append('a')
+            .attr('xlink:href', d => `/?UserID=${d.userId}`)
+            .attr('target', '_blank')
+            .append('text')
+            .attr('class', 'word-cloud-text')
+            .style('font-size', d => `${d.size}px`)
+            .style('fill', (d, i) => {
+              // Use a modern grey color palette
+              const greyShades = [
+                '#4a4a4a', '#5a5a5a', '#6a6a6a', '#7a7a7a',
+                '#8a8a8a', '#9a9a9a', '#aaaaaa'
+              ];
+              return greyShades[i % greyShades.length];
+            })
+            .attr('text-anchor', 'middle')
+            .text(d => d.text)
+            .append('title') // Tooltip showing count
+            .text(d => `${d.text}: ${d.count} messages`);
+            
+          // Log the number of words actually rendered
+          console.log(`Rendered ${wordGroups.size()} words in the cloud`);
+        }
+      }
 
-	var users []userCount
-	if ok, _ := cacheGet(cacheKey, &users); ok {
-		// Enrich with vessel metadata
-		ids := make([]int, len(users))
-		for i, u := range users {
-			ids[i] = u.UserID
-		}
-		meta, err := fetchVesselMetadata(ids)
-		if err != nil {
-			log.Printf("userCountsHandler: metadata fetch error: %v", err)
-		} else {
-			for i := range users {
-				if m, ok := meta[users[i].UserID]; ok {
-					users[i].Name = m.Name
-				}
-			}
-		}
-		respondJSON(w, users)
-		return
-	}
+      // Parse URL query parameters
+      function getQueryParam(name) {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get(name);
+      }
+      
+      // Update URL and fetch data when selections change
+      $('#days-select, #receiver-select').on('change', function() {
+        updateUrlWithSelections();
+        fetchAll();
+      });
+      
+      // Function to update URL with current selections
+      function updateUrlWithSelections() {
+        const days = $('#days-select').val();
+        const receiverId = $('#receiver-select').val();
+        
+        // Create URL object from current URL
+        const url = new URL(window.location.href);
+        
+        // Update or remove parameters
+        if (receiverId) {
+          url.searchParams.set('receiver_id', receiverId);
+        } else {
+          url.searchParams.delete('receiver_id');
+        }
+        
+        url.searchParams.set('days', days);
+        
+        // Update browser history without reloading the page
+        window.history.replaceState({}, '', url);
+      }
+      (async () => {
+        await Promise.all([
+          loadTypeMapping(),
+          loadReceivers()
+        ]);
+        
+        // Check for parameters in URL and select them in dropdowns if present
+        const receiverId = getQueryParam('receiver_id');
+        if (receiverId) {
+          $('#receiver-select').val(receiverId);
+        }
+        
+        const days = getQueryParam('days');
+        if (days) {
+          $('#days-select').val(days);
+        }
+        
+        fetchAll();
+      })();
 
-	// Build query with optional receiver_id filter
-	var qry string
-	if receiverID > 0 {
-		qry = fmt.Sprintf(`
-			SELECT user_id,
-				   COUNT(*) AS cnt
-			  FROM messages
-			 WHERE timestamp >= now() - INTERVAL '%d days'
-			   AND receiver_id = %d
-			 GROUP BY user_id
-			 ORDER BY cnt DESC
-			 LIMIT 100
-		`, days, receiverID)
-	} else {
-		qry = fmt.Sprintf(`
-			SELECT user_id,
-				   COUNT(*) AS cnt
-			  FROM messages
-			 WHERE timestamp >= now() - INTERVAL '%d days'
-			 GROUP BY user_id
-			 ORDER BY cnt DESC
-			 LIMIT 100
-		`, days)
-	}
-
-	shardResults, err := QueryDatabasesForAllShards(qry)
-	if err != nil {
-		respondError(w, err)
-		return
-	}
-
-	countMap := make(map[int]int)
-	for _, recs := range shardResults {
-		for _, rec := range recs {
-			uid, _ := parseInt(rec["user_id"])
-			cnt, _ := parseInt(rec["cnt"])
-			countMap[uid] += cnt
-		}
-	}
-
-	users = make([]userCount, 0, len(countMap))
-	for uid, cnt := range countMap {
-		users = append(users, userCount{
-			UserID: uid,
-			Count:  cnt,
-		})
-	}
-
-	// Sort by count in descending order
-	sort.Slice(users, func(i, j int) bool {
-		return users[i].Count > users[j].Count
-	})
-
-	// Limit to 100 results
-	if len(users) > 100 {
-		users = users[:100]
-	}
-
-	// Enrich with vessel metadata
-	ids := make([]int, len(users))
-	for i, u := range users {
-		ids[i] = u.UserID
-	}
-	meta, err := fetchVesselMetadata(ids)
-	if err != nil {
-		log.Printf("userCountsHandler: metadata fetch error: %v", err)
-	} else {
-		for i := range users {
-			if m, ok := meta[users[i].UserID]; ok {
-				users[i].Name = m.Name
-			}
-		}
-	}
-
-	cacheSet(cacheKey, users)
-	respondJSON(w, users)
-}
+      $(document).on('click', '.thumb', function() {
+        const src = $(this).attr('src');
+        $('#img-overlay-img').attr('src', src);
+        $('#img-overlay').css('display','flex').hide().fadeIn(200);
+      });
+      $('#img-overlay, #img-overlay-close').on('click', function(e) {
+        if (e.target.id === 'img-overlay' || e.target.id === 'img-overlay-close') {
+          $('#img-overlay').fadeOut(200);
+        }
+      });
+      $('#img-overlay-img').on('click', e => e.stopPropagation());
+    });
+  </script>
+</body>
+</html>

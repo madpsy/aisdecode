@@ -471,7 +471,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
               WHERE m.distance IS NOT NULL
                 AND m.timestamp >= now() - INTERVAL '%d days'
                 AND m.receiver_id = %d
-                AND (s.ais_class IS NULL OR s.ais_class != 'SAR')
+                AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE'))
               ORDER BY m.user_id, m.receiver_id, m.distance DESC
         `, days, receiverID)
     } else {
@@ -488,7 +488,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
                LEFT JOIN state s ON m.user_id = s.user_id
               WHERE m.distance IS NOT NULL
                 AND m.timestamp >= now() - INTERVAL '%d days'
-                AND (s.ais_class IS NULL OR s.ais_class != 'SAR')
+                AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE'))
               ORDER BY m.user_id, m.receiver_id, m.distance DESC
         `, days)
     }
@@ -622,7 +622,7 @@ func userCountsHandler(w http.ResponseWriter, r *http.Request) {
 			   AND receiver_id = %d
 			 GROUP BY user_id
 			 ORDER BY cnt DESC
-			 LIMIT 1000
+			 LIMIT 100
 		`, days, receiverID)
 	} else {
 		qry = fmt.Sprintf(`
@@ -632,7 +632,7 @@ func userCountsHandler(w http.ResponseWriter, r *http.Request) {
 			 WHERE timestamp >= now() - INTERVAL '%d days'
 			 GROUP BY user_id
 			 ORDER BY cnt DESC
-			 LIMIT 1000
+			 LIMIT 100
 		`, days)
 	}
 
@@ -664,9 +664,9 @@ func userCountsHandler(w http.ResponseWriter, r *http.Request) {
 		return users[i].Count > users[j].Count
 	})
 
-	// Limit to 1000 results
-	if len(users) > 1000 {
-		users = users[:1000]
+	// Limit to 100 results
+	if len(users) > 100 {
+		users = users[:100]
 	}
 
 	// Enrich with vessel metadata
