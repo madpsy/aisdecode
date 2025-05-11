@@ -779,17 +779,47 @@
         return urlParams.get(name);
       }
       
-      $('#days-select, #receiver-select').on('change', fetchAll);
+      // Update URL and fetch data when selections change
+      $('#days-select, #receiver-select').on('change', function() {
+        updateUrlWithSelections();
+        fetchAll();
+      });
+      
+      // Function to update URL with current selections
+      function updateUrlWithSelections() {
+        const days = $('#days-select').val();
+        const receiverId = $('#receiver-select').val();
+        
+        // Create URL object from current URL
+        const url = new URL(window.location.href);
+        
+        // Update or remove parameters
+        if (receiverId) {
+          url.searchParams.set('receiver_id', receiverId);
+        } else {
+          url.searchParams.delete('receiver_id');
+        }
+        
+        url.searchParams.set('days', days);
+        
+        // Update browser history without reloading the page
+        window.history.replaceState({}, '', url);
+      }
       (async () => {
         await Promise.all([
           loadTypeMapping(),
           loadReceivers()
         ]);
         
-        // Check for receiver_id in URL and select it in dropdown if present
+        // Check for parameters in URL and select them in dropdowns if present
         const receiverId = getQueryParam('receiver_id');
         if (receiverId) {
           $('#receiver-select').val(receiverId);
+        }
+        
+        const days = getQueryParam('days');
+        if (days) {
+          $('#days-select').val(days);
         }
         
         fetchAll();
