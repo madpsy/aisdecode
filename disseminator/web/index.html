@@ -2044,6 +2044,21 @@ if (data.ReceiverID === undefined || data.ReceiverID === null) {
   }
 }
 
+// Add the list of all receivers that have reported this vessel
+if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
+  // Create links for each receiver ID
+  const receiverLinks = data.ReceiverIDs.map(id => {
+    if (receiverData[id] && receiverData[id].Name) {
+      return `<a href="/metrics/receiver.html?receiver=${id}" target="_blank">${receiverData[id].Name}</a>`;
+    } else {
+      return `<a href="/metrics/receiver.html?receiver=${id}" target="_blank">ID: ${id}</a>`;
+    }
+  });
+  
+  // Join the links with commas
+  lines.push(`All Receivers: ${receiverLinks.join(', ')}`);
+}
+
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
 }
 
