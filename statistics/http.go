@@ -450,7 +450,8 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
     var qry string
     if receiverID > 0 {
         qry = fmt.Sprintf(`
-            SELECT m.user_id,
+            SELECT DISTINCT ON (m.user_id, m.receiver_id)
+                   m.user_id,
                    m.distance,
                    m.timestamp,
                    (m.packet->>'Latitude')::float  AS lat,
@@ -460,12 +461,12 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
              WHERE m.distance IS NOT NULL
                AND m.timestamp >= now() - INTERVAL '%d days'
                AND m.receiver_id = %d
-             ORDER BY m.distance DESC
-             LIMIT 10
+             ORDER BY m.user_id, m.receiver_id, m.distance DESC
         `, days, receiverID)
     } else {
         qry = fmt.Sprintf(`
-            SELECT m.user_id,
+            SELECT DISTINCT ON (m.user_id, m.receiver_id)
+                   m.user_id,
                    m.distance,
                    m.timestamp,
                    (m.packet->>'Latitude')::float  AS lat,
@@ -474,8 +475,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
               FROM messages m
              WHERE m.distance IS NOT NULL
                AND m.timestamp >= now() - INTERVAL '%d days'
-             ORDER BY m.distance DESC
-             LIMIT 10
+             ORDER BY m.user_id, m.receiver_id, m.distance DESC
         `, days)
     }
 
@@ -520,11 +520,43 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    // Create a map to ensure unique user_id + receiver_id combinations
+    uniquePairs := make(map[string]struct {
+        userID     int
+        distance   int
+        timestamp  time.Time
+        lat, lon   float64
+        receiverID int
+    })
+    
+    for _, r := range allResults {
+        // Create a unique key for each user_id + receiver_id pair
+        key := fmt.Sprintf("%d-%d", r.userID, r.receiverID)
+        
+        // If this pair isn't in the map yet, or if this distance is greater than the stored one
+        if existing, exists := uniquePairs[key]; !exists || r.distance > existing.distance {
+            uniquePairs[key] = r
+        }
+    }
+    
+    // Convert map back to slice
+    allResults = make([]struct {
+        userID     int
+        distance   int
+        timestamp  time.Time
+        lat, lon   float64
+        receiverID int
+    }, 0, len(uniquePairs))
+    
+    for _, r := range uniquePairs {
+        allResults = append(allResults, r)
+    }
+    
     // Sort by distance (descending)
     sort.Slice(allResults, func(i, j int) bool {
         return allResults[i].distance > allResults[j].distance
     })
-
+    
     // Take top 10
     if len(allResults) > 10 {
         allResults = allResults[:10]
