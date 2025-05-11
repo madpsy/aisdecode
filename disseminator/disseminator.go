@@ -1624,17 +1624,17 @@ WHERE s.user_id = %d;
 
         merged = packetData
         
-        // Add receiver_id if source_ip is available
+        // Add ReceiverID if source_ip is available
         if sourceIP.Valid && sourceIP.String != "" {
             receiverMapMutex.RLock()
             if receiverID, exists := receiverIPToIDMap[sourceIP.String]; exists {
-                merged["receiver_id"] = receiverID
+                merged["ReceiverID"] = receiverID
             } else {
-                merged["receiver_id"] = nil
+                merged["ReceiverID"] = nil
             }
             receiverMapMutex.RUnlock()
         } else {
-            merged["receiver_id"] = nil
+            merged["ReceiverID"] = nil
         }
     }
 
