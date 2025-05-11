@@ -51,9 +51,13 @@ type Settings struct {
 var settings *Settings
 var db *sql.DB
 
-// Map to store IP address to receiver ID mapping
+// Map to store IP address to receiver ID mapping and receiver location data
 var (
     receiverIPToIDMap = make(map[string]int)
+    receiverLocations = make(map[int]struct {
+        Latitude  float64
+        Longitude float64
+    })
     receiverMapMutex  sync.RWMutex
 )
 
@@ -201,8 +205,9 @@ func main() {
             source_ip VARCHAR(45),
             user_id INT,
             message_id INT,
-     raw_sentence TEXT,
-            receiver_id INT
+            raw_sentence TEXT,
+            receiver_id INT,
+            distance INT
         );
     `)
     if err != nil {
@@ -293,8 +298,10 @@ func updateReceiverMapping(client *http.Client, baseURL string) {
     }
 
     var receivers []struct {
-        ID        int    `json:"id"`
-        IPAddress string `json:"ip_address"`
+        ID        int     `json:"id"`
+        IPAddress string  `json:"ip_address"`
+        Latitude  float64 `json:"latitude"`
+        Longitude float64 `json:"longitude"`
     }
 
     if err := json.Unmarshal(body, &receivers); err != nil {
@@ -302,26 +309,41 @@ func updateReceiverMapping(client *http.Client, baseURL string) {
         return // Preserve previous mapping on error
     }
 
-    // Create a new map to avoid partial updates
-    newMap := make(map[string]int)
+    // Create new maps to avoid partial updates
+    newIPMap := make(map[string]int)
+    newLocationMap := make(map[int]struct {
+        Latitude  float64
+        Longitude float64
+    })
+    
     for _, receiver := range receivers {
         if receiver.IPAddress != "" {
-            newMap[receiver.IPAddress] = receiver.ID
+            newIPMap[receiver.IPAddress] = receiver.ID
+        }
+        
+        // Store location data regardless of IP address
+        newLocationMap[receiver.ID] = struct {
+            Latitude  float64
+            Longitude float64
+        }{
+            Latitude:  receiver.Latitude,
+            Longitude: receiver.Longitude,
         }
     }
 
-    // Only update the global map if we have at least one entry
-    if len(newMap) == 0 {
+    // Only update the global maps if we have at least one entry
+    if len(newIPMap) == 0 {
         log.Printf("Received empty receivers list, preserving previous mapping")
         return // Preserve previous mapping if new data is empty
     }
 
-    // Update the global map atomically
+    // Update the global maps atomically
     receiverMapMutex.Lock()
-    receiverIPToIDMap = newMap
+    receiverIPToIDMap = newIPMap
+    receiverLocations = newLocationMap
     receiverMapMutex.Unlock()
 
-    log.Printf("Updated receiver mapping with %d entries", len(newMap))
+    log.Printf("Updated receiver mapping with %d entries", len(newIPMap))
 }
 
 // ── HTTP SERVER ──────────────────────────────────────────────────────────────
@@ -868,10 +890,61 @@ func externalLookupAndUpdate(db *sql.DB, userID int) {
     }
 }
 
+// Helper function to check if a message ID is one that contains position data
+func hasPositionData(messageID int) bool {
+    positionMessageIDs := map[int]bool{
+        1: true, 2: true, 3: true, 4: true, 9: true,
+        18: true, 19: true, 21: true, 27: true,
+    }
+    return positionMessageIDs[messageID]
+}
+
+// Calculate distance between receiver and vessel if possible
+func calculateDistance(packetJSON []byte, receiverID interface{}) (float64, bool) {
+    // If no receiver ID, we can't calculate distance
+    recID, ok := receiverID.(int)
+    if !ok {
+        return 0, false
+    }
+    
+    // Get receiver location
+    receiverMapMutex.RLock()
+    receiverLoc, exists := receiverLocations[recID]
+    receiverMapMutex.RUnlock()
+    if !exists {
+        return 0, false
+    }
+    
+    // Parse packet to get vessel location
+    var packet map[string]interface{}
+    if err := json.Unmarshal(packetJSON, &packet); err != nil {
+        return 0, false
+    }
+    
+    // Extract vessel coordinates
+    vesselLat, latOk := packet["Latitude"].(float64)
+    vesselLon, lonOk := packet["Longitude"].(float64)
+    if !latOk || !lonOk {
+        return 0, false
+    }
+    
+    // Calculate distance using haversine formula and round to nearest meter
+    distance := haversine(receiverLoc.Latitude, receiverLoc.Longitude, vesselLat, vesselLon)
+    return math.Round(distance), true
+}
+
 func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, rawSentence string, receiverID interface{}, settings *Settings) error {
-    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence, receiver_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID)
+    // Calculate distance if this is a position message and we have receiver info
+    var distance interface{} = nil // Default to SQL NULL
+    if hasPositionData(int(messageID)) {
+        if dist, ok := calculateDistance(packetJSON, receiverID); ok {
+            distance = dist
+        }
+    }
+    
+    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence, receiver_id, distance)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance)
     if err != nil {
         log.Printf("Error executing query: %v", err)
         if isDatabaseConnectionError(err) {
@@ -881,7 +954,7 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
                 log.Printf("Failed to reconnect to the database: %v", err)
                 return err
             }
-            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID)
+            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance)
             if err != nil {
                 log.Printf("Error executing query after reconnecting: %v", err)
                 return err
