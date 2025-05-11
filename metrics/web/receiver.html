@@ -214,6 +214,7 @@
     box-sizing: border-box; /* Ensure padding doesn't affect width calculation */
   }
 
+  /* Default styles for wider screens */
   #receiver-map {
     position: absolute;  /* Position the map inside the receiver box */
     top: 16px;           /* Space from the top */
@@ -221,6 +222,22 @@
     width: 280px;        /* Adjust width to fit within the box */
     height: 220px;       /* Adjust height to fit within the box */
     overflow: hidden;    /* Prevent content from overflowing */
+  }
+  
+  /* Responsive styles for narrow screens */
+  @media (max-width: 768px) {
+    #receiver-map {
+      position: static;  /* Change to static positioning */
+      width: 100%;       /* Full width */
+      margin-top: 16px;  /* Add space between text and map */
+      right: auto;       /* Reset right positioning */
+      top: auto;         /* Reset top positioning */
+    }
+    
+    /* No need for extra padding since the map is now in the normal flow */
+    #receiver-box {
+      padding-bottom: 16px; /* Reset to normal padding */
+    }
   }
 </style>
 
