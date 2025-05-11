@@ -212,8 +212,15 @@
     background-color: #f9f9f9;
     width: 100%;  /* Ensure it has 100% width of the container */
     box-sizing: border-box; /* Ensure padding doesn't affect width calculation */
+    min-height: 250px; /* Ensure enough height for the map */
   }
 
+  /* Container for receiver info text content */
+  .receiver-info-content {
+    width: calc(100% - 300px); /* Leave space for the map on wider screens */
+  }
+
+  /* Default styles for wider screens */
   #receiver-map {
     position: absolute;  /* Position the map inside the receiver box */
     top: 16px;           /* Space from the top */
@@ -221,6 +228,24 @@
     width: 280px;        /* Adjust width to fit within the box */
     height: 220px;       /* Adjust height to fit within the box */
     overflow: hidden;    /* Prevent content from overflowing */
+  }
+  
+  /* Responsive styles for narrow screens */
+  @media (max-width: 768px) {
+    /* Make the info content full width */
+    .receiver-info-content {
+      width: 100%;
+    }
+    
+    /* Position the map at the bottom */
+    #receiver-map {
+      position: relative; /* Change to relative positioning */
+      top: auto;          /* Reset top positioning */
+      right: auto;        /* Reset right positioning */
+      width: 100%;        /* Full width */
+      margin-top: 16px;   /* Add space between text and map */
+      height: 200px;      /* Fixed height */
+    }
   }
 </style>
 
@@ -983,13 +1008,15 @@ function loadReceivers() {
               const box = document.createElement('div');
               box.id = 'receiver-box';
               box.innerHTML = `
-                <h3>Receiver Information</h3>
-                <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
-                <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
-                <p class="receiver-url"><strong>URL:</strong>
-                  ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
-                </p>
-                <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-bottom: 10px;">Edit Receiver</button>
+                <div class="receiver-info-content">
+                  <h3>Receiver Information</h3>
+                  <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
+                  <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+                  <p class="receiver-url"><strong>URL:</strong>
+                    ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+                  </p>
+                  <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-bottom: 10px;">Edit Receiver</button>
+                </div>
                 <div id="receiver-map"></div> <!-- Receiver map will go here -->
               `;
               
@@ -1498,13 +1525,15 @@ function fetchReceiversById(receiverId) {
       const box = document.createElement('div');
       box.id = 'receiver-box';
       box.innerHTML = `
-        <h3>Receiver Information</h3>
-        <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
-        <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
-        <p class="receiver-url"><strong>URL:</strong>
-          ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
-        </p>
-        <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-bottom: 10px;">Edit Receiver</button>
+        <div class="receiver-info-content">
+          <h3>Receiver Information</h3>
+          <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
+          <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+          <p class="receiver-url"><strong>URL:</strong>
+            ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+          </p>
+          <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-bottom: 10px;">Edit Receiver</button>
+        </div>
         <div id="receiver-map"></div> <!-- Receiver map will go here -->
       `;
       
