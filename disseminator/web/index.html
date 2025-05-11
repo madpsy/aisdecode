@@ -2027,6 +2027,18 @@ if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
   lines.push(`Message Types: ${codeSpans.join(', ')}`);
 }
 
+// Add ReceiverID if available
+if (data.ReceiverID !== undefined && data.ReceiverID !== null) {
+  // Look up the receiver name from receiverData
+  let receiverName = "Unknown";
+  if (receiverData[data.ReceiverID]) {
+    receiverName = receiverData[data.ReceiverID].Name;
+  }
+  
+  // Create a link to the receiver metrics page
+  lines.push(`Receiver: <a href="/metrics/receiver.html?receiver=${data.ReceiverID}" target="_blank">${receiverName}</a>`);
+}
+
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
 }
 
