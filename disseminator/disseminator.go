@@ -1540,28 +1540,39 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
 
     // 2) Build the SQL with %d so we get "... WHERE s.user_id = 123;"
     query := fmt.Sprintf(`
-WITH msg_types AS (
-  SELECT
-    user_id,
-    ARRAY_AGG(DISTINCT message_id) AS message_types
-  FROM messages
-  WHERE user_id = %d
-  GROUP BY user_id
-)
-SELECT
-  s.packet,
-  s.timestamp,
-  s.ais_class,
-  s.count,
-  s.name,
-  s.image_url,
-  s.receiver_id,
-  mt.message_types
-FROM state AS s
-LEFT JOIN msg_types AS mt
-  ON s.user_id = mt.user_id
-WHERE s.user_id = %d;
-`, userID, userID)
+    WITH msg_types AS (
+      SELECT
+        user_id,
+        ARRAY_AGG(DISTINCT message_id) AS message_types
+      FROM messages
+      WHERE user_id = %d
+      GROUP BY user_id
+    ),
+    receiver_ids AS (
+      SELECT
+        user_id,
+        ARRAY_AGG(DISTINCT receiver_id) AS receiver_ids
+      FROM messages
+      WHERE user_id = %d
+      GROUP BY user_id
+    )
+    SELECT
+      s.packet,
+      s.timestamp,
+      s.ais_class,
+      s.count,
+      s.name,
+      s.image_url,
+      s.receiver_id,
+      mt.message_types,
+      r.receiver_ids
+    FROM state AS s
+    LEFT JOIN msg_types AS mt
+      ON s.user_id = mt.user_id
+    LEFT JOIN receiver_ids AS r
+      ON s.user_id = r.user_id
+    WHERE s.user_id = %d;
+    `, userID, userID, userID)
 
     // 3) Run the query (still routed to the correct shard by passing the ID string)
     rows, err := QueryDatabaseForUser(strconv.FormatInt(userID, 10), query)
@@ -1583,8 +1594,9 @@ WHERE s.user_id = %d;
             dbImageURL   sql.NullString
             receiverID   sql.NullInt64
             messageTypes pq.StringArray
+            receiverIDs  pq.Int64Array
         )
-        if err := rows.Scan(&packetJSON, &ts, &aisClass, &count, &dbName, &dbImageURL, &receiverID, &messageTypes); err != nil {
+        if err := rows.Scan(&packetJSON, &ts, &aisClass, &count, &dbName, &dbImageURL, &receiverID, &messageTypes, &receiverIDs); err != nil {
             http.Error(w, fmt.Sprintf("Error scanning result: %v", err), http.StatusInternalServerError)
             return
         }
@@ -1635,6 +1647,9 @@ WHERE s.user_id = %d;
         } else {
             merged["ReceiverID"] = nil
         }
+        
+        // Add array of unique receiver IDs
+        merged["ReceiverIDs"] = receiverIDs
     }
 
     // 5) Return as JSON
