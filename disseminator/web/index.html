@@ -65,17 +65,16 @@
           border-radius: 3px;
           cursor: pointer;
         }
-        /* Style for the Clear History button */
-        #clear-history {
-          position: absolute;
-          bottom: 25px;
-          left: 10px;
-          background: yellow;
-          border: none;
-          padding: 5px 5px;
-          cursor: pointer;
-          font-weight: bold;
-          z-index: 1000;
+        /* Style for the distance label tooltip */
+        .distance-label-tooltip {
+          background: rgba(255, 255, 255, 0.9);
+          border: 1px solid #aaa;
+          border-radius: 3px;
+          padding: 2px 5px;
+          font-size: 12px;
+          text-align: center;
+          box-shadow: none;
+          white-space: nowrap;
         }
         /* Style for the known vessels overlay (bottom left) */
         #vessel-overlay {
@@ -552,7 +551,6 @@
 
     <button id="stats-button">Watch</button>
     <button id="live-logs">Decodes</button>
-    <button id="clear-history">Clear History</button>
     <div id="slider-container">
         <label for="history-slider">
   	    History: <span id="history-value">1</span> hrs
@@ -623,6 +621,8 @@
 	// Store the vessel-to-receiver polyline
 	let receiverPolyline = null;
 	let receiverDistanceLabel = null;
+	let lastReceiverUpdateTime = 0;
+	const RECEIVER_UPDATE_THROTTLE = 500; // ms
 
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
@@ -738,6 +738,10 @@ map.on('click', () => {
     }
     
     if (receiverDistanceLabel) {
+      // Handle both marker and tooltip types for backward compatibility
+      if (typeof receiverDistanceLabel.closeTooltip === 'function') {
+        receiverDistanceLabel.closeTooltip();
+      }
       map.removeLayer(receiverDistanceLabel);
       receiverDistanceLabel = null;
     }
@@ -1398,21 +1402,6 @@ function attachImageClick() {
       openImageModal(this.src);
     });
   }
-}
-
-function clearHistory() {
-  localStorage.removeItem('vesselData');
-  Object.keys(vesselMarkers).forEach(UserID => {
-    map.removeLayer(vesselMarkers[UserID]);
-  });
-  Object.keys(vesselTracks).forEach(UserID => {
-    map.removeLayer(vesselTracks[UserID]);
-  });
-  Object.keys(vesselData).forEach(key => delete vesselData[key]);
-  Object.keys(vesselMarkers).forEach(key => delete vesselMarkers[key]);
-  Object.keys(vesselTracks).forEach(key => delete vesselTracks[key]);
-  updateOverlay();
-  location.reload();
 }
 
 function attachPolylineEvents(layerGroup, UserID) {
@@ -3031,9 +3020,7 @@ function performSearch(query) {
 }
 
 
-        document.getElementById('clear-history').addEventListener('click', clearHistory);
-
-	document.getElementById('stationary').addEventListener('change', () => {
+ document.getElementById('stationary').addEventListener('change', () => {
   	  sendSummaryRequest();
     	  updateStationaryMarkers();
 	});
@@ -3135,6 +3122,13 @@ function calculateBearing(lat1, lon1, lat2, lon2) {
 
 // Function to update the vessel-receiver connection
 function updateVesselReceiverConnection(UserID) {
+  // Throttle updates to prevent flickering
+  const now = Date.now();
+  if (now - lastReceiverUpdateTime < RECEIVER_UPDATE_THROTTLE) {
+    return; // Skip this update if it's too soon after the last one
+  }
+  lastReceiverUpdateTime = now;
+  
   const vessel = vesselData[UserID];
   if (!vessel) return;
   
@@ -3168,46 +3162,43 @@ function updateVesselReceiverConnection(UserID) {
       vesselLatLng[0], vesselLatLng[1]
     ).toFixed(0);
     
-    // Create or update the HTML content for the label
-    const labelHtml = `<div style="background-color: white; padding: 2px 5px; border-radius: 3px; font-size: 12px; border: 1px solid grey; text-align: center;">
-                        <div>${distance} km</div>
-                        <div>${bearing}°</div>
-                      </div>`;
-    
-    // If polyline doesn't exist, create it
+    // Create or update the polyline with a single operation
     if (!receiverPolyline) {
+      // First creation - add to map
       receiverPolyline = L.polyline([vesselLatLng, receiverLatLng], {
         color: 'grey',
         weight: 2,
         opacity: 0.7,
-        dashArray: '5, 5'
+        dashArray: '5, 5',
+        renderer: L.canvas() // Use canvas renderer for better performance
       }).addTo(map);
     } else {
-      // Update existing polyline
+      // Just update coordinates - no DOM changes
       receiverPolyline.setLatLngs([vesselLatLng, receiverLatLng]);
     }
     
-    // If label doesn't exist, create it
+    // Create or update the label with minimal DOM changes
+    const labelContent = `${distance} km<br>${bearing}°`;
+    
     if (!receiverDistanceLabel) {
-      receiverDistanceLabel = L.marker([midLat, midLng], {
-        icon: L.divIcon({
-          className: 'distance-label',
-          html: labelHtml,
-          iconSize: [60, 40],
-          iconAnchor: [30, 20]
-        })
-      }).addTo(map);
+      // First creation - create a permanent tooltip instead of a marker with divIcon
+      receiverDistanceLabel = L.tooltip({
+        permanent: true,
+        direction: 'center',
+        className: 'distance-label-tooltip',
+        opacity: 0.9
+      })
+      .setLatLng([midLat, midLng])
+      .setContent(labelContent)
+      .addTo(map);
     } else {
-      // Update existing label position
+      // Update position and content with separate operations
       receiverDistanceLabel.setLatLng([midLat, midLng]);
       
-      // Update the icon content
-      receiverDistanceLabel.setIcon(L.divIcon({
-        className: 'distance-label',
-        html: labelHtml,
-        iconSize: [60, 40],
-        iconAnchor: [30, 20]
-      }));
+      // Only update content if it changed
+      if (receiverDistanceLabel.getContent() !== labelContent) {
+        receiverDistanceLabel.setContent(labelContent);
+      }
     }
   }
 }
