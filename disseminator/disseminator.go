@@ -86,12 +86,6 @@ var (
   redisCtx    = context.Background()
 )
 
-// Map to store IP address to receiver ID mapping
-var (
-  receiverIPToIDMap = make(map[string]int)
-  receiverMapMutex  sync.RWMutex
-)
-
 var clientConnections map[string]*ClientConnection
 var clientConnectionsMu sync.RWMutex
 var streamShards int // Global variable to store the total number of shards
@@ -1550,7 +1544,7 @@ SELECT
   s.count,
   s.name,
   s.image_url,
-  s.source_ip,
+  s.receiver_id,
   mt.message_types
 FROM state AS s
 LEFT JOIN msg_types AS mt
@@ -1576,10 +1570,10 @@ WHERE s.user_id = %d;
             count        int
             dbName       sql.NullString
             dbImageURL   sql.NullString
-            sourceIP     sql.NullString
+            receiverID   sql.NullInt64
             messageTypes pq.StringArray
         )
-        if err := rows.Scan(&packetJSON, &ts, &aisClass, &count, &dbName, &dbImageURL, &sourceIP, &messageTypes); err != nil {
+        if err := rows.Scan(&packetJSON, &ts, &aisClass, &count, &dbName, &dbImageURL, &receiverID, &messageTypes); err != nil {
             http.Error(w, fmt.Sprintf("Error scanning result: %v", err), http.StatusInternalServerError)
             return
         }
@@ -1624,15 +1618,9 @@ WHERE s.user_id = %d;
 
         merged = packetData
         
-        // Add ReceiverID if source_ip is available
-        if sourceIP.Valid && sourceIP.String != "" {
-            receiverMapMutex.RLock()
-            if receiverID, exists := receiverIPToIDMap[sourceIP.String]; exists {
-                merged["ReceiverID"] = receiverID
-            } else {
-                merged["ReceiverID"] = nil
-            }
-            receiverMapMutex.RUnlock()
+        // Add ReceiverID if available in the database
+        if receiverID.Valid {
+            merged["ReceiverID"] = receiverID.Int64
         } else {
             merged["ReceiverID"] = nil
         }
@@ -2349,23 +2337,6 @@ func main() {
 	    }
 	}()
 
-	// Start a goroutine to periodically fetch receiver information
-	go func() {
-	    ticker := time.NewTicker(60 * time.Second) // Poll every 60 seconds
-	    defer ticker.Stop()
-
-	    // Create a custom HTTP client with a 5-second timeout
-	    client := &http.Client{
-	        Timeout: 5 * time.Second,
-	    }
-
-	    // Initial fetch
-	    updateReceiverMapping(client, conf.ReceiversBaseURL)
-
-	    for range ticker.C {
-	        updateReceiverMapping(client, conf.ReceiversBaseURL)
-	    }
-	}()
 
 	go func() {
 	    ticker := time.NewTicker(1 * time.Second) // Poll every second
@@ -2433,56 +2404,3 @@ func main() {
 	select {}
 }
 
-// Function to update the receiver IP to ID mapping
-// If any error occurs during the update process, the previous mapping is preserved
-func updateReceiverMapping(client *http.Client, receiversBaseURL string) {
-    url := fmt.Sprintf("%s/admin/receivers", receiversBaseURL)
-    resp, err := client.Get(url)
-    if err != nil {
-        log.Printf("Error fetching receivers data: %v", err)
-        return // Preserve previous mapping on error
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        log.Printf("Received non-OK response from receivers API: %d", resp.StatusCode)
-        return // Preserve previous mapping on error
-    }
-
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        log.Printf("Error reading receivers response body: %v", err)
-        return // Preserve previous mapping on error
-    }
-
-    var receivers []struct {
-        ID        int    `json:"id"`
-        IPAddress string `json:"ip_address"`
-    }
-
-    if err := json.Unmarshal(body, &receivers); err != nil {
-        log.Printf("Error unmarshalling receivers data: %v", err)
-        return // Preserve previous mapping on error
-    }
-
-    // Create a new map to avoid partial updates
-    newMap := make(map[string]int)
-    for _, receiver := range receivers {
-        if receiver.IPAddress != "" {
-            newMap[receiver.IPAddress] = receiver.ID
-        }
-    }
-
-    // Only update the global map if we have at least one entry
-    if len(newMap) == 0 {
-        log.Printf("Received empty receivers list, preserving previous mapping")
-        return // Preserve previous mapping if new data is empty
-    }
-
-    // Update the global map atomically
-    receiverMapMutex.Lock()
-    receiverIPToIDMap = newMap
-    receiverMapMutex.Unlock()
-
-    log.Printf("Updated receiver mapping with %d entries", len(newMap))
-}
