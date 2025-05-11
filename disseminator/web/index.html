@@ -3114,6 +3114,25 @@ function calculateDistanceInKm(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+// Function to calculate bearing (angle) from point 1 to point 2 in degrees
+function calculateBearing(lat1, lon1, lat2, lon2) {
+  // Convert to radians
+  const lat1Rad = lat1 * Math.PI / 180;
+  const lat2Rad = lat2 * Math.PI / 180;
+  const lonDiff = (lon2 - lon1) * Math.PI / 180;
+  
+  // Calculate bearing
+  const y = Math.sin(lonDiff) * Math.cos(lat2Rad);
+  const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+            Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(lonDiff);
+  let bearing = Math.atan2(y, x) * 180 / Math.PI;
+  
+  // Normalize to 0-360
+  bearing = (bearing + 360) % 360;
+  
+  return bearing;
+}
+
 // Function to update the vessel-receiver connection
 function updateVesselReceiverConnection(UserID) {
   // Remove any existing polyline and label
@@ -3128,13 +3147,21 @@ function updateVesselReceiverConnection(UserID) {
   }
   
   const vessel = vesselData[UserID];
+  if (!vessel) return;
   
-  // Check if vessel has receiver_id and if that receiver exists
-  if (vessel && vessel.receiver_id !== null && vessel.receiver_id !== undefined &&
-      receiverMarkers[vessel.receiver_id]) {
-    
+  // Check for receiver ID in different possible fields
+  // First try receiver_id from ais_data events
+  let receiverId = vessel.receiver_id;
+  
+  // If not found, try ReceiverID from state JSON
+  if (receiverId === null || receiverId === undefined) {
+    receiverId = vessel.ReceiverID;
+  }
+  
+  // Check if we have a valid receiver ID and if that receiver exists
+  if (receiverId !== null && receiverId !== undefined && receiverMarkers[receiverId]) {
     const vesselLatLng = [vessel.Latitude, vessel.Longitude];
-    const receiverLatLng = receiverMarkers[vessel.receiver_id].getLatLng();
+    const receiverLatLng = receiverMarkers[receiverId].getLatLng();
     
     // Create a grey polyline between vessel and receiver
     receiverPolyline = L.polyline([vesselLatLng, receiverLatLng], {
@@ -3154,13 +3181,22 @@ function updateVesselReceiverConnection(UserID) {
       receiverLatLng.lat, receiverLatLng.lng
     ).toFixed(1);
     
-    // Create a label at the midpoint showing the distance
+    // Calculate bearing from receiver to vessel
+    const bearing = calculateBearing(
+      receiverLatLng.lat, receiverLatLng.lng,
+      vesselLatLng[0], vesselLatLng[1]
+    ).toFixed(0);
+    
+    // Create a label at the midpoint showing the distance and bearing
     receiverDistanceLabel = L.marker([midLat, midLng], {
       icon: L.divIcon({
         className: 'distance-label',
-        html: `<div style="background-color: white; padding: 2px 5px; border-radius: 3px; font-size: 12px; border: 1px solid grey;">${distance} km</div>`,
-        iconSize: [50, 20],
-        iconAnchor: [25, 10]
+        html: `<div style="background-color: white; padding: 2px 5px; border-radius: 3px; font-size: 12px; border: 1px solid grey; text-align: center;">
+                <div>${distance} km</div>
+                <div>${bearing}°</div>
+              </div>`,
+        iconSize: [60, 40],
+        iconAnchor: [30, 20]
       })
     }).addTo(map);
   }
@@ -3253,7 +3289,10 @@ function focusOnVessel(UserID, initialFocus = true) {
   }
   
   // Create vessel-receiver connection if applicable
-  updateVesselReceiverConnection(UserID);
+  // Ensure we call this after a short delay to allow the vessel data to be fully loaded
+  setTimeout(() => {
+    updateVesselReceiverConnection(UserID);
+  }, 100);
 
   // Now add the focused vessel’s polyline (if it exists) based on the "show-paths" checkbox.
   if (document.getElementById('show-paths').checked && vesselTracks[focusedVessel] && !map.hasLayer(vesselTracks[focusedVessel])) {
