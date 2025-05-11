@@ -620,6 +620,9 @@
 
 	const vesselSolidTracks = {};
 	const vesselColoredTracks = {};
+	// Store the vessel-to-receiver polyline
+	let receiverPolyline = null;
+	let receiverDistanceLabel = null;
 
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
@@ -727,6 +730,18 @@ map.on('click', () => {
     const vessel = vesselData[focusedVessel];
     vesselMarkers[focusedVessel].getTooltip().setContent(vessel.Name);
     vesselMarkers[focusedVessel].setZIndexOffset(0);
+    
+    // Remove vessel-receiver connection
+    if (receiverPolyline) {
+      map.removeLayer(receiverPolyline);
+      receiverPolyline = null;
+    }
+    
+    if (receiverDistanceLabel) {
+      map.removeLayer(receiverDistanceLabel);
+      receiverDistanceLabel = null;
+    }
+    
     focusedVessel = null;
     unsubscribeInstantUpdates();
 
@@ -2422,6 +2437,16 @@ function subscribeInstantUpdates(UserID) {
       vesselData[UserID][k] = v;
     });
 
+    // Store receiver_id if present
+    if (message.receiver_id !== null && message.receiver_id !== undefined) {
+      vesselData[UserID].receiver_id = message.receiver_id;
+      
+      // Update the vessel-receiver connection if this vessel is focused
+      if (focusedVessel === UserID) {
+        updateVesselReceiverConnection(UserID);
+      }
+    }
+
     // Timestamp handling
     if (message.timestamp) {
       const ts = new Date(message.timestamp).getTime();
@@ -3076,11 +3101,87 @@ function getNearestTrackPoint(e, track) {
 
 
 
+// Function to calculate distance between two points in kilometers
+function calculateDistanceInKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+// Function to update the vessel-receiver connection
+function updateVesselReceiverConnection(UserID) {
+  // Remove any existing polyline and label
+  if (receiverPolyline) {
+    map.removeLayer(receiverPolyline);
+    receiverPolyline = null;
+  }
+  
+  if (receiverDistanceLabel) {
+    map.removeLayer(receiverDistanceLabel);
+    receiverDistanceLabel = null;
+  }
+  
+  const vessel = vesselData[UserID];
+  
+  // Check if vessel has receiver_id and if that receiver exists
+  if (vessel && vessel.receiver_id !== null && vessel.receiver_id !== undefined &&
+      receiverMarkers[vessel.receiver_id]) {
+    
+    const vesselLatLng = [vessel.Latitude, vessel.Longitude];
+    const receiverLatLng = receiverMarkers[vessel.receiver_id].getLatLng();
+    
+    // Create a grey polyline between vessel and receiver
+    receiverPolyline = L.polyline([vesselLatLng, receiverLatLng], {
+      color: 'grey',
+      weight: 2,
+      opacity: 0.7,
+      dashArray: '5, 5'
+    }).addTo(map);
+    
+    // Calculate the midpoint for the label
+    const midLat = (vesselLatLng[0] + receiverLatLng.lat) / 2;
+    const midLng = (vesselLatLng[1] + receiverLatLng.lng) / 2;
+    
+    // Calculate distance in kilometers
+    const distance = calculateDistanceInKm(
+      vesselLatLng[0], vesselLatLng[1],
+      receiverLatLng.lat, receiverLatLng.lng
+    ).toFixed(1);
+    
+    // Create a label at the midpoint showing the distance
+    receiverDistanceLabel = L.marker([midLat, midLng], {
+      icon: L.divIcon({
+        className: 'distance-label',
+        html: `<div style="background-color: white; padding: 2px 5px; border-radius: 3px; font-size: 12px; border: 1px solid grey;">${distance} km</div>`,
+        iconSize: [50, 20],
+        iconAnchor: [25, 10]
+      })
+    }).addTo(map);
+  }
+}
+
 // Focus on a particular vessel.
 function focusOnVessel(UserID, initialFocus = true) {
   // Unfocus previously focused vessel
   if (initialFocus) {
 	document.getElementById('show-paths').checked = true;
+  }
+  
+  // Remove any existing vessel-receiver connection
+  if (receiverPolyline) {
+    map.removeLayer(receiverPolyline);
+    receiverPolyline = null;
+  }
+  
+  if (receiverDistanceLabel) {
+    map.removeLayer(receiverDistanceLabel);
+    receiverDistanceLabel = null;
   }
   if (focusedVessel && focusedVessel !== UserID) {
     const prevMarker = vesselMarkers[focusedVessel];
@@ -3150,6 +3251,9 @@ function focusOnVessel(UserID, initialFocus = true) {
       map.removeLayer(vesselTracks[userid]);
     }
   }
+  
+  // Create vessel-receiver connection if applicable
+  updateVesselReceiverConnection(UserID);
 
   // Now add the focused vessel’s polyline (if it exists) based on the "show-paths" checkbox.
   if (document.getElementById('show-paths').checked && vesselTracks[focusedVessel] && !map.hasLayer(vesselTracks[focusedVessel])) {
@@ -3318,6 +3422,13 @@ function showFlashMessage(message, parentEl) {
 
           updateFocussedVisibility();
         }
+
+// Update the vessel-receiver connection when the map is moved or zoomed
+map.on('moveend zoomend', function() {
+  if (focusedVessel && vesselData[focusedVessel]) {
+    updateVesselReceiverConnection(focusedVessel);
+  }
+});
 
         document.getElementById('toggle-known-overlay').addEventListener('click', function() {
           const overlay = document.getElementById('vessel-overlay');
