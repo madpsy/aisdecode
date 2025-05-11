@@ -107,6 +107,15 @@
     #word-cloud-container a:hover {
       text-decoration: none !important;
     }
+    /* Ensure word cloud container is responsive */
+    #word-cloud-container {
+      width: 100%;
+      overflow: hidden;
+    }
+    #word-cloud-container svg {
+      max-width: 100%;
+      height: auto;
+    }
   </style>
 </head>
 <body>
@@ -681,13 +690,22 @@
           .domain([Math.max(1, minCount), maxCount])
           .range([12, 60]);
         
-        // Prepare word cloud data
-        const words = data.map(d => ({
-          text: d.name || `${d.user_id}`,
-          size: fontScale(d.count),
-          userId: d.user_id,
-          count: d.count
-        }));
+        // Prepare word cloud data - only include entries with non-empty name
+        const words = data
+          .filter(d => d.name) // Only include entries with a non-empty name
+          .map(d => ({
+            text: d.name,
+            size: fontScale(d.count),
+            userId: d.user_id,
+            count: d.count
+          }));
+        
+        // Check if we have any words to display after filtering
+        if (words.length === 0) {
+          document.getElementById('word-cloud-container').innerHTML =
+            '<div class="alert alert-info">No vessels with names available</div>';
+          return;
+        }
         
         // Create word cloud layout
         const layout = d3.layout.cloud()
@@ -696,7 +714,11 @@
           .padding(5)
           .rotate(() => 0) // No rotation for better readability
           .font('Segoe UI')
-          .fontSize(d => d.size)
+          .fontSize(d => {
+            // Adjust font size based on container width for better responsiveness
+            const scaleFactor = Math.min(1, width / 500); // Scale down on narrow screens
+            return d.size * scaleFactor;
+          })
           .spiral('archimedean') // Use archimedean spiral for better distribution
           .on('end', draw);
         
@@ -709,6 +731,8 @@
           const svg = d3.select('#word-cloud-container').append('svg')
             .attr('width', width)
             .attr('height', height)
+            .attr('viewBox', `0 0 ${width} ${height}`) // Add viewBox for better scaling
+            .attr('preserveAspectRatio', 'xMidYMid meet') // Preserve aspect ratio while scaling
             .append('g')
             .attr('transform', `translate(${width/2},${height/2})`);
           
@@ -717,7 +741,12 @@
             .data(words)
             .enter()
             .append('g')
-            .attr('transform', d => `translate(${d.x},${d.y})`);
+            .attr('transform', d => {
+              // Ensure words stay within boundaries
+              const x = Math.max(-width/2 + d.size/2, Math.min(width/2 - d.size/2, d.x));
+              const y = Math.max(-height/2 + d.size/2, Math.min(height/2 - d.size/2, d.y));
+              return `translate(${x},${y})`;
+            });
           
           // Add the link with text inside
           wordGroups.append('a')
