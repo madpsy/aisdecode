@@ -547,7 +547,7 @@
           vesselAisClass = data.AISClass || '';
           console.log('Vessel AIS Class:', vesselAisClass);
           
-          // Update receiver dropdown if ReceiverIDs are available
+          // Update receiver dropdown based on ReceiverIDs
           if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
             console.log('Vessel heard by receivers:', data.ReceiverIDs);
             
@@ -573,6 +573,14 @@
                   receiverSelect.appendChild(option);
                 }
               });
+            }
+          } else {
+            // If ReceiverIDs is empty, ensure only the "All" option is shown
+            const receiverSelect = document.getElementById('receiver-select');
+            
+            // Keep only the "All" option
+            while (receiverSelect.options.length > 1) {
+              receiverSelect.remove(1);
             }
           }
           
@@ -1576,8 +1584,13 @@
       initDateSelectors();
       initMap();
       
-      // Fetch receivers data
+      // Fetch receivers data and ensure loadVesselData is called after
+      // to properly update the dropdown based on ReceiverIDs
       fetchReceiversData();
+      
+      // Make sure vessel data is loaded again to properly update the receiver dropdown
+      // This ensures that if ReceiverIDs is empty, only the "All" option is shown
+      loadVesselData();
       
       // Automatically load history data with default 1-day range
       setTimeout(async () => {
