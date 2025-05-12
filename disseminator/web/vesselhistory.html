@@ -167,6 +167,56 @@
       font-size: 12px;
       width: 120px;
     }
+    
+    /* Replay control styles */
+    .replay-control {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 5px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      z-index: 1000;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .replay-button {
+      padding: 4px 8px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .replay-button:hover {
+      background-color: #45a049;
+    }
+    .replay-button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    .replay-duration {
+      padding: 2px;
+      font-size: 12px;
+      border-radius: 3px;
+      border: 1px solid #ccc;
+    }
+    .replay-progress {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 3px;
+      background-color: #4CAF50;
+      width: 0%;
+      transition: width 0.1s linear;
+    }
     .speed-scale-container {
       margin-bottom: 6px;
       padding: 0 5px;
@@ -342,6 +392,21 @@
             <span>40 kn</span>
           </div>
         </div>
+      </div>
+      <div class="replay-control">
+        <button id="replay-button" class="replay-button">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+          </svg>
+          Replay
+        </button>
+        <select id="replay-duration" class="replay-duration">
+          <option value="10">10s</option>
+          <option value="20" selected>20s</option>
+          <option value="30">30s</option>
+          <option value="60">60s</option>
+        </select>
+        <div id="replay-progress" class="replay-progress"></div>
       </div>
     </div>
     
@@ -2362,6 +2427,176 @@
           console.error('Error restoring time filter from URL:', e);
         }
       }
+    }
+    
+    // Replay functionality
+    let replayInProgress = false;
+    let replayAnimationId = null;
+    let replayTooltip = null;
+    let replayPolyline = null;
+    
+    // Initialize replay button
+    document.addEventListener('DOMContentLoaded', () => {
+      const replayButton = document.getElementById('replay-button');
+      if (replayButton) {
+        replayButton.addEventListener('click', startReplay);
+      }
+    });
+    
+    function startReplay() {
+      if (replayInProgress) return;
+      
+      // Get current points from the map
+      const historyData = window.currentHistoryData;
+      if (!historyData || !historyData.length) {
+        console.log('No data to replay');
+        return;
+      }
+      
+      // Prepare points with valid coordinates
+      const pts = historyData
+        .filter(r => {
+          const flat = flatten(r.Packet);
+          return flat.Latitude != null && flat.Longitude != null &&
+                 !isNaN(flat.Latitude) && !isNaN(flat.Longitude);
+        })
+        .map(r => {
+          const flat = flatten(r.Packet);
+          return {
+            lat: flat.Latitude,
+            lng: flat.Longitude,
+            timestamp: r.Timestamp,
+            record: r,
+            data: flat
+          };
+        });
+      
+      if (!pts.length) {
+        console.log('No valid position data found for replay');
+        return;
+      }
+      
+      // Sort points by timestamp (oldest first)
+      pts.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      
+      // Get selected duration
+      const durationSelect = document.getElementById('replay-duration');
+      const durationSeconds = parseInt(durationSelect.value, 10);
+      
+      // Update UI
+      const replayButton = document.getElementById('replay-button');
+      replayButton.disabled = true;
+      replayButton.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5zm5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5z"/>
+        </svg>
+        Replaying...
+      `;
+      
+      // Clear existing layers but keep the base map
+      mapLayerGroup.clearLayers();
+      
+      // Create a new layer for the replay animation
+      replayPolyline = L.polyline([], {
+        color: '#3388ff',
+        weight: 4,
+        opacity: 0.8
+      }).addTo(mapLayerGroup);
+      
+      // Create a marker for the current position
+      const currentMarker = L.marker([pts[0].lat, pts[0].lng], {
+        icon: L.divIcon({
+          className: 'current-marker',
+          html: '🔷',
+          iconSize: [20, 20],
+          iconAnchor: [10, 10]
+        })
+      }).addTo(mapLayerGroup);
+      
+      // Create tooltip for the current position
+      replayTooltip = L.tooltip({
+        permanent: true,
+        direction: 'top',
+        offset: [0, -10],
+        className: 'replay-tooltip'
+      })
+      .setLatLng([pts[0].lat, pts[0].lng])
+      .setContent(makeTooltipHTML(pts[0]))
+      .addTo(map);
+      
+      // Set up the animation
+      replayInProgress = true;
+      const startTime = performance.now();
+      const totalDuration = durationSeconds * 1000; // convert to milliseconds
+      const progressBar = document.getElementById('replay-progress');
+      
+      // Animation function
+      function animate(currentTime) {
+        const elapsedTime = currentTime - startTime;
+        const progress = Math.min(elapsedTime / totalDuration, 1);
+        
+        // Update progress bar
+        progressBar.style.width = `${progress * 100}%`;
+        
+        if (progress < 1) {
+          // Calculate the current point index based on progress
+          const pointIndex = Math.min(
+            Math.floor(progress * pts.length),
+            pts.length - 1
+          );
+          
+          // Update polyline with points up to the current index
+          const currentPath = pts.slice(0, pointIndex + 1).map(p => [p.lat, p.lng]);
+          replayPolyline.setLatLngs(currentPath);
+          
+          // Update marker position
+          const currentPoint = pts[pointIndex];
+          currentMarker.setLatLng([currentPoint.lat, currentPoint.lng]);
+          
+          // Update tooltip
+          replayTooltip.setLatLng([currentPoint.lat, currentPoint.lng]);
+          replayTooltip.setContent(makeTooltipHTML(currentPoint));
+          
+          // Continue animation
+          replayAnimationId = requestAnimationFrame(animate);
+        } else {
+          // Animation complete
+          finishReplay(pts);
+        }
+      }
+      
+      // Start the animation
+      replayAnimationId = requestAnimationFrame(animate);
+    }
+    
+    function finishReplay(pts) {
+      // Reset UI
+      const replayButton = document.getElementById('replay-button');
+      replayButton.disabled = false;
+      replayButton.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+        </svg>
+        Replay
+      `;
+      
+      // Reset progress bar
+      const progressBar = document.getElementById('replay-progress');
+      progressBar.style.width = '0%';
+      
+      // Clean up
+      replayInProgress = false;
+      cancelAnimationFrame(replayAnimationId);
+      replayAnimationId = null;
+      
+      // Remove tooltip
+      if (replayTooltip) {
+        map.removeLayer(replayTooltip);
+        replayTooltip = null;
+      }
+      
+      // Redisplay the full track
+      displayVesselTrack(window.currentHistoryData);
     }
   </script>
 </body>
