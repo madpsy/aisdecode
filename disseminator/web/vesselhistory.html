@@ -23,9 +23,9 @@
       position: absolute;
       top: 0;
       height: 100%;
-      background-color: rgba(0, 123, 255, 0.2);
-      border-left: 2px solid rgba(0, 123, 255, 0.7);
-      border-right: 2px solid rgba(0, 123, 255, 0.7);
+      background-color: rgba(255, 165, 0, 0.2);
+      border-left: 2px solid rgba(255, 165, 0, 0.7);
+      border-right: 2px solid rgba(255, 165, 0, 0.7);
       pointer-events: none;
       z-index: 10;
     }
@@ -34,7 +34,7 @@
       top: 0;
       width: 8px;
       height: 100%;
-      background-color: rgba(0, 123, 255, 0.7);
+      background-color: rgba(255, 165, 0, 0.7);
       cursor: ew-resize;
       pointer-events: all;
     }
@@ -1592,6 +1592,9 @@
           return;
         }
         
+        // Remove any existing selection window first to ensure only one at a time
+        removeSelectionWindow();
+        
         // Calculate position as percentage
         const rect = container.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -1785,4 +1788,4 @@
     }
   </script>
 </body>
-</html>s
+</html>
