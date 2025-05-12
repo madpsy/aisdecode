@@ -140,7 +140,6 @@
 </head>
 <body>
   <h1 id="main-title">Vessel History</h1>
-  <div id="error" class="error"></div>
 
   <div class="vessel-header">
     <div class="flag-container">
@@ -174,6 +173,8 @@
       <button id="apply-btn" class="btn btn-primary">Search</button>
       <button id="reset-btn" class="btn btn-secondary">Reset</button>
     </div>
+    
+    <div id="error" class="error"></div>
     
     <div id="map-container">
       <div class="speed-legend">
@@ -912,7 +913,8 @@
       } else if (firstRecord) {
         // If no changes but we have data, show the current value
         const flat = flatten(firstRecord.Packet);
-        if (flat.NavigationalStatus !== undefined) {
+        // Always show the initial value, even if NavigationalStatus is undefined
+        {
           const row = document.createElement('tr');
           
           const timeCell = document.createElement('td');
@@ -924,17 +926,13 @@
           row.appendChild(fromCell);
           
           const toCell = document.createElement('td');
-          toCell.textContent = navStatusMapping[flat.NavigationalStatus] || flat.NavigationalStatus || '(unknown)';
+          // Handle the case where NavigationalStatus might be undefined
+          const status = flat.NavigationalStatus !== undefined ?
+                        (navStatusMapping[flat.NavigationalStatus] || flat.NavigationalStatus) :
+                        '(unknown)';
+          toCell.textContent = status;
           row.appendChild(toCell);
           
-          statusTable.appendChild(row);
-        } else {
-          const row = document.createElement('tr');
-          const cell = document.createElement('td');
-          cell.colSpan = 3;
-          cell.className = 'no-changes';
-          cell.textContent = 'No navigational status information available';
-          row.appendChild(cell);
           statusTable.appendChild(row);
         }
       } else {
