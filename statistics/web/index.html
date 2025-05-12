@@ -460,7 +460,8 @@
         typeChart.data.datasets[0].data = [];
 
         data.forEach((t, i) => {
-          const desc = typeMapping[t.type] || t.type;
+          const typeDesc = typeMapping[t.type] || t.type;
+          const desc = `${typeDesc} (ID: ${t.type})`;
           typeTable.row.add([ desc, t.count ]);
           typeChart.data.labels.push(desc);
           typeChart.data.datasets[0].data.push(t.count);
