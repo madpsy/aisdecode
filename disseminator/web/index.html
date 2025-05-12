@@ -2820,9 +2820,17 @@ socket.on("summaryData", (data) => {
     } else {
       // For a focused vessel, update only non-location/movement fields.
       if (userid === focusedVessel) {
+        // Save the current receiver information
+        const currentReceiverId = vesselData[userid].receiver_id;
+        const currentReceiverID = vesselData[userid].ReceiverID;
+        
         // Destructure to remove the location/movement fields.
-        const { Latitude, Longitude, Sog, Cog, TrueHeading, ...nonLocationData } = vesselState;
+        const { Latitude, Longitude, Sog, Cog, TrueHeading, ReceiverID, ...nonLocationData } = vesselState;
         Object.assign(vesselData[userid], nonLocationData);
+        
+        // Restore the receiver IDs to prevent flickering
+        if (currentReceiverId !== undefined) vesselData[userid].receiver_id = currentReceiverId;
+        if (currentReceiverID !== undefined) vesselData[userid].ReceiverID = currentReceiverID;
       } else {
         // Not in focus, so merge all fields.
         Object.assign(vesselData[userid], vesselState);
@@ -2951,9 +2959,28 @@ socket.on("summaryData", (data) => {
       }
     }
   }
+  // Update UI elements but avoid triggering vessel-receiver connection updates
+  // This helps prevent flickering when summary data arrives
+  console.log("[summaryData] Updating UI without recreating vessel-receiver connection");
   updateOverlay();
-  updateFocussedVisibility();
-  updateStationaryMarkers();
+  
+  // Don't call these functions as they might trigger vessel-receiver connection updates
+  // updateFocussedVisibility();
+  // updateStationaryMarkers();
+  
+  // Instead, just ensure the focused vessel's marker and track are visible
+  if (focusedVessel && vesselMarkers[focusedVessel]) {
+    if (!map.hasLayer(vesselMarkers[focusedVessel])) {
+      map.addLayer(vesselMarkers[focusedVessel]);
+    }
+    
+    const showPaths = document.getElementById('show-paths').checked;
+    if (vesselTracks[focusedVessel]) {
+      if (showPaths && !map.hasLayer(vesselTracks[focusedVessel])) {
+        map.addLayer(vesselTracks[focusedVessel]);
+      }
+    }
+  }
   localStorage.setItem('vesselData', JSON.stringify(vesselData));
 });
 
@@ -3130,6 +3157,9 @@ function calculateBearing(lat1, lon1, lat2, lon2) {
   return bearing;
 }
 
+// Global variable to track the current receiver ID being used for the connection
+let currentConnectionReceiverId = null;
+
 // Function to update the vessel-receiver connection
 function updateVesselReceiverConnection(UserID) {
   // Throttle updates to prevent flickering
@@ -3138,6 +3168,9 @@ function updateVesselReceiverConnection(UserID) {
     return; // Skip this update if it's too soon after the last one
   }
   lastReceiverUpdateTime = now;
+  
+  // Debug log to track when this function is called
+  console.log("[updateVesselReceiverConnection] called at", new Date().toISOString());
   
   // Ensure we're still working with the focused vessel
   if (focusedVessel !== UserID) {
@@ -3159,6 +3192,17 @@ function updateVesselReceiverConnection(UserID) {
   // If not found, try ReceiverID from state JSON
   if (receiverId === null || receiverId === undefined) {
     receiverId = vessel.ReceiverID;
+  }
+  
+  // If we already have a connection established, keep using the same receiver
+  // This prevents flickering when summary data arrives with different receiver info
+  if (currentConnectionReceiverId && receiverMarkers[currentConnectionReceiverId]) {
+    console.log("[updateVesselReceiverConnection] Using existing receiver:", currentConnectionReceiverId);
+    receiverId = currentConnectionReceiverId;
+  } else {
+    // First time or previous receiver no longer exists
+    currentConnectionReceiverId = receiverId;
+    console.log("[updateVesselReceiverConnection] Setting new receiver:", receiverId);
   }
   
   // Check if we have a valid receiver ID and if that receiver exists
@@ -3189,42 +3233,102 @@ function updateVesselReceiverConnection(UserID) {
     ).toFixed(0);
     
     // Create or update the polyline with a single operation
-    if (!receiverPolyline) {
-      // First creation - add to map
-      receiverPolyline = L.polyline([vesselLatLng, receiverLatLng], {
-        color: 'grey',
-        weight: 2,
-        opacity: 0.7,
-        dashArray: '5, 5',
-        renderer: L.canvas() // Use canvas renderer for better performance
-      }).addTo(map);
-    } else {
-      // Just update coordinates - no DOM changes
-      receiverPolyline.setLatLngs([vesselLatLng, receiverLatLng]);
+    try {
+      if (!receiverPolyline || !map.hasLayer(receiverPolyline)) {
+        console.log("[updateVesselReceiverConnection] Creating new polyline");
+        // First creation or polyline was removed
+        if (receiverPolyline) {
+          // Try to clean up any existing polyline
+          try {
+            map.removeLayer(receiverPolyline);
+          } catch (e) {
+            // Ignore errors
+          }
+        }
+        
+        // Create a new polyline
+        receiverPolyline = L.polyline([vesselLatLng, receiverLatLng], {
+          color: 'grey',
+          weight: 2,
+          opacity: 0.7,
+          dashArray: '5, 5',
+          renderer: L.canvas(), // Use canvas renderer for better performance
+          interactive: false, // Disable mouse events for better performance
+          bubblingMouseEvents: false // Prevent event bubbling
+        });
+        
+        // Add to map in a separate step to catch any errors
+        try {
+          receiverPolyline.addTo(map);
+        } catch (e) {
+          console.warn("Error adding polyline to map:", e);
+          receiverPolyline = null; // Reset so we'll try again next time
+          return;
+        }
+      } else {
+        // Just update coordinates - no DOM changes
+        receiverPolyline.setLatLngs([vesselLatLng, receiverLatLng]);
+      }
+    } catch (e) {
+      console.warn("Error handling polyline:", e);
+      // Don't try to recreate immediately - wait for next update cycle
+      receiverPolyline = null;
+      return;
     }
     
     // Create or update the label with minimal DOM changes
     const labelContent = `${distance} km<br>${bearing}°`;
     
-    if (!receiverDistanceLabel) {
-      // First creation - create a permanent tooltip instead of a marker with divIcon
-      receiverDistanceLabel = L.tooltip({
-        permanent: true,
-        direction: 'center',
-        className: 'distance-label-tooltip',
-        opacity: 0.9
-      })
-      .setLatLng([midLat, midLng])
-      .setContent(labelContent)
-      .addTo(map);
-    } else {
-      // Update position and content with separate operations
-      receiverDistanceLabel.setLatLng([midLat, midLng]);
-      
-      // Only update content if it changed
-      if (receiverDistanceLabel.getContent() !== labelContent) {
+    try {
+      if (!receiverDistanceLabel || !map.hasLayer(receiverDistanceLabel)) {
+        console.log("[updateVesselReceiverConnection] Creating new distance label");
+        // First creation or label was removed
+        if (receiverDistanceLabel) {
+          // Try to clean up any existing label
+          try {
+            map.removeLayer(receiverDistanceLabel);
+          } catch (e) {
+            // Ignore errors
+          }
+        }
+        
+        // Create a new tooltip
+        receiverDistanceLabel = L.tooltip({
+          permanent: true,
+          direction: 'center',
+          className: 'distance-label-tooltip',
+          opacity: 0.9,
+          interactive: false,
+          bubblingMouseEvents: false
+        });
+        
+        // Set content and position before adding to map
+        receiverDistanceLabel.setLatLng([midLat, midLng]);
         receiverDistanceLabel.setContent(labelContent);
+        
+        // Add to map in a separate step to catch any errors
+        try {
+          receiverDistanceLabel.addTo(map);
+        } catch (e) {
+          console.warn("Error adding distance label to map:", e);
+          receiverDistanceLabel = null; // Reset so we'll try again next time
+          return;
+        }
+      } else {
+        // Update position first
+        receiverDistanceLabel.setLatLng([midLat, midLng]);
+        
+        // Only update content if it changed significantly
+        const currentContent = receiverDistanceLabel.getContent();
+        if (currentContent !== labelContent) {
+          receiverDistanceLabel.setContent(labelContent);
+        }
       }
+    } catch (e) {
+      console.warn("Error handling distance label:", e);
+      // Don't try to recreate immediately - wait for next update cycle
+      receiverDistanceLabel = null;
+      return;
     }
   }
 }
@@ -3236,15 +3340,23 @@ function focusOnVessel(UserID, initialFocus = true) {
 	document.getElementById('show-paths').checked = true;
   }
   
-  // Remove any existing vessel-receiver connection
-  if (receiverPolyline) {
-    map.removeLayer(receiverPolyline);
-    receiverPolyline = null;
-  }
-  
-  if (receiverDistanceLabel) {
-    map.removeLayer(receiverDistanceLabel);
-    receiverDistanceLabel = null;
+  // Only remove vessel-receiver connection if focusing on a different vessel
+  // This prevents unnecessary recreation when summary data arrives
+  if (focusedVessel !== UserID) {
+    console.log("[focusOnVessel] Removing existing vessel-receiver connection");
+    
+    if (receiverPolyline) {
+      map.removeLayer(receiverPolyline);
+      receiverPolyline = null;
+    }
+    
+    if (receiverDistanceLabel) {
+      map.removeLayer(receiverDistanceLabel);
+      receiverDistanceLabel = null;
+    }
+    
+    // Reset the current connection receiver ID when changing vessels
+    currentConnectionReceiverId = null;
   }
   
   // Clear any existing update interval
@@ -3332,15 +3444,19 @@ function focusOnVessel(UserID, initialFocus = true) {
     }
     
     // Set up a periodic update to ensure the connection stays visible
+    // Use a longer interval to reduce flickering
     receiverUpdateInterval = setInterval(() => {
       if (focusedVessel === UserID) {
+        // Only update if the vessel is still focused
+        console.log("[receiverUpdateInterval] Updating vessel-receiver connection");
         updateVesselReceiverConnection(UserID);
       } else {
         // Stop updating if this is no longer the focused vessel
+        console.log("[receiverUpdateInterval] Stopping interval - vessel no longer focused");
         clearInterval(receiverUpdateInterval);
         receiverUpdateInterval = null;
       }
-    }, 2000); // Update every 2 seconds
+    }, 5000); // Update every 5 seconds instead of 2 seconds
   }, 100);
 
   // Now add the focused vessel’s polyline (if it exists) based on the "show-paths" checkbox.
