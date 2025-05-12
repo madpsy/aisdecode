@@ -80,6 +80,14 @@
     #receiver-select {
       min-width: 120px;
     }
+    #message-histogram {
+      height: 80px;
+      width: 100%;
+      margin-bottom: 1rem;
+      border: 1px solid #ddd;
+      position: relative;
+      background-color: #f9f9f9;
+    }
     #map-container {
       height: 400px;
       margin-bottom: 1rem;
@@ -203,6 +211,8 @@
     </div>
     
     <div id="error" class="error"></div>
+    
+    <div id="message-histogram"></div>
     
     <div id="map-container">
       <div class="speed-legend">
@@ -1182,6 +1192,7 @@
         const historyData = await fetchVesselHistory();
         if (historyData) {
           displayVesselTrack(historyData);
+          displayMessageHistogram(historyData);
           trackChanges(historyData);
         }
       }, 1000); // Small delay to ensure vessel data is loaded first
@@ -1228,6 +1239,7 @@
         const historyData = await fetchVesselHistory();
         if (historyData) {
           displayVesselTrack(historyData);
+          displayMessageHistogram(historyData);
           trackChanges(historyData);
         }
       });
@@ -1260,6 +1272,7 @@
         const historyData = await fetchVesselHistory();
         if (historyData) {
           displayVesselTrack(historyData);
+          displayMessageHistogram(historyData);
           trackChanges(historyData);
         }
       });
@@ -1272,6 +1285,9 @@
           mapLayerGroup.clearLayers();
         }
         
+        // Clear histogram
+        document.getElementById('message-histogram').innerHTML = '';
+        
         // Clear tables
         document.querySelector('#destination-changes tbody').innerHTML = '';
         document.querySelector('#status-changes tbody').innerHTML = '';
@@ -1279,6 +1295,121 @@
     });
 
     // Store vessel AIS class globally - moved to loadVesselData function
+    
+    // Function to display message histogram
+    function displayMessageHistogram(historyData) {
+      if (!historyData || !historyData.length) {
+        return;
+      }
+      
+      const histogramContainer = document.getElementById('message-histogram');
+      histogramContainer.innerHTML = '';
+      
+      // Filter for position messages only
+      const positionMessageTypes = ['1', '2', '3', '18', '19'];
+      const positionMessages = historyData.filter(msg =>
+        positionMessageTypes.includes(msg.MessageID.toString())
+      );
+      
+      if (positionMessages.length === 0) {
+        histogramContainer.innerHTML = '<div style="padding: 10px; text-align: center; color: #666;">No position messages available</div>';
+        return;
+      }
+      
+      // Sort messages by timestamp (oldest first)
+      positionMessages.sort((a, b) => new Date(a.Timestamp) - new Date(b.Timestamp));
+      
+      // Get time range
+      const startTime = new Date(positionMessages[0].Timestamp);
+      const endTime = new Date(positionMessages[positionMessages.length - 1].Timestamp);
+      const totalDuration = endTime - startTime;
+      
+      // Determine appropriate bin size based on total duration
+      let binSize, binLabel;
+      if (totalDuration <= 3600000) { // 1 hour or less
+        binSize = 60000; // 1 minute bins
+        binLabel = 'minute';
+      } else if (totalDuration <= 86400000) { // 1 day or less
+        binSize = 3600000; // 1 hour bins
+        binLabel = 'hour';
+      } else {
+        binSize = 86400000; // 1 day bins
+        binLabel = 'day';
+      }
+      
+      // Create bins
+      const bins = {};
+      const numBins = Math.ceil(totalDuration / binSize);
+      
+      // Initialize bins
+      for (let i = 0; i < numBins; i++) {
+        const binTime = new Date(startTime.getTime() + (i * binSize));
+        bins[i] = {
+          count: 0,
+          startTime: binTime,
+          endTime: new Date(binTime.getTime() + binSize)
+        };
+      }
+      
+      // Count messages in each bin
+      positionMessages.forEach(msg => {
+        const msgTime = new Date(msg.Timestamp);
+        const binIndex = Math.floor((msgTime - startTime) / binSize);
+        if (bins[binIndex]) {
+          bins[binIndex].count++;
+        }
+      });
+      
+      // Find maximum count for scaling
+      const maxCount = Math.max(...Object.values(bins).map(bin => bin.count));
+      
+      // Create SVG for histogram
+      const svgNS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(svgNS, "svg");
+      svg.setAttribute("width", "100%");
+      svg.setAttribute("height", "100%");
+      
+      // Calculate bar width based on number of bins
+      const barWidth = 100 / numBins;
+      
+      // Create bars
+      Object.values(bins).forEach((bin, index) => {
+        const barHeight = bin.count > 0 ? (bin.count / maxCount) * 80 : 0;
+        const bar = document.createElementNS(svgNS, "rect");
+        
+        // Position and size
+        bar.setAttribute("x", `${index * barWidth}%`);
+        bar.setAttribute("y", `${80 - barHeight}%`);
+        bar.setAttribute("width", `${barWidth - 0.2}%`);
+        bar.setAttribute("height", `${barHeight}%`);
+        
+        // Styling - greyscale based on count intensity
+        const intensity = Math.max(0, Math.min(0.8, bin.count / maxCount));
+        const greyValue = Math.floor(255 * (1 - intensity));
+        bar.setAttribute("fill", `rgb(${greyValue},${greyValue},${greyValue})`);
+        
+        // Tooltip
+        const title = document.createElementNS(svgNS, "title");
+        const formattedStart = bin.startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const formattedEnd = bin.endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        title.textContent = `${bin.count} messages between ${formattedStart} - ${formattedEnd}`;
+        bar.appendChild(title);
+        
+        svg.appendChild(bar);
+      });
+      
+      // Add title
+      const title = document.createElement('div');
+      title.style.position = 'absolute';
+      title.style.top = '5px';
+      title.style.left = '10px';
+      title.style.fontSize = '12px';
+      title.style.fontWeight = 'bold';
+      title.textContent = `Position Messages per ${binLabel} (darker = more messages)`;
+      
+      histogramContainer.appendChild(svg);
+      histogramContainer.appendChild(title);
+    }
   </script>
 </body>
 </html>
