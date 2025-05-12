@@ -75,14 +75,19 @@ var movementMsgTypes = map[int]struct{}{
 }
 
 var (
-    lastPosMu       sync.Mutex
-    lastPositions   = make(map[int]Position)   // userID → last seen lat/lon
-    minimumDistance float64                    // in meters, loaded from settings
+	lastPosMu       sync.Mutex
+	lastPositions   = make(map[int]Position)   // userID → last seen lat/lon
+	minimumDistance float64                    // in meters, loaded from settings
 )
 
 var (
-    lastTimeMu   sync.Mutex
-    lastTimeSeen = make(map[int]map[int]time.Time)
+	lastNavStatusMu       sync.Mutex
+	lastNavigationalStatus = make(map[int]float64)  // userID → last NavigationalStatus
+)
+
+var (
+	lastTimeMu   sync.Mutex
+	lastTimeSeen = make(map[int]map[int]time.Time)
 )
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
@@ -687,8 +692,21 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
         return err
     }
 
-    // 5) Movement-based filtering (unchanged)
+    // 5) Movement-based filtering and NavigationalStatus change detection
     shouldInsert := true
+    navStatusChanged := false
+    
+    // Check for NavigationalStatus change
+    if navStatus, hasNavStatus := packetMap["NavigationalStatus"].(float64); hasNavStatus {
+        lastNavStatusMu.Lock()
+        prevNavStatus, seenBefore := lastNavigationalStatus[userID]
+        if !seenBefore || prevNavStatus != navStatus {
+            lastNavigationalStatus[userID] = navStatus
+            navStatusChanged = true
+        }
+        lastNavStatusMu.Unlock()
+    }
+    
     if _, isMovement := movementMsgTypes[mid]; isMovement {
         lat, lok := packetMap["Latitude"].(float64)
         lon, lok2 := packetMap["Longitude"].(float64)
@@ -711,6 +729,11 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
             lastPosMu.Unlock()
         }
     }
+    
+    // Override shouldInsert if NavigationalStatus changed
+    if navStatusChanged {
+        shouldInsert = true
+    }
 
     // 6) Generic time-based filtering
     if window, ok := timeFilters[mid]; ok {
@@ -724,7 +747,10 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
                 lastTimeSeen[mid] = make(map[int]time.Time)
             }
             if prevT, seen := lastTimeSeen[mid][userID]; seen && t.Sub(prevT) < window {
-                shouldInsert = false
+                // Only apply time filtering if NavigationalStatus hasn't changed
+                if !navStatusChanged {
+                    shouldInsert = false
+                }
             } else {
                 lastTimeSeen[mid][userID] = t
             }
@@ -747,8 +773,12 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 
     // 8) Conditionally insert into messages
     if shouldInsert {
+        reason := ""
         if settings.Debug {
-            log.Printf("Storing MessageID=%d for user %d", mid, userID)
+            if navStatusChanged {
+                reason = " (NavigationalStatus changed)"
+            }
+            log.Printf("Storing MessageID=%d for user %d%s", mid, userID, reason)
         }
         // Look up receiver ID from source IP
         var receiverID interface{} = nil // Use nil (SQL NULL) as default
