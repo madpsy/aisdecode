@@ -46,6 +46,12 @@ type typeCount struct {
 	Count int    `json:"count"`
 }
 
+// classCount is the JSON shape returned by /statistics/stats/top-classes.
+type classCount struct {
+	Class string `json:"class"`
+	Count int    `json:"count"`
+}
+
 // userCount is the JSON shape returned by /statistics/stats/user-counts.
 type userCount struct {
 	UserID int    `json:"user_id"`
@@ -121,6 +127,7 @@ func registerHandlers(mux *http.ServeMux) {
 
 	mux.HandleFunc("/statistics/stats/top-sog", topSogHandler)
 	mux.HandleFunc("/statistics/stats/top-types", topTypesHandler)
+	mux.HandleFunc("/statistics/stats/top-classes", topClassesHandler)
 	mux.HandleFunc("/statistics/stats/top-positions", topPositionsHandler)
 	mux.HandleFunc("/statistics/stats/top-distance", topDistanceHandler)
 	mux.HandleFunc("/statistics/stats/user-counts", userCountsHandler)
@@ -303,6 +310,83 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
     })
     if len(counts) > 10 {
         counts = counts[:10]
+    }
+    
+    func topClassesHandler(w http.ResponseWriter, r *http.Request) {
+        days := parseDaysParam(r)
+        receiverID := parseReceiverIDParam(r)
+        
+        // Include receiver_id in cache key if specified
+        var cacheKey string
+        if receiverID > 0 {
+            cacheKey = fmt.Sprintf("top-classes:%dd:r%d", days, receiverID)
+        } else {
+            cacheKey = fmt.Sprintf("top-classes:%dd", days)
+        }
+    
+        var counts []classCount
+        if ok, _ := cacheGet(cacheKey, &counts); ok {
+            respondJSON(w, counts)
+            return
+        }
+    
+        // Build query with optional receiver_id filter
+        var qry string
+        if receiverID > 0 {
+            qry = fmt.Sprintf(`
+                SELECT ais_class AS vessel_class,
+                       COUNT(*)  AS cnt
+                  FROM state
+                 WHERE timestamp >= now() - INTERVAL '%d days'
+                   AND ais_class IS NOT NULL
+                   AND TRIM(ais_class) <> ''
+                   AND receiver_id = %d
+                 GROUP BY vessel_class
+            `, days, receiverID)
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT ais_class AS vessel_class,
+                       COUNT(*)  AS cnt
+                  FROM state
+                 WHERE timestamp >= now() - INTERVAL '%d days'
+                   AND ais_class IS NOT NULL
+                   AND TRIM(ais_class) <> ''
+                 GROUP BY vessel_class
+            `, days)
+        }
+    
+        shardResults, err := QueryDatabasesForAllShards(qry)
+        if err != nil {
+            respondError(w, err)
+            return
+        }
+    
+        agg := make(map[string]int)
+        for _, recs := range shardResults {
+            for _, rec := range recs {
+                class, _ := parseString(rec["vessel_class"])
+                if class == "" {
+                    continue
+                }
+                cnt, _ := parseInt(rec["cnt"])
+                agg[class] += cnt
+            }
+        }
+    
+        counts = make([]classCount, 0, len(agg))
+        for class, cnt := range agg {
+            counts = append(counts, classCount{Class: class, Count: cnt})
+        }
+    
+        sort.Slice(counts, func(i, j int) bool {
+            return counts[i].Count > counts[j].Count
+        })
+        if len(counts) > 10 {
+            counts = counts[:10]
+        }
+    
+        cacheSet(cacheKey, counts)
+        respondJSON(w, counts)
     }
 
     cacheSet(cacheKey, counts)
