@@ -2820,17 +2820,9 @@ socket.on("summaryData", (data) => {
     } else {
       // For a focused vessel, update only non-location/movement fields.
       if (userid === focusedVessel) {
-        // Save the current receiver information
-        const currentReceiverId = vesselData[userid].receiver_id;
-        const currentReceiverID = vesselData[userid].ReceiverID;
-        
         // Destructure to remove the location/movement fields.
-        const { Latitude, Longitude, Sog, Cog, TrueHeading, ReceiverID, ...nonLocationData } = vesselState;
+        const { Latitude, Longitude, Sog, Cog, TrueHeading, ...nonLocationData } = vesselState;
         Object.assign(vesselData[userid], nonLocationData);
-        
-        // Restore the receiver IDs to prevent flickering
-        if (currentReceiverId !== undefined) vesselData[userid].receiver_id = currentReceiverId;
-        if (currentReceiverID !== undefined) vesselData[userid].ReceiverID = currentReceiverID;
       } else {
         // Not in focus, so merge all fields.
         Object.assign(vesselData[userid], vesselState);
@@ -3169,23 +3161,6 @@ function updateVesselReceiverConnection(UserID) {
     receiverId = vessel.ReceiverID;
   }
   
-  // Add a stability mechanism for receiver selection
-  if (!vessel._stableReceiverId) {
-    vessel._stableReceiverId = receiverId;
-    vessel._lastReceiverChangeTime = Date.now();
-  } else if (receiverId !== vessel._stableReceiverId) {
-    // Only change the receiver if it's been consistent for at least 5 seconds
-    if (Date.now() - vessel._lastReceiverChangeTime > 5000) {
-      vessel._stableReceiverId = receiverId;
-    } else {
-      // Use the stable receiver ID instead
-      receiverId = vessel._stableReceiverId;
-    }
-  } else {
-    // Reset the timer when the same receiver is detected
-    vessel._lastReceiverChangeTime = Date.now();
-  }
-  
   // Check if we have a valid receiver ID and if that receiver exists
   if (receiverId !== null && receiverId !== undefined && receiverMarkers[receiverId]) {
     const vesselLatLng = [vessel.Latitude, vessel.Longitude];
@@ -3221,29 +3196,11 @@ function updateVesselReceiverConnection(UserID) {
         weight: 2,
         opacity: 0.7,
         dashArray: '5, 5',
-        renderer: L.canvas(), // Use canvas renderer for better performance
-        interactive: false // Disable mouse events for better performance
+        renderer: L.canvas() // Use canvas renderer for better performance
       }).addTo(map);
     } else {
       // Just update coordinates - no DOM changes
-      // Use a try-catch to prevent errors if the polyline was removed
-      try {
-        receiverPolyline.setLatLngs([vesselLatLng, receiverLatLng]);
-      } catch (e) {
-        console.warn("Error updating polyline, recreating:", e);
-        // If there was an error, recreate the polyline
-        if (map.hasLayer(receiverPolyline)) {
-          map.removeLayer(receiverPolyline);
-        }
-        receiverPolyline = L.polyline([vesselLatLng, receiverLatLng], {
-          color: 'grey',
-          weight: 2,
-          opacity: 0.7,
-          dashArray: '5, 5',
-          renderer: L.canvas(),
-          interactive: false
-        }).addTo(map);
-      }
+      receiverPolyline.setLatLngs([vesselLatLng, receiverLatLng]);
     }
     
     // Create or update the label with minimal DOM changes
