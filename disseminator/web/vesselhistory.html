@@ -1783,8 +1783,110 @@
         return timestamp >= timeFilter.startTime && timestamp <= timeFilter.endTime;
       });
       
-      // Update the map with filtered data
-      displayVesselTrack(filteredData);
+      // Update the map with filtered data but don't store as current data
+      displayVesselTrackFiltered(filteredData);
+    }
+    
+    // Display filtered vessel track on map without changing the original data
+    function displayVesselTrackFiltered(historyData) {
+      if (!historyData || !historyData.length) {
+        return;
+      }
+
+      // Clear existing layers
+      mapLayerGroup.clearLayers();
+      
+      // Prepare points with valid coordinates
+      const pts = historyData
+        .filter(r => {
+          const flat = flatten(r.Packet);
+          return flat.Latitude != null && flat.Longitude != null &&
+                 !isNaN(flat.Latitude) && !isNaN(flat.Longitude);
+        })
+        .map(r => {
+          const flat = flatten(r.Packet);
+          return {
+            lat: flat.Latitude,
+            lng: flat.Longitude,
+            timestamp: r.Timestamp,
+            record: r,
+            data: flat
+          };
+        });
+
+      if (!pts.length) {
+        console.log('No valid position data found');
+        return;
+      }
+      
+      // Sort points by timestamp (newest first)
+      pts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      
+      // Create colored track based on speed
+      const coloredTrack = createColoredTrack(pts);
+      coloredTrack.addTo(mapLayerGroup);
+      
+      // Tooltip options
+      const tooltipOpts = {
+        direction: 'top',
+        offset: [0, -6],
+        permanent: false,
+        sticky: true
+      };
+      
+      // Add tooltips to each segment in the colored track
+      coloredTrack.eachLayer(segment => {
+        segment.bindTooltip('', tooltipOpts);
+        
+        segment.on('mousemove', e => {
+          // Find the nearest point to where the mouse is
+          let minDist = Infinity, nearestPoint = null;
+          pts.forEach(pt => {
+            const ptLatLng = L.latLng(pt.lat, pt.lng);
+            const d = e.latlng.distanceTo(ptLatLng);
+            if (d < minDist) {
+              minDist = d;
+              nearestPoint = pt;
+            }
+          });
+          
+          if (nearestPoint) {
+            const html = makeTooltipHTML(nearestPoint);
+            segment.setTooltipContent(html);
+            segment.openTooltip(e.latlng);
+          }
+        });
+        
+        segment.on('mouseout', () => segment.closeTooltip());
+      });
+      
+      // Add markers at the first and last points with tooltips
+      const first = pts[pts.length - 1]; // Oldest point
+      const last = pts[0]; // Newest point
+      
+      const startMarker = L.marker([first.lat, first.lng], {
+        icon: L.divIcon({
+          className: 'start-marker',
+          html: '🔵',
+          iconSize: [20, 20],
+          iconAnchor: [10, 10]
+        })
+      }).addTo(mapLayerGroup);
+      startMarker.bindTooltip('Start: ' + new Date(first.timestamp).toLocaleString(), tooltipOpts);
+      
+      const endMarker = L.marker([last.lat, last.lng], {
+        icon: L.divIcon({
+          className: 'end-marker',
+          html: '🔴',
+          iconSize: [20, 20],
+          iconAnchor: [10, 10]
+        })
+      }).addTo(mapLayerGroup);
+      endMarker.bindTooltip('End: ' + new Date(last.timestamp).toLocaleString(), tooltipOpts);
+      
+      // Fit map to data
+      const latlngs = pts.map(p => [p.lat, p.lng]);
+      map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
     }
   </script>
 </body>
