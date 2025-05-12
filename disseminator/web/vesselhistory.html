@@ -420,6 +420,12 @@
             <span>40 kn</span>
           </div>
         </div>
+        <div class="map-controls mt-2">
+          <label class="d-flex align-items-center">
+            <input type="checkbox" id="seamap-toggle" checked>
+            <span class="ml-1" style="margin-left: 5px; font-size: 12px;">OpenSeaMap</span>
+          </label>
+        </div>
       </div>
       <div id="timestamp-overlay" class="timestamp-overlay"></div>
       <div class="replay-control">
@@ -859,13 +865,40 @@
     let map = null;
     let mapLayerGroup = null;
 
+    // Store OpenSeaMap layer globally
+    let openSeaMapLayer = null;
+    
     function initMap() {
       if (!map) {
         map = L.map('map-container').setView([0, 0], 2);
+        
+        // Add base OpenStreetMap layer
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
+        
+        // Add OpenSeaMap layer (enabled by default)
+        openSeaMapLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenSeaMap contributors'
+        }).addTo(map);
+        
+        // Add layer for vessel tracks and markers
         mapLayerGroup = L.layerGroup().addTo(map);
+        
+        // Add event listener for the OpenSeaMap toggle checkbox
+        document.getElementById('seamap-toggle').addEventListener('change', function(e) {
+          if (e.target.checked) {
+            // Add the OpenSeaMap layer if it's not already on the map
+            if (openSeaMapLayer && !map.hasLayer(openSeaMapLayer)) {
+              openSeaMapLayer.addTo(map);
+            }
+          } else {
+            // Remove the OpenSeaMap layer if it's on the map
+            if (openSeaMapLayer && map.hasLayer(openSeaMapLayer)) {
+              map.removeLayer(openSeaMapLayer);
+            }
+          }
+        });
       }
     }
 
