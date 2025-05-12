@@ -183,6 +183,22 @@
       align-items: center;
       gap: 5px;
     }
+    
+    /* Timestamp overlay styles */
+    .timestamp-overlay {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.5);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 3px;
+      z-index: 1000;
+      font-size: 14px;
+      font-weight: bold;
+      display: none;
+    }
     .replay-button {
       padding: 4px 8px;
       background-color: #4CAF50;
@@ -403,6 +419,7 @@
           </div>
         </div>
       </div>
+      <div id="timestamp-overlay" class="timestamp-overlay"></div>
       <div class="replay-control">
         <button id="replay-button" class="replay-button">
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
@@ -2560,6 +2577,13 @@
       // Create a layer group for receiver connection lines
       const connectionLayerGroup = L.layerGroup().addTo(mapLayerGroup);
       
+      // Show timestamp overlay with initial timestamp
+      const timestampOverlay = document.getElementById('timestamp-overlay');
+      if (timestampOverlay) {
+        timestampOverlay.textContent = new Date(pts[0].timestamp).toLocaleString();
+        timestampOverlay.style.display = 'block';
+      }
+      
       // Add receiver markers for receivers that heard this vessel
       addReceiverMarkers();
       
@@ -2754,6 +2778,12 @@
               }
             }
             
+            // Update timestamp overlay with current timestamp
+            const timestampOverlay = document.getElementById('timestamp-overlay');
+            if (timestampOverlay) {
+              timestampOverlay.textContent = new Date(currentPoint.timestamp).toLocaleString();
+            }
+            
             // Show connection to receiver if available
             connectionLayerGroup.clearLayers();
             const receiverId = currentPoint.record.ReceiverID;
@@ -2848,6 +2878,12 @@
       if (replayAnimationId) {
         cancelAnimationFrame(replayAnimationId);
         replayAnimationId = null;
+      }
+      
+      // Hide timestamp overlay
+      const timestampOverlay = document.getElementById('timestamp-overlay');
+      if (timestampOverlay) {
+        timestampOverlay.style.display = 'none';
       }
       
       // Remove tooltip
