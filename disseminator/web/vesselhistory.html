@@ -206,7 +206,7 @@
       </div>
       
       <div class="changes-table">
-        <h3>Navigational Status Changes</h3>
+        <h3>Status Changes</h3>
         <table id="status-changes" class="table table-striped table-bordered">
           <thead>
             <tr>
@@ -357,7 +357,7 @@
             },
             { key: 'AISClass', label: 'AIS Class' },
             { key: 'Type', label: 'Type', format: (val) => lookupShipType(val) },
-            { key: 'NavigationalStatus', label: 'Navigational Status', format: (val) => lookupNavStatus(val) },
+            { key: 'NavigationalStatus', label: 'Status', format: (val) => lookupNavStatus(val) },
             { key: 'Destination', label: 'Destination' },
             { key: 'MaximumStaticDraught', label: 'Max Draught', format: (val) => val ? `${val} m` : '' },
             {
@@ -455,11 +455,28 @@
         });
     }
 
-    // Initialize date selectors with default values (last 24 hours)
+    // Initialize date selectors with values from URL parameters or default to last 24 hours
     function initDateSelectors() {
-      const end = new Date();
-      const start = new Date(end);
-      start.setDate(start.getDate() - 1); // 1 day ago
+      // Try to get start and end from URL parameters
+      const startParam = getQueryParam('start');
+      const endParam = getQueryParam('end');
+      
+      let end, start;
+      
+      // If end parameter exists and is valid, use it; otherwise use current time
+      if (endParam && !isNaN(new Date(endParam).getTime())) {
+        end = new Date(endParam);
+      } else {
+        end = new Date();
+      }
+      
+      // If start parameter exists and is valid, use it; otherwise use 24 hours before end
+      if (startParam && !isNaN(new Date(startParam).getTime())) {
+        start = new Date(startParam);
+      } else {
+        start = new Date(end);
+        start.setDate(start.getDate() - 1); // 1 day ago
+      }
       
       document.getElementById('end').value = end.toISOString().slice(0, 16);
       document.getElementById('start').value = start.toISOString().slice(0, 16);
@@ -508,7 +525,7 @@
 
       const startTime = new Date(s).toISOString();
       const endTime = new Date(e).toISOString();
-      const limit = '2000';
+      const limit = 2000;
 
       try {
         // Make two separate calls for position and static messages
@@ -536,8 +553,22 @@
         const positionData = await positionResponse.json();
         const staticData = await staticResponse.json();
         
-        // Combine the results
-        return [...positionData, ...staticData];
+        // Check if either response has the same number of results as the limit
+        const positionCount = positionData.length;
+        const staticCount = staticData.length;
+        const combinedResults = [...positionData, ...staticData];
+        
+        // If either count matches the limit, show a warning
+        if (positionCount === limit || staticCount === limit) {
+          const warningDiv = document.getElementById('error');
+          warningDiv.textContent = `Warning: Some data may be missing. ${positionCount === limit ? 'Position' : ''} ${positionCount === limit && staticCount === limit ? 'and' : ''} ${staticCount === limit ? 'Static' : ''} data reached the limit of ${limit} records. Try reducing the time range.`;
+          warningDiv.style.display = 'block';
+        } else {
+          // Clear any previous warnings
+          document.getElementById('error').textContent = '';
+        }
+        
+        return combinedResults;
       } catch (err) {
         console.error('Error fetching vessel history:', err);
         alert('Failed to fetch vessel history data.');
@@ -975,6 +1006,22 @@
       
       // Set up event listeners
       document.getElementById('apply-btn').addEventListener('click', async () => {
+        // Update URL with current date range
+        const startInput = document.getElementById('start');
+        const endInput = document.getElementById('end');
+        
+        if (startInput.value && endInput.value) {
+          // Create a new URL object based on the current URL
+          const url = new URL(window.location.href);
+          
+          // Update or add the start and end parameters
+          url.searchParams.set('start', new Date(startInput.value).toISOString());
+          url.searchParams.set('end', new Date(endInput.value).toISOString());
+          
+          // Update the browser history without reloading the page
+          window.history.replaceState({}, '', url);
+        }
+        
         const historyData = await fetchVesselHistory();
         if (historyData) {
           displayVesselTrack(historyData);
