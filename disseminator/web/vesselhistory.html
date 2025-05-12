@@ -2658,17 +2658,16 @@
               currentMarker.setLatLng([currentPoint.lat, currentPoint.lng]);
             }
             
-            // Update tooltip
+            // Update tooltip position and content (but keep visibility state)
             if (replayTooltip) {
               replayTooltip.setLatLng([currentPoint.lat, currentPoint.lng]);
               try {
                 const tooltipContent = makeTooltipHTML(currentPoint);
                 replayTooltip.setContent(tooltipContent);
                 
-                // If tooltip was hidden and position changed, show it again
-                if (!tooltipVisible) {
-                  replayTooltip.getElement().style.display = '';
-                  tooltipVisible = true;
+                // Maintain visibility state
+                if (!tooltipVisible && replayTooltip.getElement()) {
+                  replayTooltip.getElement().style.display = 'none';
                 }
               } catch (e) {
                 console.error('Error updating tooltip content:', e);
