@@ -2444,6 +2444,7 @@
     let replayAnimationId = null;
     let replayTooltip = null;
     let replayPolyline = null;
+    let tooltipVisible = true; // Track tooltip visibility
     
     // Initialize replay button
     document.addEventListener('DOMContentLoaded', () => {
@@ -2562,6 +2563,24 @@
         .setLatLng([pts[0].lat, pts[0].lng])
         .setContent(tooltipContent)
         .addTo(map);
+        
+        // Add click handler to map to toggle tooltip visibility
+        map.on('click', toggleTooltipVisibility);
+        
+        // Function to toggle tooltip visibility
+        function toggleTooltipVisibility() {
+          if (replayTooltip) {
+            if (tooltipVisible) {
+              // Hide tooltip
+              replayTooltip.getElement().style.display = 'none';
+              tooltipVisible = false;
+            } else {
+              // Show tooltip
+              replayTooltip.getElement().style.display = '';
+              tooltipVisible = true;
+            }
+          }
+        }
       } catch (e) {
         console.error('Error creating tooltip:', e);
         // Continue without tooltip if there's an error
@@ -2645,6 +2664,12 @@
               try {
                 const tooltipContent = makeTooltipHTML(currentPoint);
                 replayTooltip.setContent(tooltipContent);
+                
+                // If tooltip was hidden and position changed, show it again
+                if (!tooltipVisible) {
+                  replayTooltip.getElement().style.display = '';
+                  tooltipVisible = true;
+                }
               } catch (e) {
                 console.error('Error updating tooltip content:', e);
                 // Use a simple fallback tooltip content
@@ -2752,6 +2777,10 @@
           console.error('Error removing tooltip:', e);
         }
         replayTooltip = null;
+        tooltipVisible = true; // Reset tooltip visibility state
+        
+        // Remove map click handler
+        map.off('click', toggleTooltipVisibility);
       }
       
       // Redisplay the full track if we have data
