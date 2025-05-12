@@ -6,6 +6,8 @@
   "db_user": "new_user",
   "db_pass": "password",
   "db_name": "mydatabase",
+  "redis_host": "127.0.0.1",
+  "redis_port": 6379,
   "listen_port": 5000,
   "socketio_listen": 4000,
   "description": "Shard 0 collector",

@@ -4,6 +4,7 @@ package main
 
 import (
     "bytes"
+    "context"
     "database/sql"
     "encoding/json"
     "flag"
@@ -19,6 +20,7 @@ import (
     "math"
 
     _ "github.com/lib/pq"
+    "github.com/redis/go-redis/v9"
 
     // SOCKET.IO / ENGINE.IO
     engine "github.com/zishang520/engine.io/v2/engine"
@@ -46,10 +48,14 @@ type Settings struct {
     MinimumDistance       float64  `json:"minimum_distance"`
     TimeFiltersRaw        map[string]string  `json:"time_filters"`  // JSON holds strings ("1h", "30m", …)
     ReceiversBaseURL      string   `json:"receivers_base_url"`      // URL for fetching receiver data
+    RedisHost             string   `json:"redis_host"`              // Redis server host
+    RedisPort             int      `json:"redis_port"`              // Redis server port
 }
 
 var settings *Settings
 var db *sql.DB
+var redisClient *redis.Client
+var ctx = context.Background()
 
 // Map to store IP address to receiver ID mapping and receiver location data
 var (
@@ -75,19 +81,31 @@ var movementMsgTypes = map[int]struct{}{
 }
 
 var (
-	lastPosMu       sync.Mutex
-	lastPositions   = make(map[int]Position)   // userID → last seen lat/lon
-	minimumDistance float64                    // in meters, loaded from settings
+	minimumDistance float64  // in meters, loaded from settings
 )
 
+// In-memory fallbacks when Redis is unavailable
 var (
+	lastPosMu       sync.Mutex
+	lastPositions   = make(map[int]Position)   // userID → last seen lat/lon
+	
 	lastNavStatusMu       sync.Mutex
 	lastNavigationalStatus = make(map[int]float64)  // userID → last NavigationalStatus
+	
+	// Track Redis availability to know when to sync in-memory data
+	redisAvailableMu sync.Mutex
+	redisWasUnavailable bool = false
 )
 
 var (
 	lastTimeMu   sync.Mutex
 	lastTimeSeen = make(map[int]map[int]time.Time)
+)
+
+// Redis key prefixes
+const (
+	positionKeyPrefix = "collector:position:"
+	navStatusKeyPrefix = "collector:navstatus:"
 )
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
@@ -178,6 +196,12 @@ func main() {
     if err != nil {
         log.Fatalf("Invalid time_filters in settings: %v", err)
     }
+    
+    // Initialize Redis client
+    initRedisClient()
+    
+    // Start Redis connection monitoring in background
+    go monitorRedisConnection()
 
     go startHTTPServer()
     go startSocketIOServer()
@@ -698,13 +722,72 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
     
     // Check for NavigationalStatus change
     if navStatus, hasNavStatus := packetMap["NavigationalStatus"].(float64); hasNavStatus {
-        lastNavStatusMu.Lock()
-        prevNavStatus, seenBefore := lastNavigationalStatus[userID]
-        if !seenBefore || prevNavStatus != navStatus {
-            lastNavigationalStatus[userID] = navStatus
-            navStatusChanged = true
+        // Create a key for this vessel's NavigationalStatus in Redis
+        navStatusKey := fmt.Sprintf("%s%d:%d", navStatusKeyPrefix, message.ShardID, userID)
+        
+        // Try to get previous NavigationalStatus from Redis
+        prevNavStatusStr, err := redisClient.Get(ctx, navStatusKey).Result()
+        
+        if err == redis.Nil {
+            // Key doesn't exist - first time seeing this vessel's NavigationalStatus in Redis
+            
+            // Check in-memory fallback
+            lastNavStatusMu.Lock()
+            prevNavStatus, seenBefore := lastNavigationalStatus[userID]
+            
+            if !seenBefore || prevNavStatus != navStatus {
+                navStatusChanged = true
+                lastNavigationalStatus[userID] = navStatus
+            }
+            lastNavStatusMu.Unlock()
+            
+            // Store the new NavigationalStatus in Redis
+            if err := redisClient.Set(ctx, navStatusKey, fmt.Sprintf("%f", navStatus), 0).Err(); err != nil && settings.Debug {
+                log.Printf("Warning: Failed to store NavigationalStatus in Redis: %v", err)
+            }
+        } else if err != nil {
+            // Redis error - fall back to in-memory comparison
+            if settings.Debug {
+                log.Printf("Warning: Redis error when getting NavigationalStatus: %v", err)
+            }
+            
+            // Mark Redis as unavailable for later sync
+            redisAvailableMu.Lock()
+            redisWasUnavailable = true
+            redisAvailableMu.Unlock()
+            
+            // Use in-memory fallback
+            lastNavStatusMu.Lock()
+            prevNavStatus, seenBefore := lastNavigationalStatus[userID]
+            if !seenBefore || prevNavStatus != navStatus {
+                navStatusChanged = true
+                lastNavigationalStatus[userID] = navStatus
+            }
+            lastNavStatusMu.Unlock()
+        } else {
+            // Key exists - compare with current NavigationalStatus
+            prevNavStatus, err := strconv.ParseFloat(prevNavStatusStr, 64)
+            if err != nil {
+                log.Printf("Warning: Invalid NavigationalStatus in Redis: %v", err)
+            } else if prevNavStatus != navStatus {
+                navStatusChanged = true
+                
+                // Update the NavigationalStatus in Redis
+                if err := redisClient.Set(ctx, navStatusKey, fmt.Sprintf("%f", navStatus), 0).Err(); err != nil && settings.Debug {
+                    log.Printf("Warning: Failed to update NavigationalStatus in Redis: %v", err)
+                }
+                
+                // Also update in-memory
+                lastNavStatusMu.Lock()
+                lastNavigationalStatus[userID] = navStatus
+                lastNavStatusMu.Unlock()
+            } else {
+                // Update in-memory even if unchanged
+                lastNavStatusMu.Lock()
+                lastNavigationalStatus[userID] = navStatus
+                lastNavStatusMu.Unlock()
+            }
         }
-        lastNavStatusMu.Unlock()
     }
     
     if _, isMovement := movementMsgTypes[mid]; isMovement {
@@ -713,20 +796,93 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
         if !lok || !lok2 {
             shouldInsert = false
         } else {
-            lastPosMu.Lock()
-            prevPos, seenBefore := lastPositions[userID]
-            var dist float64
-            if !seenBefore {
-                lastPositions[userID] = Position{Lat: lat, Lon: lon}
-            } else {
-                dist = haversine(prevPos.Lat, prevPos.Lon, lat, lon)
-                if dist >= minimumDistance {
+            // Create a key for this vessel's position in Redis
+            posKey := fmt.Sprintf("%s%d:%d", positionKeyPrefix, message.ShardID, userID)
+            
+            // Try to get previous position from Redis
+            posData, err := redisClient.Get(ctx, posKey).Result()
+            
+            if err == redis.Nil {
+                // Key doesn't exist - first time seeing this vessel in Redis
+                
+                // Check in-memory fallback
+                lastPosMu.Lock()
+                prevPos, seenBefore := lastPositions[userID]
+                
+                if !seenBefore {
+                    // First time seeing this vessel anywhere
                     lastPositions[userID] = Position{Lat: lat, Lon: lon}
                 } else {
-                    shouldInsert = false
+                    // We've seen it in memory but not in Redis
+                    dist := haversine(prevPos.Lat, prevPos.Lon, lat, lon)
+                    if dist >= minimumDistance {
+                        lastPositions[userID] = Position{Lat: lat, Lon: lon}
+                    } else {
+                        shouldInsert = false
+                    }
+                }
+                lastPosMu.Unlock()
+                
+                // Store the new position in Redis
+                newPos := Position{Lat: lat, Lon: lon}
+                posJSON, _ := json.Marshal(newPos)
+                if err := redisClient.Set(ctx, posKey, posJSON, 0).Err(); err != nil && settings.Debug {
+                    log.Printf("Warning: Failed to store position in Redis: %v", err)
+                }
+            } else if err != nil {
+                // Redis error - fall back to in-memory position tracking
+                if settings.Debug {
+                    log.Printf("Warning: Redis error when getting position: %v", err)
+                }
+                
+                // Mark Redis as unavailable for later sync
+                redisAvailableMu.Lock()
+                redisWasUnavailable = true
+                redisAvailableMu.Unlock()
+                
+                // Use in-memory fallback
+                lastPosMu.Lock()
+                prevPos, seenBefore := lastPositions[userID]
+                if !seenBefore {
+                    lastPositions[userID] = Position{Lat: lat, Lon: lon}
+                } else {
+                    dist := haversine(prevPos.Lat, prevPos.Lon, lat, lon)
+                    if dist >= minimumDistance {
+                        lastPositions[userID] = Position{Lat: lat, Lon: lon}
+                    } else {
+                        shouldInsert = false
+                    }
+                }
+                lastPosMu.Unlock()
+            } else {
+                // Key exists - compare with current position
+                var prevPos Position
+                if err := json.Unmarshal([]byte(posData), &prevPos); err != nil {
+                    log.Printf("Warning: Invalid position data in Redis: %v", err)
+                } else {
+                    dist := haversine(prevPos.Lat, prevPos.Lon, lat, lon)
+                    if dist >= minimumDistance {
+                        // Update position in Redis
+                        newPos := Position{Lat: lat, Lon: lon}
+                        posJSON, _ := json.Marshal(newPos)
+                        if err := redisClient.Set(ctx, posKey, posJSON, 0).Err(); err != nil && settings.Debug {
+                            log.Printf("Warning: Failed to update position in Redis: %v", err)
+                        }
+                        
+                        // Also update in-memory
+                        lastPosMu.Lock()
+                        lastPositions[userID] = Position{Lat: lat, Lon: lon}
+                        lastPosMu.Unlock()
+                    } else {
+                        shouldInsert = false
+                        
+                        // Update in-memory even if unchanged
+                        lastPosMu.Lock()
+                        lastPositions[userID] = Position{Lat: lat, Lon: lon}
+                        lastPosMu.Unlock()
+                    }
                 }
             }
-            lastPosMu.Unlock()
         }
     }
     
@@ -1033,5 +1189,131 @@ func connectToIngester(host string, port int, debug bool) (net.Conn, error) {
             log.Printf("Successfully connected to ingester at %s", addr)
         }
         return conn, nil
+    }
+}
+
+// Initialize Redis client
+func initRedisClient() {
+    redisClient = redis.NewClient(&redis.Options{
+        Addr:     fmt.Sprintf("%s:%d", settings.RedisHost, settings.RedisPort),
+        Password: "", // no password set
+        DB:       0,  // use default DB
+    })
+    
+    // Test Redis connection
+    _, err := redisClient.Ping(ctx).Result()
+    if err != nil {
+        log.Printf("Warning: Could not connect to Redis: %v", err)
+        log.Println("Position and NavigationalStatus tracking will be less reliable across restarts")
+    } else if settings.Debug {
+        log.Println("Connected to Redis successfully")
+    }
+}
+
+// Monitor Redis connection and attempt to reconnect if it fails
+func monitorRedisConnection() {
+    var redisConnected bool
+    
+    // Initial connection check
+    if _, err := redisClient.Ping(ctx).Result(); err != nil {
+        redisConnected = false
+    } else {
+        redisConnected = true
+    }
+    
+    ticker := time.NewTicker(30 * time.Second)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        // Check if Redis is connected
+        _, err := redisClient.Ping(ctx).Result()
+        
+        if err != nil && redisConnected {
+            // Connection was lost
+            log.Printf("Lost connection to Redis: %v", err)
+            redisConnected = false
+        } else if err == nil && !redisConnected {
+            // Connection was restored
+            log.Println("Redis connection restored")
+            redisConnected = true
+            
+            // Check if we need to sync in-memory data to Redis
+            redisAvailableMu.Lock()
+            needsSync := redisWasUnavailable
+            redisWasUnavailable = false
+            redisAvailableMu.Unlock()
+            
+            if needsSync {
+                go syncInMemoryToRedis()
+            }
+        } else if err != nil && !redisConnected {
+            // Still disconnected, try to reconnect
+            log.Printf("Attempting to reconnect to Redis...")
+            initRedisClient()
+            
+            // Check if reconnection was successful
+            if _, err := redisClient.Ping(ctx).Result(); err == nil {
+                log.Println("Successfully reconnected to Redis")
+                redisConnected = true
+                
+                // Check if we need to sync in-memory data to Redis
+                redisAvailableMu.Lock()
+                needsSync := redisWasUnavailable
+                redisWasUnavailable = false
+                redisAvailableMu.Unlock()
+                
+                if needsSync {
+                    go syncInMemoryToRedis()
+                }
+            }
+        }
+    }
+}
+
+// Sync in-memory position and NavigationalStatus data to Redis
+func syncInMemoryToRedis() {
+    if settings.Debug {
+        log.Println("Syncing in-memory data to Redis...")
+    }
+    
+    // Sync positions
+    lastPosMu.Lock()
+    posCount := 0
+    for userID, pos := range lastPositions {
+        // For each shard (since we don't know which shard the userID belongs to)
+        for _, shardID := range settings.Shards {
+            posKey := fmt.Sprintf("%s%d:%d", positionKeyPrefix, shardID, userID)
+            posJSON, _ := json.Marshal(pos)
+            if err := redisClient.Set(ctx, posKey, posJSON, 0).Err(); err != nil {
+                if settings.Debug {
+                    log.Printf("Warning: Failed to sync position for user %d to Redis: %v", userID, err)
+                }
+            } else {
+                posCount++
+            }
+        }
+    }
+    lastPosMu.Unlock()
+    
+    // Sync NavigationalStatus
+    lastNavStatusMu.Lock()
+    navCount := 0
+    for userID, navStatus := range lastNavigationalStatus {
+        // For each shard (since we don't know which shard the userID belongs to)
+        for _, shardID := range settings.Shards {
+            navStatusKey := fmt.Sprintf("%s%d:%d", navStatusKeyPrefix, shardID, userID)
+            if err := redisClient.Set(ctx, navStatusKey, fmt.Sprintf("%f", navStatus), 0).Err(); err != nil {
+                if settings.Debug {
+                    log.Printf("Warning: Failed to sync NavigationalStatus for user %d to Redis: %v", userID, err)
+                }
+            } else {
+                navCount++
+            }
+        }
+    }
+    lastNavStatusMu.Unlock()
+    
+    if settings.Debug {
+        log.Printf("Synced %d positions and %d NavigationalStatus values to Redis", posCount, navCount)
     }
 }
