@@ -2450,6 +2450,7 @@
       const historyData = window.currentHistoryData;
       if (!historyData || !historyData.length) {
         console.log('No data to replay');
+        alert('No data available to replay');
         return;
       }
       
@@ -2457,7 +2458,7 @@
       const pts = historyData
         .filter(r => {
           const flat = flatten(r.Packet);
-          return flat.Latitude != null && flat.Longitude != null &&
+          return flat && flat.Latitude != null && flat.Longitude != null &&
                  !isNaN(flat.Latitude) && !isNaN(flat.Longitude);
         })
         .map(r => {
@@ -2473,6 +2474,7 @@
       
       if (!pts.length) {
         console.log('No valid position data found for replay');
+        alert('No valid position data found for replay');
         return;
       }
       
@@ -2503,6 +2505,13 @@
         opacity: 0.8
       }).addTo(mapLayerGroup);
       
+      // Ensure we have at least one valid point
+      if (!pts[0] || pts[0].lat === undefined || pts[0].lng === undefined) {
+        console.error('First point is invalid:', pts[0]);
+        finishReplay([]);
+        return;
+      }
+      
       // Create a marker for the current position
       const currentMarker = L.marker([pts[0].lat, pts[0].lng], {
         icon: L.divIcon({
@@ -2532,33 +2541,68 @@
       
       // Animation function
       function animate(currentTime) {
+        // Safety check - if replay was cancelled
+        if (!replayInProgress) {
+          return;
+        }
+        
         const elapsedTime = currentTime - startTime;
         const progress = Math.min(elapsedTime / totalDuration, 1);
         
         // Update progress bar
-        progressBar.style.width = `${progress * 100}%`;
+        if (progressBar) {
+          progressBar.style.width = `${progress * 100}%`;
+        }
         
-        if (progress < 1) {
-          // Calculate the current point index based on progress
-          const pointIndex = Math.min(
-            Math.floor(progress * pts.length),
-            pts.length - 1
-          );
-          
-          // Update polyline with points up to the current index
-          const currentPath = pts.slice(0, pointIndex + 1).map(p => [p.lat, p.lng]);
-          replayPolyline.setLatLngs(currentPath);
-          
-          // Update marker position
-          const currentPoint = pts[pointIndex];
-          currentMarker.setLatLng([currentPoint.lat, currentPoint.lng]);
-          
-          // Update tooltip
-          replayTooltip.setLatLng([currentPoint.lat, currentPoint.lng]);
-          replayTooltip.setContent(makeTooltipHTML(currentPoint));
-          
-          // Continue animation
-          replayAnimationId = requestAnimationFrame(animate);
+        if (progress < 1 && pts.length > 0) {
+          try {
+            // Calculate the current point index based on progress
+            const pointIndex = Math.min(
+              Math.floor(progress * pts.length),
+              pts.length - 1
+            );
+            
+            // Safety check - ensure pointIndex is valid
+            if (pointIndex < 0 || pointIndex >= pts.length) {
+              console.error('Invalid point index:', pointIndex, 'pts length:', pts.length);
+              finishReplay(pts);
+              return;
+            }
+            
+            // Get current point and verify it's valid
+            const currentPoint = pts[pointIndex];
+            if (!currentPoint || currentPoint.lat === undefined || currentPoint.lng === undefined) {
+              console.error('Invalid point at index:', pointIndex, currentPoint);
+              finishReplay(pts);
+              return;
+            }
+            
+            // Update polyline with points up to the current index
+            const currentPath = pts.slice(0, pointIndex + 1)
+              .filter(p => p && p.lat !== undefined && p.lng !== undefined)
+              .map(p => [p.lat, p.lng]);
+            
+            if (replayPolyline) {
+              replayPolyline.setLatLngs(currentPath);
+            }
+            
+            // Update marker position
+            if (currentMarker) {
+              currentMarker.setLatLng([currentPoint.lat, currentPoint.lng]);
+            }
+            
+            // Update tooltip
+            if (replayTooltip) {
+              replayTooltip.setLatLng([currentPoint.lat, currentPoint.lng]);
+              replayTooltip.setContent(makeTooltipHTML(currentPoint));
+            }
+            
+            // Continue animation
+            replayAnimationId = requestAnimationFrame(animate);
+          } catch (error) {
+            console.error('Error during replay animation:', error);
+            finishReplay(pts);
+          }
         } else {
           // Animation complete
           finishReplay(pts);
@@ -2572,31 +2616,47 @@
     function finishReplay(pts) {
       // Reset UI
       const replayButton = document.getElementById('replay-button');
-      replayButton.disabled = false;
-      replayButton.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
-          <path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
-        </svg>
-        Replay
-      `;
+      if (replayButton) {
+        replayButton.disabled = false;
+        replayButton.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+          </svg>
+          Replay
+        `;
+      }
       
       // Reset progress bar
       const progressBar = document.getElementById('replay-progress');
-      progressBar.style.width = '0%';
+      if (progressBar) {
+        progressBar.style.width = '0%';
+      }
       
       // Clean up
       replayInProgress = false;
-      cancelAnimationFrame(replayAnimationId);
-      replayAnimationId = null;
+      if (replayAnimationId) {
+        cancelAnimationFrame(replayAnimationId);
+        replayAnimationId = null;
+      }
       
       // Remove tooltip
       if (replayTooltip) {
-        map.removeLayer(replayTooltip);
+        try {
+          map.removeLayer(replayTooltip);
+        } catch (e) {
+          console.error('Error removing tooltip:', e);
+        }
         replayTooltip = null;
       }
       
-      // Redisplay the full track
-      displayVesselTrack(window.currentHistoryData);
+      // Redisplay the full track if we have data
+      if (window.currentHistoryData && window.currentHistoryData.length > 0) {
+        try {
+          displayVesselTrack(window.currentHistoryData);
+        } catch (e) {
+          console.error('Error redisplaying track:', e);
+        }
+      }
     }
   </script>
 </body>
