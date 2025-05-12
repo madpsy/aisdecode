@@ -188,10 +188,16 @@
             { key: 'UserID', label: 'MMSI' },
             { key: 'Name', label: 'Name' },
             { key: 'CallSign', label: 'Call Sign' },
-            { key: 'ImoNumber', label: 'IMO Number' },
+            {
+              key: 'ImoNumber',
+              label: 'IMO Number',
+              // Treat IMO Number = 0 as empty
+              checkValue: (val) => val !== undefined && val !== null && val !== '' && val !== 0
+            },
             { key: 'AISClass', label: 'AIS Class' },
             { key: 'Type', label: 'Type', format: (val) => lookupShipType(val) },
             { key: 'NavigationalStatus', label: 'Navigational Status', format: (val) => lookupNavStatus(val) },
+            { key: 'Destination', label: 'Destination' },
             { key: 'MaximumStaticDraught', label: 'Max Draught', format: (val) => val ? `${val} m` : '' },
             {
               key: 'Dimension',
@@ -218,9 +224,10 @@
           fieldsToDisplay.forEach(field => {
             // Special case for NavigationalStatus which might not exist but we still want to show
             const shouldDisplay = field.key === 'NavigationalStatus' ||
-                                 (data[field.key] !== undefined &&
-                                  data[field.key] !== null &&
-                                  data[field.key] !== '');
+                                 (field.checkValue ? field.checkValue(data[field.key]) :
+                                  (data[field.key] !== undefined &&
+                                   data[field.key] !== null &&
+                                   data[field.key] !== ''));
             
             if (shouldDisplay) {
               const row = document.createElement('tr');
