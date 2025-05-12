@@ -263,6 +263,10 @@
       fetch(`/state?UserID=${userID}`, { cache: 'no-store' })
         .then(response => response.json())
         .then(data => {
+          // Store AIS class globally for use in fetchVesselHistory
+          vesselAisClass = data.AISClass || '';
+          console.log('Vessel AIS Class:', vesselAisClass);
+          
           // Update page title with vessel name if available
           if (data.Name) {
             document.getElementById('main-title').textContent = `Vessel History: ${data.Name.trim()}`;
@@ -441,27 +445,53 @@
       }
 
       // Determine message types based on AIS Class
-      let messageTypes = [];
+      let positionMessageTypes = [];
+      let staticMessageTypes = [];
+      
       if (vesselAisClass === 'A') {
-        messageTypes = ['1', '2', '3', '5']; // Class A: position (1,2,3) and static (5)
+        positionMessageTypes = ['1', '2', '3']; // Class A position messages
+        staticMessageTypes = ['5'];             // Class A static messages
       } else if (vesselAisClass === 'B') {
-        messageTypes = ['18', '19', '24']; // Class B: position (18,19) and static (24)
+        positionMessageTypes = ['18', '19'];    // Class B position messages
+        staticMessageTypes = ['24'];            // Class B static messages
       } else {
         // Default to both types if AIS class is unknown
-        messageTypes = ['1', '2', '3', '5', '18', '19', '24'];
+        positionMessageTypes = ['1', '2', '3', '18', '19']; // All position messages
+        staticMessageTypes = ['5', '24'];                   // All static messages
       }
 
-      const params = new URLSearchParams({
-        UserID: userID,
-        MessageID: messageTypes.join(','),
-        start: new Date(s).toISOString(),
-        end: new Date(e).toISOString(),
-        limit: '2000'
-      });
+      const startTime = new Date(s).toISOString();
+      const endTime = new Date(e).toISOString();
+      const limit = '2000';
 
       try {
-        const response = await fetch(`/latestmessages?${params}`, {cache: 'no-store'});
-        return await response.json();
+        // Make two separate calls for position and static messages
+        const [positionResponse, staticResponse] = await Promise.all([
+          // Position messages call
+          fetch(`/latestmessages?${new URLSearchParams({
+            UserID: userID,
+            MessageID: positionMessageTypes.join(','),
+            start: startTime,
+            end: endTime,
+            limit: limit
+          })}`, {cache: 'no-store'}),
+          
+          // Static messages call
+          fetch(`/latestmessages?${new URLSearchParams({
+            UserID: userID,
+            MessageID: staticMessageTypes.join(','),
+            start: startTime,
+            end: endTime,
+            limit: limit
+          })}`, {cache: 'no-store'})
+        ]);
+
+        // Parse both responses
+        const positionData = await positionResponse.json();
+        const staticData = await staticResponse.json();
+        
+        // Combine the results
+        return [...positionData, ...staticData];
       } catch (err) {
         console.error('Error fetching vessel history:', err);
         alert('Failed to fetch vessel history data.');
@@ -859,22 +889,7 @@
       });
     });
 
-    // Store AIS class when loading vessel data
-    const originalLoadVesselData = loadVesselData;
-    loadVesselData = function() {
-      originalLoadVesselData();
-      
-      // After vessel data is loaded, store the AIS class
-      fetch(`/state?UserID=${userID}`, { cache: 'no-store' })
-        .then(response => response.json())
-        .then(data => {
-          vesselAisClass = data.AISClass || '';
-          console.log('Vessel AIS Class:', vesselAisClass);
-        })
-        .catch(err => {
-          console.error('Error fetching vessel AIS class:', err);
-        });
-    };
+    // Store vessel AIS class globally - moved to loadVesselData function
   </script>
 </body>
 </html>
