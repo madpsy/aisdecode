@@ -2507,6 +2507,9 @@
       // Create a layer group for receiver connection lines
       const connectionLayerGroup = L.layerGroup().addTo(mapLayerGroup);
       
+      // Add receiver markers for receivers that heard this vessel
+      addReceiverMarkers();
+      
       // Ensure we have at least one valid point
       if (!pts[0] || pts[0].lat === undefined || pts[0].lng === undefined) {
         console.error('First point is invalid:', pts[0]);
@@ -2743,6 +2746,46 @@
           console.error('Error redisplaying track:', e);
         }
       }
+    }
+    
+    // Function to add receiver markers to the map
+    function addReceiverMarkers() {
+      // Get the vessel data to find which receivers heard it
+      fetch(`/state?UserID=${userID}`, { cache: 'no-store' })
+        .then(response => response.json())
+        .then(data => {
+          if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
+            // Filter receivers to only those that heard this vessel
+            const relevantReceivers = receiversData.filter(receiver =>
+              data.ReceiverIDs.includes(receiver.id)
+            );
+            
+            // Add a marker for each receiver
+            relevantReceivers.forEach(receiver => {
+              if (receiver.latitude && receiver.longitude) {
+                // Create a red circle marker for the receiver
+                const receiverMarker = L.circleMarker([receiver.latitude, receiver.longitude], {
+                  radius: 6,
+                  color: 'red',
+                  fillColor: '#f03',
+                  fillOpacity: 0.8,
+                  weight: 2
+                }).addTo(mapLayerGroup);
+                
+                // Add a permanent tooltip with the receiver name
+                receiverMarker.bindTooltip(receiver.name, {
+                  permanent: true,
+                  direction: 'top',
+                  offset: [0, -10],
+                  className: 'receiver-tooltip'
+                }).openTooltip();
+              }
+            });
+          }
+        })
+        .catch(err => {
+          console.error('Error fetching vessel data for receiver markers:', err);
+        });
     }
   </script>
 </body>
