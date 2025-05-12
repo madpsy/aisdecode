@@ -1956,15 +1956,19 @@
               endTime: endTime
             };
             
-            // Create the selection window
-            const container = document.getElementById('message-histogram');
-            createSelectionWindow(container,
-              new Date(historyData[0].Timestamp),
-              new Date(historyData[historyData.length - 1].Timestamp)
-            );
-            
-            // Apply the filter to the map
-            applyTimeFilter(historyData);
+            // Add a small delay to ensure the histogram is fully rendered
+            setTimeout(() => {
+              // Get the actual data time range from the histogram
+              const container = document.getElementById('message-histogram');
+              const histogramStartTime = container.dataset.startTime ? new Date(container.dataset.startTime) : new Date(historyData[0].Timestamp);
+              const histogramEndTime = container.dataset.endTime ? new Date(container.dataset.endTime) : new Date(historyData[historyData.length - 1].Timestamp);
+              
+              // Create the selection window
+              createSelectionWindow(container, histogramStartTime, histogramEndTime);
+              
+              // Apply the filter to the map
+              applyTimeFilter(historyData);
+            }, 100);
           }
         } catch (e) {
           console.error('Error restoring time filter from URL:', e);
