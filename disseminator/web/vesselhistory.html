@@ -202,6 +202,7 @@
     /* Distance overlay always at top */
     .distance-overlay {
       top: 10px;
+      display: block; /* Always visible */
     }
     
     /* Timestamp overlay below distance overlay */
@@ -1159,6 +1160,11 @@
       return html;
     }
     
+    // Helper function to convert meters to nautical miles
+    function metersToNauticalMiles(meters) {
+      return (meters / 1852).toFixed(2); // 1 nautical mile = 1852 meters
+    }
+    
     // Display vessel track on map
     function displayVesselTrack(historyData) {
       if (!historyData || !historyData.length) {
@@ -1196,6 +1202,31 @@
       
       // Sort points by timestamp (newest first)
       pts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      
+      // Calculate total distance between start and end points
+      if (pts.length >= 2) {
+        const first = pts[pts.length - 1]; // Oldest point
+        const last = pts[0]; // Newest point
+        
+        // Calculate direct distance between first and last points
+        const startPoint = L.latLng(first.lat, first.lng);
+        const endPoint = L.latLng(last.lat, last.lng);
+        const directDistance = startPoint.distanceTo(endPoint);
+        
+        // Calculate total path distance
+        let pathDistance = 0;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const pt1 = L.latLng(pts[i].lat, pts[i].lng);
+          const pt2 = L.latLng(pts[i+1].lat, pts[i+1].lng);
+          pathDistance += pt1.distanceTo(pt2);
+        }
+        
+        // Update distance overlay with total path distance in nautical miles
+        const distanceOverlay = document.getElementById('distance-overlay');
+        if (distanceOverlay) {
+          distanceOverlay.textContent = `Total Distance: ${metersToNauticalMiles(pathDistance)} NM`;
+        }
+      }
       
       // Create colored track based on speed
       const coloredTrack = createColoredTrack(pts);
@@ -2525,6 +2556,31 @@
       // Sort points by timestamp (newest first)
       pts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       
+      // Calculate total distance between start and end points
+      if (pts.length >= 2) {
+        const first = pts[pts.length - 1]; // Oldest point
+        const last = pts[0]; // Newest point
+        
+        // Calculate direct distance between first and last points
+        const startPoint = L.latLng(first.lat, first.lng);
+        const endPoint = L.latLng(last.lat, last.lng);
+        const directDistance = startPoint.distanceTo(endPoint);
+        
+        // Calculate total path distance
+        let pathDistance = 0;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const pt1 = L.latLng(pts[i].lat, pts[i].lng);
+          const pt2 = L.latLng(pts[i+1].lat, pts[i+1].lng);
+          pathDistance += pt1.distanceTo(pt2);
+        }
+        
+        // Update distance overlay with total path distance in nautical miles
+        const distanceOverlay = document.getElementById('distance-overlay');
+        if (distanceOverlay) {
+          distanceOverlay.textContent = `Total Distance: ${metersToNauticalMiles(pathDistance)} NM`;
+        }
+      }
+      
       // Create colored track based on speed
       const coloredTrack = createColoredTrack(pts);
       coloredTrack.addTo(mapLayerGroup);
@@ -2884,8 +2940,8 @@
         const pt2 = L.latLng(pts[i+1].lat, pts[i+1].lng);
         totalDistance += pt1.distanceTo(pt2);
       }
-      // Convert to kilometers and round to 2 decimal places
-      totalDistance = (totalDistance / 1000).toFixed(2);
+      // Convert to nautical miles and round to 2 decimal places
+      totalDistance = metersToNauticalMiles(totalDistance);
       
       // Reset current distance
       currentDistance = 0;
@@ -2915,11 +2971,10 @@
       // Create a layer group for receiver connection lines
       const connectionLayerGroup = L.layerGroup().addTo(mapLayerGroup);
       
-      // Show distance overlay with initial distance (0 km)
+      // Show distance overlay with initial distance (0 NM)
       const distanceOverlay = document.getElementById('distance-overlay');
       if (distanceOverlay) {
-        distanceOverlay.textContent = `Distance: 0.00 km / ${totalDistance} km`;
-        distanceOverlay.style.display = 'block';
+        distanceOverlay.textContent = `Distance: 0.00 NM / ${totalDistance} NM`;
       }
       
       // Show timestamp overlay with initial timestamp
@@ -3066,13 +3121,13 @@
               const pt2 = L.latLng(pts[i+1].lat, pts[i+1].lng);
               currentDistance += pt1.distanceTo(pt2);
             }
-            // Convert to kilometers and round to 2 decimal places
-            const currentDistanceKm = (currentDistance / 1000).toFixed(2);
+            // Convert to nautical miles
+            const currentDistanceNM = metersToNauticalMiles(currentDistance);
             
             // Update distance overlay
             const distanceOverlay = document.getElementById('distance-overlay');
             if (distanceOverlay) {
-              distanceOverlay.textContent = `Distance: ${currentDistanceKm} km / ${totalDistance} km`;
+              distanceOverlay.textContent = `Distance: ${currentDistanceNM} NM / ${totalDistance} NM`;
             }
             
             // Add segments that haven't been added yet
@@ -3241,10 +3296,36 @@
         replayAnimationId = null;
       }
       
-      // Hide distance and timestamp overlays
+      // Reset distance overlay to show total path distance
       const distanceOverlay = document.getElementById('distance-overlay');
-      if (distanceOverlay) {
-        distanceOverlay.style.display = 'none';
+      if (distanceOverlay && window.currentHistoryData && window.currentHistoryData.length > 0) {
+        // Recalculate total path distance
+        const pts = window.currentHistoryData
+          .filter(r => {
+            const flat = flatten(r.Packet);
+            return flat.Latitude != null && flat.Longitude != null &&
+                   !isNaN(flat.Latitude) && !isNaN(flat.Longitude);
+          })
+          .map(r => {
+            const flat = flatten(r.Packet);
+            return {
+              lat: flat.Latitude,
+              lng: flat.Longitude
+            };
+          });
+          
+        if (pts.length >= 2) {
+          // Calculate total path distance
+          let pathDistance = 0;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const pt1 = L.latLng(pts[i].lat, pts[i].lng);
+            const pt2 = L.latLng(pts[i+1].lat, pts[i+1].lng);
+            pathDistance += pt1.distanceTo(pt2);
+          }
+          
+          // Update distance overlay with total path distance in nautical miles
+          distanceOverlay.textContent = `Total Distance: ${metersToNauticalMiles(pathDistance)} NM`;
+        }
       }
       
       const timestampOverlay = document.getElementById('timestamp-overlay');
