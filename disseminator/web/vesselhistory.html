@@ -2556,6 +2556,25 @@
         return;
       }
       
+      // Pre-calculate all polyline segments for better performance
+      const segments = [];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const pt1 = pts[i];
+        const pt2 = pts[i + 1];
+        
+        if (pt1 && pt2 && pt1.lat !== undefined && pt1.lng !== undefined &&
+            pt2.lat !== undefined && pt2.lng !== undefined) {
+          // Use the speed of the first point for the color
+          const speed = pt1.data.Sog != null ? pt1.data.Sog : 0;
+          const color = getColorForSpeed(speed);
+          
+          segments.push({
+            points: [[pt1.lat, pt1.lng], [pt2.lat, pt2.lng]],
+            color: color
+          });
+        }
+      }
+      
       // Create a marker for the current position
       const currentMarker = L.marker([pts[0].lat, pts[0].lng], {
         icon: L.divIcon({
@@ -2654,30 +2673,29 @@
               return;
             }
             
-            // Clear existing polylines
-            if (replayPolyline) {
-              replayPolyline.clearLayers();
+            // Calculate the segment index (one less than point index)
+            const segmentIndex = Math.min(pointIndex, segments.length);
+            
+            // Add segments that haven't been added yet
+            // We use a static variable to keep track of the last drawn segment
+            if (!animate.lastDrawnSegment) {
+              animate.lastDrawnSegment = -1;
             }
             
-            // Create colored segments up to the current point
-            for (let i = 0; i < pointIndex; i++) {
-              const pt1 = pts[i];
-              const pt2 = pts[i + 1];
-              
-              if (pt1 && pt2 && pt1.lat !== undefined && pt1.lng !== undefined &&
-                  pt2.lat !== undefined && pt2.lng !== undefined) {
-                // Use the speed of the first point for the color
-                const speed = pt1.data.Sog != null ? pt1.data.Sog : 0;
-                const color = getColorForSpeed(speed);
-                
-                // Create a polyline segment with this color
-                const segment = L.polyline([[pt1.lat, pt1.lng], [pt2.lat, pt2.lng]], {
-                  color: color,
+            // Only draw new segments (from last drawn + 1 to current segment index)
+            for (let i = animate.lastDrawnSegment + 1; i < segmentIndex; i++) {
+              if (i >= 0 && i < segments.length) {
+                const segment = segments[i];
+                L.polyline(segment.points, {
+                  color: segment.color,
                   weight: 3,
                   opacity: 0.8
                 }).addTo(replayPolyline);
               }
             }
+            
+            // Update the last drawn segment
+            animate.lastDrawnSegment = segmentIndex - 1;
             
             // Update marker position
             if (currentMarker) {
@@ -2766,6 +2784,8 @@
       }
       
       // Start the animation
+      // Reset the last drawn segment counter
+      animate.lastDrawnSegment = -1;
       replayAnimationId = requestAnimationFrame(animate);
     }
     
@@ -2781,6 +2801,11 @@
       
       // Call finishReplay to clean up
       finishReplay(window.currentHistoryData || []);
+      
+      // Reset the static variable for the animation function
+      if (animate.lastDrawnSegment !== undefined) {
+        animate.lastDrawnSegment = -1;
+      }
     }
     
     function finishReplay(pts) {
