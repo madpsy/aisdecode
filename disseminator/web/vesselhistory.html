@@ -1011,7 +1011,7 @@
         } else if (dateRangeAdjusted) {
           // If date range was adjusted, keep the warning message
           const warningDiv = document.getElementById('error');
-          warningDiv.textContent = 'Warning: Automatically updated to a 24-hour window around the vessel\'s last seen time.';
+          warningDiv.textContent = 'Warning: Start date was too recent - automatically updated to a 24-hour window before the vessel\'s last seen time.';
           warningDiv.style.display = 'block';
           console.log('Warning message maintained in fetchVesselHistory, dateRangeAdjusted =', dateRangeAdjusted);
         } else {
@@ -1746,9 +1746,8 @@
           const endDate = new Date(endInput.value);
           
           // If the start date is after or too close to the last seen time,
-          // or if the end date is after the last seen time,
           // adjust the date range to 24 hours before the last seen time
-          if (startDate >= lastSeenTime || endDate > lastSeenTime) {
+          if (startDate >= lastSeenTime) {
             console.log('Selected dates are too recent compared to last seen time. Adjusting...');
             
             // Set end date to last seen time plus 1 hour leeway
@@ -1784,7 +1783,7 @@
             // Set flag that date range was adjusted and display warning message
             dateRangeAdjusted = true;
             const warningDiv = document.getElementById('error');
-            warningDiv.textContent = 'Warning: Automatically updated to a 24-hour window around the vessel\'s last seen time.';
+            warningDiv.textContent = 'Warning: Start date was too recent - automatically updated to a 24-hour window before the vessel\'s last seen time.';
             warningDiv.style.display = 'block';
             console.log('Warning message set:', warningDiv.textContent);
             
@@ -1817,7 +1816,7 @@
                 // Force the warning to be visible again if needed
                 if (dateRangeAdjusted && !document.getElementById('error').textContent) {
                   const warningDiv = document.getElementById('error');
-                  warningDiv.textContent = 'Warning: Automatically updated to a 24-hour window around the vessel\'s last seen time.';
+                  warningDiv.textContent = 'Warning: Start date was too recent - automatically updated to a 24-hour window before the vessel\'s last seen time.';
                   warningDiv.style.display = 'block';
                   console.log('Warning message re-set after processing');
                 }
