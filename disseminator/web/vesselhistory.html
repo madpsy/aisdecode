@@ -1394,13 +1394,24 @@
         
         // Tooltip
         const title = document.createElementNS(svgNS, "title");
+        
+        // Format start date/time
         const formattedStart = bin.startTime.toLocaleString([], {
-          month: 'short',
           day: 'numeric',
+          month: 'short',
           hour: '2-digit',
           minute: '2-digit'
         });
-        title.textContent = `${bin.count} messages at ${formattedStart}`;
+        
+        // Format end date/time
+        const formattedEnd = bin.endTime.toLocaleString([], {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        
+        title.textContent = `${bin.count} position reports ${formattedStart} - ${formattedEnd}`;
         bar.appendChild(title);
         
         svg.appendChild(bar);
