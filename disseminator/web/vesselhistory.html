@@ -633,10 +633,27 @@
       let lastDestination = null;
       let lastStatus = null;
       let firstRecord = null;
+      let firstStaticRecord = null;
       
-      // Get the oldest record for initial values
-      if (sortedData.length > 0) {
-        firstRecord = sortedData[0];
+      // Find the first record with static data (containing Destination field)
+      for (const record of sortedData) {
+        const flat = flatten(record.Packet);
+        
+        // Store the first record for general use
+        if (!firstRecord) {
+          firstRecord = record;
+        }
+        
+        // Find the first record with Destination field
+        if (!firstStaticRecord && flat.Destination !== undefined) {
+          firstStaticRecord = record;
+          break;
+        }
+      }
+      
+      // If we didn't find a record with Destination, use the first record
+      if (!firstStaticRecord && sortedData.length > 0) {
+        firstStaticRecord = firstRecord;
       }
       
       sortedData.forEach(record => {
@@ -704,14 +721,14 @@
           
           destTable.appendChild(row);
         });
-      } else if (firstRecord) {
-        // If no changes but we have data, show the current value
-        const flat = flatten(firstRecord.Packet);
+      } else if (firstStaticRecord) {
+        // If no changes but we have static data, show the current value
+        const flat = flatten(firstStaticRecord.Packet);
         if (flat.Destination !== undefined) {
           const row = document.createElement('tr');
           
           const timeCell = document.createElement('td');
-          timeCell.textContent = new Date(firstRecord.Timestamp).toLocaleString();
+          timeCell.textContent = new Date(firstStaticRecord.Timestamp).toLocaleString();
           row.appendChild(timeCell);
           
           const fromCell = document.createElement('td');
