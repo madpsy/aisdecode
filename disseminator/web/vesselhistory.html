@@ -2565,6 +2565,22 @@
         let tooltipContent = '';
         try {
           tooltipContent = makeTooltipHTML(pts[0]);
+          
+          // Add receiver information to tooltip if available
+          const receiverId = pts[0].record.ReceiverID;
+          if (receiverId && receiversData.length > 0) {
+            // Find the receiver in receiversData
+            const receiver = receiversData.find(r => r.id === receiverId);
+            if (receiver && receiver.latitude && receiver.longitude) {
+              // Calculate distance in kilometers
+              const pointLatLng = L.latLng(pts[0].lat, pts[0].lng);
+              const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+              const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+              
+              // Add receiver info to tooltip with proper formatting
+              tooltipContent += `<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
+            }
+          }
         } catch (e) {
           console.error('Error creating tooltip content:', e);
           // Create a simple fallback tooltip content
@@ -2666,7 +2682,24 @@
             if (replayTooltip) {
               replayTooltip.setLatLng([currentPoint.lat, currentPoint.lng]);
               try {
-                const tooltipContent = makeTooltipHTML(currentPoint);
+                let tooltipContent = makeTooltipHTML(currentPoint);
+                
+                // Add receiver information to tooltip if available
+                const receiverId = currentPoint.record.ReceiverID;
+                if (receiverId && receiversData.length > 0) {
+                  // Find the receiver in receiversData
+                  const receiver = receiversData.find(r => r.id === receiverId);
+                  if (receiver && receiver.latitude && receiver.longitude) {
+                    // Calculate distance in kilometers
+                    const pointLatLng = L.latLng(currentPoint.lat, currentPoint.lng);
+                    const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+                    const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+                    
+                    // Add receiver info to tooltip with proper formatting
+                    tooltipContent += `<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
+                  }
+                }
+                
                 replayTooltip.setContent(tooltipContent);
                 
                 // Maintain visibility state
