@@ -869,6 +869,44 @@
       return L.layerGroup(segments);
     }
 
+    // Helper to format one point's tooltip HTML
+    function makeTooltipHTML(pt) {
+      const timestamp = new Date(pt.timestamp).toLocaleString();
+      let html = `<strong>${timestamp}</strong><br/>`;
+      html += `<strong>Latitude:</strong> ${pt.lat.toFixed(6)}<br/>`;
+      html += `<strong>Longitude:</strong> ${pt.lng.toFixed(6)}<br/>`;
+      
+      // Add other interesting fields if available
+      const fields = ['Sog', 'Cog', 'TrueHeading', 'NavigationalStatus', 'Destination'];
+      fields.forEach(field => {
+        if (pt.data[field] != null) {
+          let value = pt.data[field];
+          let displayField = field;
+          
+          // Rename fields for display and format values
+          if (field === 'TrueHeading') {
+            displayField = 'Heading';
+            value = `${value}°`;
+          } else if (field === 'NavigationalStatus') {
+            displayField = 'Status';
+            if (navStatusMapping[value]) {
+              value = navStatusMapping[value];
+            }
+          } else if (field === 'Sog') {
+            displayField = 'Speed';
+            value = `${value} kn`;
+          } else if (field === 'Cog') {
+            displayField = 'Course';
+            value = `${value}°`;
+          }
+          
+          html += `<strong>${displayField}:</strong> ${value}<br/>`;
+        }
+      });
+      
+      return html;
+    }
+    
     // Display vessel track on map
     function displayVesselTrack(historyData) {
       if (!historyData || !historyData.length) {
@@ -919,43 +957,7 @@
         sticky: true
       };
       
-      // Helper to format one point's tooltip HTML
-      function makeTooltipHTML(pt) {
-        const timestamp = new Date(pt.timestamp).toLocaleString();
-        let html = `<strong>${timestamp}</strong><br/>`;
-        html += `<strong>Latitude:</strong> ${pt.lat.toFixed(6)}<br/>`;
-        html += `<strong>Longitude:</strong> ${pt.lng.toFixed(6)}<br/>`;
-        
-        // Add other interesting fields if available
-        const fields = ['Sog', 'Cog', 'TrueHeading', 'NavigationalStatus', 'Destination'];
-        fields.forEach(field => {
-          if (pt.data[field] != null) {
-            let value = pt.data[field];
-            let displayField = field;
-            
-            // Rename fields for display and format values
-            if (field === 'TrueHeading') {
-              displayField = 'Heading';
-              value = `${value}°`;
-            } else if (field === 'NavigationalStatus') {
-              displayField = 'Status';
-              if (navStatusMapping[value]) {
-                value = navStatusMapping[value];
-              }
-            } else if (field === 'Sog') {
-              displayField = 'Speed';
-              value = `${value} kn`;
-            } else if (field === 'Cog') {
-              displayField = 'Course';
-              value = `${value}°`;
-            }
-            
-            html += `<strong>${displayField}:</strong> ${value}<br/>`;
-          }
-        });
-        
-        return html;
-      }
+      // Use the global makeTooltipHTML function
       
       // Add tooltips to each segment in the colored track
       coloredTrack.eachLayer(segment => {
