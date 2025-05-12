@@ -2574,16 +2574,13 @@
         if (progress < 1 && pts.length > 0) {
           try {
             // Calculate the current point index based on progress
-            const pointIndex = Math.min(
-              Math.floor(progress * pts.length),
-              pts.length - 1
-            );
+            // Ensure it's never negative and always within bounds
+            const rawIndex = Math.floor(progress * pts.length);
+            const pointIndex = Math.max(0, Math.min(rawIndex, pts.length - 1));
             
-            // Safety check - ensure pointIndex is valid
-            if (pointIndex < 0 || pointIndex >= pts.length) {
-              console.error('Invalid point index:', pointIndex, 'pts length:', pts.length);
-              finishReplay(pts);
-              return;
+            // Log if we calculated an invalid index (for debugging)
+            if (rawIndex < 0 || rawIndex >= pts.length) {
+              console.log('Adjusted invalid point index:', rawIndex, 'to', pointIndex, 'pts length:', pts.length);
             }
             
             // Get current point and verify it's valid
