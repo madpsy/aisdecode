@@ -1377,12 +1377,12 @@
       
       // Create bars
       Object.values(bins).forEach((bin, index) => {
-        const barHeight = bin.count > 0 ? (bin.count / maxCount) * 80 : 0;
+        const barHeight = bin.count > 0 ? (bin.count / maxCount) * 100 : 0;
         const bar = document.createElementNS(svgNS, "rect");
         
-        // Position and size
+        // Position and size - ensure bars start from bottom (100%) and go up
         bar.setAttribute("x", `${index * barWidth}%`);
-        bar.setAttribute("y", `${80 - barHeight}%`);
+        bar.setAttribute("y", `${100 - barHeight}%`);
         bar.setAttribute("width", `${barWidth - 0.1}%`);
         bar.setAttribute("height", `${barHeight}%`);
         
