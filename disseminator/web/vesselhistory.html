@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vessel History</title>
+  <!-- Include Bootstrap CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css">
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 2rem;
+    }
+    .vessel-header {
+      display: flex;
+      align-items: flex-start;
+      margin-bottom: 2rem;
+    }
+    .flag-container {
+      margin-right: 2rem;
+    }
+    .flag-img {
+      width: 80px;
+      height: auto;
+      border: 1px solid #ddd;
+    }
+    .vessel-info {
+      flex-grow: 1;
+    }
+    .vessel-image {
+      max-width: 300px;
+      max-height: 200px;
+      border: 1px solid #ddd;
+      margin-left: 1rem;
+    }
+    .error {
+      color: red;
+      font-weight: bold;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+  </style>
+</head>
+<body>
+  <h1 id="main-title">Vessel History</h1>
+  <div id="error" class="error"></div>
+
+  <div class="vessel-header">
+    <div class="flag-container">
+      <img id="flag-img" class="flag-img" src="" alt="Country Flag" style="display: none;">
+    </div>
+    <div class="vessel-info">
+      <table id="vessel-table">
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Data will be inserted here dynamically -->
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <img id="vessel-img" class="vessel-image" src="" alt="Vessel Image" style="display: none;">
+    </div>
+  </div>
+
+  <!-- Include jQuery -->
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+  <script>
+    // Get UserID from URL query parameter
+    function getQueryParam(name) {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get(name);
+    }
+
+    const userID = getQueryParam('UserID');
+    let midsMapping = {};
+    let shipTypeConfig = {};
+
+    // Load MIDs mapping and ship types
+    Promise.all([
+      fetch('/mids.json').then(r => r.json()),
+      fetch('/types.json').then(r => r.json())
+    ])
+    .then(([midsData, typesData]) => {
+      midsMapping = midsData;
+      shipTypeConfig = typesData;
+      loadVesselData();
+    })
+    .catch(err => {
+      console.error('Error loading data:', err);
+      document.getElementById('error').textContent = 'Failed to load reference data.';
+      loadVesselData(); // Still try to load vessel data even if data loading fails
+    });
+
+    // Helper: given a numeric code and the types.json config, return the category name
+    function lookupShipType(code) {
+      if (!shipTypeConfig.valueLookup || !code) return code;
+      
+      const categoryId = shipTypeConfig.valueLookup[code];
+      if (categoryId == null) return code;
+      
+      const category = shipTypeConfig.categories.find(cat => cat.id === categoryId);
+      return category ? `${category.name} (ID: ${code})` : code;
+    }
+
+    function loadVesselData() {
+      if (!userID) {
+        document.getElementById('main-title').textContent = 'Error';
+        document.getElementById('error').textContent = 'Missing UserID in URL.';
+        return;
+      }
+
+      fetch(`/state?UserID=${userID}`, { cache: 'no-store' })
+        .then(response => response.json())
+        .then(data => {
+          // Update page title with vessel name if available
+          if (data.Name) {
+            document.getElementById('main-title').textContent = `Vessel History: ${data.Name.trim()}`;
+          } else {
+            document.getElementById('main-title').textContent = `Vessel History: ${userID}`;
+          }
+
+          // Get country code from MID (first 3 digits of UserID)
+          const mid = userID.toString().substring(0, 3);
+          if (midsMapping[mid] && midsMapping[mid][0]) {
+            const countryCode = midsMapping[mid][0].toLowerCase();
+            const flagUrl = `/flags/${countryCode}.svg`;
+            const flagImg = document.getElementById('flag-img');
+            flagImg.src = flagUrl;
+            flagImg.alt = `${midsMapping[mid][3]} Flag`;
+            flagImg.style.display = 'block';
+          }
+
+          // Display vessel image if available
+          if (data.ImageURL) {
+            const vesselImg = document.getElementById('vessel-img');
+            vesselImg.src = data.ImageURL;
+            vesselImg.style.display = 'block';
+          }
+
+          // Create table rows for vessel information
+          const tableBody = document.querySelector('#vessel-table tbody');
+          tableBody.innerHTML = ''; // Clear existing rows
+
+          // Fields to display (if available)
+          const fieldsToDisplay = [
+            { key: 'UserID', label: 'MMSI' },
+            { key: 'Name', label: 'Name' },
+            { key: 'CallSign', label: 'Call Sign' },
+            { key: 'ImoNumber', label: 'IMO Number' },
+            { key: 'AISClass', label: 'AIS Class' },
+            { key: 'Type', label: 'Type', format: (val) => lookupShipType(val) }
+          ];
+
+          // Add rows for each field if it exists and is not empty
+          fieldsToDisplay.forEach(field => {
+            if (data[field.key] !== undefined && data[field.key] !== null && data[field.key] !== '') {
+              const row = document.createElement('tr');
+              
+              const labelCell = document.createElement('td');
+              labelCell.textContent = field.label;
+              row.appendChild(labelCell);
+              
+              const valueCell = document.createElement('td');
+              // Use formatter function if provided, otherwise use raw value
+              valueCell.textContent = field.format ? field.format(data[field.key]) : data[field.key];
+              row.appendChild(valueCell);
+              
+              tableBody.appendChild(row);
+            }
+          });
+
+          // If no data was added to the table
+          if (tableBody.children.length === 0) {
+            const row = document.createElement('tr');
+            const cell = document.createElement('td');
+            cell.colSpan = 2;
+            cell.textContent = 'No vessel information available';
+            row.appendChild(cell);
+            tableBody.appendChild(row);
+          }
+        })
+        .catch(err => {
+          console.error('Error fetching vessel data:', err);
+          document.getElementById('error').textContent = 'Failed to load vessel data.';
+        });
+    }
+  </script>
+</body>
+</html>
