@@ -926,9 +926,18 @@
           row.appendChild(fromCell);
           
           const toCell = document.createElement('td');
-          // Handle the case where NavigationalStatus might be undefined
-          const status = flat.NavigationalStatus !== undefined ?
-                        (navStatusMapping[flat.NavigationalStatus] || flat.NavigationalStatus) :
+          // Check for NavigationalStatus in the flattened structure
+          // It could be directly in flat or nested in Packet
+          let navStatus = flat.NavigationalStatus;
+          
+          // If we have the original record, try to get NavigationalStatus directly from the Packet
+          if (navStatus === undefined && firstRecord.Packet && firstRecord.Packet.NavigationalStatus !== undefined) {
+            navStatus = firstRecord.Packet.NavigationalStatus;
+          }
+          
+          // Convert the numeric status to a readable string using the mapping
+          const status = navStatus !== undefined ?
+                        (navStatusMapping[navStatus] || navStatus) :
                         '(unknown)';
           toCell.textContent = status;
           row.appendChild(toCell);
