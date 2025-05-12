@@ -754,8 +754,10 @@
       let lastStatus = null;
       let firstRecord = null;
       let firstStaticRecord = null;
+      let firstPositionRecord = null;
       
       // Find the first record with static data (containing Destination field)
+      // and the first record with position data (containing NavigationalStatus field)
       for (const record of sortedData) {
         const flat = flatten(record.Packet);
         
@@ -764,9 +766,22 @@
           firstRecord = record;
         }
         
-        // Find the first record with Destination field
+        // Find the first record with Destination field (static message)
         if (!firstStaticRecord && flat.Destination !== undefined) {
           firstStaticRecord = record;
+        }
+        
+        // Find the first record with NavigationalStatus field (position message)
+        if (!firstPositionRecord &&
+            (record.MessageID === 1 || record.MessageID === 2 || record.MessageID === 3 ||
+             record.MessageID === 18 || record.MessageID === 19) &&
+            record.Packet && record.Packet.NavigationalStatus !== undefined) {
+          firstPositionRecord = record;
+          console.log('Found position record with NavigationalStatus:', record);
+        }
+        
+        // If we found both types of records, we can break early
+        if (firstStaticRecord && firstPositionRecord) {
           break;
         }
       }
@@ -774,6 +789,11 @@
       // If we didn't find a record with Destination, use the first record
       if (!firstStaticRecord && sortedData.length > 0) {
         firstStaticRecord = firstRecord;
+      }
+      
+      // If we didn't find a position record, use the first record
+      if (!firstPositionRecord && sortedData.length > 0) {
+        firstPositionRecord = firstRecord;
       }
       
       sortedData.forEach(record => {
@@ -910,57 +930,38 @@
           
           statusTable.appendChild(row);
         });
-      } else if (firstRecord) {
-        // If no changes but we have data, show the current value
-        const flat = flatten(firstRecord.Packet);
-        // Always show the initial value, even if NavigationalStatus is undefined
-        {
-          const row = document.createElement('tr');
-          
-          const timeCell = document.createElement('td');
-          timeCell.textContent = new Date(firstRecord.Timestamp).toLocaleString();
-          row.appendChild(timeCell);
-          
-          const fromCell = document.createElement('td');
-          fromCell.textContent = '(initial value)';
-          row.appendChild(fromCell);
-          
-          const toCell = document.createElement('td');
-          
-          // Direct access to NavigationalStatus from the Packet
-          console.log('First record:', firstRecord);
-          
-          // Try multiple ways to access NavigationalStatus
-          let navStatus = null;
-          
-          // Method 1: Direct access from Packet
-          if (firstRecord.Packet && firstRecord.Packet.NavigationalStatus !== undefined) {
-            navStatus = firstRecord.Packet.NavigationalStatus;
-            console.log('Method 1 - Direct access:', navStatus);
-          }
-          // Method 2: From flattened structure
-          else if (flat.NavigationalStatus !== undefined) {
-            navStatus = flat.NavigationalStatus;
-            console.log('Method 2 - Flattened:', navStatus);
-          }
-          
-          console.log('Nav status found:', navStatus);
-          console.log('Nav status mapping:', navStatusMapping);
-          console.log('Mapped value:', navStatusMapping[navStatus]);
-          
-          // Always show a value, with clear indication of what we found
-          if (navStatus === 0) {
-            // Special case for 0, which is "Using Engine"
-            toCell.textContent = navStatusMapping[0] || "Using Engine";
-          } else if (navStatus !== null && navStatus !== undefined) {
-            toCell.textContent = navStatusMapping[navStatus] || `${navStatus}`;
-          } else {
-            toCell.textContent = '(unknown)';
-          }
-          row.appendChild(toCell);
-          
-          statusTable.appendChild(row);
+      } else if (firstPositionRecord) {
+        // If no changes but we have position data, show the current value
+        const row = document.createElement('tr');
+        
+        const timeCell = document.createElement('td');
+        timeCell.textContent = new Date(firstPositionRecord.Timestamp).toLocaleString();
+        row.appendChild(timeCell);
+        
+        const fromCell = document.createElement('td');
+        fromCell.textContent = '(initial value)';
+        row.appendChild(fromCell);
+        
+        const toCell = document.createElement('td');
+        
+        // Get NavigationalStatus directly from the position record
+        const navStatus = firstPositionRecord.Packet.NavigationalStatus;
+        console.log('Position record:', firstPositionRecord);
+        console.log('NavigationalStatus:', navStatus);
+        console.log('Mapped value:', navStatusMapping[navStatus]);
+        
+        // Convert the status code to a readable string
+        if (navStatus === 0) {
+          // Special case for 0, which is "Using Engine"
+          toCell.textContent = navStatusMapping[0] || "Using Engine";
+        } else if (navStatus !== undefined) {
+          toCell.textContent = navStatusMapping[navStatus] || `${navStatus}`;
+        } else {
+          toCell.textContent = '(unknown)';
         }
+        row.appendChild(toCell);
+        
+        statusTable.appendChild(row);
       } else {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
