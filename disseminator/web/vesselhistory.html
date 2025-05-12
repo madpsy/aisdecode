@@ -403,9 +403,11 @@
       </label>
       <button id="apply-btn" class="btn btn-primary">Search</button>
       <button id="reset-btn" class="btn btn-secondary">Reset</button>
+      <button id="download-csv-btn" class="btn btn-outline-secondary" disabled>Download CSV</button>
     </div>
     
     <div id="error" class="error"></div>
+    <div id="data-info" class="mt-2 mb-2" style="font-size: 0.9rem; color: #666;"></div>
     
     <div id="message-histogram"></div>
     
@@ -942,10 +944,44 @@
           document.getElementById('error').textContent = '';
         }
         
+        // Store position data globally for CSV download
+        window.positionData = positionData;
+        
+        // Update data info
+        const dataInfoDiv = document.getElementById('data-info');
+        if (dataInfoDiv) {
+          if (positionCount > 0) {
+            // Sort position data by timestamp to find first and last
+            const sortedPositions = [...positionData].sort((a, b) =>
+              new Date(a.Timestamp) - new Date(b.Timestamp)
+            );
+            
+            const firstTimestamp = new Date(sortedPositions[0].Timestamp).toLocaleString();
+            const lastTimestamp = new Date(sortedPositions[sortedPositions.length - 1].Timestamp).toLocaleString();
+            
+            dataInfoDiv.textContent = `${positionCount} position messages found. First: ${firstTimestamp}, Last: ${lastTimestamp}`;
+            
+            // Enable download CSV button
+            document.getElementById('download-csv-btn').disabled = false;
+          } else {
+            dataInfoDiv.textContent = 'No position messages found.';
+            // Disable download CSV button
+            document.getElementById('download-csv-btn').disabled = true;
+          }
+        }
+        
         return combinedResults;
       } catch (err) {
         console.error('Error fetching vessel history:', err);
         alert('Failed to fetch vessel history data.');
+        
+        // Clear data info and disable download button
+        const dataInfoDiv = document.getElementById('data-info');
+        if (dataInfoDiv) {
+          dataInfoDiv.textContent = '';
+        }
+        document.getElementById('download-csv-btn').disabled = true;
+        
         return null;
       }
     }
@@ -1751,8 +1787,94 @@
         // Clear tables
         document.querySelector('#destination-changes tbody').innerHTML = '';
         document.querySelector('#status-changes tbody').innerHTML = '';
+        
+        // Clear data info and disable download button
+        document.getElementById('data-info').textContent = '';
+        document.getElementById('download-csv-btn').disabled = true;
+      });
+      
+      // Add event listener for Download CSV button
+      document.getElementById('download-csv-btn').addEventListener('click', () => {
+        if (!window.positionData || window.positionData.length === 0) {
+          alert('No position data available to download.');
+          return;
+        }
+        
+        // Convert position data to CSV
+        const csvContent = convertPositionDataToCsv(window.positionData);
+        
+        // Create a blob and download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        
+        // Create a temporary link and trigger download
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `vessel_${userID}_positions.csv`);
+        document.body.appendChild(link);
+        link.click();
+        
+        // Clean up
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
       });
     });
+    
+    // Function to convert position data to CSV
+    function convertPositionDataToCsv(positionData) {
+      if (!positionData || positionData.length === 0) {
+        return '';
+      }
+      
+      // Define CSV headers
+      const headers = [
+        'Timestamp',
+        'Latitude',
+        'Longitude',
+        'Speed (knots)',
+        'Course',
+        'Heading',
+        'NavigationalStatus',
+        'ReceiverID',
+        'MessageID'
+      ];
+      
+      // Create CSV content with headers
+      let csvContent = headers.join(',') + '\n';
+      
+      // Add data rows
+      positionData.forEach(record => {
+        const flat = flatten(record.Packet);
+        
+        // Extract values, handling missing data
+        const timestamp = record.Timestamp || '';
+        const latitude = flat.Latitude !== undefined ? flat.Latitude : '';
+        const longitude = flat.Longitude !== undefined ? flat.Longitude : '';
+        const speed = flat.Sog !== undefined ? flat.Sog : '';
+        const course = flat.Cog !== undefined ? flat.Cog : '';
+        const heading = flat.TrueHeading !== undefined && flat.TrueHeading !== 511 ? flat.TrueHeading : '';
+        const navStatus = flat.NavigationalStatus !== undefined ? flat.NavigationalStatus : '';
+        const receiverId = record.ReceiverID || '';
+        const messageId = record.MessageID || '';
+        
+        // Create CSV row with proper escaping
+        const row = [
+          `"${timestamp}"`,
+          latitude,
+          longitude,
+          speed,
+          course,
+          heading,
+          navStatus,
+          `"${receiverId}"`,
+          messageId
+        ].join(',');
+        
+        csvContent += row + '\n';
+      });
+      
+      return csvContent;
+    }
 
     // Store vessel AIS class globally - moved to loadVesselData function
     
