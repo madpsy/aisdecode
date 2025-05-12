@@ -1001,8 +1001,8 @@
           
           // Add line break after each field except the last one
           // Only add a line break if this isn't the last field with data
-          const isLastFieldWithData = index === fields.length - 1 ||
-            fields.slice(index + 1).every(nextField => pt.data[nextField] == null);
+          const isLastFieldWithData = index === filteredFields.length - 1 ||
+            filteredFields.slice(index + 1).every(nextField => pt.data[nextField] == null);
           
           if (!isLastFieldWithData) {
             html += '<br/>';
