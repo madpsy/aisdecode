@@ -257,12 +257,16 @@
   <style>
     .receiver-tooltip {
       background-color: rgba(255, 255, 255, 0.9);
-      border: 1px solid #f03;
+      border: 1px solid #999;
       border-radius: 3px;
       padding: 2px 5px;
       font-weight: bold;
       font-size: 11px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    
+    .receiver-tooltip-active {
+      border: 1px solid #f03;
     }
   </style>
 </head>
@@ -1031,6 +1035,17 @@
                     dashArray: '5, 7'
                   }
                 ).addTo(connectionLayerGroup);
+                
+                // Find and highlight the active receiver tooltip
+                document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+                  // Remove active class from all tooltips
+                  tooltip.classList.remove('receiver-tooltip-active');
+                  
+                  // Add active class to the matching receiver tooltip
+                  if (tooltip.textContent === receiver.name) {
+                    tooltip.classList.add('receiver-tooltip-active');
+                  }
+                });
               }
             }
             
@@ -1043,6 +1058,11 @@
           segment.closeTooltip();
           // Clear connection lines when mouse leaves the segment
           connectionLayerGroup.clearLayers();
+          
+          // Remove active class from all receiver tooltips
+          document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+            tooltip.classList.remove('receiver-tooltip-active');
+          });
         });
       });
       
@@ -2127,6 +2147,17 @@
                 
                 // Add receiver info to tooltip with proper formatting
                 html += `<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
+                
+                // Find and highlight the active receiver tooltip
+                document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+                  // Remove active class from all tooltips
+                  tooltip.classList.remove('receiver-tooltip-active');
+                  
+                  // Add active class to the matching receiver tooltip
+                  if (tooltip.textContent === receiver.name) {
+                    tooltip.classList.add('receiver-tooltip-active');
+                  }
+                });
               }
             }
             
@@ -2140,6 +2171,11 @@
           segment.closeTooltip();
           // Clear connection lines when mouse leaves the segment
           connectionLayerGroup.clearLayers();
+          
+          // Remove active class from all receiver tooltips
+          document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+            tooltip.classList.remove('receiver-tooltip-active');
+          });
         });
       });
       
