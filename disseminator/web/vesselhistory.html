@@ -926,20 +926,37 @@
           row.appendChild(fromCell);
           
           const toCell = document.createElement('td');
-          // Check for NavigationalStatus in the flattened structure
-          // It could be directly in flat or nested in Packet
-          let navStatus = flat.NavigationalStatus;
           
-          // If we have the original record, try to get NavigationalStatus directly from the Packet
-          if (navStatus === undefined && firstRecord.Packet && firstRecord.Packet.NavigationalStatus !== undefined) {
+          // Direct access to NavigationalStatus from the Packet
+          console.log('First record:', firstRecord);
+          
+          // Try multiple ways to access NavigationalStatus
+          let navStatus = null;
+          
+          // Method 1: Direct access from Packet
+          if (firstRecord.Packet && firstRecord.Packet.NavigationalStatus !== undefined) {
             navStatus = firstRecord.Packet.NavigationalStatus;
+            console.log('Method 1 - Direct access:', navStatus);
+          }
+          // Method 2: From flattened structure
+          else if (flat.NavigationalStatus !== undefined) {
+            navStatus = flat.NavigationalStatus;
+            console.log('Method 2 - Flattened:', navStatus);
           }
           
-          // Convert the numeric status to a readable string using the mapping
-          const status = navStatus !== undefined ?
-                        (navStatusMapping[navStatus] || navStatus) :
-                        '(unknown)';
-          toCell.textContent = status;
+          console.log('Nav status found:', navStatus);
+          console.log('Nav status mapping:', navStatusMapping);
+          console.log('Mapped value:', navStatusMapping[navStatus]);
+          
+          // Always show a value, with clear indication of what we found
+          if (navStatus === 0) {
+            // Special case for 0, which is "Using Engine"
+            toCell.textContent = navStatusMapping[0] || "Using Engine";
+          } else if (navStatus !== null && navStatus !== undefined) {
+            toCell.textContent = navStatusMapping[navStatus] || `${navStatus}`;
+          } else {
+            toCell.textContent = '(unknown)';
+          }
           row.appendChild(toCell);
           
           statusTable.appendChild(row);
