@@ -1386,11 +1386,11 @@
         bar.setAttribute("width", `${barWidth - 0.1}%`);
         bar.setAttribute("height", `${barHeight}%`);
         
-        // Styling - green to red gradient based on count intensity
+        // Styling - blue scale based on count intensity
         const ratio = bin.count / maxCount;
-        // Calculate hue: 120 (green) for low counts to 0 (red) for high counts
-        const hue = (1 - ratio) * 120;
-        bar.setAttribute("fill", `hsl(${hue}, 100%, 50%)`);
+        // Use a blue scale from light blue (low counts) to dark blue (high counts)
+        const lightness = 80 - (ratio * 60); // 80% lightness (light blue) to 20% lightness (dark blue)
+        bar.setAttribute("fill", `hsl(210, 100%, ${lightness}%)`);
         
         // Tooltip
         const title = document.createElementNS(svgNS, "title");
