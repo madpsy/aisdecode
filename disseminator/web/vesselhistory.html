@@ -1406,40 +1406,7 @@
         svg.appendChild(bar);
       });
       
-      // Add legend
-      const legend = document.createElement('div');
-      legend.style.position = 'absolute';
-      legend.style.top = '5px';
-      legend.style.right = '10px';
-      legend.style.fontSize = '12px';
-      legend.style.background = 'rgba(255, 255, 255, 0.7)';
-      legend.style.padding = '3px 6px';
-      legend.style.borderRadius = '3px';
-      
-      // Create legend content with color gradient
-      legend.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 5px;">
-          <div style="font-weight: bold;">Message Count:</div>
-          <div style="width: 60px; height: 10px; background: linear-gradient(to right, hsl(120,100%,50%), hsl(60,100%,50%), hsl(0,100%,50%));"></div>
-          <div style="display: flex; justify-content: space-between; width: 60px;">
-            <span>Low</span>
-            <span>High</span>
-          </div>
-        </div>
-      `;
-      
-      // Add title
-      const title = document.createElement('div');
-      title.style.position = 'absolute';
-      title.style.top = '5px';
-      title.style.left = '10px';
-      title.style.fontSize = '12px';
-      title.style.fontWeight = 'bold';
-      title.textContent = `Position Message Frequency (${numBins} intervals)`;
-      
       histogramContainer.appendChild(svg);
-      histogramContainer.appendChild(title);
-      histogramContainer.appendChild(legend);
     }
   </script>
 </body>
