@@ -252,6 +252,19 @@
       cursor: pointer;
     }
   </style>
+  
+  <!-- Add custom style for receiver tooltips -->
+  <style>
+    .receiver-tooltip {
+      background-color: rgba(255, 255, 255, 0.9);
+      border: 1px solid #f03;
+      border-radius: 3px;
+      padding: 2px 5px;
+      font-weight: bold;
+      font-size: 11px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+  </style>
 </head>
 <body>
   <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -1009,7 +1022,45 @@
       }).addTo(mapLayerGroup);
       endMarker.bindTooltip('End: ' + new Date(last.timestamp).toLocaleString(), tooltipOpts);
       
-      // Fit map to data
+      // Add receiver markers for receivers that heard this vessel
+      // Get the vessel data to find which receivers heard it
+      fetch(`/state?UserID=${userID}`, { cache: 'no-store' })
+        .then(response => response.json())
+        .then(data => {
+          if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
+            // Filter receivers to only those that heard this vessel
+            const relevantReceivers = receiversData.filter(receiver =>
+              data.ReceiverIDs.includes(receiver.id)
+            );
+            
+            // Add a marker for each receiver
+            relevantReceivers.forEach(receiver => {
+              if (receiver.latitude && receiver.longitude) {
+                // Create a red circle marker for the receiver
+                const receiverMarker = L.circleMarker([receiver.latitude, receiver.longitude], {
+                  radius: 6,
+                  color: 'red',
+                  fillColor: '#f03',
+                  fillOpacity: 0.8,
+                  weight: 2
+                }).addTo(mapLayerGroup);
+                
+                // Add a permanent tooltip with the receiver name
+                receiverMarker.bindTooltip(receiver.name, {
+                  permanent: true,
+                  direction: 'top',
+                  offset: [0, -10],
+                  className: 'receiver-tooltip'
+                }).openTooltip();
+              }
+            });
+          }
+        })
+        .catch(err => {
+          console.error('Error fetching vessel data for receiver markers:', err);
+        });
+      
+      // Fit map to vessel track data only (not including receivers)
       const latlngs = pts.map(p => [p.lat, p.lng]);
       map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
     }
@@ -1933,7 +1984,45 @@
       }).addTo(mapLayerGroup);
       endMarker.bindTooltip('End: ' + new Date(last.timestamp).toLocaleString(), tooltipOpts);
       
-      // Fit map to data
+      // Add receiver markers for receivers that heard this vessel
+      // Get the vessel data to find which receivers heard it
+      fetch(`/state?UserID=${userID}`, { cache: 'no-store' })
+        .then(response => response.json())
+        .then(data => {
+          if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
+            // Filter receivers to only those that heard this vessel
+            const relevantReceivers = receiversData.filter(receiver =>
+              data.ReceiverIDs.includes(receiver.id)
+            );
+            
+            // Add a marker for each receiver
+            relevantReceivers.forEach(receiver => {
+              if (receiver.latitude && receiver.longitude) {
+                // Create a red circle marker for the receiver
+                const receiverMarker = L.circleMarker([receiver.latitude, receiver.longitude], {
+                  radius: 6,
+                  color: 'red',
+                  fillColor: '#f03',
+                  fillOpacity: 0.8,
+                  weight: 2
+                }).addTo(mapLayerGroup);
+                
+                // Add a permanent tooltip with the receiver name
+                receiverMarker.bindTooltip(receiver.name, {
+                  permanent: true,
+                  direction: 'top',
+                  offset: [0, -10],
+                  className: 'receiver-tooltip'
+                }).openTooltip();
+              }
+            });
+          }
+        })
+        .catch(err => {
+          console.error('Error fetching vessel data for receiver markers:', err);
+        });
+      
+      // Fit map to vessel track data only (not including receivers)
       const latlngs = pts.map(p => [p.lat, p.lng]);
       map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
     }
