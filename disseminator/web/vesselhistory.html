@@ -498,6 +498,7 @@
     let shipTypeConfig = {};
     let navStatusMapping = {};
     let receiversData = []; // Store receivers data globally
+    let lastSeenTime = null; // Store the last seen time globally
 
     // Format time difference as a human-readable string
     function formatTimeDifference(timestamp) {
@@ -686,6 +687,8 @@
               format: (val) => {
                 const localTime = new Date(val).toLocaleString();
                 const timeDiff = formatTimeDifference(val);
+                // Store the last seen time globally
+                lastSeenTime = new Date(val);
                 return `${localTime} (${timeDiff})`;
               }
             }
@@ -1712,6 +1715,55 @@
       
       // Automatically load history data with default 1-day range
       setTimeout(async () => {
+        // Check if we need to adjust the date range based on last seen time
+        if (lastSeenTime) {
+          const startInput = document.getElementById('start');
+          const endInput = document.getElementById('end');
+          const startDate = new Date(startInput.value);
+          const endDate = new Date(endInput.value);
+          
+          // If the start date is after or too close to the last seen time,
+          // or if the end date is after the last seen time,
+          // adjust the date range to 24 hours before the last seen time
+          if (startDate >= lastSeenTime || endDate > lastSeenTime) {
+            console.log('Selected dates are too recent compared to last seen time. Adjusting...');
+            
+            // Set end date to last seen time
+            const adjustedEndDate = new Date(lastSeenTime);
+            
+            // Set start date to 24 hours before last seen time
+            const adjustedStartDate = new Date(lastSeenTime);
+            adjustedStartDate.setDate(adjustedStartDate.getDate() - 1);
+            
+            // Format dates for the datetime-local inputs
+            function formatDateForInput(date) {
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, '0');
+              const day = String(date.getDate()).padStart(2, '0');
+              const hours = String(date.getHours()).padStart(2, '0');
+              const minutes = String(date.getMinutes()).padStart(2, '0');
+              return `${year}-${month}-${day}T${hours}:${minutes}`;
+            }
+            
+            // Update the input fields
+            startInput.value = formatDateForInput(adjustedStartDate);
+            endInput.value = formatDateForInput(adjustedEndDate);
+            
+            // Update URL with adjusted date range
+            const url = new URL(window.location.href);
+            url.searchParams.set('start', adjustedStartDate.toISOString());
+            url.searchParams.set('end', adjustedEndDate.toISOString());
+            window.history.replaceState({}, '', url);
+            
+            console.log('Date range adjusted to:', adjustedStartDate, 'to', adjustedEndDate);
+            
+            // Trigger the search button click to submit with adjusted date range
+            document.getElementById('apply-btn').click();
+            return; // Exit early as the click handler will fetch the data
+          }
+        }
+        
+        // If no adjustment was needed, fetch history data normally
         const historyData = await fetchVesselHistory();
         if (historyData) {
           // Store the original history data
