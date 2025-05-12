@@ -916,7 +916,11 @@
           html += `<strong>${displayField}:</strong> ${value}`;
           
           // Add line break after each field except the last one
-          if (index < fields.length - 1 || pt.data[fields[index + 1]] != null) {
+          // Only add a line break if this isn't the last field with data
+          const isLastFieldWithData = index === fields.length - 1 ||
+            fields.slice(index + 1).every(nextField => pt.data[nextField] == null);
+          
+          if (!isLastFieldWithData) {
             html += '<br/>';
           }
         }
@@ -1917,7 +1921,7 @@
           document.removeEventListener('mouseup', endDrag);
           
           // Apply the filter to the map
-          const historyData = window.currentHistoryData;
+          const historyData = window.originalHistoryData || window.currentHistoryData;
           if (historyData) {
             applyTimeFilter(historyData);
             
@@ -2095,8 +2099,6 @@
           
           if (nearestPoint) {
             let html = makeTooltipHTML(nearestPoint);
-            segment.setTooltipContent(html);
-            segment.openTooltip(e.latlng);
             
             // Clear previous connection lines
             connectionLayerGroup.clearLayers();
@@ -2127,6 +2129,10 @@
                 html += `<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
               }
             }
+            
+            // Update tooltip content with the complete HTML including receiver info
+            segment.setTooltipContent(html);
+            segment.openTooltip(e.latlng);
           }
         });
         
