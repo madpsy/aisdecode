@@ -14,6 +14,48 @@
       font-family: sans-serif;
       margin: 2rem;
     }
+    /* Selection window styles for histogram */
+    #message-histogram {
+      position: relative;
+      user-select: none;
+    }
+    .selection-window {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      background-color: rgba(0, 123, 255, 0.2);
+      border-left: 2px solid rgba(0, 123, 255, 0.7);
+      border-right: 2px solid rgba(0, 123, 255, 0.7);
+      pointer-events: none;
+      z-index: 10;
+    }
+    .selection-handle {
+      position: absolute;
+      top: 0;
+      width: 8px;
+      height: 100%;
+      background-color: rgba(0, 123, 255, 0.7);
+      cursor: ew-resize;
+      pointer-events: all;
+    }
+    .selection-handle-left {
+      left: -4px;
+    }
+    .selection-handle-right {
+      right: -4px;
+    }
+    .selection-info {
+      position: absolute;
+      top: 5px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(255, 255, 255, 0.8);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      pointer-events: none;
+      white-space: nowrap;
+    }
     .vessel-header {
       display: flex;
       align-items: flex-start;
@@ -833,6 +875,9 @@
         return;
       }
 
+      // Store the current history data globally for use with time filtering
+      window.currentHistoryData = historyData;
+
       // Clear existing layers
       mapLayerGroup.clearLayers();
       
@@ -1382,6 +1427,13 @@
 
     // Store vessel AIS class globally - moved to loadVesselData function
     
+    // Store the current time filter globally
+    let timeFilter = {
+      active: false,
+      startTime: null,
+      endTime: null
+    };
+    
     // Function to display message histogram
     function displayMessageHistogram(historyData) {
       if (!historyData || !historyData.length) {
@@ -1504,7 +1556,233 @@
       });
       
       histogramContainer.appendChild(svg);
+      
+      // Store the time range data for selection functionality
+      histogramContainer.dataset.startTime = startTime.toISOString();
+      histogramContainer.dataset.endTime = endTime.toISOString();
+      histogramContainer.dataset.numBins = numBins;
+      
+      // Add selection functionality
+      setupHistogramSelection(histogramContainer, startTime, endTime, historyData);
+    }
+    
+    // Setup selection functionality for the histogram
+    function setupHistogramSelection(container, startTime, endTime, historyData) {
+      // Remove any existing selection window
+      const existingSelection = container.querySelector('.selection-window');
+      if (existingSelection) {
+        container.removeChild(existingSelection);
+      }
+      
+      // Create selection window if there's an active filter
+      if (timeFilter.active) {
+        createSelectionWindow(container, startTime, endTime);
+      }
+      
+      // Add click handler to create a new selection
+      container.addEventListener('mousedown', function(e) {
+        // Ignore if clicking on a handle
+        if (e.target.classList.contains('selection-handle')) {
+          return;
+        }
+        
+        // Double click to remove selection
+        if (e.detail === 2) {
+          removeSelectionWindow();
+          return;
+        }
+        
+        // Calculate position as percentage
+        const rect = container.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const percentage = (x / rect.width) * 100;
+        
+        // Calculate time at click position
+        const timeRange = endTime - startTime;
+        const clickTime = new Date(startTime.getTime() + (timeRange * percentage / 100));
+        
+        // Create a small initial selection window (10% width)
+        const halfWidth = 5; // 5% on each side
+        const selectionStartTime = new Date(clickTime.getTime() - (timeRange * halfWidth / 100));
+        const selectionEndTime = new Date(clickTime.getTime() + (timeRange * halfWidth / 100));
+        
+        // Set the time filter
+        timeFilter = {
+          active: true,
+          startTime: selectionStartTime,
+          endTime: selectionEndTime
+        };
+        
+        // Create the selection window
+        createSelectionWindow(container, startTime, endTime);
+        
+        // Apply the filter to the map
+        applyTimeFilter(historyData);
+      });
+    }
+    
+    // Create a selection window based on the current time filter
+    function createSelectionWindow(container, startTime, endTime) {
+      if (!timeFilter.active) return;
+      
+      const totalDuration = endTime - startTime;
+      
+      // Calculate positions as percentages
+      const startPercentage = ((timeFilter.startTime - startTime) / totalDuration) * 100;
+      const endPercentage = ((timeFilter.endTime - startTime) / totalDuration) * 100;
+      
+      // Create selection window element
+      const selectionWindow = document.createElement('div');
+      selectionWindow.className = 'selection-window';
+      selectionWindow.style.left = `${startPercentage}%`;
+      selectionWindow.style.width = `${endPercentage - startPercentage}%`;
+      
+      // Create left handle
+      const leftHandle = document.createElement('div');
+      leftHandle.className = 'selection-handle selection-handle-left';
+      selectionWindow.appendChild(leftHandle);
+      
+      // Create right handle
+      const rightHandle = document.createElement('div');
+      rightHandle.className = 'selection-handle selection-handle-right';
+      selectionWindow.appendChild(rightHandle);
+      
+      // Create info label
+      const infoLabel = document.createElement('div');
+      infoLabel.className = 'selection-info';
+      infoLabel.textContent = formatTimeRange(timeFilter.startTime, timeFilter.endTime);
+      selectionWindow.appendChild(infoLabel);
+      
+      // Add to container
+      container.appendChild(selectionWindow);
+      
+      // Setup drag handlers for the handles
+      setupDragHandlers(container, leftHandle, rightHandle, startTime, endTime);
+    }
+    
+    // Format a time range for display
+    function formatTimeRange(start, end) {
+      const formatOptions = {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      };
+      return `${start.toLocaleString([], formatOptions)} - ${end.toLocaleString([], formatOptions)}`;
+    }
+    
+    // Setup drag handlers for the selection window handles
+    function setupDragHandlers(container, leftHandle, rightHandle, startTime, endTime) {
+      const totalDuration = endTime - startTime;
+      let isDragging = false;
+      let currentHandle = null;
+      
+      // Function to handle mouse move during drag
+      function handleDrag(e) {
+        if (!isDragging || !currentHandle) return;
+        
+        const rect = container.getBoundingClientRect();
+        const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+        const percentage = (x / rect.width) * 100;
+        
+        // Calculate time at drag position
+        const dragTime = new Date(startTime.getTime() + (totalDuration * percentage / 100));
+        
+        const selectionWindow = container.querySelector('.selection-window');
+        const infoLabel = selectionWindow.querySelector('.selection-info');
+        
+        if (currentHandle.classList.contains('selection-handle-left')) {
+          // Update left handle position
+          if (dragTime < timeFilter.endTime) {
+            timeFilter.startTime = dragTime;
+            const startPercentage = ((timeFilter.startTime - startTime) / totalDuration) * 100;
+            const endPercentage = ((timeFilter.endTime - startTime) / totalDuration) * 100;
+            selectionWindow.style.left = `${startPercentage}%`;
+            selectionWindow.style.width = `${endPercentage - startPercentage}%`;
+          }
+        } else {
+          // Update right handle position
+          if (dragTime > timeFilter.startTime) {
+            timeFilter.endTime = dragTime;
+            const startPercentage = ((timeFilter.startTime - startTime) / totalDuration) * 100;
+            const endPercentage = ((timeFilter.endTime - startTime) / totalDuration) * 100;
+            selectionWindow.style.width = `${endPercentage - startPercentage}%`;
+          }
+        }
+        
+        // Update info label
+        infoLabel.textContent = formatTimeRange(timeFilter.startTime, timeFilter.endTime);
+      }
+      
+      // Function to end dragging
+      function endDrag() {
+        if (isDragging) {
+          isDragging = false;
+          document.removeEventListener('mousemove', handleDrag);
+          document.removeEventListener('mouseup', endDrag);
+          
+          // Apply the filter to the map
+          const historyData = window.currentHistoryData;
+          if (historyData) {
+            applyTimeFilter(historyData);
+          }
+        }
+      }
+      
+      // Set up left handle drag
+      leftHandle.addEventListener('mousedown', function(e) {
+        e.stopPropagation();
+        isDragging = true;
+        currentHandle = leftHandle;
+        document.addEventListener('mousemove', handleDrag);
+        document.addEventListener('mouseup', endDrag);
+      });
+      
+      // Set up right handle drag
+      rightHandle.addEventListener('mousedown', function(e) {
+        e.stopPropagation();
+        isDragging = true;
+        currentHandle = rightHandle;
+        document.addEventListener('mousemove', handleDrag);
+        document.addEventListener('mouseup', endDrag);
+      });
+    }
+    
+    // Remove the selection window and clear the time filter
+    function removeSelectionWindow() {
+      const container = document.getElementById('message-histogram');
+      const selectionWindow = container.querySelector('.selection-window');
+      if (selectionWindow) {
+        container.removeChild(selectionWindow);
+      }
+      
+      // Clear the time filter
+      timeFilter = {
+        active: false,
+        startTime: null,
+        endTime: null
+      };
+      
+      // Restore the original map display
+      const historyData = window.currentHistoryData;
+      if (historyData) {
+        displayVesselTrack(historyData);
+      }
+    }
+    
+    // Apply time filter to the map
+    function applyTimeFilter(historyData) {
+      if (!timeFilter.active || !historyData) return;
+      
+      // Filter the data based on the time range
+      const filteredData = historyData.filter(record => {
+        const timestamp = new Date(record.Timestamp);
+        return timestamp >= timeFilter.startTime && timestamp <= timeFilter.endTime;
+      });
+      
+      // Update the map with filtered data
+      displayVesselTrack(filteredData);
     }
   </script>
 </body>
-</html>
+</html>s
