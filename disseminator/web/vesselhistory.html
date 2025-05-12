@@ -132,7 +132,6 @@
   </div>
 
   <div class="history-section">
-    <h2>Vessel History</h2>
     <div class="date-selector">
       <label>From <input type="datetime-local" id="start"/></label>
       <label>To <input type="datetime-local" id="end"/></label>
@@ -151,6 +150,7 @@
               <th>Time</th>
               <th>From</th>
               <th>To</th>
+              <th>ETA</th>
             </tr>
           </thead>
           <tbody>
@@ -611,10 +611,17 @@
         if (flat.Destination !== undefined) {
           const currentDestination = flat.Destination || '';
           if (lastDestination !== null && currentDestination !== lastDestination) {
+            // Include ETA if available
+            let etaStr = '';
+            if (flat.Eta) {
+              etaStr = formatEta(flat.Eta);
+            }
+            
             destinationChanges.push({
               timestamp,
               from: lastDestination,
-              to: currentDestination
+              to: currentDestination,
+              eta: etaStr
             });
           }
           lastDestination = currentDestination;
@@ -654,12 +661,17 @@
           toCell.textContent = change.to || '(empty)';
           row.appendChild(toCell);
           
+          // Add ETA cell
+          const etaCell = document.createElement('td');
+          etaCell.textContent = change.eta || '';
+          row.appendChild(etaCell);
+          
           destTable.appendChild(row);
         });
       } else {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 3;
+        cell.colSpan = 4; // Updated colspan to 4 for the ETA column
         cell.className = 'no-changes';
         cell.textContent = 'No destination changes detected';
         row.appendChild(cell);
@@ -699,6 +711,32 @@
       }
     }
 
+    // Format ETA from object to readable string
+    function formatEta(eta) {
+      if (!eta || typeof eta !== 'object') return '';
+      
+      const { Day, Month, Hour, Minute } = eta;
+      if (Day === undefined || Month === undefined) return '';
+      
+      // Month is 1-based in the data
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      
+      const monthName = monthNames[Month - 1] || '';
+      let timeStr = '';
+      
+      if (Hour !== undefined && Minute !== undefined) {
+        // Pad with leading zeros if needed
+        const hourStr = Hour.toString().padStart(2, '0');
+        const minStr = Minute.toString().padStart(2, '0');
+        timeStr = ` ${hourStr}:${minStr}`;
+      }
+      
+      return `${Day} ${monthName}${timeStr}`;
+    }
+
     // Helper function to flatten nested objects
     function flatten(obj, prefix = '', res = {}) {
       for (const [k, v] of Object.entries(obj || {})) {
@@ -719,6 +757,15 @@
     document.addEventListener('DOMContentLoaded', () => {
       initDateSelectors();
       initMap();
+      
+      // Automatically load history data with default 1-day range
+      setTimeout(async () => {
+        const historyData = await fetchVesselHistory();
+        if (historyData) {
+          displayVesselTrack(historyData);
+          trackChanges(historyData);
+        }
+      }, 1000); // Small delay to ensure vessel data is loaded first
       
       // Set up event listeners
       document.getElementById('apply-btn').addEventListener('click', async () => {
