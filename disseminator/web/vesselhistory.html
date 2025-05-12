@@ -602,6 +602,12 @@
       
       let lastDestination = null;
       let lastStatus = null;
+      let firstRecord = null;
+      
+      // Get the oldest record for initial values
+      if (sortedData.length > 0) {
+        firstRecord = sortedData[0];
+      }
       
       sortedData.forEach(record => {
         const flat = flatten(record.Packet);
@@ -668,10 +674,45 @@
           
           destTable.appendChild(row);
         });
+      } else if (firstRecord) {
+        // If no changes but we have data, show the current value
+        const flat = flatten(firstRecord.Packet);
+        if (flat.Destination !== undefined) {
+          const row = document.createElement('tr');
+          
+          const timeCell = document.createElement('td');
+          timeCell.textContent = new Date(firstRecord.Timestamp).toLocaleString();
+          row.appendChild(timeCell);
+          
+          const fromCell = document.createElement('td');
+          fromCell.textContent = '(initial value)';
+          row.appendChild(fromCell);
+          
+          const toCell = document.createElement('td');
+          toCell.textContent = flat.Destination || '(empty)';
+          row.appendChild(toCell);
+          
+          // Add ETA cell
+          const etaCell = document.createElement('td');
+          if (flat.Eta) {
+            etaCell.textContent = formatEta(flat.Eta);
+          }
+          row.appendChild(etaCell);
+          
+          destTable.appendChild(row);
+        } else {
+          const row = document.createElement('tr');
+          const cell = document.createElement('td');
+          cell.colSpan = 4;
+          cell.className = 'no-changes';
+          cell.textContent = 'No destination information available';
+          row.appendChild(cell);
+          destTable.appendChild(row);
+        }
       } else {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 4; // Updated colspan to 4 for the ETA column
+        cell.colSpan = 4;
         cell.className = 'no-changes';
         cell.textContent = 'No destination changes detected';
         row.appendChild(cell);
@@ -700,6 +741,34 @@
           
           statusTable.appendChild(row);
         });
+      } else if (firstRecord) {
+        // If no changes but we have data, show the current value
+        const flat = flatten(firstRecord.Packet);
+        if (flat.NavigationalStatus !== undefined) {
+          const row = document.createElement('tr');
+          
+          const timeCell = document.createElement('td');
+          timeCell.textContent = new Date(firstRecord.Timestamp).toLocaleString();
+          row.appendChild(timeCell);
+          
+          const fromCell = document.createElement('td');
+          fromCell.textContent = '(initial value)';
+          row.appendChild(fromCell);
+          
+          const toCell = document.createElement('td');
+          toCell.textContent = navStatusMapping[flat.NavigationalStatus] || flat.NavigationalStatus || '(unknown)';
+          row.appendChild(toCell);
+          
+          statusTable.appendChild(row);
+        } else {
+          const row = document.createElement('tr');
+          const cell = document.createElement('td');
+          cell.colSpan = 3;
+          cell.className = 'no-changes';
+          cell.textContent = 'No navigational status information available';
+          row.appendChild(cell);
+          statusTable.appendChild(row);
+        }
       } else {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
