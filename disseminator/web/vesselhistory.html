@@ -6,6 +6,9 @@
   <title>Vessel History</title>
   <!-- Include Bootstrap CSS -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css">
+  <!-- Include Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
+        integrity="sha256-kLaT2GOSpHechhsozzB+flnD+zUyjE2LlfWPgU04xyI=" crossorigin="" />
   <style>
     body {
       font-family: sans-serif;
@@ -57,6 +60,46 @@
     th {
       background-color: #f2f2f2;
     }
+    .history-section {
+      margin-top: 2rem;
+    }
+    .date-selector {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      align-items: center;
+    }
+    .date-selector label {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 0;
+    }
+    .date-selector button {
+      margin-top: 1.5rem;
+    }
+    #map-container {
+      height: 400px;
+      margin-bottom: 1rem;
+      border: 1px solid #ddd;
+    }
+    .changes-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .changes-table {
+      flex: 1;
+      min-width: 300px;
+    }
+    .changes-table h3 {
+      font-size: 1.2rem;
+      margin-bottom: 0.5rem;
+    }
+    .no-changes {
+      font-style: italic;
+      color: #666;
+    }
   </style>
 </head>
 <body>
@@ -88,8 +131,57 @@
     </div>
   </div>
 
+  <div class="history-section">
+    <h2>Vessel History</h2>
+    <div class="date-selector">
+      <label>From <input type="datetime-local" id="start"/></label>
+      <label>To <input type="datetime-local" id="end"/></label>
+      <button id="apply-btn" class="btn btn-primary">Search</button>
+      <button id="reset-btn" class="btn btn-secondary">Reset</button>
+    </div>
+    
+    <div id="map-container"></div>
+    
+    <div class="changes-container">
+      <div class="changes-table">
+        <h3>Destination Changes</h3>
+        <table id="destination-changes" class="table table-striped table-bordered">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>From</th>
+              <th>To</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Destination changes will be inserted here -->
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="changes-table">
+        <h3>Navigational Status Changes</h3>
+        <table id="status-changes" class="table table-striped table-bordered">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>From</th>
+              <th>To</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Status changes will be inserted here -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- Include jQuery -->
   <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+  <!-- Include Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"
+          integrity="sha256-WBkoXOwTeyKclOHuWtc+i2uENFpDZ9YPdf5Hf+D7ewM=" crossorigin=""></script>
   <script>
     // Get UserID from URL query parameter
     function getQueryParam(name) {
@@ -312,6 +404,361 @@
           document.getElementById('error').textContent = 'Failed to load vessel data.';
         });
     }
+
+    // Initialize date selectors with default values (last 24 hours)
+    function initDateSelectors() {
+      const end = new Date();
+      const start = new Date(end);
+      start.setDate(start.getDate() - 1); // 1 day ago
+      
+      document.getElementById('end').value = end.toISOString().slice(0, 16);
+      document.getElementById('start').value = start.toISOString().slice(0, 16);
+    }
+
+    // Initialize map
+    let map = null;
+    let mapLayerGroup = null;
+
+    function initMap() {
+      if (!map) {
+        map = L.map('map-container').setView([0, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        mapLayerGroup = L.layerGroup().addTo(map);
+      }
+    }
+
+    // Fetch vessel history data
+    async function fetchVesselHistory() {
+      const startInput = document.getElementById('start');
+      const endInput = document.getElementById('end');
+      const s = startInput.value, e = endInput.value;
+      
+      if (!s || !e) {
+        alert('Please select From and To dates.');
+        return null;
+      }
+
+      // Determine message types based on AIS Class
+      let messageTypes = [];
+      if (vesselAisClass === 'A') {
+        messageTypes = ['1', '2', '3', '5']; // Class A: position (1,2,3) and static (5)
+      } else if (vesselAisClass === 'B') {
+        messageTypes = ['18', '19', '24']; // Class B: position (18,19) and static (24)
+      } else {
+        // Default to both types if AIS class is unknown
+        messageTypes = ['1', '2', '3', '5', '18', '19', '24'];
+      }
+
+      const params = new URLSearchParams({
+        UserID: userID,
+        MessageID: messageTypes.join(','),
+        start: new Date(s).toISOString(),
+        end: new Date(e).toISOString(),
+        limit: '2000'
+      });
+
+      try {
+        const response = await fetch(`/latestmessages?${params}`, {cache: 'no-store'});
+        return await response.json();
+      } catch (err) {
+        console.error('Error fetching vessel history:', err);
+        alert('Failed to fetch vessel history data.');
+        return null;
+      }
+    }
+
+    // Display vessel track on map
+    function displayVesselTrack(historyData) {
+      if (!historyData || !historyData.length) {
+        return;
+      }
+
+      // Clear existing layers
+      mapLayerGroup.clearLayers();
+      
+      // Prepare points with valid coordinates
+      const pts = historyData
+        .filter(r => {
+          const flat = flatten(r.Packet);
+          return flat.Latitude != null && flat.Longitude != null &&
+                 !isNaN(flat.Latitude) && !isNaN(flat.Longitude);
+        })
+        .map(r => {
+          const flat = flatten(r.Packet);
+          return {
+            lat: flat.Latitude,
+            lng: flat.Longitude,
+            timestamp: r.Timestamp,
+            record: r,
+            data: flat
+          };
+        });
+
+      if (!pts.length) {
+        console.log('No valid position data found');
+        return;
+      }
+      
+      // Sort points by timestamp (newest first)
+      pts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      
+      // Get array of latlngs
+      const latlngs = pts.map(p => [p.lat, p.lng]);
+      
+      // Draw the polyline
+      const line = L.polyline(latlngs, { color: 'blue', weight: 3 })
+        .addTo(mapLayerGroup);
+      
+      // Tooltip options
+      const tooltipOpts = {
+        direction: 'top',
+        offset: [0, -6],
+        permanent: false,
+        sticky: true
+      };
+      
+      // Helper to format one point's tooltip HTML
+      function makeTooltipHTML(pt) {
+        const timestamp = new Date(pt.timestamp).toLocaleString();
+        let html = `<strong>${timestamp}</strong><br/>`;
+        html += `<strong>Latitude:</strong> ${pt.lat.toFixed(6)}<br/>`;
+        html += `<strong>Longitude:</strong> ${pt.lng.toFixed(6)}<br/>`;
+        
+        // Add other interesting fields if available
+        const fields = ['Sog', 'Cog', 'TrueHeading', 'NavigationalStatus', 'Destination'];
+        fields.forEach(field => {
+          if (pt.data[field] != null) {
+            let value = pt.data[field];
+            if (field === 'NavigationalStatus' && navStatusMapping[value]) {
+              value = navStatusMapping[value];
+            }
+            html += `<strong>${field}:</strong> ${value}<br/>`;
+          }
+        });
+        
+        return html;
+      }
+      
+      // Bind an empty tooltip to the polyline (to be updated on hover)
+      line.bindTooltip('', tooltipOpts);
+      
+      // On polyline hover: find nearest point, update + open tooltip
+      line.on('mousemove', e => {
+        let minDist = Infinity, idx = 0;
+        latlngs.forEach((ll, i) => {
+          const d = e.latlng.distanceTo(L.latLng(ll));
+          if (d < minDist) minDist = d, idx = i;
+        });
+        const html = makeTooltipHTML(pts[idx]);
+        line.setTooltipContent(html);
+        line.openTooltip(e.latlng);
+      });
+      
+      line.on('mouseout', () => line.closeTooltip());
+      
+      // Add markers at the first and last points with tooltips
+      const first = pts[pts.length - 1]; // Oldest point
+      const last = pts[0]; // Newest point
+      
+      const startMarker = L.marker([first.lat, first.lng], {
+        icon: L.divIcon({
+          className: 'start-marker',
+          html: '🔵',
+          iconSize: [20, 20],
+          iconAnchor: [10, 10]
+        })
+      }).addTo(mapLayerGroup);
+      startMarker.bindTooltip('Start: ' + new Date(first.timestamp).toLocaleString(), tooltipOpts);
+      
+      const endMarker = L.marker([last.lat, last.lng], {
+        icon: L.divIcon({
+          className: 'end-marker',
+          html: '🔴',
+          iconSize: [20, 20],
+          iconAnchor: [10, 10]
+        })
+      }).addTo(mapLayerGroup);
+      endMarker.bindTooltip('End: ' + new Date(last.timestamp).toLocaleString(), tooltipOpts);
+      
+      // Fit map to data
+      map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
+    }
+
+    // Track changes in destination and navigational status
+    function trackChanges(historyData) {
+      if (!historyData || !historyData.length) {
+        return;
+      }
+      
+      // Sort by timestamp (oldest first)
+      const sortedData = [...historyData].sort((a, b) =>
+        new Date(a.Timestamp) - new Date(b.Timestamp)
+      );
+      
+      const destinationChanges = [];
+      const statusChanges = [];
+      
+      let lastDestination = null;
+      let lastStatus = null;
+      
+      sortedData.forEach(record => {
+        const flat = flatten(record.Packet);
+        const timestamp = record.Timestamp;
+        
+        // Track destination changes
+        if (flat.Destination !== undefined) {
+          const currentDestination = flat.Destination || '';
+          if (lastDestination !== null && currentDestination !== lastDestination) {
+            destinationChanges.push({
+              timestamp,
+              from: lastDestination,
+              to: currentDestination
+            });
+          }
+          lastDestination = currentDestination;
+        }
+        
+        // Track navigational status changes
+        if (flat.NavigationalStatus !== undefined) {
+          const currentStatus = flat.NavigationalStatus;
+          if (lastStatus !== null && currentStatus !== lastStatus) {
+            statusChanges.push({
+              timestamp,
+              from: lastStatus,
+              to: currentStatus
+            });
+          }
+          lastStatus = currentStatus;
+        }
+      });
+      
+      // Display destination changes
+      const destTable = document.querySelector('#destination-changes tbody');
+      destTable.innerHTML = '';
+      
+      if (destinationChanges.length > 0) {
+        destinationChanges.forEach(change => {
+          const row = document.createElement('tr');
+          
+          const timeCell = document.createElement('td');
+          timeCell.textContent = new Date(change.timestamp).toLocaleString();
+          row.appendChild(timeCell);
+          
+          const fromCell = document.createElement('td');
+          fromCell.textContent = change.from || '(empty)';
+          row.appendChild(fromCell);
+          
+          const toCell = document.createElement('td');
+          toCell.textContent = change.to || '(empty)';
+          row.appendChild(toCell);
+          
+          destTable.appendChild(row);
+        });
+      } else {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 3;
+        cell.className = 'no-changes';
+        cell.textContent = 'No destination changes detected';
+        row.appendChild(cell);
+        destTable.appendChild(row);
+      }
+      
+      // Display navigational status changes
+      const statusTable = document.querySelector('#status-changes tbody');
+      statusTable.innerHTML = '';
+      
+      if (statusChanges.length > 0) {
+        statusChanges.forEach(change => {
+          const row = document.createElement('tr');
+          
+          const timeCell = document.createElement('td');
+          timeCell.textContent = new Date(change.timestamp).toLocaleString();
+          row.appendChild(timeCell);
+          
+          const fromCell = document.createElement('td');
+          fromCell.textContent = navStatusMapping[change.from] || change.from || '(unknown)';
+          row.appendChild(fromCell);
+          
+          const toCell = document.createElement('td');
+          toCell.textContent = navStatusMapping[change.to] || change.to || '(unknown)';
+          row.appendChild(toCell);
+          
+          statusTable.appendChild(row);
+        });
+      } else {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 3;
+        cell.className = 'no-changes';
+        cell.textContent = 'No navigational status changes detected';
+        row.appendChild(cell);
+        statusTable.appendChild(row);
+      }
+    }
+
+    // Helper function to flatten nested objects
+    function flatten(obj, prefix = '', res = {}) {
+      for (const [k, v] of Object.entries(obj || {})) {
+        const key = prefix ? `${prefix}.${k}` : k;
+        if (v != null && typeof v === 'object' && !Array.isArray(v)) {
+          flatten(v, key, res);
+        } else {
+          res[key] = v;
+        }
+      }
+      return res;
+    }
+
+    // Store vessel AIS class globally
+    let vesselAisClass = '';
+
+    // Initialize the page
+    document.addEventListener('DOMContentLoaded', () => {
+      initDateSelectors();
+      initMap();
+      
+      // Set up event listeners
+      document.getElementById('apply-btn').addEventListener('click', async () => {
+        const historyData = await fetchVesselHistory();
+        if (historyData) {
+          displayVesselTrack(historyData);
+          trackChanges(historyData);
+        }
+      });
+      
+      document.getElementById('reset-btn').addEventListener('click', () => {
+        initDateSelectors();
+        
+        // Clear map
+        if (mapLayerGroup) {
+          mapLayerGroup.clearLayers();
+        }
+        
+        // Clear tables
+        document.querySelector('#destination-changes tbody').innerHTML = '';
+        document.querySelector('#status-changes tbody').innerHTML = '';
+      });
+    });
+
+    // Store AIS class when loading vessel data
+    const originalLoadVesselData = loadVesselData;
+    loadVesselData = function() {
+      originalLoadVesselData();
+      
+      // After vessel data is loaded, store the AIS class
+      fetch(`/state?UserID=${userID}`, { cache: 'no-store' })
+        .then(response => response.json())
+        .then(data => {
+          vesselAisClass = data.AISClass || '';
+          console.log('Vessel AIS Class:', vesselAisClass);
+        })
+        .catch(err => {
+          console.error('Error fetching vessel AIS class:', err);
+        });
+    };
   </script>
 </body>
 </html>
