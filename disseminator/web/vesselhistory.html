@@ -2444,7 +2444,11 @@
     });
     
     function startReplay() {
-      if (replayInProgress) return;
+      // If replay is in progress, stop it instead
+      if (replayInProgress) {
+        stopReplay();
+        return;
+      }
       
       // Get current points from the map
       const historyData = window.currentHistoryData;
@@ -2487,23 +2491,21 @@
       
       // Update UI
       const replayButton = document.getElementById('replay-button');
-      replayButton.disabled = true;
       replayButton.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
           <path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5zm5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5z"/>
         </svg>
-        Replaying...
+        Stop
       `;
       
       // Clear existing layers but keep the base map
       mapLayerGroup.clearLayers();
       
-      // Create a new layer for the replay animation
-      replayPolyline = L.polyline([], {
-        color: '#3388ff',
-        weight: 4,
-        opacity: 0.8
-      }).addTo(mapLayerGroup);
+      // Create a layer group for the replay animation segments
+      replayPolyline = L.layerGroup().addTo(mapLayerGroup);
+      
+      // Create a layer group for receiver connection lines
+      const connectionLayerGroup = L.layerGroup().addTo(mapLayerGroup);
       
       // Ensure we have at least one valid point
       if (!pts[0] || pts[0].lat === undefined || pts[0].lng === undefined) {
@@ -2591,13 +2593,29 @@
               return;
             }
             
-            // Update polyline with points up to the current index
-            const currentPath = pts.slice(0, pointIndex + 1)
-              .filter(p => p && p.lat !== undefined && p.lng !== undefined)
-              .map(p => [p.lat, p.lng]);
-            
+            // Clear existing polylines
             if (replayPolyline) {
-              replayPolyline.setLatLngs(currentPath);
+              replayPolyline.clearLayers();
+            }
+            
+            // Create colored segments up to the current point
+            for (let i = 0; i < pointIndex; i++) {
+              const pt1 = pts[i];
+              const pt2 = pts[i + 1];
+              
+              if (pt1 && pt2 && pt1.lat !== undefined && pt1.lng !== undefined &&
+                  pt2.lat !== undefined && pt2.lng !== undefined) {
+                // Use the speed of the first point for the color
+                const speed = pt1.data.Sog != null ? pt1.data.Sog : 0;
+                const color = getColorForSpeed(speed);
+                
+                // Create a polyline segment with this color
+                const segment = L.polyline([[pt1.lat, pt1.lng], [pt2.lat, pt2.lng]], {
+                  color: color,
+                  weight: 3,
+                  opacity: 0.8
+                }).addTo(replayPolyline);
+              }
             }
             
             // Update marker position
@@ -2621,6 +2639,37 @@
               }
             }
             
+            // Show connection to receiver if available
+            connectionLayerGroup.clearLayers();
+            const receiverId = currentPoint.record.ReceiverID;
+            if (receiverId && receiversData.length > 0) {
+              // Find the receiver in receiversData
+              const receiver = receiversData.find(r => r.id === receiverId);
+              if (receiver && receiver.latitude && receiver.longitude) {
+                // Draw a dashed grey line between the point and the receiver
+                const connectionLine = L.polyline(
+                  [[currentPoint.lat, currentPoint.lng], [receiver.latitude, receiver.longitude]],
+                  {
+                    color: 'grey',
+                    weight: 2,
+                    opacity: 0.7,
+                    dashArray: '5, 7'
+                  }
+                ).addTo(connectionLayerGroup);
+                
+                // Find and highlight the active receiver tooltip
+                document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+                  // Remove active class from all tooltips
+                  tooltip.classList.remove('receiver-tooltip-active');
+                  
+                  // Add active class to the matching receiver tooltip
+                  if (tooltip.textContent === receiver.name) {
+                    tooltip.classList.add('receiver-tooltip-active');
+                  }
+                });
+              }
+            }
+            
             // Continue animation
             replayAnimationId = requestAnimationFrame(animate);
           } catch (error) {
@@ -2637,11 +2686,24 @@
       replayAnimationId = requestAnimationFrame(animate);
     }
     
+    // Function to stop replay
+    function stopReplay() {
+      if (!replayInProgress) return;
+      
+      // Cancel animation
+      if (replayAnimationId) {
+        cancelAnimationFrame(replayAnimationId);
+        replayAnimationId = null;
+      }
+      
+      // Call finishReplay to clean up
+      finishReplay(window.currentHistoryData || []);
+    }
+    
     function finishReplay(pts) {
       // Reset UI
       const replayButton = document.getElementById('replay-button');
       if (replayButton) {
-        replayButton.disabled = false;
         replayButton.innerHTML = `
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
             <path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
