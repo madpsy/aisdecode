@@ -330,7 +330,7 @@
       // Helper function to create vessel history URL
       function createVesselHistoryUrl(userId, timestamp = null, receiverId = null) {
         // Base URL with UserID
-        let url = `vesselhistory.html?UserID=${userId}`;
+        let url = `/vesselhistory.html?UserID=${userId}`;
         
         // Add ReceiverID if available
         if (receiverId) {
