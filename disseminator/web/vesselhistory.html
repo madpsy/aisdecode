@@ -157,6 +157,58 @@
     #copy-link-btn svg {
       margin-right: 3px;
     }
+    
+    /* Image overlay styles */
+    .image-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+      z-index: 2000;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .image-overlay.active {
+      display: flex;
+    }
+    
+    .overlay-content {
+      position: relative;
+      max-width: 90%;
+      max-height: 90%;
+    }
+    
+    .overlay-content img {
+      max-width: 100%;
+      max-height: 90vh;
+      border: 2px solid white;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+    }
+    
+    .close-overlay {
+      position: absolute;
+      top: -20px;
+      right: -20px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background-color: white;
+      color: black;
+      font-size: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    }
+    
+    #vessel-img {
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -193,6 +245,14 @@
     </div>
     <div>
       <img id="vessel-img" class="vessel-image" src="" alt="Vessel Image" style="display: none;">
+    </div>
+    
+    <!-- Image overlay -->
+    <div id="image-overlay" class="image-overlay">
+      <div class="overlay-content">
+        <div class="close-overlay">&times;</div>
+        <img id="overlay-img" src="" alt="Vessel Image Full Size">
+      </div>
     </div>
   </div>
 
@@ -1232,6 +1292,32 @@
           }, 2000);
         } catch (err) {
           console.error('Failed to copy URL to clipboard:', err);
+        }
+      });
+      
+      // Image overlay functionality
+      const vesselImg = document.getElementById('vessel-img');
+      const imageOverlay = document.getElementById('image-overlay');
+      const overlayImg = document.getElementById('overlay-img');
+      const closeOverlay = document.querySelector('.close-overlay');
+      
+      // Open overlay when clicking on vessel image
+      vesselImg.addEventListener('click', () => {
+        if (vesselImg.src) {
+          overlayImg.src = vesselImg.src;
+          imageOverlay.classList.add('active');
+        }
+      });
+      
+      // Close overlay when clicking on X button
+      closeOverlay.addEventListener('click', () => {
+        imageOverlay.classList.remove('active');
+      });
+      
+      // Close overlay when clicking outside the image
+      imageOverlay.addEventListener('click', (e) => {
+        if (e.target === imageOverlay) {
+          imageOverlay.classList.remove('active');
         }
       });
       
