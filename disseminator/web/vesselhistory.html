@@ -844,20 +844,52 @@
       
       // Set receiver dropdown if ReceiverID parameter exists
       if (receiverIdParam) {
-        // We'll set this once the receivers are loaded
+        console.log('ReceiverID parameter found:', receiverIdParam);
+        
+        // Track attempts to prevent infinite polling
+        let attempts = 0;
+        const maxAttempts = 50; // 10 seconds max (50 * 200ms)
+        
+        // We'll set this once the receivers are fully loaded
         const checkReceiverInterval = setInterval(() => {
           const receiverSelect = document.getElementById('receiver-select');
-          if (receiverSelect.options.length > 1) {
+          attempts++;
+          
+          // Check if we've reached max attempts
+          if (attempts >= maxAttempts) {
+            console.log('Max attempts reached, stopping receiver selection check');
+            clearInterval(checkReceiverInterval);
+            return;
+          }
+          
+          // Only proceed if we have receivers data loaded
+          if (receiversData.length > 0 && receiverSelect.options.length > 1) {
+            console.log('Checking for receiver option with value:', receiverIdParam);
+            let found = false;
+            
             // Find the option with the matching value
             for (let i = 0; i < receiverSelect.options.length; i++) {
               if (receiverSelect.options[i].value === receiverIdParam) {
+                console.log('Found matching receiver option at index:', i);
                 receiverSelect.selectedIndex = i;
+                found = true;
                 break;
               }
             }
-            clearInterval(checkReceiverInterval);
+            
+            // If we found the option or we've checked multiple times, stop checking
+            if (found || attempts > 10) {
+              if (!found) {
+                console.log('Receiver option not found after multiple attempts');
+              }
+              clearInterval(checkReceiverInterval);
+            }
+          } else {
+            console.log('Waiting for receivers to load...',
+                      'receiversData.length:', receiversData.length,
+                      'options.length:', receiverSelect.options.length);
           }
-        }, 100);
+        }, 200); // Increased interval to 200ms to give more time for loading
       }
     }
 
