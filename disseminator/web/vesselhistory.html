@@ -77,6 +77,9 @@
     .date-selector button {
       margin-top: 1.5rem;
     }
+    #receiver-select {
+      min-width: 120px;
+    }
     #map-container {
       height: 400px;
       margin-bottom: 1rem;
@@ -170,6 +173,12 @@
     <div class="date-selector">
       <label>From <input type="datetime-local" id="start"/></label>
       <label>To <input type="datetime-local" id="end"/></label>
+      <label>Receiver
+        <select id="receiver-select" class="form-control">
+          <option value="">All</option>
+          <!-- Receiver options will be populated dynamically -->
+        </select>
+      </label>
       <button id="apply-btn" class="btn btn-primary">Search</button>
       <button id="reset-btn" class="btn btn-secondary">Reset</button>
     </div>
@@ -240,6 +249,7 @@
     let midsMapping = {};
     let shipTypeConfig = {};
     let navStatusMapping = {};
+    let receiversData = []; // Store receivers data globally
 
     // Format time difference as a human-readable string
     function formatTimeDifference(timestamp) {
@@ -313,6 +323,35 @@
           // Store AIS class globally for use in fetchVesselHistory
           vesselAisClass = data.AISClass || '';
           console.log('Vessel AIS Class:', vesselAisClass);
+          
+          // Update receiver dropdown if ReceiverIDs are available
+          if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
+            console.log('Vessel heard by receivers:', data.ReceiverIDs);
+            
+            // Ensure receivers data is loaded
+            if (receiversData.length === 0) {
+              // If receivers data isn't loaded yet, fetch it now
+              fetchReceiversData();
+            } else {
+              // Filter the receiver dropdown to only show receivers that heard this vessel
+              const receiverSelect = document.getElementById('receiver-select');
+              
+              // Keep only the "All" option and receivers that heard this vessel
+              while (receiverSelect.options.length > 1) {
+                receiverSelect.remove(1);
+              }
+              
+              // Add options for each receiver that heard this vessel
+              receiversData.forEach(receiver => {
+                if (data.ReceiverIDs.includes(receiver.id)) {
+                  const option = document.createElement('option');
+                  option.value = receiver.id;
+                  option.textContent = receiver.name;
+                  receiverSelect.appendChild(option);
+                }
+              });
+            }
+          }
           
           // Update page title with vessel name if available
           if (data.Name) {
@@ -456,11 +495,38 @@
         });
     }
 
+    // Fetch receivers data and populate the dropdown
+    function fetchReceiversData() {
+      fetch('/receivers', { cache: 'no-store' })
+        .then(response => response.json())
+        .then(data => {
+          receiversData = data;
+          const receiverSelect = document.getElementById('receiver-select');
+          
+          // Clear existing options except the "All" option
+          while (receiverSelect.options.length > 1) {
+            receiverSelect.remove(1);
+          }
+          
+          // Add options for each receiver
+          data.forEach(receiver => {
+            const option = document.createElement('option');
+            option.value = receiver.id;
+            option.textContent = receiver.name;
+            receiverSelect.appendChild(option);
+          });
+        })
+        .catch(err => {
+          console.error('Error fetching receivers data:', err);
+        });
+    }
+
     // Initialize date selectors with values from URL parameters or default to last 24 hours
     function initDateSelectors() {
       // Try to get start and end from URL parameters
       const startParam = getQueryParam('start');
       const endParam = getQueryParam('end');
+      const receiverIdParam = getQueryParam('ReceiverID');
       
       let end, start;
       
@@ -481,6 +547,24 @@
       
       document.getElementById('end').value = end.toISOString().slice(0, 16);
       document.getElementById('start').value = start.toISOString().slice(0, 16);
+      
+      // Set receiver dropdown if ReceiverID parameter exists
+      if (receiverIdParam) {
+        // We'll set this once the receivers are loaded
+        const checkReceiverInterval = setInterval(() => {
+          const receiverSelect = document.getElementById('receiver-select');
+          if (receiverSelect.options.length > 1) {
+            // Find the option with the matching value
+            for (let i = 0; i < receiverSelect.options.length; i++) {
+              if (receiverSelect.options[i].value === receiverIdParam) {
+                receiverSelect.selectedIndex = i;
+                break;
+              }
+            }
+            clearInterval(checkReceiverInterval);
+          }
+        }, 100);
+      }
     }
 
     // Initialize map
@@ -529,25 +613,40 @@
       const limit = 2000;
 
       try {
+        // Get selected receiver ID
+        const receiverSelect = document.getElementById('receiver-select');
+        const selectedReceiverId = receiverSelect.value;
+        
+        // Create base parameters for both calls
+        const positionParams = {
+          UserID: userID,
+          MessageID: positionMessageTypes.join(','),
+          start: startTime,
+          end: endTime,
+          limit: limit
+        };
+        
+        const staticParams = {
+          UserID: userID,
+          MessageID: staticMessageTypes.join(','),
+          start: startTime,
+          end: endTime,
+          limit: limit
+        };
+        
+        // Add ReceiverID parameter if a specific receiver is selected
+        if (selectedReceiverId) {
+          positionParams.ReceiverID = selectedReceiverId;
+          staticParams.ReceiverID = selectedReceiverId;
+        }
+        
         // Make two separate calls for position and static messages
         const [positionResponse, staticResponse] = await Promise.all([
           // Position messages call
-          fetch(`/latestmessages?${new URLSearchParams({
-            UserID: userID,
-            MessageID: positionMessageTypes.join(','),
-            start: startTime,
-            end: endTime,
-            limit: limit
-          })}`, {cache: 'no-store'}),
+          fetch(`/latestmessages?${new URLSearchParams(positionParams)}`, {cache: 'no-store'}),
           
           // Static messages call
-          fetch(`/latestmessages?${new URLSearchParams({
-            UserID: userID,
-            MessageID: staticMessageTypes.join(','),
-            start: startTime,
-            end: endTime,
-            limit: limit
-          })}`, {cache: 'no-store'})
+          fetch(`/latestmessages?${new URLSearchParams(staticParams)}`, {cache: 'no-store'})
         ]);
 
         // Parse both responses
@@ -1020,6 +1119,9 @@
       initDateSelectors();
       initMap();
       
+      // Fetch receivers data
+      fetchReceiversData();
+      
       // Automatically load history data with default 1-day range
       setTimeout(async () => {
         const historyData = await fetchVesselHistory();
@@ -1030,6 +1132,14 @@
       }, 1000); // Small delay to ensure vessel data is loaded first
       
       // Set up event listeners
+      document.getElementById('receiver-select').addEventListener('change', async () => {
+        const historyData = await fetchVesselHistory();
+        if (historyData) {
+          displayVesselTrack(historyData);
+          trackChanges(historyData);
+        }
+      });
+      
       document.getElementById('apply-btn').addEventListener('click', async () => {
         // Update URL with current date range
         const startInput = document.getElementById('start');
@@ -1042,6 +1152,14 @@
           // Update or add the start and end parameters
           url.searchParams.set('start', new Date(startInput.value).toISOString());
           url.searchParams.set('end', new Date(endInput.value).toISOString());
+          
+          // Add receiver ID to URL if selected
+          const receiverSelect = document.getElementById('receiver-select');
+          if (receiverSelect.value) {
+            url.searchParams.set('ReceiverID', receiverSelect.value);
+          } else {
+            url.searchParams.delete('ReceiverID');
+          }
           
           // Update the browser history without reloading the page
           window.history.replaceState({}, '', url);
