@@ -326,6 +326,28 @@
         '#acc236','#166a8f','#00a950','#58595b',
         '#8549ba','#e6194b'
       ];
+      
+      // Helper function to create vessel history URL
+      function createVesselHistoryUrl(userId, timestamp = null, receiverId = null) {
+        // Base URL with UserID
+        let url = `vesselhistory.html?UserID=${userId}`;
+        
+        // Add ReceiverID if available
+        if (receiverId) {
+          url += `&ReceiverID=${receiverId}`;
+        }
+        
+        // Add time range if timestamp is available (+/- 12 hours)
+        if (timestamp) {
+          const date = new Date(timestamp);
+          const startTime = new Date(date.getTime() - 12 * 60 * 60 * 1000); // 12 hours before
+          const endTime = new Date(date.getTime() + 12 * 60 * 60 * 1000);   // 12 hours after
+          
+          url += `&start=${startTime.toISOString()}&end=${endTime.toISOString()}`;
+        }
+        
+        return url;
+      }
 
       async function loadTypeMapping() {
         try {
@@ -439,7 +461,7 @@
 
         data.forEach(v => {
           const name = v.name || v.user_id;
-          const nameLink = `<a href="/?UserID=${v.user_id}" target="_blank">${name}</a>`;
+          const nameLink = `<a href="${createVesselHistoryUrl(v.user_id, null, receiverId)}" target="_blank">${name}</a>`;
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
@@ -471,7 +493,7 @@
 
         data.forEach(v => {
           const name = v.name || v.user_id;
-          const nameLink = `<a href="/?UserID=${v.user_id}" target="_blank">${name}</a>`;
+          const nameLink = `<a href="${createVesselHistoryUrl(v.user_id, null, receiverId)}" target="_blank">${name}</a>`;
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
@@ -567,7 +589,7 @@
 
         data.forEach(v => {
           const name = v.name || v.user_id;
-          const nameLink = `<a href="/?UserID=${v.user_id}" target="_blank">${name}</a>`;
+          const nameLink = `<a href="${createVesselHistoryUrl(v.user_id, v.timestamp, v.receiver_id)}" target="_blank">${name}</a>`;
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
@@ -916,7 +938,7 @@
           
           // Add the link with text inside
           wordGroups.append('a')
-            .attr('xlink:href', d => `/?UserID=${d.userId}`)
+            .attr('xlink:href', d => createVesselHistoryUrl(d.userId))
             .attr('target', '_blank')
             .append('text')
             .attr('class', 'word-cloud-text')
