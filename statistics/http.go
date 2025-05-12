@@ -392,7 +392,6 @@ func topClassesHandler(w http.ResponseWriter, r *http.Request) {
         cacheSet(cacheKey, counts)
         respondJSON(w, counts)
     }
-}
 
 func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
