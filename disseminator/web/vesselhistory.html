@@ -969,9 +969,14 @@
       
       // Add other interesting fields if available
       const fields = ['Sog', 'Cog', 'TrueHeading', 'NavigationalStatus', 'Destination'];
-      fields.forEach((field, index) => {
-        // Skip TrueHeading if value is 511 (treat as empty/missing)
-        if (pt.data[field] != null && !(field === 'TrueHeading' && pt.data[field] === 511)) {
+      
+      // Create a filtered list of fields, excluding TrueHeading if it's 511
+      const filteredFields = fields.filter(field =>
+        !(field === 'TrueHeading' && pt.data[field] === 511)
+      );
+      
+      filteredFields.forEach((field, index) => {
+        if (pt.data[field] != null) {
           let value = pt.data[field];
           let displayField = field;
           
