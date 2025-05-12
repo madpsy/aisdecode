@@ -416,6 +416,20 @@
             },
             { key: 'AISClass', label: 'AIS Class' },
             { key: 'Type', label: 'Type', format: (val) => lookupShipType(val) },
+            {
+              key: 'Flag',
+              label: 'Flag',
+              // Custom value that doesn't exist in the data object
+              customValue: true,
+              format: () => {
+                // Get country name from MID (first 3 digits of UserID)
+                const mid = userID.toString().substring(0, 3);
+                if (midsMapping[mid] && midsMapping[mid][3]) {
+                  return midsMapping[mid][3]; // 4th element is the full country name
+                }
+                return 'Unknown';
+              }
+            },
             { key: 'NavigationalStatus', label: 'Status', format: (val) => lookupNavStatus(val) },
             { key: 'Destination', label: 'Destination' },
             { key: 'MaximumStaticDraught', label: 'Max Draught', format: (val) => val ? `${val} m` : '' },
@@ -446,8 +460,9 @@
           
           // Process first half of fields for left table
           fieldsToDisplay.slice(0, midpoint).forEach(field => {
-            // Special case for NavigationalStatus which might not exist but we still want to show
-            const shouldDisplay = field.key === 'NavigationalStatus' ||
+            // Special cases for fields that should always be shown or have custom values
+            const shouldDisplay = field.customValue ||
+                                 field.key === 'NavigationalStatus' ||
                                  (field.checkValue ? field.checkValue(data[field.key]) :
                                   (data[field.key] !== undefined &&
                                    data[field.key] !== null &&
@@ -462,9 +477,14 @@
               row.appendChild(labelCell);
               
               const valueCell = document.createElement('td');
-              // Use formatter function if provided, otherwise use raw value
-              const value = data[field.key];
-              valueCell.textContent = field.format ? field.format(value) : (value || '');
+              // For custom value fields, just call the format function directly
+              if (field.customValue && field.format) {
+                valueCell.textContent = field.format();
+              } else {
+                // Otherwise use formatter function if provided, or use raw value
+                const value = data[field.key];
+                valueCell.textContent = field.format ? field.format(value) : (value || '');
+              }
               row.appendChild(valueCell);
               
               leftTableBody.appendChild(row);
@@ -473,8 +493,9 @@
           
           // Process second half of fields for right table
           fieldsToDisplay.slice(midpoint).forEach(field => {
-            // Special case for NavigationalStatus which might not exist but we still want to show
-            const shouldDisplay = field.key === 'NavigationalStatus' ||
+            // Special cases for fields that should always be shown or have custom values
+            const shouldDisplay = field.customValue ||
+                                 field.key === 'NavigationalStatus' ||
                                  (field.checkValue ? field.checkValue(data[field.key]) :
                                   (data[field.key] !== undefined &&
                                    data[field.key] !== null &&
@@ -489,9 +510,14 @@
               row.appendChild(labelCell);
               
               const valueCell = document.createElement('td');
-              // Use formatter function if provided, otherwise use raw value
-              const value = data[field.key];
-              valueCell.textContent = field.format ? field.format(value) : (value || '');
+              // For custom value fields, just call the format function directly
+              if (field.customValue && field.format) {
+                valueCell.textContent = field.format();
+              } else {
+                // Otherwise use formatter function if provided, or use raw value
+                const value = data[field.key];
+                valueCell.textContent = field.format ? field.format(value) : (value || '');
+              }
               row.appendChild(valueCell);
               
               rightTableBody.appendChild(row);
