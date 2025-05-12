@@ -455,11 +455,12 @@
           ];
 
           // Add rows for each field if it exists and is not empty
-          // Split fields between left and right tables
-          const midpoint = Math.ceil(fieldsToDisplay.length / 2);
+          // Manually define which fields go in which table
+          const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag'];
+          const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated'];
           
-          // Process first half of fields for left table
-          fieldsToDisplay.slice(0, midpoint).forEach(field => {
+          // Process fields for left table
+          fieldsToDisplay.filter(field => leftTableFields.includes(field.key)).forEach(field => {
             // Special cases for fields that should always be shown or have custom values
             const shouldDisplay = field.customValue ||
                                  field.key === 'NavigationalStatus' ||
@@ -491,8 +492,8 @@
             }
           });
           
-          // Process second half of fields for right table
-          fieldsToDisplay.slice(midpoint).forEach(field => {
+          // Process fields for right table
+          fieldsToDisplay.filter(field => rightTableFields.includes(field.key)).forEach(field => {
             // Special cases for fields that should always be shown or have custom values
             const shouldDisplay = field.customValue ||
                                  field.key === 'NavigationalStatus' ||
@@ -815,10 +816,19 @@
         fields.forEach(field => {
           if (pt.data[field] != null) {
             let value = pt.data[field];
-            if (field === 'NavigationalStatus' && navStatusMapping[value]) {
-              value = navStatusMapping[value];
+            let displayField = field;
+            
+            // Rename fields for display
+            if (field === 'TrueHeading') {
+              displayField = 'Heading';
+            } else if (field === 'NavigationalStatus') {
+              displayField = 'Status';
+              if (navStatusMapping[value]) {
+                value = navStatusMapping[value];
+              }
             }
-            html += `<strong>${field}:</strong> ${value}<br/>`;
+            
+            html += `<strong>${displayField}:</strong> ${value}<br/>`;
           }
         });
         
