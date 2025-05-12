@@ -61,12 +61,6 @@
     </div>
     <div class="vessel-info">
       <table id="vessel-table">
-        <thead>
-          <tr>
-            <th>Field</th>
-            <th>Value</th>
-          </tr>
-        </thead>
         <tbody>
           <!-- Data will be inserted here dynamically -->
         </tbody>
@@ -89,15 +83,42 @@
     const userID = getQueryParam('UserID');
     let midsMapping = {};
     let shipTypeConfig = {};
+    let navStatusMapping = {};
 
-    // Load MIDs mapping and ship types
+    // Format time difference as a human-readable string
+    function formatTimeDifference(timestamp) {
+      const now = new Date();
+      const date = new Date(timestamp);
+      const diffMs = now - date;
+      
+      const seconds = Math.floor(diffMs / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+      
+      const remainingHours = hours % 24;
+      const remainingMinutes = minutes % 60;
+      const remainingSeconds = seconds % 60;
+      
+      let result = '';
+      if (days > 0) result += `${days}d `;
+      if (remainingHours > 0 || days > 0) result += `${remainingHours}h `;
+      if (remainingMinutes > 0 || remainingHours > 0 || days > 0) result += `${remainingMinutes}m `;
+      result += `${remainingSeconds}s ago`;
+      
+      return result;
+    }
+
+    // Load MIDs mapping, ship types, and nav status
     Promise.all([
       fetch('/mids.json').then(r => r.json()),
-      fetch('/types.json').then(r => r.json())
+      fetch('/types.json').then(r => r.json()),
+      fetch('/navstatus.json').then(r => r.json())
     ])
-    .then(([midsData, typesData]) => {
+    .then(([midsData, typesData, navStatusData]) => {
       midsMapping = midsData;
       shipTypeConfig = typesData;
+      navStatusMapping = navStatusData;
       loadVesselData();
     })
     .catch(err => {
@@ -115,6 +136,12 @@
       
       const category = shipTypeConfig.categories.find(cat => cat.id === categoryId);
       return category ? `${category.name} (ID: ${code})` : code;
+    }
+
+    // Helper: look up navigational status text
+    function lookupNavStatus(code) {
+      if (!navStatusMapping || code === undefined || code === null) return "Unknown";
+      return navStatusMapping[code] || "Unknown";
     }
 
     function loadVesselData() {
@@ -163,21 +190,50 @@
             { key: 'CallSign', label: 'Call Sign' },
             { key: 'ImoNumber', label: 'IMO Number' },
             { key: 'AISClass', label: 'AIS Class' },
-            { key: 'Type', label: 'Type', format: (val) => lookupShipType(val) }
+            { key: 'Type', label: 'Type', format: (val) => lookupShipType(val) },
+            { key: 'NavigationalStatus', label: 'Navigational Status', format: (val) => lookupNavStatus(val) },
+            { key: 'MaximumStaticDraught', label: 'Max Draught', format: (val) => val ? `${val} m` : '' },
+            {
+              key: 'Dimension',
+              label: 'Dimension',
+              format: (val) => {
+                if (!val || typeof val !== 'object') return '';
+                const length = (val.A || 0) + (val.B || 0);
+                const width = (val.C || 0) + (val.D || 0);
+                return `${length}m × ${width}m`;
+              }
+            },
+            {
+              key: 'LastUpdated',
+              label: 'Last Seen',
+              format: (val) => {
+                const localTime = new Date(val).toLocaleString();
+                const timeDiff = formatTimeDifference(val);
+                return `${localTime} (${timeDiff})`;
+              }
+            }
           ];
 
           // Add rows for each field if it exists and is not empty
           fieldsToDisplay.forEach(field => {
-            if (data[field.key] !== undefined && data[field.key] !== null && data[field.key] !== '') {
+            // Special case for NavigationalStatus which might not exist but we still want to show
+            const shouldDisplay = field.key === 'NavigationalStatus' ||
+                                 (data[field.key] !== undefined &&
+                                  data[field.key] !== null &&
+                                  data[field.key] !== '');
+            
+            if (shouldDisplay) {
               const row = document.createElement('tr');
               
               const labelCell = document.createElement('td');
               labelCell.textContent = field.label;
+              labelCell.style.fontWeight = 'bold';
               row.appendChild(labelCell);
               
               const valueCell = document.createElement('td');
               // Use formatter function if provided, otherwise use raw value
-              valueCell.textContent = field.format ? field.format(data[field.key]) : data[field.key];
+              const value = data[field.key];
+              valueCell.textContent = field.format ? field.format(value) : (value || '');
               row.appendChild(valueCell);
               
               tableBody.appendChild(row);
