@@ -2446,6 +2446,21 @@
     let replayPolyline = null;
     let tooltipVisible = true; // Track tooltip visibility
     
+    // Function to toggle tooltip visibility
+    function toggleTooltipVisibility() {
+      if (replayTooltip) {
+        if (tooltipVisible) {
+          // Hide tooltip
+          replayTooltip.getElement().style.display = 'none';
+          tooltipVisible = false;
+        } else {
+          // Show tooltip
+          replayTooltip.getElement().style.display = '';
+          tooltipVisible = true;
+        }
+      }
+    }
+    
     // Initialize replay button
     document.addEventListener('DOMContentLoaded', () => {
       const replayButton = document.getElementById('replay-button');
@@ -2566,21 +2581,6 @@
         
         // Add click handler to map to toggle tooltip visibility
         map.on('click', toggleTooltipVisibility);
-        
-        // Function to toggle tooltip visibility
-        function toggleTooltipVisibility() {
-          if (replayTooltip) {
-            if (tooltipVisible) {
-              // Hide tooltip
-              replayTooltip.getElement().style.display = 'none';
-              tooltipVisible = false;
-            } else {
-              // Show tooltip
-              replayTooltip.getElement().style.display = '';
-              tooltipVisible = true;
-            }
-          }
-        }
       } catch (e) {
         console.error('Error creating tooltip:', e);
         // Continue without tooltip if there's an error
