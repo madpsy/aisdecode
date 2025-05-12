@@ -666,8 +666,9 @@
           if (lastDestination !== null && currentDestination !== lastDestination) {
             // Include ETA if available
             let etaStr = '';
-            if (flat.Eta) {
-              etaStr = formatEta(flat.Eta);
+            // Access ETA directly from the original packet, not the flattened structure
+            if (record.Packet && record.Packet.Eta) {
+              etaStr = formatEta(record.Packet.Eta);
             }
             
             destinationChanges.push({
@@ -741,8 +742,9 @@
           
           // Add ETA cell
           const etaCell = document.createElement('td');
-          if (flat.Eta) {
-            etaCell.textContent = formatEta(flat.Eta);
+          // Access ETA directly from the original packet, not the flattened structure
+          if (firstStaticRecord.Packet && firstStaticRecord.Packet.Eta) {
+            etaCell.textContent = formatEta(firstStaticRecord.Packet.Eta);
           }
           row.appendChild(etaCell);
           
