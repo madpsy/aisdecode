@@ -81,6 +81,7 @@
       height: 400px;
       margin-bottom: 1rem;
       border: 1px solid #ddd;
+      position: relative;
     }
     .changes-container {
       display: flex;
@@ -99,6 +100,41 @@
     .no-changes {
       font-style: italic;
       color: #666;
+    }
+    /* Speed legend styles */
+    .speed-legend {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 5px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      z-index: 1000;
+      font-size: 12px;
+      width: 120px;
+    }
+    .speed-scale-container {
+      margin-bottom: 6px;
+      padding: 0 5px;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      line-height: 1;
+    }
+    .speed-scale-bar {
+      height: 6px;
+      border-radius: 3px;
+      background: linear-gradient(
+        to right,
+        hsl(120,100%,50%) 0%,    /* green */
+        hsl(60, 100%,50%) 50%,   /* yellow */
+        hsl(0,  100%,50%) 100%   /* red */
+      );
+      margin-bottom: 2px;
+    }
+    .speed-scale-labels {
+      display: flex;
+      justify-content: space-between;
     }
   </style>
 </head>
@@ -139,7 +175,17 @@
       <button id="reset-btn" class="btn btn-secondary">Reset</button>
     </div>
     
-    <div id="map-container"></div>
+    <div id="map-container">
+      <div class="speed-legend">
+        <div class="speed-scale-container">
+          <div class="speed-scale-bar"></div>
+          <div class="speed-scale-labels">
+            <span>0 kn</span>
+            <span>40 kn</span>
+          </div>
+        </div>
+      </div>
+    </div>
     
     <div class="changes-container">
       <div class="changes-table">
@@ -499,6 +545,41 @@
       }
     }
 
+    // Function to get color based on speed
+    function getColorForSpeed(speed) {
+      const maxSpeed = 40;  // maximum expected speed in knots
+      // Clamp the speed value between 0 and maxSpeed
+      const clampedSpeed = Math.max(0, Math.min(maxSpeed, speed));
+      // Compute a ratio (0 = 0 knots, 1 = maxSpeed)
+      const ratio = clampedSpeed / maxSpeed;
+      // Calculate hue: 120 (green) at 0 knots to 0 (red) at maxSpeed knots.
+      const hue = (1 - ratio) * 120;
+      // Return a string with full saturation and 50% lightness.
+      return `hsl(${hue}, 100%, 50%)`;
+    }
+
+    // Create a colored track with segments colored by speed
+    function createColoredTrack(points) {
+      const segments = [];
+      // Loop through the points to create segments
+      for (let i = 0; i < points.length - 1; i++) {
+        const pt1 = points[i];
+        const pt2 = points[i + 1];
+        // Use the speed of the first point for the color
+        const speed = pt1.data.Sog != null ? pt1.data.Sog : 0;
+        const color = getColorForSpeed(speed);
+        // Create a polyline segment with this color
+        const segment = L.polyline([[pt1.lat, pt1.lng], [pt2.lat, pt2.lng]], {
+          color: color,
+          weight: 3,
+          opacity: 0.8
+        });
+        segments.push(segment);
+      }
+      // Group the segments so they can be treated as one layer
+      return L.layerGroup(segments);
+    }
+
     // Display vessel track on map
     function displayVesselTrack(historyData) {
       if (!historyData || !historyData.length) {
@@ -534,12 +615,9 @@
       // Sort points by timestamp (newest first)
       pts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       
-      // Get array of latlngs
-      const latlngs = pts.map(p => [p.lat, p.lng]);
-      
-      // Draw the polyline
-      const line = L.polyline(latlngs, { color: 'blue', weight: 3 })
-        .addTo(mapLayerGroup);
+      // Create colored track based on speed
+      const coloredTrack = createColoredTrack(pts);
+      coloredTrack.addTo(mapLayerGroup);
       
       // Tooltip options
       const tooltipOpts = {
