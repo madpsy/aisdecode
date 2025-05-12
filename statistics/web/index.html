@@ -532,122 +532,214 @@
         distanceTable.draw();
         distanceChart.update();
         
-        // Create or update map if a specific receiver is selected
-        if (receiverId && data.length > 0) {
+        // Show map if we have data, regardless of whether a specific receiver is selected
+        if (data.length > 0) {
           // Show map container
           $('#distance-map').show();
           
-          // Find the selected receiver
-          const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
+          // Initialize map if it doesn't exist
+          if (!distanceMap) {
+            // Default view, will be adjusted later
+            distanceMap = L.map('distance-map').setView([0, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(distanceMap);
+          }
           
-          if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
-            // Initialize map if it doesn't exist
-            if (!distanceMap) {
-              distanceMap = L.map('distance-map').setView([selectedReceiver.latitude, selectedReceiver.longitude], 8);
-              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              }).addTo(distanceMap);
-            } else {
+          // Create receiver icon once
+          const receiverIcon = L.divIcon({
+            html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+            className: 'receiver-marker',
+            iconSize: [12, 12]
+          });
+          
+          // Create vessel icon once
+          const vesselIcon = L.divIcon({
+            html: `<div style="background-color: #0074D9; width: 8px; height: 8px; border-radius: 50%; border: 2px solid white;"></div>`,
+            className: 'vessel-marker',
+            iconSize: [8, 8]
+          });
+          
+          // Convert meters to nautical miles (1 nautical mile = 1852 meters)
+          const metersToNM = (meters) => (meters / 1852).toFixed(1);
+          
+          // If a specific receiver is selected
+          if (receiverId) {
+            const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
+            
+            if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
+              // Set view to the selected receiver
               distanceMap.setView([selectedReceiver.latitude, selectedReceiver.longitude], 8);
+              
+              // Add receiver marker
+              L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
+                .addTo(distanceMap)
+                .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
+              
+              // Add vessel markers
+              data.forEach(v => {
+                if (v.lat && v.lon) {
+                  // Format timestamp for popup
+                  const timestamp = v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A';
+                  
+                  const marker = L.marker([v.lat, v.lon], {icon: vesselIcon})
+                    .addTo(distanceMap)
+                    .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
+                  
+                  // Add permanent tooltip showing vessel name/ID
+                  const tooltip = L.tooltip({
+                    permanent: true,
+                    direction: 'top',
+                    className: 'vessel-tooltip',
+                    offset: [0, -5]
+                  })
+                  .setContent(v.name || `ID: ${v.user_id}`)
+                  .setLatLng([v.lat, v.lon]);
+                  
+                  distanceMap.addLayer(tooltip);
+                  distanceCircles.push(tooltip);
+                  vesselMarkers.push(marker);
+                }
+              });
+              
+              // Find max distance for the outermost ring
+              const maxDistance = Math.max(...data.map(v => v.distance));
+              
+              // Create three concentric rings
+              const ringDistances = [
+                maxDistance / 3,
+                (maxDistance * 2) / 3,
+                maxDistance
+              ];
+              
+              // Add the rings
+              ringDistances.forEach((distance, i) => {
+                const circle = L.circle([selectedReceiver.latitude, selectedReceiver.longitude], {
+                  radius: distance,
+                  color: '#3388ff',
+                  fillColor: '#3388ff',
+                  fillOpacity: 0.05,
+                  weight: 1
+                }).addTo(distanceMap);
+                
+                distanceCircles.push(circle);
+                
+                // Add distance label
+                const nmDistance = metersToNM(distance);
+                const radius = distance / 111320; // Approximate degrees per meter at the equator
+                
+                // Calculate a point on the circle (east of center)
+                const labelLat = selectedReceiver.latitude;
+                const labelLng = selectedReceiver.longitude + (radius / Math.cos(selectedReceiver.latitude * Math.PI / 180));
+                
+                const label = L.marker([labelLat, labelLng], {
+                  icon: L.divIcon({
+                    html: `<div class="map-ring-label">${nmDistance} NM</div>`,
+                    className: '',
+                    iconAnchor: [0, 10]
+                  }),
+                  interactive: false
+                }).addTo(distanceMap);
+                
+                distanceCircles.push(label);
+              });
+              
+              // Fit bounds to include all vessels and the receiver
+              const bounds = vesselMarkers.map(marker => marker.getLatLng());
+              bounds.push([selectedReceiver.latitude, selectedReceiver.longitude]);
+              distanceMap.fitBounds(L.latLngBounds(bounds), { padding: [50, 50] });
             }
+          }
+          // If "All" receivers are selected
+          else {
+            // Get unique receiver IDs from the data
+            const uniqueReceiverIds = [...new Set(data.map(v => v.receiver_id))];
+            const mapBounds = [];
             
-            // Add receiver marker
-            const receiverIcon = L.divIcon({
-              html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
-              className: 'receiver-marker',
-              iconSize: [12, 12]
-            });
-            
-            L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
-              .addTo(distanceMap)
-              .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
-            
-            // Add vessel markers
-            data.forEach(v => {
-              if (v.lat && v.lon) {
-                const vesselIcon = L.divIcon({
-                  html: `<div style="background-color: #0074D9; width: 8px; height: 8px; border-radius: 50%; border: 2px solid white;"></div>`,
-                  className: 'vessel-marker',
-                  iconSize: [8, 8]
-                });
-                
-                // Format timestamp for popup
-                const timestamp = v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A';
-                
-                const marker = L.marker([v.lat, v.lon], {icon: vesselIcon})
+            // For each unique receiver in the data
+            uniqueReceiverIds.forEach(rid => {
+              const receiverObj = receivers.find(r => r.id === rid);
+              if (receiverObj && receiverObj.latitude && receiverObj.longitude) {
+                // Add receiver marker
+                L.marker([receiverObj.latitude, receiverObj.longitude], {icon: receiverIcon})
                   .addTo(distanceMap)
-                  .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
+                  .bindPopup(`<b>Receiver:</b> ${receiverObj.name}`);
                 
-                // Add permanent tooltip showing vessel name/ID
-                const tooltip = L.tooltip({
-                  permanent: true,
-                  direction: 'top',
-                  className: 'vessel-tooltip',
-                  offset: [0, -5]
-                })
-                .setContent(v.name || `ID: ${v.user_id}`)
-                .setLatLng([v.lat, v.lon]);
+                mapBounds.push([receiverObj.latitude, receiverObj.longitude]);
                 
-                distanceMap.addLayer(tooltip);
-                distanceCircles.push(tooltip); // Add to circles array so it gets cleared with other elements
+                // Get vessels for this receiver
+                const receiverVessels = data.filter(v => v.receiver_id === rid);
                 
-                vesselMarkers.push(marker);
+                // Find max distance for this receiver
+                const maxDistance = Math.max(...receiverVessels.map(v => v.distance));
+                
+                // Create rings for this receiver (just one outer ring to avoid clutter)
+                const circle = L.circle([receiverObj.latitude, receiverObj.longitude], {
+                  radius: maxDistance,
+                  color: '#3388ff',
+                  fillColor: '#3388ff',
+                  fillOpacity: 0.05,
+                  weight: 1
+                }).addTo(distanceMap);
+                
+                distanceCircles.push(circle);
+                
+                // Add distance label
+                const nmDistance = metersToNM(maxDistance);
+                const radius = maxDistance / 111320;
+                
+                // Calculate a point on the circle (east of center)
+                const labelLat = receiverObj.latitude;
+                const labelLng = receiverObj.longitude + (radius / Math.cos(receiverObj.latitude * Math.PI / 180));
+                
+                const label = L.marker([labelLat, labelLng], {
+                  icon: L.divIcon({
+                    html: `<div class="map-ring-label">${nmDistance} NM</div>`,
+                    className: '',
+                    iconAnchor: [0, 10]
+                  }),
+                  interactive: false
+                }).addTo(distanceMap);
+                
+                distanceCircles.push(label);
+                
+                // Add vessel markers for this receiver
+                receiverVessels.forEach(v => {
+                  if (v.lat && v.lon) {
+                    // Format timestamp for popup
+                    const timestamp = v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A';
+                    
+                    const marker = L.marker([v.lat, v.lon], {icon: vesselIcon})
+                      .addTo(distanceMap)
+                      .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Receiver: ${receiverObj.name}<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
+                    
+                    // Add permanent tooltip showing vessel name/ID
+                    const tooltip = L.tooltip({
+                      permanent: true,
+                      direction: 'top',
+                      className: 'vessel-tooltip',
+                      offset: [0, -5]
+                    })
+                    .setContent(v.name || `ID: ${v.user_id}`)
+                    .setLatLng([v.lat, v.lon]);
+                    
+                    distanceMap.addLayer(tooltip);
+                    distanceCircles.push(tooltip);
+                    vesselMarkers.push(marker);
+                    
+                    mapBounds.push([v.lat, v.lon]);
+                  }
+                });
               }
             });
             
-            // Find max distance for the outermost ring
-            const maxDistance = Math.max(...data.map(v => v.distance));
-            
-            // Create three concentric rings
-            const ringDistances = [
-              maxDistance / 3,
-              (maxDistance * 2) / 3,
-              maxDistance
-            ];
-            
-            // Convert meters to nautical miles (1 nautical mile = 1852 meters)
-            const metersToNM = (meters) => (meters / 1852).toFixed(1);
-            
-            // Add the rings
-            ringDistances.forEach((distance, i) => {
-              const circle = L.circle([selectedReceiver.latitude, selectedReceiver.longitude], {
-                radius: distance,
-                color: '#3388ff',
-                fillColor: '#3388ff',
-                fillOpacity: 0.05,
-                weight: 1
-              }).addTo(distanceMap);
-              
-              distanceCircles.push(circle);
-              
-              // Add distance label
-              const nmDistance = metersToNM(distance);
-              const point = distanceMap.latLngToLayerPoint([selectedReceiver.latitude, selectedReceiver.longitude]);
-              const radius = distance / 111320; // Approximate degrees per meter at the equator
-              
-              // Calculate a point on the circle (east of center)
-              const labelLat = selectedReceiver.latitude;
-              const labelLng = selectedReceiver.longitude + (radius / Math.cos(selectedReceiver.latitude * Math.PI / 180));
-              
-              const label = L.marker([labelLat, labelLng], {
-                icon: L.divIcon({
-                  html: `<div class="map-ring-label">${nmDistance} NM</div>`,
-                  className: '',
-                  iconAnchor: [0, 10]
-                }),
-                interactive: false // Make label non-interactive
-              }).addTo(distanceMap);
-              
-              distanceCircles.push(label);
-            });
-            
-            // Fit bounds to include all vessels and the receiver
-            const bounds = vesselMarkers.map(marker => marker.getLatLng());
-            bounds.push([selectedReceiver.latitude, selectedReceiver.longitude]);
-            distanceMap.fitBounds(L.latLngBounds(bounds), { padding: [50, 50] });
+            // Fit map to include all receivers and vessels
+            if (mapBounds.length > 0) {
+              distanceMap.fitBounds(L.latLngBounds(mapBounds), { padding: [50, 50] });
+            }
           }
         } else {
-          // Hide map if no receiver is selected or no data
+          // Hide map if no data
           $('#distance-map').hide();
         }
       }
