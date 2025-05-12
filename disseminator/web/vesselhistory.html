@@ -842,21 +842,9 @@
         return null;
       }
 
-      // Determine message types based on AIS Class
-      let positionMessageTypes = [];
-      let staticMessageTypes = [];
-      
-      if (vesselAisClass === 'A') {
-        positionMessageTypes = ['1', '2', '3']; // Class A position messages
-        staticMessageTypes = ['5'];             // Class A static messages
-      } else if (vesselAisClass === 'B') {
-        positionMessageTypes = ['18', '19'];    // Class B position messages
-        staticMessageTypes = ['24'];            // Class B static messages
-      } else {
-        // Default to both types if AIS class is unknown
-        positionMessageTypes = ['1', '2', '3', '18', '19']; // All position messages
-        staticMessageTypes = ['5', '24'];                   // All static messages
-      }
+      // Always request all message types regardless of AIS Class
+      let positionMessageTypes = ['1', '2', '3', '18', '19']; // All position messages (Class A and B)
+      let staticMessageTypes = ['5', '24'];                   // All static messages (Class A and B)
 
       const startTime = new Date(s).toISOString();
       const endTime = new Date(e).toISOString();
