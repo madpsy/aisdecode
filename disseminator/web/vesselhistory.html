@@ -1013,6 +1013,7 @@
           const warningDiv = document.getElementById('error');
           warningDiv.textContent = 'Warning: Automatically updated to a 24-hour window around the vessel\'s last seen time.';
           warningDiv.style.display = 'block';
+          console.log('Warning message maintained in fetchVesselHistory, dateRangeAdjusted =', dateRangeAdjusted);
         } else {
           // Clear any previous warnings
           document.getElementById('error').textContent = '';
@@ -1736,6 +1737,7 @@
       
       // Automatically load history data with default 1-day range
       setTimeout(async () => {
+        console.log('Checking if date range needs adjustment, lastSeenTime =', lastSeenTime);
         // Check if we need to adjust the date range based on last seen time
         if (lastSeenTime) {
           const startInput = document.getElementById('start');
@@ -1784,9 +1786,43 @@
             const warningDiv = document.getElementById('error');
             warningDiv.textContent = 'Warning: Automatically updated to a 24-hour window around the vessel\'s last seen time.';
             warningDiv.style.display = 'block';
+            console.log('Warning message set:', warningDiv.textContent);
             
-            // Trigger the search button click to submit with adjusted date range
-            document.getElementById('apply-btn').click();
+            // Force the warning to be visible
+            setTimeout(() => {
+              if (dateRangeAdjusted) {
+                const warningDiv = document.getElementById('error');
+                if (!warningDiv.textContent) {
+                  warningDiv.textContent = 'Warning: Automatically updated to a 24-hour window around the vessel\'s last seen time.';
+                  warningDiv.style.display = 'block';
+                  console.log('Warning message re-set after timeout');
+                }
+              }
+            }, 500);
+            
+            // Instead of triggering the search button click, call fetchVesselHistory directly
+            // to avoid clearing the warning message in the apply-btn click handler
+            setTimeout(async () => {
+              console.log('Fetching vessel history with dateRangeAdjusted =', dateRangeAdjusted);
+              const historyData = await fetchVesselHistory();
+              if (historyData) {
+                displayVesselTrack(historyData);
+                displayMessageHistogram(historyData);
+                trackChanges(historyData);
+                
+                // Check if warning is still visible after processing
+                console.log('After processing, warning text =', document.getElementById('error').textContent);
+                console.log('After processing, dateRangeAdjusted =', dateRangeAdjusted);
+                
+                // Force the warning to be visible again if needed
+                if (dateRangeAdjusted && !document.getElementById('error').textContent) {
+                  const warningDiv = document.getElementById('error');
+                  warningDiv.textContent = 'Warning: Automatically updated to a 24-hour window around the vessel\'s last seen time.';
+                  warningDiv.style.display = 'block';
+                  console.log('Warning message re-set after processing');
+                }
+              }
+            }, 100);
             return; // Exit early as the click handler will fetch the data
           }
         }
@@ -1881,9 +1917,10 @@
       });
       
       document.getElementById('apply-btn').addEventListener('click', async () => {
-        // Clear the date range adjusted flag and warning message when user manually searches
-        dateRangeAdjusted = false;
-        document.getElementById('error').textContent = '';
+        // Only clear the warning message if this is a manual search (not an automatic one)
+        if (!dateRangeAdjusted) {
+          document.getElementById('error').textContent = '';
+        }
         
         // Update URL with current date range
         const startInput = document.getElementById('start');
