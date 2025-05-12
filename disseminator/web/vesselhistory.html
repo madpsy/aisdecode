@@ -26,6 +26,9 @@
     }
     .vessel-info {
       flex-grow: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
     }
     .vessel-image {
       max-width: 300px;
@@ -37,13 +40,18 @@
       color: red;
       font-weight: bold;
     }
+    .info-column {
+      flex: 1;
+      min-width: 300px;
+    }
     table {
       border-collapse: collapse;
       width: 100%;
+      margin-bottom: 1rem;
     }
     th, td {
       border: 1px solid #ddd;
-      padding: 8px;
+      padding: 6px;
       text-align: left;
     }
     th {
@@ -60,11 +68,20 @@
       <img id="flag-img" class="flag-img" src="" alt="Country Flag" style="display: none;">
     </div>
     <div class="vessel-info">
-      <table id="vessel-table">
-        <tbody>
-          <!-- Data will be inserted here dynamically -->
-        </tbody>
-      </table>
+      <div class="info-column">
+        <table id="vessel-table-left">
+          <tbody>
+            <!-- Left column data will be inserted here dynamically -->
+          </tbody>
+        </table>
+      </div>
+      <div class="info-column">
+        <table id="vessel-table-right">
+          <tbody>
+            <!-- Right column data will be inserted here dynamically -->
+          </tbody>
+        </table>
+      </div>
     </div>
     <div>
       <img id="vessel-img" class="vessel-image" src="" alt="Vessel Image" style="display: none;">
@@ -180,8 +197,10 @@
           }
 
           // Create table rows for vessel information
-          const tableBody = document.querySelector('#vessel-table tbody');
-          tableBody.innerHTML = ''; // Clear existing rows
+          const leftTableBody = document.querySelector('#vessel-table-left tbody');
+          const rightTableBody = document.querySelector('#vessel-table-right tbody');
+          leftTableBody.innerHTML = ''; // Clear existing rows
+          rightTableBody.innerHTML = ''; // Clear existing rows
 
           // Fields to display (if available)
           const fieldsToDisplay = [
@@ -221,7 +240,11 @@
           ];
 
           // Add rows for each field if it exists and is not empty
-          fieldsToDisplay.forEach(field => {
+          // Split fields between left and right tables
+          const midpoint = Math.ceil(fieldsToDisplay.length / 2);
+          
+          // Process first half of fields for left table
+          fieldsToDisplay.slice(0, midpoint).forEach(field => {
             // Special case for NavigationalStatus which might not exist but we still want to show
             const shouldDisplay = field.key === 'NavigationalStatus' ||
                                  (field.checkValue ? field.checkValue(data[field.key]) :
@@ -243,18 +266,45 @@
               valueCell.textContent = field.format ? field.format(value) : (value || '');
               row.appendChild(valueCell);
               
-              tableBody.appendChild(row);
+              leftTableBody.appendChild(row);
+            }
+          });
+          
+          // Process second half of fields for right table
+          fieldsToDisplay.slice(midpoint).forEach(field => {
+            // Special case for NavigationalStatus which might not exist but we still want to show
+            const shouldDisplay = field.key === 'NavigationalStatus' ||
+                                 (field.checkValue ? field.checkValue(data[field.key]) :
+                                  (data[field.key] !== undefined &&
+                                   data[field.key] !== null &&
+                                   data[field.key] !== ''));
+            
+            if (shouldDisplay) {
+              const row = document.createElement('tr');
+              
+              const labelCell = document.createElement('td');
+              labelCell.textContent = field.label;
+              labelCell.style.fontWeight = 'bold';
+              row.appendChild(labelCell);
+              
+              const valueCell = document.createElement('td');
+              // Use formatter function if provided, otherwise use raw value
+              const value = data[field.key];
+              valueCell.textContent = field.format ? field.format(value) : (value || '');
+              row.appendChild(valueCell);
+              
+              rightTableBody.appendChild(row);
             }
           });
 
-          // If no data was added to the table
-          if (tableBody.children.length === 0) {
+          // If no data was added to either table
+          if (leftTableBody.children.length === 0 && rightTableBody.children.length === 0) {
             const row = document.createElement('tr');
             const cell = document.createElement('td');
             cell.colSpan = 2;
             cell.textContent = 'No vessel information available';
             row.appendChild(cell);
-            tableBody.appendChild(row);
+            leftTableBody.appendChild(row);
           }
         })
         .catch(err => {
