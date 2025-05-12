@@ -318,6 +318,16 @@
     .receiver-tooltip-active {
       border: 2px solid #f03;
     }
+    
+    /* Replay tooltip styles */
+    .replay-tooltip {
+      z-index: 1000 !important; /* Higher z-index to stay on top */
+    }
+    
+    /* Lower z-index for receiver tooltips during replay */
+    .replay-active .receiver-tooltip {
+      z-index: 500 !important;
+    }
   </style>
 </head>
 <body>
@@ -2501,6 +2511,9 @@
       // Clear existing layers but keep the base map
       mapLayerGroup.clearLayers();
       
+      // Add a class to the map container to indicate replay is active
+      document.getElementById('map-container').classList.add('replay-active');
+      
       // Create a layer group for the replay animation segments
       replayPolyline = L.layerGroup().addTo(mapLayerGroup);
       
@@ -2723,6 +2736,9 @@
       
       // Clean up
       replayInProgress = false;
+      
+      // Remove the replay-active class from the map container
+      document.getElementById('map-container').classList.remove('replay-active');
       if (replayAnimationId) {
         cancelAnimationFrame(replayAnimationId);
         replayAnimationId = null;
