@@ -2974,7 +2974,7 @@
       // Show distance overlay with initial distance (0 NM)
       const distanceOverlay = document.getElementById('distance-overlay');
       if (distanceOverlay) {
-        distanceOverlay.textContent = `Distance: 0.00 NM / ${totalDistance} NM`;
+        distanceOverlay.textContent = `0.00 NM / ${totalDistance} NM`;
       }
       
       // Show timestamp overlay with initial timestamp
@@ -3127,7 +3127,7 @@
             // Update distance overlay
             const distanceOverlay = document.getElementById('distance-overlay');
             if (distanceOverlay) {
-              distanceOverlay.textContent = `Distance: ${currentDistanceNM} NM / ${totalDistance} NM`;
+              distanceOverlay.textContent = `${currentDistanceNM} NM / ${totalDistance} NM`;
             }
             
             // Add segments that haven't been added yet
