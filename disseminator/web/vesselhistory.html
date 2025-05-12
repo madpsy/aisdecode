@@ -2523,15 +2523,32 @@
       }).addTo(mapLayerGroup);
       
       // Create tooltip for the current position
-      replayTooltip = L.tooltip({
-        permanent: true,
-        direction: 'top',
-        offset: [0, -10],
-        className: 'replay-tooltip'
-      })
-      .setLatLng([pts[0].lat, pts[0].lng])
-      .setContent(makeTooltipHTML(pts[0]))
-      .addTo(map);
+      try {
+        let tooltipContent = '';
+        try {
+          tooltipContent = makeTooltipHTML(pts[0]);
+        } catch (e) {
+          console.error('Error creating tooltip content:', e);
+          // Create a simple fallback tooltip content
+          tooltipContent = `<strong>${new Date(pts[0].timestamp).toLocaleString()}</strong><br/>` +
+                          `<strong>Latitude:</strong> ${pts[0].lat.toFixed(6)}<br/>` +
+                          `<strong>Longitude:</strong> ${pts[0].lng.toFixed(6)}`;
+        }
+        
+        replayTooltip = L.tooltip({
+          permanent: true,
+          direction: 'top',
+          offset: [0, -10],
+          className: 'replay-tooltip'
+        })
+        .setLatLng([pts[0].lat, pts[0].lng])
+        .setContent(tooltipContent)
+        .addTo(map);
+      } catch (e) {
+        console.error('Error creating tooltip:', e);
+        // Continue without tooltip if there's an error
+        replayTooltip = null;
+      }
       
       // Set up the animation
       replayInProgress = true;
@@ -2594,7 +2611,17 @@
             // Update tooltip
             if (replayTooltip) {
               replayTooltip.setLatLng([currentPoint.lat, currentPoint.lng]);
-              replayTooltip.setContent(makeTooltipHTML(currentPoint));
+              try {
+                const tooltipContent = makeTooltipHTML(currentPoint);
+                replayTooltip.setContent(tooltipContent);
+              } catch (e) {
+                console.error('Error updating tooltip content:', e);
+                // Use a simple fallback tooltip content
+                const fallbackContent = `<strong>${new Date(currentPoint.timestamp).toLocaleString()}</strong><br/>` +
+                                      `<strong>Latitude:</strong> ${currentPoint.lat.toFixed(6)}<br/>` +
+                                      `<strong>Longitude:</strong> ${currentPoint.lng.toFixed(6)}`;
+                replayTooltip.setContent(fallbackContent);
+              }
             }
             
             // Continue animation
