@@ -1757,6 +1757,11 @@
             
             console.log('Date range adjusted to:', adjustedStartDate, 'to', adjustedEndDate);
             
+            // Display warning message about the automatic adjustment
+            const warningDiv = document.getElementById('error');
+            warningDiv.textContent = 'Warning: Automatically updated period to within the vessel\'s last seen time.';
+            warningDiv.style.display = 'block';
+            
             // Trigger the search button click to submit with adjusted date range
             document.getElementById('apply-btn').click();
             return; // Exit early as the click handler will fetch the data
