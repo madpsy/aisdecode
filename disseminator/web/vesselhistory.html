@@ -253,7 +253,7 @@
     }
   </style>
   
-  <!-- Add custom style for receiver tooltips and distance labels -->
+  <!-- Add custom style for receiver tooltips -->
   <style>
     .receiver-tooltip {
       background-color: rgba(255, 255, 255, 0.9);
@@ -263,16 +263,6 @@
       font-weight: bold;
       font-size: 11px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    }
-    
-    .distance-label {
-      background-color: rgba(255, 255, 255, 0.7);
-      border: none;
-      border-radius: 3px;
-      padding: 2px 4px;
-      font-size: 10px;
-      box-shadow: none;
-      white-space: nowrap;
     }
   </style>
 </head>
@@ -1002,12 +992,7 @@
           });
           
           if (nearestPoint) {
-            const html = makeTooltipHTML(nearestPoint);
-            segment.setTooltipContent(html);
-            segment.openTooltip(e.latlng);
-            
-            // Clear previous connection lines
-            connectionLayerGroup.clearLayers();
+            let html = makeTooltipHTML(nearestPoint);
             
             // Check if the record has a ReceiverID
             const receiverId = nearestPoint.record.ReceiverID;
@@ -1015,6 +1000,17 @@
               // Find the receiver in receiversData
               const receiver = receiversData.find(r => r.id === receiverId);
               if (receiver && receiver.latitude && receiver.longitude) {
+                // Calculate distance in kilometers
+                const pointLatLng = L.latLng(nearestPoint.lat, nearestPoint.lng);
+                const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+                const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+                
+                // Add receiver info to tooltip
+                html += `<br/><strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+                
+                // Clear previous connection lines
+                connectionLayerGroup.clearLayers();
+                
                 // Draw a dashed grey line between the point and the receiver
                 const connectionLine = L.polyline(
                   [[nearestPoint.lat, nearestPoint.lng], [receiver.latitude, receiver.longitude]],
@@ -1025,28 +1021,11 @@
                     dashArray: '5, 7'
                   }
                 ).addTo(connectionLayerGroup);
-                
-                // Calculate distance in kilometers
-                const pointLatLng = L.latLng(nearestPoint.lat, nearestPoint.lng);
-                const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
-                const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
-                
-                // Add distance label at midpoint
-                const midpoint = L.latLng(
-                  (nearestPoint.lat + receiver.latitude) / 2,
-                  (nearestPoint.lng + receiver.longitude) / 2
-                );
-                
-                L.marker(midpoint, {
-                  icon: L.divIcon({
-                    className: 'distance-label',
-                    html: `${distanceKm} km`,
-                    iconSize: [60, 20],
-                    iconAnchor: [30, 10]
-                  })
-                }).addTo(connectionLayerGroup);
               }
             }
+            
+            segment.setTooltipContent(html);
+            segment.openTooltip(e.latlng);
           }
         });
         
@@ -1082,6 +1061,15 @@
           // Find the receiver in receiversData
           const receiver = receiversData.find(r => r.id === receiverId);
           if (receiver && receiver.latitude && receiver.longitude) {
+            // Calculate distance in kilometers
+            const pointLatLng = L.latLng(first.lat, first.lng);
+            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+            
+            // Update tooltip content
+            const tooltipContent = `Start: ${new Date(first.timestamp).toLocaleString()}<br/><strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+            startMarker.setTooltipContent(tooltipContent);
+            
             // Draw a dashed grey line between the point and the receiver
             const connectionLine = L.polyline(
               [[first.lat, first.lng], [receiver.latitude, receiver.longitude]],
@@ -1092,26 +1080,6 @@
                 dashArray: '5, 7'
               }
             ).addTo(connectionLayerGroup);
-            
-            // Calculate distance in kilometers
-            const pointLatLng = L.latLng(first.lat, first.lng);
-            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
-            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
-            
-            // Add distance label at midpoint
-            const midpoint = L.latLng(
-              (first.lat + receiver.latitude) / 2,
-              (first.lng + receiver.longitude) / 2
-            );
-            
-            L.marker(midpoint, {
-              icon: L.divIcon({
-                className: 'distance-label',
-                html: `${distanceKm} km`,
-                iconSize: [60, 20],
-                iconAnchor: [30, 10]
-              })
-            }).addTo(connectionLayerGroup);
           }
         }
       });
@@ -1142,6 +1110,15 @@
           // Find the receiver in receiversData
           const receiver = receiversData.find(r => r.id === receiverId);
           if (receiver && receiver.latitude && receiver.longitude) {
+            // Calculate distance in kilometers
+            const pointLatLng = L.latLng(last.lat, last.lng);
+            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+            
+            // Update tooltip content
+            const tooltipContent = `End: ${new Date(last.timestamp).toLocaleString()}<br/><strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+            endMarker.setTooltipContent(tooltipContent);
+            
             // Draw a dashed grey line between the point and the receiver
             const connectionLine = L.polyline(
               [[last.lat, last.lng], [receiver.latitude, receiver.longitude]],
@@ -1152,26 +1129,6 @@
                 dashArray: '5, 7'
               }
             ).addTo(connectionLayerGroup);
-            
-            // Calculate distance in kilometers
-            const pointLatLng = L.latLng(last.lat, last.lng);
-            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
-            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
-            
-            // Add distance label at midpoint
-            const midpoint = L.latLng(
-              (last.lat + receiver.latitude) / 2,
-              (last.lng + receiver.longitude) / 2
-            );
-            
-            L.marker(midpoint, {
-              icon: L.divIcon({
-                className: 'distance-label',
-                html: `${distanceKm} km`,
-                iconSize: [60, 20],
-                iconAnchor: [30, 10]
-              })
-            }).addTo(connectionLayerGroup);
           }
         }
       });
@@ -2142,20 +2099,8 @@
                 const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
                 const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
                 
-                // Add distance label at midpoint
-                const midpoint = L.latLng(
-                  (nearestPoint.lat + receiver.latitude) / 2,
-                  (nearestPoint.lng + receiver.longitude) / 2
-                );
-                
-                L.marker(midpoint, {
-                  icon: L.divIcon({
-                    className: 'distance-label',
-                    html: `${distanceKm} km`,
-                    iconSize: [60, 20],
-                    iconAnchor: [30, 10]
-                  })
-                }).addTo(connectionLayerGroup);
+                // Add receiver info to tooltip
+                html += `<br/><strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
               }
             }
           }
@@ -2193,6 +2138,15 @@
           // Find the receiver in receiversData
           const receiver = receiversData.find(r => r.id === receiverId);
           if (receiver && receiver.latitude && receiver.longitude) {
+            // Calculate distance in kilometers
+            const pointLatLng = L.latLng(first.lat, first.lng);
+            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+            
+            // Update tooltip content
+            const tooltipContent = `Start: ${new Date(first.timestamp).toLocaleString()}<br/><strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+            startMarker.setTooltipContent(tooltipContent);
+            
             // Draw a dashed grey line between the point and the receiver
             const connectionLine = L.polyline(
               [[first.lat, first.lng], [receiver.latitude, receiver.longitude]],
@@ -2203,26 +2157,6 @@
                 dashArray: '5, 7'
               }
             ).addTo(connectionLayerGroup);
-            
-            // Calculate distance in kilometers
-            const pointLatLng = L.latLng(first.lat, first.lng);
-            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
-            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
-            
-            // Add distance label at midpoint
-            const midpoint = L.latLng(
-              (first.lat + receiver.latitude) / 2,
-              (first.lng + receiver.longitude) / 2
-            );
-            
-            L.marker(midpoint, {
-              icon: L.divIcon({
-                className: 'distance-label',
-                html: `${distanceKm} km`,
-                iconSize: [60, 20],
-                iconAnchor: [30, 10]
-              })
-            }).addTo(connectionLayerGroup);
           }
         }
       });
@@ -2253,6 +2187,15 @@
           // Find the receiver in receiversData
           const receiver = receiversData.find(r => r.id === receiverId);
           if (receiver && receiver.latitude && receiver.longitude) {
+            // Calculate distance in kilometers
+            const pointLatLng = L.latLng(last.lat, last.lng);
+            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+            
+            // Update tooltip content
+            const tooltipContent = `End: ${new Date(last.timestamp).toLocaleString()}<br/><strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+            endMarker.setTooltipContent(tooltipContent);
+            
             // Draw a dashed grey line between the point and the receiver
             const connectionLine = L.polyline(
               [[last.lat, last.lng], [receiver.latitude, receiver.longitude]],
@@ -2263,26 +2206,6 @@
                 dashArray: '5, 7'
               }
             ).addTo(connectionLayerGroup);
-            
-            // Calculate distance in kilometers
-            const pointLatLng = L.latLng(last.lat, last.lng);
-            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
-            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
-            
-            // Add distance label at midpoint
-            const midpoint = L.latLng(
-              (last.lat + receiver.latitude) / 2,
-              (last.lng + receiver.longitude) / 2
-            );
-            
-            L.marker(midpoint, {
-              icon: L.divIcon({
-                className: 'distance-label',
-                html: `${distanceKm} km`,
-                iconSize: [60, 20],
-                iconAnchor: [30, 10]
-              })
-            }).addTo(connectionLayerGroup);
           }
         }
       });
