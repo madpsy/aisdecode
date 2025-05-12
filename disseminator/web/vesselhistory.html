@@ -1478,6 +1478,10 @@
       setTimeout(async () => {
         const historyData = await fetchVesselHistory();
         if (historyData) {
+          // Store the original history data
+          window.originalHistoryData = historyData;
+          window.currentHistoryData = historyData;
+          
           displayVesselTrack(historyData);
           displayMessageHistogram(historyData);
           trackChanges(historyData);
@@ -1957,10 +1961,16 @@
         endTime: null
       };
       
+      // Store the original data back to currentHistoryData
+      const originalHistoryData = window.originalHistoryData || window.currentHistoryData;
+      
       // Restore the original map display
-      const historyData = window.currentHistoryData;
-      if (historyData) {
-        displayVesselTrack(historyData);
+      if (originalHistoryData) {
+        // Reset currentHistoryData to the original data
+        window.currentHistoryData = originalHistoryData;
+        
+        // Display the original data
+        displayVesselTrack(originalHistoryData);
         
         // Remove filter parameters from URL
         removeTimeFilterFromUrl();
@@ -1998,6 +2008,11 @@
     // Apply time filter to the map
     function applyTimeFilter(historyData) {
       if (!timeFilter.active || !historyData) return;
+      
+      // Store the original data if not already stored
+      if (!window.originalHistoryData) {
+        window.originalHistoryData = historyData;
+      }
       
       // Filter the data based on the time range
       const filteredData = historyData.filter(record => {
