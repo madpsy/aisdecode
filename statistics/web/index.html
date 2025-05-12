@@ -3,1027 +3,155 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vessel Statistics</title>
-
-  <!-- Bootstrap 5 CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <!-- DataTables CSS -->
-  <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css" rel="stylesheet">
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-
+  <title>Vessel Data</title>
+  <!-- Include Bootstrap CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css">
+  <!-- Include DataTables CSS -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
   <style>
-    body {
-      background-color: #f8f9fa;
-      padding: 2rem;
-      font-family: sans-serif;
+    .dataTables_wrapper {
+      margin: 0;
+      padding: 0;
     }
-    h1, h2 {
-      color: #343a40;
-    }
-    .card {
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-      margin-bottom: 2rem;
-    }
-    .thumb {
-      width: 50px;
-      height: auto;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .chart-container {
-      position: relative;
-      height: auto;
-      max-width: 100%;
-    }
-    /* Shrink charts on small screens */
-    @media (max-width: 576px) {
-      .chart-container {
-        height: auto;
-      }
-    }
-    /* Image overlay */
-    #img-overlay {
-      display: none;
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(0,0,0,0.8);
-      align-items: center;
-      justify-content: center;
-      z-index: 2000;
-    }
-    #img-overlay-close {
-      position: absolute;
-      top: 20px; right: 30px;
-      color: #fff;
-      font-size: 30px;
-      cursor: pointer;
-    }
-    #img-overlay-img {
-      max-width: 90%;
-      max-height: 90%;
-      border-radius: 5px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-    }
-    #distance-map {
-      height: 400px;
+    table.dataTable {
       width: 100%;
-      margin-top: 20px;
-      border-radius: 5px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-      display: none; /* Hidden by default, shown when a receiver is selected */
-    }
-    .map-ring-label {
-      background-color: transparent;
-      padding: 2px 6px;
-      font-size: 12px;
-      white-space: nowrap;
-      font-weight: bold;
-      text-shadow: 1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white;
-    }
-    .vessel-tooltip {
-      background-color: rgba(255, 255, 255, 0.8);
-      border: none;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 11px;
-    }
-    /* Word cloud styles */
-    .word-cloud-text {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      cursor: pointer;
-      color: #555;
-      text-decoration: none !important;
-    }
-    .word-cloud-text:hover {
-      opacity: 0.8;
-    }
-    /* Ensure no underlines on word cloud links */
-    #word-cloud-container a {
-      text-decoration: none !important;
-    }
-    #word-cloud-container a:hover {
-      text-decoration: none !important;
-    }
-    /* Ensure word cloud container is responsive */
-    #word-cloud-container {
-      width: 100%;
-      overflow: hidden;
-    }
-    #word-cloud-container svg {
-      max-width: 100%;
-      height: auto;
     }
   </style>
 </head>
 <body>
-
-  <div class="container-fluid">
-    <!-- Header + Time Selector -->
-    <div class="d-flex justify-content-between align-items-center mb-4 flex-column flex-sm-row">
-      <h1 class="m-0 mb-3 mb-sm-0">Vessel Statistics</h1>
-      <div class="d-flex align-items-center">
-        <div class="me-3">
-          <label for="receiver-select" class="form-label me-2">Receiver:</label>
-          <select id="receiver-select" class="form-select d-inline-block w-auto">
-            <option value="" selected>All</option>
-            <!-- Receivers will be loaded dynamically -->
-          </select>
-        </div>
-        <div>
-          <label for="days-select" class="form-label me-2">Time window:</label>
-          <select id="days-select" class="form-select d-inline-block w-auto">
-            <option value="1">1 day</option>
-            <option value="2">2 days</option>
-            <option value="7" selected>7 days</option>
-            <option value="14">14 days</option>
-            <option value="30">30 days</option>
-          </select>
-        </div>
-      </div>
-    </div>
-
-    <!-- Top 10 by Position Reports -->
-    <div class="card">
-      <div class="card-body">
-        <h2 class="card-title">Top 10 by Position Reports</h2>
-        <div class="row gy-3">
-          <div class="col-12 col-md-6 chart-container">
-            <canvas id="posChart"></canvas>
-          </div>
-          <div class="col-12 col-md-6">
-            <div class="table-responsive">
-              <table id="top-positions-table" class="table table-striped table-hover mb-0">
-                <thead class="table-light">
-                  <tr>
-                    <th>Vessel</th>
-                    <th>Image</th>
-                    <th>Reports</th>
-                    <th>Class</th>
-                    <th>Type</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Top 10 by Speed Over Ground -->
-    <div class="card">
-      <div class="card-body">
-        <h2 class="card-title">Top 10 by Speed Over Ground</h2>
-        <div class="row gy-3">
-          <div class="col-12 col-md-6 chart-container">
-            <canvas id="sogChart"></canvas>
-          </div>
-          <div class="col-12 col-md-6">
-            <div class="table-responsive">
-              <table id="top-sog-table" class="table table-striped table-hover mb-0">
-                <thead class="table-light">
-                  <tr>
-                    <th>Vessel</th>
-                    <th>Image</th>
-                    <th>Max SOG (knots)</th>
-                    <th>Lat</th>
-                    <th>Lon</th>
-                    <th>Class</th>
-                    <th>Type</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Vessel Type Breakdown -->
-    <div class="card">
-      <div class="card-body">
-        <h2 class="card-title">Vessel Type Breakdown</h2>
-        <div class="row gy-3">
-          <div class="col-12 col-md-6 chart-container">
-            <canvas id="typeChart"></canvas>
-          </div>
-          <div class="col-12 col-md-6">
-            <div class="table-responsive">
-              <table id="top-types-table" class="table table-striped table-hover mb-0">
-                <thead class="table-light">
-                  <tr>
-                    <th>Type</th>
-                    <th>Count</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Vessel Class Breakdown -->
-    <div class="card">
-      <div class="card-body">
-        <h2 class="card-title">Vessel Class Breakdown</h2>
-        <div class="row gy-3">
-          <div class="col-12 col-md-6 chart-container">
-            <canvas id="classChart"></canvas>
-          </div>
-          <div class="col-12 col-md-6">
-            <div class="table-responsive">
-              <table id="top-classes-table" class="table table-striped table-hover mb-0">
-                <thead class="table-light">
-                  <tr>
-                    <th>Class</th>
-                    <th>Count</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Top 10 by Distance -->
-    <div class="card">
-      <div class="card-body">
-        <h2 class="card-title">Top 10 by Distance (Vessel to Receiver)</h2>
-        <div class="row gy-3">
-          <div class="col-12 col-md-6 chart-container">
-            <canvas id="distanceChart"></canvas>
-          </div>
-          <div class="col-12 col-md-6">
-            <div class="table-responsive">
-              <table id="top-distance-table" class="table table-striped table-hover mb-0">
-                <thead class="table-light">
-                  <tr>
-                    <th>Vessel</th>
-                    <th>Image</th>
-                    <th>Distance (km)</th>
-                    <th>Receiver</th>
-                    <th>Class</th>
-                    <th>Type</th>
-                    <th>Timestamp</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-      <!-- Map container - only shown when a receiver is selected -->
-      <div id="distance-map"></div>
-    </div>
-
-    <!-- User Message Counts Word Cloud -->
-    <div class="card">
-      <div class="card-body">
-        <div class="row gy-3">
-          <div class="col-12">
-            <div id="word-cloud-container" class="chart-container" style="height: 400px;">
-              <!-- Word cloud will be rendered here -->
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+  <div class="container-fluid p-0">
+    <h2 class="text-center py-3">Vessel Data</h2>
+    <table id="stateTable" class="table table-striped table-bordered">
+      <thead>
+        <tr>
+          <th>MMSI</th>
+          <th>Country</th>
+          <th>Name</th>
+          <th>CallSign</th>
+          <th>AISClass</th>
+          <th>Destination</th>
+          <th>Last Updated</th>
+          <th>Latitude</th>
+          <th>Longitude</th>
+          <th>Cog</th>
+          <th>Sog</th>
+          <th>Type</th>
+          <th>Max Static Draught</th>
+          <th>NumMessages</th>
+          <th>True Heading</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Data rows will be inserted here dynamically -->
+      </tbody>
+    </table>
   </div>
 
-  <!-- Image overlay -->
-  <div id="img-overlay">
-    <span id="img-overlay-close">&times;</span>
-    <img id="img-overlay-img" src="" alt="Enlarged vessel image">
-  </div>
-
-  <!-- Dependencies -->
-  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+  <!-- Include jQuery -->
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+  <!-- Include DataTables JS -->
   <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
-  <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <!-- D3.js and d3-cloud for Word Cloud -->
-  <script src="https://d3js.org/d3.v7.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/gh/jasondavies/d3-cloud/build/d3.layout.cloud.js"></script>
-
   <script>
-    $(function() {
-      let typeMapping = {};
-      let receivers = [];
-      const sliceColors = [
-        '#4dc9f6','#f67019','#f53794','#537bc4',
-        '#acc236','#166a8f','#00a950','#58595b',
-        '#8549ba','#e6194b'
-      ];
-      
-      // Helper function to create vessel history URL
-      function createVesselHistoryUrl(userId, timestamp = null, receiverId = null) {
-        // Base URL with UserID
-        let url = `/vesselhistory.html?UserID=${userId}`;
-        
-        // Add ReceiverID if available
-        if (receiverId) {
-          url += `&ReceiverID=${receiverId}`;
-        }
-        
-        // Add time range if timestamp is available (+/- 12 hours)
-        if (timestamp) {
-          const date = new Date(timestamp);
-          const startTime = new Date(date.getTime() - 12 * 60 * 60 * 1000); // 12 hours before
-          const endTime = new Date(date.getTime() + 12 * 60 * 60 * 1000);   // 12 hours after
-          
-          url += `&start=${startTime.toISOString()}&end=${endTime.toISOString()}`;
-        }
-        
-        return url;
-      }
+    let table;
+    let midsMapping = {};
+    let atonTypeMapping = {};
+    let shipTypeConfig = {};
 
-      async function loadTypeMapping() {
-        try {
-          typeMapping = await fetch('vessel_types.json').then(r => r.json());
-        } catch (e) {
-          console.error('Failed to load type mapping:', e);
-        }
-      }
-      
-      async function loadReceivers() {
-        try {
-          receivers = await fetch('/receivers').then(r => r.json());
-          const select = $('#receiver-select');
-          
-          // Sort receivers by name
-          receivers.sort((a, b) => a.name.localeCompare(b.name));
-          
-          // Add receivers to dropdown
-          receivers.forEach(receiver => {
-            select.append(`<option value="${receiver.id}">${receiver.name}</option>`);
-          });
-        } catch (e) {
-          console.error('Failed to load receivers:', e);
-        }
-      }
+    // Load all mappings on page load
+    Promise.all([
+      fetch('/mids.json').then(r => r.json()).then(data => midsMapping = data),
+      fetch('/aton_types.json').then(r => r.json()).then(data => atonTypeMapping = data),
+      fetch('/types.json').then(r => r.json()).then(data => shipTypeConfig = data)
+    ]).catch(err => console.error('Error loading mappings:', err));
 
-      const sogChart = new Chart($('#sogChart')[0].getContext('2d'), {
-        type: 'bar',
-        data: { labels: [], datasets: [{ label: 'Max SOG (knots)', data: [] }] },
-        options: { scales: { y: { beginAtZero: true } } }
-      });
-      const distanceChart = new Chart($('#distanceChart')[0].getContext('2d'), {
-        type: 'bar',
-        data: { labels: [], datasets: [{ label: 'Distance (km)', data: [] }] },
-        options: { scales: { y: { beginAtZero: true } } }
-      });
-      const typeChart = new Chart($('#typeChart')[0].getContext('2d'), {
-        type: 'pie',
-        data: {
-          labels: [], datasets: [{
-            data: [], backgroundColor: [], borderColor: '#fff', borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            legend: { position: 'bottom' }
-          },
-          aspectRatio: 1,  // Ensures the chart remains circular
-        }
-      });
-      const classChart = new Chart($('#classChart')[0].getContext('2d'), {
-        type: 'pie',
-        data: {
-          labels: [], datasets: [{
-            data: [], backgroundColor: [], borderColor: '#fff', borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            legend: { position: 'bottom' }
-          },
-          aspectRatio: 1,  // Ensures the chart remains circular
-        }
-      });
-      const posChart = new Chart($('#posChart')[0].getContext('2d'), {
-        type: 'bar',
-        data: { labels: [], datasets: [{ label: 'Reports', data: [] }] },
-        options: { scales: { y: { beginAtZero: true } } }
-      });
+    // Helper: given a numeric code and the types.json config, return the category name
+    function lookupShipType(code) {
+      const lookup = shipTypeConfig.valueLookup?.[code];
+      if (lookup == null) return code;  // no mapping → return raw code
+      const category = shipTypeConfig.categories.find(cat => cat.id === lookup);
+      return category ? category.name : code;
+    }
 
-      const posTable = $('#top-positions-table').DataTable({
-        paging: false, info: false, searching: false, order: [[2, 'desc']]
-      });
-      const sogTable = $('#top-sog-table').DataTable({
-        paging: false, info: false, searching: false, order: [[2, 'desc']]
-      });
-      const typeTable = $('#top-types-table').DataTable({
-        paging: false, info: false, searching: false, order: [[1, 'desc']]
-      });
-      const classTable = $('#top-classes-table').DataTable({
-        paging: false, info: false, searching: false, order: [[1, 'desc']]
-      });
-      const distanceTable = $('#top-distance-table').DataTable({
-        paging: false, info: false, searching: false, order: [[2, 'desc']]
-      });
+    // Helper: format coordinates to 4 decimal places
+    function formatCoordinate(coord) {
+      return (coord != null && !isNaN(coord)) ? coord.toFixed(4) : '';
+    }
 
-      async function fetchAll() {
-        const days = $('#days-select').val();
-        const receiverId = $('#receiver-select').val();
-        await Promise.all([
-          fetchTopPositions(days, receiverId),
-          fetchTopSog(days, receiverId),
-          fetchTopTypes(days, receiverId),
-          fetchTopClasses(days, receiverId),
-          fetchTopDistance(days, receiverId),
-          fetchUserCounts(days, receiverId)
-        ]);
-      }
-
-      async function fetchTopPositions(days, receiverId) {
-        let url = `/statistics/stats/top-positions?days=${days}`;
-        if (receiverId) {
-          url += `&receiver_id=${receiverId}`;
-        }
-        const data = await (await fetch(url)).json();
-        posTable.clear();
-        posChart.data.labels = [];
-        posChart.data.datasets[0].data = [];
-
-        data.forEach(v => {
-          const name = v.name || v.user_id;
-          const nameLink = `<a href="${createVesselHistoryUrl(v.user_id, null, receiverId)}" target="_blank">${name}</a>`;
-          const imgTag = v.image_url
-            ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
-            : '';
-          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
-          posTable.row.add([
-            nameLink,
-            imgTag,
-            v.count,
-            v.ais_class,
-            typeDesc
-          ]);
-          posChart.data.labels.push(name);
-          posChart.data.datasets[0].data.push(v.count);
-        });
-
-        posTable.draw();
-        posChart.update();
-      }
-
-      async function fetchTopSog(days, receiverId) {
-        let url = `/statistics/stats/top-sog?days=${days}`;
-        if (receiverId) {
-          url += `&receiver_id=${receiverId}`;
-        }
-        const data = await (await fetch(url)).json();
-        sogTable.clear();
-        sogChart.data.labels = [];
-        sogChart.data.datasets[0].data = [];
-
-        data.forEach(v => {
-          const name = v.name || v.user_id;
-          const nameLink = `<a href="${createVesselHistoryUrl(v.user_id, null, receiverId)}" target="_blank">${name}</a>`;
-          const imgTag = v.image_url
-            ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
-            : '';
-          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
-          sogTable.row.add([
-            nameLink,
-            imgTag,
-            v.max_sog.toFixed(2),
-            v.lat.toFixed(5),
-            v.lon.toFixed(5),
-            v.ais_class,
-            typeDesc
-          ]);
-          sogChart.data.labels.push(name);
-          sogChart.data.datasets[0].data.push(v.max_sog);
-        });
-
-        sogTable.draw();
-        sogChart.update();
-      }
-
-      async function fetchTopTypes(days, receiverId) {
-        let url = `/statistics/stats/top-types?days=${days}`;
-        if (receiverId) {
-          url += `&receiver_id=${receiverId}`;
-        }
-        const data = await (await fetch(url)).json();
-        typeTable.clear();
-        typeChart.data.labels = [];
-        typeChart.data.datasets[0].data = [];
-
-        data.forEach((t, i) => {
-          const typeDesc = typeMapping[t.type] || t.type;
-          const desc = `${typeDesc} (ID: ${t.type})`;
-          typeTable.row.add([ desc, t.count ]);
-          typeChart.data.labels.push(desc);
-          typeChart.data.datasets[0].data.push(t.count);
-        });
-
-        typeChart.data.datasets[0].backgroundColor = sliceColors.slice(0, data.length);
-
-        typeTable.draw();
-        typeChart.update();
-      }
-      
-      async function fetchTopClasses(days, receiverId) {
-        let url = `/statistics/stats/top-classes?days=${days}`;
-        if (receiverId) {
-          url += `&receiver_id=${receiverId}`;
-        }
-        const data = await (await fetch(url)).json();
-        classTable.clear();
-        classChart.data.labels = [];
-        classChart.data.datasets[0].data = [];
-
-        data.forEach((c, i) => {
-          classTable.row.add([ c.class, c.count ]);
-          classChart.data.labels.push(c.class);
-          classChart.data.datasets[0].data.push(c.count);
-        });
-
-        classChart.data.datasets[0].backgroundColor = sliceColors.slice(0, data.length);
-
-        classTable.draw();
-        classChart.update();
-      }
-
-      // Map and map layers
-      let distanceMap = null;
-      let vesselMarkers = [];
-      let distanceCircles = [];
-      let receiverMarkers = []; // Track receiver markers separately
-      
-      async function fetchTopDistance(days, receiverId) {
-        let url = `/statistics/stats/top-distance?days=${days}`;
-        if (receiverId) {
-          url += `&receiver_id=${receiverId}`;
-        }
-        const data = await (await fetch(url)).json();
-        distanceTable.clear();
-        distanceChart.data.labels = [];
-        distanceChart.data.datasets[0].data = [];
-        
-        // Clear existing map markers and circles
-        if (distanceMap) {
-          vesselMarkers.forEach(marker => marker.remove());
-          distanceCircles.forEach(circle => circle.remove());
-          receiverMarkers.forEach(marker => marker.remove());
-          vesselMarkers = [];
-          distanceCircles = [];
-          receiverMarkers = [];
-        }
-
-        data.forEach(v => {
-          const name = v.name || v.user_id;
-          const nameLink = `<a href="${createVesselHistoryUrl(v.user_id, v.timestamp, v.receiver_id)}" target="_blank">${name}</a>`;
-          const imgTag = v.image_url
-            ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
-            : '';
-          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
-          
-          // Find receiver name from receivers array
-          let receiverName = v.receiver_id;
-          const receiver = receivers.find(r => r.id === v.receiver_id);
-          if (receiver) {
-            receiverName = receiver.name;
-          }
-          
-          // Convert distance from meters to kilometers for display
-          const distanceKm = (v.distance / 1000).toFixed(2);
-          
-          // Format timestamp to local time
-          const timestamp = v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A';
-          
-          distanceTable.row.add([
-            nameLink,
-            imgTag,
-            distanceKm,
-            receiverName,
-            v.ais_class,
-            typeDesc,
-            timestamp
-          ]);
-          distanceChart.data.labels.push(name);
-          distanceChart.data.datasets[0].data.push(v.distance / 1000); // Convert to km for chart
-        });
-
-        distanceTable.draw();
-        distanceChart.update();
-        
-        // Show map if we have data, regardless of whether a specific receiver is selected
-        if (data.length > 0) {
-          // Show map container
-          $('#distance-map').show();
-          
-          // Initialize map if it doesn't exist
-          if (!distanceMap) {
-            // Default view, will be adjusted later
-            distanceMap = L.map('distance-map').setView([0, 0], 2);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            }).addTo(distanceMap);
-          }
-          
-          // Create receiver icon once
-          const receiverIcon = L.divIcon({
-            html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
-            className: 'receiver-marker',
-            iconSize: [12, 12]
-          });
-          
-          // Create vessel icon once
-          const vesselIcon = L.divIcon({
-            html: `<div style="background-color: #0074D9; width: 8px; height: 8px; border-radius: 50%; border: 2px solid white;"></div>`,
-            className: 'vessel-marker',
-            iconSize: [8, 8]
-          });
-          
-          // Convert meters to nautical miles (1 nautical mile = 1852 meters)
-          const metersToNM = (meters) => (meters / 1852).toFixed(1);
-          
-          // If a specific receiver is selected
-          if (receiverId) {
-            const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
-            
-            if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
-              // Set view to the selected receiver
-              distanceMap.setView([selectedReceiver.latitude, selectedReceiver.longitude], 8);
-              
-              // Add receiver marker
-              const receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
-                .addTo(distanceMap)
-                .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
-              
-              receiverMarkers.push(receiverMarker);
-              
-              // Add vessel markers
-              data.forEach(v => {
-                if (v.lat && v.lon) {
-                  // Format timestamp for popup
-                  const timestamp = v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A';
-                  
-                  const marker = L.marker([v.lat, v.lon], {icon: vesselIcon})
-                    .addTo(distanceMap)
-                    .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
-                  
-                  // Add permanent tooltip showing vessel name/ID
-                  const tooltip = L.tooltip({
-                    permanent: true,
-                    direction: 'top',
-                    className: 'vessel-tooltip',
-                    offset: [0, -5]
-                  })
-                  .setContent(v.name || `ID: ${v.user_id}`)
-                  .setLatLng([v.lat, v.lon]);
-                  
-                  distanceMap.addLayer(tooltip);
-                  distanceCircles.push(tooltip);
-                  vesselMarkers.push(marker);
-                }
-              });
-              
-              // Find max distance for the outermost ring
-              const maxDistance = Math.max(...data.map(v => v.distance));
-              
-              // Create three concentric rings
-              const ringDistances = [
-                maxDistance / 3,
-                (maxDistance * 2) / 3,
-                maxDistance
-              ];
-              
-              // Add the rings
-              ringDistances.forEach((distance, i) => {
-                const circle = L.circle([selectedReceiver.latitude, selectedReceiver.longitude], {
-                  radius: distance,
-                  color: '#3388ff',
-                  fillColor: '#3388ff',
-                  fillOpacity: 0.05,
-                  weight: 1
-                }).addTo(distanceMap);
-                
-                distanceCircles.push(circle);
-                
-                // Add distance label
-                const nmDistance = metersToNM(distance);
-                const radius = distance / 111320; // Approximate degrees per meter at the equator
-                
-                // Calculate a point on the circle (east of center)
-                const labelLat = selectedReceiver.latitude;
-                const labelLng = selectedReceiver.longitude + (radius / Math.cos(selectedReceiver.latitude * Math.PI / 180));
-                
-                const label = L.marker([labelLat, labelLng], {
-                  icon: L.divIcon({
-                    html: `<div class="map-ring-label">${nmDistance} NM</div>`,
-                    className: '',
-                    iconAnchor: [0, 10]
-                  }),
-                  interactive: false
-                }).addTo(distanceMap);
-                
-                distanceCircles.push(label);
-              });
-              
-              // Fit bounds to include all vessels and the receiver
-              const bounds = vesselMarkers.map(marker => marker.getLatLng());
-              bounds.push([selectedReceiver.latitude, selectedReceiver.longitude]);
-              distanceMap.fitBounds(L.latLngBounds(bounds), { padding: [50, 50] });
+    function updateData() {
+      fetch('/summary')
+        .then(r => r.json())
+        .then(data => {
+          const rows = Object.values(data).map(item => {
+            // Country lookup
+            let country = '';
+            if (item.UserID != null) {
+              const mid = parseInt(item.UserID.toString().slice(0,3), 10);
+              country = (midsMapping[mid] && midsMapping[mid][3]) || '';
             }
-          }
-          // If "All" receivers are selected
-          else {
-            // Get unique receiver IDs from the data
-            const uniqueReceiverIds = [...new Set(data.map(v => v.receiver_id))];
-            const mapBounds = [];
-            
-            // For each unique receiver in the data
-            uniqueReceiverIds.forEach(rid => {
-              const receiverObj = receivers.find(r => r.id === rid);
-              if (receiverObj && receiverObj.latitude && receiverObj.longitude) {
-                // Add receiver marker
-                const receiverMarker = L.marker([receiverObj.latitude, receiverObj.longitude], {icon: receiverIcon})
-                  .addTo(distanceMap)
-                  .bindPopup(`<b>Receiver:</b> ${receiverObj.name}`);
-                
-                receiverMarkers.push(receiverMarker);
-                
-                mapBounds.push([receiverObj.latitude, receiverObj.longitude]);
-                
-                // Get vessels for this receiver
-                const receiverVessels = data.filter(v => v.receiver_id === rid);
-                
-                // Find max distance for this receiver
-                const maxDistance = Math.max(...receiverVessels.map(v => v.distance));
-                
-                // Create rings for this receiver (just one outer ring to avoid clutter)
-                const circle = L.circle([receiverObj.latitude, receiverObj.longitude], {
-                  radius: maxDistance,
-                  color: '#3388ff',
-                  fillColor: '#3388ff',
-                  fillOpacity: 0.05,
-                  weight: 1
-                }).addTo(distanceMap);
-                
-                distanceCircles.push(circle);
-                
-                // Add distance label
-                const nmDistance = metersToNM(maxDistance);
-                const radius = maxDistance / 111320;
-                
-                // Calculate a point on the circle (east of center)
-                const labelLat = receiverObj.latitude;
-                const labelLng = receiverObj.longitude + (radius / Math.cos(receiverObj.latitude * Math.PI / 180));
-                
-                const label = L.marker([labelLat, labelLng], {
-                  icon: L.divIcon({
-                    html: `<div class="map-ring-label">${nmDistance} NM</div>`,
-                    className: '',
-                    iconAnchor: [0, 10]
-                  }),
-                  interactive: false
-                }).addTo(distanceMap);
-                
-                distanceCircles.push(label);
-                
-                // Add vessel markers for this receiver
-                receiverVessels.forEach(v => {
-                  if (v.lat && v.lon) {
-                    // Format timestamp for popup
-                    const timestamp = v.timestamp ? new Date(v.timestamp).toLocaleString() : 'N/A';
-                    
-                    const marker = L.marker([v.lat, v.lon], {icon: vesselIcon})
-                      .addTo(distanceMap)
-                      .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Receiver: ${receiverObj.name}<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
-                    
-                    // Add permanent tooltip showing vessel name/ID
-                    const tooltip = L.tooltip({
-                      permanent: true,
-                      direction: 'top',
-                      className: 'vessel-tooltip',
-                      offset: [0, -5]
-                    })
-                    .setContent(v.name || `ID: ${v.user_id}`)
-                    .setLatLng([v.lat, v.lon]);
-                    
-                    distanceMap.addLayer(tooltip);
-                    distanceCircles.push(tooltip);
-                    vesselMarkers.push(marker);
-                    
-                    mapBounds.push([v.lat, v.lon]);
-                  }
-                });
-              }
-            });
-            
-            // Fit map to include all receivers and vessels
-            if (mapBounds.length > 0) {
-              distanceMap.fitBounds(L.latLngBounds(mapBounds), { padding: [50, 50] });
+
+            // Type description logic
+            let typeDesc = item.Type;
+            if (item.AISClass === 'AtoN' && atonTypeMapping[item.Type] != null) {
+              // AtoN mapping
+              typeDesc = atonTypeMapping[item.Type];
             }
-          }
-        } else {
-          // Hide map if no data
-          $('#distance-map').hide();
-        }
-      }
+            else if ((item.AISClass === 'A' || item.AISClass === 'B')
+                     && shipTypeConfig.valueLookup) {
+              // Class A/B mapping
+              typeDesc = lookupShipType(item.Type);
+            }
 
-      // Word cloud for user message counts
-      async function fetchUserCounts(days, receiverId) {
-        let url = `/statistics/stats/user-counts?days=${days}`;
-        if (receiverId) {
-          url += `&receiver_id=${receiverId}`;
-        }
-        
-        try {
-          const data = await (await fetch(url)).json();
-          renderWordCloud(data);
-        } catch (error) {
-          console.error("Error fetching user counts:", error);
-          document.getElementById('word-cloud-container').innerHTML =
-            '<div class="alert alert-danger">Failed to load user counts data</div>';
-        }
-      }
+            // Format coordinates
+            const latitude = formatCoordinate(item.Latitude);
+            const longitude = formatCoordinate(item.Longitude);
 
-      function renderWordCloud(data) {
-        // Clear previous word cloud
-        document.getElementById('word-cloud-container').innerHTML = '';
-        
-        if (!data || data.length === 0) {
-          document.getElementById('word-cloud-container').innerHTML =
-            '<div class="alert alert-info">No user data available</div>';
-          return;
-        }
+            return [
+              item.UserID ? (item.AISClass === 'A' || item.AISClass === 'B' ? `<a href="/vesselhistory.html?UserID=${item.UserID}" target="_blank">${item.UserID}</a>` : `${item.UserID}`) : '',
+              country,
+              item.Name || '',
+              item.CallSign || '',
+              item.AISClass || '',
+              item.Destination || '',
+              item.LastUpdated ? new Date(item.LastUpdated).toLocaleString() : '',
+              latitude,
+              longitude,
+              item.Cog || '',
+              item.Sog || '',
+              typeDesc,
+              item.MaximumStaticDraught || '',
+              item.NumMessages || '',
+              item.TrueHeading || ''
+            ];
+          });
 
-        // Set dimensions
-        const width = document.getElementById('word-cloud-container').offsetWidth;
-        const height = 400;
-        
-        // Calculate font sizes based on counts
-        const maxCount = Math.max(...data.map(d => d.count));
-        const minCount = Math.min(...data.map(d => d.count));
-        const fontScale = d3.scaleLog()
-          .domain([Math.max(1, minCount), maxCount])
-          .range([12, 60]);
-        
-        // Prepare word cloud data - only include entries with non-empty name
-        const words = data
-          .filter(d => d.name) // Only include entries with a non-empty name
-          .map(d => ({
-            text: d.name,
-            size: fontScale(d.count),
-            userId: d.user_id,
-            count: d.count
-          }));
-        
-        // Check if we have any words to display after filtering
-        if (words.length === 0) {
-          document.getElementById('word-cloud-container').innerHTML =
-            '<div class="alert alert-info">No vessels with names available</div>';
-          return;
-        }
-        
-        // Create word cloud layout
-        const layout = d3.layout.cloud()
-          .size([width, height])
-          .words(words)
-          .padding(5)
-          .rotate(() => 0) // No rotation for better readability
-          .font('Segoe UI')
-          .fontSize(d => {
-            // Adjust font size based on container width for better responsiveness
-            const scaleFactor = Math.min(1, width / 500); // Scale down on narrow screens
-            return d.size * scaleFactor;
-          })
-          .spiral('archimedean') // Use archimedean spiral for better distribution
-          .on('end', draw);
-        
-        // Fix for word cloud not showing all words
-        console.log(`Rendering word cloud with ${words.length} words`);
-        layout.start();
-        
-        // Draw the word cloud
-        function draw(words) {
-          const svg = d3.select('#word-cloud-container').append('svg')
-            .attr('width', width)
-            .attr('height', height)
-            .attr('viewBox', `0 0 ${width} ${height}`) // Add viewBox for better scaling
-            .attr('preserveAspectRatio', 'xMidYMid meet') // Preserve aspect ratio while scaling
-            .append('g')
-            .attr('transform', `translate(${width/2},${height/2})`);
-          
-          // Create a group for each word that contains both the link and text
-          const wordGroups = svg.selectAll('g')
-            .data(words)
-            .enter()
-            .append('g')
-            .attr('transform', d => {
-              // Ensure words stay within boundaries
-              const x = Math.max(-width/2 + d.size/2, Math.min(width/2 - d.size/2, d.x));
-              const y = Math.max(-height/2 + d.size/2, Math.min(height/2 - d.size/2, d.y));
-              return `translate(${x},${y})`;
-            });
-          
-          // Add the link with text inside
-          wordGroups.append('a')
-            .attr('xlink:href', d => createVesselHistoryUrl(d.userId))
-            .attr('target', '_blank')
-            .append('text')
-            .attr('class', 'word-cloud-text')
-            .style('font-size', d => `${d.size}px`)
-            .style('fill', (d, i) => {
-              // Use a modern grey color palette
-              const greyShades = [
-                '#4a4a4a', '#5a5a5a', '#6a6a6a', '#7a7a7a',
-                '#8a8a8a', '#9a9a9a', '#aaaaaa'
-              ];
-              return greyShades[i % greyShades.length];
-            })
-            .attr('text-anchor', 'middle')
-            .text(d => d.text)
-            .append('title') // Tooltip showing count
-            .text(d => `${d.text}: ${d.count} messages`);
-            
-          // Log the number of words actually rendered
-          console.log(`Rendered ${wordGroups.size()} words in the cloud`);
-        }
-      }
+          table.clear();
+          table.rows.add(rows);
+          table.draw(false);
+        })
+        .catch(err => console.error('Error fetching state data:', err));
+    }
 
-      // Parse URL query parameters
-      function getQueryParam(name) {
-        const urlParams = new URLSearchParams(window.location.search);
-        return urlParams.get(name);
-      }
-      
-      // Update URL and fetch data when selections change
-      $('#days-select, #receiver-select').on('change', function() {
-        updateUrlWithSelections();
-        fetchAll();
+    $(document).ready(function() {
+      table = $('#stateTable').DataTable({
+        responsive: true,
+        pageLength: 10,
+        lengthMenu: [[10,25,50,100],[10,25,50,100]],
+        dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>" +
+             "<'row'<'col-sm-12'tr>>" +
+             "<'row'<'col-sm-5'i><'col-sm-7'p>>",
+        order: [[0, "asc"]],
+        columns: [
+          { title: "MMSI" },{ title: "Country" },{ title: "Name" },
+          { title: "CallSign" },{ title: "AISClass" },{ title: "Destination" },
+          { title: "Last Updated" },{ title: "Latitude" },{ title: "Longitude" },
+          { title: "Cog" },{ title: "Sog" },{ title: "Type" },
+          { title: "Max Static Draught" },{ title: "NumMessages" },
+          { title: "True Heading" }
+        ]
       });
-      
-      // Function to update URL with current selections
-      function updateUrlWithSelections() {
-        const days = $('#days-select').val();
-        const receiverId = $('#receiver-select').val();
-        
-        // Create URL object from current URL
-        const url = new URL(window.location.href);
-        
-        // Update or remove parameters
-        if (receiverId) {
-          url.searchParams.set('receiver_id', receiverId);
-        } else {
-          url.searchParams.delete('receiver_id');
-        }
-        
-        url.searchParams.set('days', days);
-        
-        // Update browser history without reloading the page
-        window.history.replaceState({}, '', url);
-      }
-      (async () => {
-        await Promise.all([
-          loadTypeMapping(),
-          loadReceivers()
-        ]);
-        
-        // Check for parameters in URL and select them in dropdowns if present
-        const receiverId = getQueryParam('receiver_id');
-        if (receiverId) {
-          $('#receiver-select').val(receiverId);
-        }
-        
-        const days = getQueryParam('days');
-        if (days) {
-          $('#days-select').val(days);
-        }
-        
-        fetchAll();
-      })();
 
-      $(document).on('click', '.thumb', function() {
-        const src = $(this).attr('src');
-        $('#img-overlay-img').attr('src', src);
-        $('#img-overlay').css('display','flex').hide().fadeIn(200);
-      });
-      $('#img-overlay, #img-overlay-close').on('click', function(e) {
-        if (e.target.id === 'img-overlay' || e.target.id === 'img-overlay-close') {
-          $('#img-overlay').fadeOut(200);
-        }
-      });
-      $('#img-overlay-img').on('click', e => e.stopPropagation());
+      updateData();
+      setInterval(updateData, 5000);
     });
   </script>
 </body>
