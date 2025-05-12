@@ -499,6 +499,7 @@
     let navStatusMapping = {};
     let receiversData = []; // Store receivers data globally
     let lastSeenTime = null; // Store the last seen time globally
+    let dateRangeAdjusted = false; // Track if date range was automatically adjusted
 
     // Format time difference as a human-readable string
     function formatTimeDifference(timestamp) {
@@ -1006,6 +1007,11 @@
         if (positionCount === limit || staticCount === limit) {
           const warningDiv = document.getElementById('error');
           warningDiv.textContent = `Warning: Some data may be missing. ${positionCount === limit ? 'Position' : ''} ${positionCount === limit && staticCount === limit ? 'and' : ''} ${staticCount === limit ? 'Static' : ''} data reached the limit of ${limit} records. Try reducing the time range.`;
+          warningDiv.style.display = 'block';
+        } else if (dateRangeAdjusted) {
+          // If date range was adjusted, keep the warning message
+          const warningDiv = document.getElementById('error');
+          warningDiv.textContent = 'Warning: Automatically updated to a 24-hour window around the vessel\'s last seen time.';
           warningDiv.style.display = 'block';
         } else {
           // Clear any previous warnings
@@ -1728,12 +1734,13 @@
           if (startDate >= lastSeenTime || endDate > lastSeenTime) {
             console.log('Selected dates are too recent compared to last seen time. Adjusting...');
             
-            // Set end date to last seen time
+            // Set end date to last seen time plus 1 hour leeway
             const adjustedEndDate = new Date(lastSeenTime);
+            adjustedEndDate.setHours(adjustedEndDate.getHours() + 1);
             
-            // Set start date to 24 hours before last seen time
+            // Set start date to 23 hours before last seen time (for a 24-hour window with 1 hour leeway)
             const adjustedStartDate = new Date(lastSeenTime);
-            adjustedStartDate.setDate(adjustedStartDate.getDate() - 1);
+            adjustedStartDate.setHours(adjustedStartDate.getHours() - 23);
             
             // Format dates for the datetime-local inputs
             function formatDateForInput(date) {
@@ -1757,9 +1764,10 @@
             
             console.log('Date range adjusted to:', adjustedStartDate, 'to', adjustedEndDate);
             
-            // Display warning message about the automatic adjustment
+            // Set flag that date range was adjusted and display warning message
+            dateRangeAdjusted = true;
             const warningDiv = document.getElementById('error');
-            warningDiv.textContent = 'Warning: Automatically updated period to within the vessel\'s last seen time.';
+            warningDiv.textContent = 'Warning: Automatically updated to a 24-hour window around the vessel\'s last seen time.';
             warningDiv.style.display = 'block';
             
             // Trigger the search button click to submit with adjusted date range
@@ -1896,6 +1904,9 @@
       });
       
       document.getElementById('reset-btn').addEventListener('click', () => {
+        // Reset the date range adjusted flag
+        dateRangeAdjusted = false;
+        
         initDateSelectors();
         
         // Clear map
@@ -1913,6 +1924,9 @@
         // Clear data info and disable download button
         document.getElementById('data-info').textContent = '';
         document.getElementById('download-csv-btn').disabled = true;
+        
+        // Clear any warning messages
+        document.getElementById('error').textContent = '';
       });
       
       // Add event listener for Download CSV button
