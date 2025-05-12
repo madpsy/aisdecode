@@ -840,18 +840,26 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 2) Optional MessageID, DAC, FI, ReceiverID
+    // 2) Optional MessageID(s), DAC, FI, ReceiverID
     var (
-        messageID int64
-        dac, fi   int
+        messageIDs []int64
+        dac, fi    int
         receiverID int64
     )
     if v := q.Get("MessageID"); v != "" {
-        if x, err := strconv.ParseInt(v, 10, 64); err == nil && x >= 0 {
-            messageID = x
-        } else {
-            http.Error(w, "Invalid MessageID", http.StatusBadRequest)
-            return
+        // Support comma-separated list of message IDs
+        idStrings := strings.Split(v, ",")
+        for _, idStr := range idStrings {
+            idStr = strings.TrimSpace(idStr)
+            if idStr == "" {
+                continue
+            }
+            if x, err := strconv.ParseInt(idStr, 10, 64); err == nil && x >= 0 {
+                messageIDs = append(messageIDs, x)
+            } else {
+                http.Error(w, fmt.Sprintf("Invalid MessageID: %s", idStr), http.StatusBadRequest)
+                return
+            }
         }
     }
     if v := q.Get("DAC"); v != "" {
@@ -1048,8 +1056,18 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
     // 9) Fallback: original latest/limit logic + time filters
     var where []string
     where = append(where, fmt.Sprintf("user_id = %d", userID))
-    if messageID > 0 {
-        where = append(where, fmt.Sprintf("message_id = %d", messageID))
+    if len(messageIDs) > 0 {
+        if len(messageIDs) == 1 {
+            // Single message ID
+            where = append(where, fmt.Sprintf("message_id = %d", messageIDs[0]))
+        } else {
+            // Multiple message IDs - use IN clause
+            var idStrings []string
+            for _, id := range messageIDs {
+                idStrings = append(idStrings, strconv.FormatInt(id, 10))
+            }
+            where = append(where, fmt.Sprintf("message_id IN (%s)", strings.Join(idStrings, ",")))
+        }
     }
     if q.Get("DAC") != "" {
         where = append(where,
@@ -1073,7 +1091,7 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
     whereClause := strings.Join(where, " AND ")
 
     var query string
-    if messageID == 0 && q.Get("DAC") == "" && q.Get("FI") == "" {
+    if len(messageIDs) == 0 && q.Get("DAC") == "" && q.Get("FI") == "" {
         query = fmt.Sprintf(`
             SELECT DISTINCT ON (
               message_id,
