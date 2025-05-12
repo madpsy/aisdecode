@@ -1395,6 +1395,9 @@
       destTable.innerHTML = '';
       
       if (destinationChanges.length > 0) {
+        // Sort by timestamp (newest first)
+        destinationChanges.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
         destinationChanges.forEach(change => {
           const row = document.createElement('tr');
           
@@ -1468,6 +1471,9 @@
       statusTable.innerHTML = '';
       
       if (statusChanges.length > 0) {
+        // Sort by timestamp (newest first)
+        statusChanges.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
         statusChanges.forEach(change => {
           const row = document.createElement('tr');
           
