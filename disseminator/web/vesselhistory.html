@@ -910,7 +910,7 @@
         // If either count matches the limit, show a warning
         if (positionCount === limit || staticCount === limit) {
           const warningDiv = document.getElementById('error');
-          warningDiv.textContent = `Some data may be missing. ${positionCount === limit ? 'Position' : ''} ${positionCount === limit && staticCount === limit ? 'and' : ''} ${staticCount === limit ? 'Static' : ''} data reached the limit of ${limit} results. Try reducing the time range.`;
+          warningDiv.textContent = `Warning: Some data may be missing. ${positionCount === limit ? 'Position' : ''} ${positionCount === limit && staticCount === limit ? 'and' : ''} ${staticCount === limit ? 'Static' : ''} data reached the limit of ${limit} records. Try reducing the time range.`;
           warningDiv.style.display = 'block';
         } else {
           // Clear any previous warnings
@@ -976,6 +976,11 @@
           
           // Rename fields for display and format values
           if (field === 'TrueHeading') {
+            // If TrueHeading is 511, treat it as empty/missing
+            if (value === 511) {
+              // Skip this field entirely by returning false
+              return false;
+            }
             displayField = 'Heading';
             value = `${value}°`;
           } else if (field === 'NavigationalStatus') {
