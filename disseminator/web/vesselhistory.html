@@ -184,10 +184,9 @@
       gap: 5px;
     }
     
-    /* Timestamp overlay styles */
-    .timestamp-overlay {
+    /* Overlay styles for timestamp and distance */
+    .map-overlay {
       position: absolute;
-      top: 10px;
       left: 50%;
       transform: translateX(-50%);
       background: rgba(0, 0, 0, 0.5);
@@ -198,6 +197,16 @@
       font-size: 14px;
       font-weight: bold;
       display: none;
+    }
+    
+    /* Distance overlay always at top */
+    .distance-overlay {
+      top: 10px;
+    }
+    
+    /* Timestamp overlay below distance overlay */
+    .timestamp-overlay {
+      top: 45px;
     }
     .replay-button {
       padding: 4px 8px;
@@ -427,7 +436,8 @@
           </label>
         </div>
       </div>
-      <div id="timestamp-overlay" class="timestamp-overlay"></div>
+      <div id="distance-overlay" class="map-overlay distance-overlay"></div>
+      <div id="timestamp-overlay" class="map-overlay timestamp-overlay"></div>
       <div class="replay-control">
         <button id="replay-button" class="replay-button">
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
@@ -2799,6 +2809,8 @@
     let replayTooltip = null;
     let replayPolyline = null;
     let tooltipVisible = true; // Track tooltip visibility
+    let totalDistance = 0; // Track total distance
+    let currentDistance = 0; // Track current distance during replay
     
     // Function to toggle tooltip visibility
     function toggleTooltipVisibility() {
@@ -2865,6 +2877,19 @@
       // Sort points by timestamp (oldest first)
       pts.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
       
+      // Calculate total distance between all points
+      totalDistance = 0;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const pt1 = L.latLng(pts[i].lat, pts[i].lng);
+        const pt2 = L.latLng(pts[i+1].lat, pts[i+1].lng);
+        totalDistance += pt1.distanceTo(pt2);
+      }
+      // Convert to kilometers and round to 2 decimal places
+      totalDistance = (totalDistance / 1000).toFixed(2);
+      
+      // Reset current distance
+      currentDistance = 0;
+      
       // Get selected duration
       const durationSelect = document.getElementById('replay-duration');
       const durationSeconds = parseInt(durationSelect.value, 10);
@@ -2889,6 +2914,13 @@
       
       // Create a layer group for receiver connection lines
       const connectionLayerGroup = L.layerGroup().addTo(mapLayerGroup);
+      
+      // Show distance overlay with initial distance (0 km)
+      const distanceOverlay = document.getElementById('distance-overlay');
+      if (distanceOverlay) {
+        distanceOverlay.textContent = `Distance: 0.00 km / ${totalDistance} km`;
+        distanceOverlay.style.display = 'block';
+      }
       
       // Show timestamp overlay with initial timestamp
       const timestampOverlay = document.getElementById('timestamp-overlay');
@@ -3026,6 +3058,22 @@
             
             // Calculate the segment index (one less than point index)
             const segmentIndex = Math.min(pointIndex, segments.length);
+            
+            // Calculate current distance traveled
+            currentDistance = 0;
+            for (let i = 0; i < pointIndex && i < pts.length - 1; i++) {
+              const pt1 = L.latLng(pts[i].lat, pts[i].lng);
+              const pt2 = L.latLng(pts[i+1].lat, pts[i+1].lng);
+              currentDistance += pt1.distanceTo(pt2);
+            }
+            // Convert to kilometers and round to 2 decimal places
+            const currentDistanceKm = (currentDistance / 1000).toFixed(2);
+            
+            // Update distance overlay
+            const distanceOverlay = document.getElementById('distance-overlay');
+            if (distanceOverlay) {
+              distanceOverlay.textContent = `Distance: ${currentDistanceKm} km / ${totalDistance} km`;
+            }
             
             // Add segments that haven't been added yet
             // We use a static variable to keep track of the last drawn segment
@@ -3193,7 +3241,12 @@
         replayAnimationId = null;
       }
       
-      // Hide timestamp overlay
+      // Hide distance and timestamp overlays
+      const distanceOverlay = document.getElementById('distance-overlay');
+      if (distanceOverlay) {
+        distanceOverlay.style.display = 'none';
+      }
+      
       const timestampOverlay = document.getElementById('timestamp-overlay');
       if (timestampOverlay) {
         timestampOverlay.style.display = 'none';
