@@ -253,7 +253,7 @@
     }
   </style>
   
-  <!-- Add custom style for receiver tooltips -->
+  <!-- Add custom style for receiver tooltips and distance labels -->
   <style>
     .receiver-tooltip {
       background-color: rgba(255, 255, 255, 0.9);
@@ -263,6 +263,16 @@
       font-weight: bold;
       font-size: 11px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    
+    .distance-label {
+      background-color: rgba(255, 255, 255, 0.7);
+      border: none;
+      border-radius: 3px;
+      padding: 2px 4px;
+      font-size: 10px;
+      box-shadow: none;
+      white-space: nowrap;
     }
   </style>
 </head>
@@ -972,6 +982,9 @@
       
       // Use the global makeTooltipHTML function
       
+      // Create a layer group for temporary connection lines
+      const connectionLayerGroup = L.layerGroup().addTo(map);
+      
       // Add tooltips to each segment in the colored track
       coloredTrack.eachLayer(segment => {
         segment.bindTooltip('', tooltipOpts);
@@ -992,10 +1005,56 @@
             const html = makeTooltipHTML(nearestPoint);
             segment.setTooltipContent(html);
             segment.openTooltip(e.latlng);
+            
+            // Clear previous connection lines
+            connectionLayerGroup.clearLayers();
+            
+            // Check if the record has a ReceiverID
+            const receiverId = nearestPoint.record.ReceiverID;
+            if (receiverId && receiversData.length > 0) {
+              // Find the receiver in receiversData
+              const receiver = receiversData.find(r => r.id === receiverId);
+              if (receiver && receiver.latitude && receiver.longitude) {
+                // Draw a dashed grey line between the point and the receiver
+                const connectionLine = L.polyline(
+                  [[nearestPoint.lat, nearestPoint.lng], [receiver.latitude, receiver.longitude]],
+                  {
+                    color: 'grey',
+                    weight: 2,
+                    opacity: 0.7,
+                    dashArray: '5, 7'
+                  }
+                ).addTo(connectionLayerGroup);
+                
+                // Calculate distance in kilometers
+                const pointLatLng = L.latLng(nearestPoint.lat, nearestPoint.lng);
+                const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+                const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+                
+                // Add distance label at midpoint
+                const midpoint = L.latLng(
+                  (nearestPoint.lat + receiver.latitude) / 2,
+                  (nearestPoint.lng + receiver.longitude) / 2
+                );
+                
+                L.marker(midpoint, {
+                  icon: L.divIcon({
+                    className: 'distance-label',
+                    html: `${distanceKm} km`,
+                    iconSize: [60, 20],
+                    iconAnchor: [30, 10]
+                  })
+                }).addTo(connectionLayerGroup);
+              }
+            }
           }
         });
         
-        segment.on('mouseout', () => segment.closeTooltip());
+        segment.on('mouseout', () => {
+          segment.closeTooltip();
+          // Clear connection lines when mouse leaves the segment
+          connectionLayerGroup.clearLayers();
+        });
       });
       
       // Add markers at the first and last points with tooltips
@@ -1012,6 +1071,56 @@
       }).addTo(mapLayerGroup);
       startMarker.bindTooltip('Start: ' + new Date(first.timestamp).toLocaleString(), tooltipOpts);
       
+      // Add mouseover event to start marker to show connection to receiver
+      startMarker.on('mouseover', () => {
+        // Clear previous connection lines
+        connectionLayerGroup.clearLayers();
+        
+        // Check if the record has a ReceiverID
+        const receiverId = first.record.ReceiverID;
+        if (receiverId && receiversData.length > 0) {
+          // Find the receiver in receiversData
+          const receiver = receiversData.find(r => r.id === receiverId);
+          if (receiver && receiver.latitude && receiver.longitude) {
+            // Draw a dashed grey line between the point and the receiver
+            const connectionLine = L.polyline(
+              [[first.lat, first.lng], [receiver.latitude, receiver.longitude]],
+              {
+                color: 'grey',
+                weight: 2,
+                opacity: 0.7,
+                dashArray: '5, 7'
+              }
+            ).addTo(connectionLayerGroup);
+            
+            // Calculate distance in kilometers
+            const pointLatLng = L.latLng(first.lat, first.lng);
+            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+            
+            // Add distance label at midpoint
+            const midpoint = L.latLng(
+              (first.lat + receiver.latitude) / 2,
+              (first.lng + receiver.longitude) / 2
+            );
+            
+            L.marker(midpoint, {
+              icon: L.divIcon({
+                className: 'distance-label',
+                html: `${distanceKm} km`,
+                iconSize: [60, 20],
+                iconAnchor: [30, 10]
+              })
+            }).addTo(connectionLayerGroup);
+          }
+        }
+      });
+      
+      startMarker.on('mouseout', () => {
+        // Clear connection lines when mouse leaves the marker
+        connectionLayerGroup.clearLayers();
+      });
+      
       const endMarker = L.marker([last.lat, last.lng], {
         icon: L.divIcon({
           className: 'end-marker',
@@ -1021,6 +1130,56 @@
         })
       }).addTo(mapLayerGroup);
       endMarker.bindTooltip('End: ' + new Date(last.timestamp).toLocaleString(), tooltipOpts);
+      
+      // Add mouseover event to end marker to show connection to receiver
+      endMarker.on('mouseover', () => {
+        // Clear previous connection lines
+        connectionLayerGroup.clearLayers();
+        
+        // Check if the record has a ReceiverID
+        const receiverId = last.record.ReceiverID;
+        if (receiverId && receiversData.length > 0) {
+          // Find the receiver in receiversData
+          const receiver = receiversData.find(r => r.id === receiverId);
+          if (receiver && receiver.latitude && receiver.longitude) {
+            // Draw a dashed grey line between the point and the receiver
+            const connectionLine = L.polyline(
+              [[last.lat, last.lng], [receiver.latitude, receiver.longitude]],
+              {
+                color: 'grey',
+                weight: 2,
+                opacity: 0.7,
+                dashArray: '5, 7'
+              }
+            ).addTo(connectionLayerGroup);
+            
+            // Calculate distance in kilometers
+            const pointLatLng = L.latLng(last.lat, last.lng);
+            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+            
+            // Add distance label at midpoint
+            const midpoint = L.latLng(
+              (last.lat + receiver.latitude) / 2,
+              (last.lng + receiver.longitude) / 2
+            );
+            
+            L.marker(midpoint, {
+              icon: L.divIcon({
+                className: 'distance-label',
+                html: `${distanceKm} km`,
+                iconSize: [60, 20],
+                iconAnchor: [30, 10]
+              })
+            }).addTo(connectionLayerGroup);
+          }
+        }
+      });
+      
+      endMarker.on('mouseout', () => {
+        // Clear connection lines when mouse leaves the marker
+        connectionLayerGroup.clearLayers();
+      });
       
       // Add receiver markers for receivers that heard this vessel
       // Get the vessel data to find which receivers heard it
@@ -1934,6 +2093,9 @@
         sticky: true
       };
       
+      // Create a layer group for temporary connection lines
+      const connectionLayerGroup = L.layerGroup().addTo(map);
+      
       // Add tooltips to each segment in the colored track
       coloredTrack.eachLayer(segment => {
         segment.bindTooltip('', tooltipOpts);
@@ -1954,10 +2116,56 @@
             const html = makeTooltipHTML(nearestPoint);
             segment.setTooltipContent(html);
             segment.openTooltip(e.latlng);
+            
+            // Clear previous connection lines
+            connectionLayerGroup.clearLayers();
+            
+            // Check if the record has a ReceiverID
+            const receiverId = nearestPoint.record.ReceiverID;
+            if (receiverId && receiversData.length > 0) {
+              // Find the receiver in receiversData
+              const receiver = receiversData.find(r => r.id === receiverId);
+              if (receiver && receiver.latitude && receiver.longitude) {
+                // Draw a dashed grey line between the point and the receiver
+                const connectionLine = L.polyline(
+                  [[nearestPoint.lat, nearestPoint.lng], [receiver.latitude, receiver.longitude]],
+                  {
+                    color: 'grey',
+                    weight: 2,
+                    opacity: 0.7,
+                    dashArray: '5, 7'
+                  }
+                ).addTo(connectionLayerGroup);
+                
+                // Calculate distance in kilometers
+                const pointLatLng = L.latLng(nearestPoint.lat, nearestPoint.lng);
+                const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+                const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+                
+                // Add distance label at midpoint
+                const midpoint = L.latLng(
+                  (nearestPoint.lat + receiver.latitude) / 2,
+                  (nearestPoint.lng + receiver.longitude) / 2
+                );
+                
+                L.marker(midpoint, {
+                  icon: L.divIcon({
+                    className: 'distance-label',
+                    html: `${distanceKm} km`,
+                    iconSize: [60, 20],
+                    iconAnchor: [30, 10]
+                  })
+                }).addTo(connectionLayerGroup);
+              }
+            }
           }
         });
         
-        segment.on('mouseout', () => segment.closeTooltip());
+        segment.on('mouseout', () => {
+          segment.closeTooltip();
+          // Clear connection lines when mouse leaves the segment
+          connectionLayerGroup.clearLayers();
+        });
       });
       
       // Add markers at the first and last points with tooltips
@@ -1974,6 +2182,56 @@
       }).addTo(mapLayerGroup);
       startMarker.bindTooltip('Start: ' + new Date(first.timestamp).toLocaleString(), tooltipOpts);
       
+      // Add mouseover event to start marker to show connection to receiver
+      startMarker.on('mouseover', () => {
+        // Clear previous connection lines
+        connectionLayerGroup.clearLayers();
+        
+        // Check if the record has a ReceiverID
+        const receiverId = first.record.ReceiverID;
+        if (receiverId && receiversData.length > 0) {
+          // Find the receiver in receiversData
+          const receiver = receiversData.find(r => r.id === receiverId);
+          if (receiver && receiver.latitude && receiver.longitude) {
+            // Draw a dashed grey line between the point and the receiver
+            const connectionLine = L.polyline(
+              [[first.lat, first.lng], [receiver.latitude, receiver.longitude]],
+              {
+                color: 'grey',
+                weight: 2,
+                opacity: 0.7,
+                dashArray: '5, 7'
+              }
+            ).addTo(connectionLayerGroup);
+            
+            // Calculate distance in kilometers
+            const pointLatLng = L.latLng(first.lat, first.lng);
+            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+            
+            // Add distance label at midpoint
+            const midpoint = L.latLng(
+              (first.lat + receiver.latitude) / 2,
+              (first.lng + receiver.longitude) / 2
+            );
+            
+            L.marker(midpoint, {
+              icon: L.divIcon({
+                className: 'distance-label',
+                html: `${distanceKm} km`,
+                iconSize: [60, 20],
+                iconAnchor: [30, 10]
+              })
+            }).addTo(connectionLayerGroup);
+          }
+        }
+      });
+      
+      startMarker.on('mouseout', () => {
+        // Clear connection lines when mouse leaves the marker
+        connectionLayerGroup.clearLayers();
+      });
+      
       const endMarker = L.marker([last.lat, last.lng], {
         icon: L.divIcon({
           className: 'end-marker',
@@ -1983,6 +2241,56 @@
         })
       }).addTo(mapLayerGroup);
       endMarker.bindTooltip('End: ' + new Date(last.timestamp).toLocaleString(), tooltipOpts);
+      
+      // Add mouseover event to end marker to show connection to receiver
+      endMarker.on('mouseover', () => {
+        // Clear previous connection lines
+        connectionLayerGroup.clearLayers();
+        
+        // Check if the record has a ReceiverID
+        const receiverId = last.record.ReceiverID;
+        if (receiverId && receiversData.length > 0) {
+          // Find the receiver in receiversData
+          const receiver = receiversData.find(r => r.id === receiverId);
+          if (receiver && receiver.latitude && receiver.longitude) {
+            // Draw a dashed grey line between the point and the receiver
+            const connectionLine = L.polyline(
+              [[last.lat, last.lng], [receiver.latitude, receiver.longitude]],
+              {
+                color: 'grey',
+                weight: 2,
+                opacity: 0.7,
+                dashArray: '5, 7'
+              }
+            ).addTo(connectionLayerGroup);
+            
+            // Calculate distance in kilometers
+            const pointLatLng = L.latLng(last.lat, last.lng);
+            const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+            const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
+            
+            // Add distance label at midpoint
+            const midpoint = L.latLng(
+              (last.lat + receiver.latitude) / 2,
+              (last.lng + receiver.longitude) / 2
+            );
+            
+            L.marker(midpoint, {
+              icon: L.divIcon({
+                className: 'distance-label',
+                html: `${distanceKm} km`,
+                iconSize: [60, 20],
+                iconAnchor: [30, 10]
+              })
+            }).addTo(connectionLayerGroup);
+          }
+        }
+      });
+      
+      endMarker.on('mouseout', () => {
+        // Clear connection lines when mouse leaves the marker
+        connectionLayerGroup.clearLayers();
+      });
       
       // Add receiver markers for receivers that heard this vessel
       // Get the vessel data to find which receivers heard it
