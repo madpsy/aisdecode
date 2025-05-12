@@ -970,17 +970,13 @@
       // Add other interesting fields if available
       const fields = ['Sog', 'Cog', 'TrueHeading', 'NavigationalStatus', 'Destination'];
       fields.forEach((field, index) => {
-        if (pt.data[field] != null) {
+        // Skip TrueHeading if value is 511 (treat as empty/missing)
+        if (pt.data[field] != null && !(field === 'TrueHeading' && pt.data[field] === 511)) {
           let value = pt.data[field];
           let displayField = field;
           
           // Rename fields for display and format values
           if (field === 'TrueHeading') {
-            // If TrueHeading is 511, treat it as empty/missing
-            if (value === 511) {
-              // Skip this field entirely by returning false
-              return false;
-            }
             displayField = 'Heading';
             value = `${value}°`;
           } else if (field === 'NavigationalStatus') {
