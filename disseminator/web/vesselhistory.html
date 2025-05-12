@@ -887,11 +887,11 @@
       const timestamp = new Date(pt.timestamp).toLocaleString();
       let html = `<strong>${timestamp}</strong><br/>`;
       html += `<strong>Latitude:</strong> ${pt.lat.toFixed(6)}<br/>`;
-      html += `<strong>Longitude:</strong> ${pt.lng.toFixed(6)}`;
+      html += `<strong>Longitude:</strong> ${pt.lng.toFixed(6)}<br/>`;
       
       // Add other interesting fields if available
       const fields = ['Sog', 'Cog', 'TrueHeading', 'NavigationalStatus', 'Destination'];
-      fields.forEach(field => {
+      fields.forEach((field, index) => {
         if (pt.data[field] != null) {
           let value = pt.data[field];
           let displayField = field;
@@ -913,7 +913,12 @@
             value = `${value}°`;
           }
           
-          html += `<br/><strong>${displayField}:</strong> ${value}`;
+          html += `<strong>${displayField}:</strong> ${value}`;
+          
+          // Add line break after each field except the last one
+          if (index < fields.length - 1 || pt.data[fields[index + 1]] != null) {
+            html += '<br/>';
+          }
         }
       });
       
@@ -1005,8 +1010,8 @@
                 const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
                 const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
                 
-                // Add receiver info to tooltip without extra gap
-                html += `<strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+                // Add receiver info to tooltip with proper formatting
+                html += `<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
                 
                 // Clear previous connection lines
                 connectionLayerGroup.clearLayers();
@@ -1067,7 +1072,7 @@
             const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
             
             // Update tooltip content
-            const tooltipContent = `Start: ${new Date(first.timestamp).toLocaleString()}<br/><strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+            const tooltipContent = `Start: ${new Date(first.timestamp).toLocaleString()}<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
             startMarker.setTooltipContent(tooltipContent);
             
             // Draw a dashed grey line between the point and the receiver
@@ -1116,7 +1121,7 @@
             const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
             
             // Update tooltip content
-            const tooltipContent = `End: ${new Date(last.timestamp).toLocaleString()}<br/><strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+            const tooltipContent = `End: ${new Date(last.timestamp).toLocaleString()}<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
             endMarker.setTooltipContent(tooltipContent);
             
             // Draw a dashed grey line between the point and the receiver
@@ -2000,7 +2005,7 @@
       });
       
       // Store the filtered data globally so it can be accessed by the connection line code
-      window.filteredHistoryData = filteredData;
+      window.currentHistoryData = filteredData;
       
       // Update the map with filtered data but don't store as current data
       displayVesselTrackFiltered(filteredData);
@@ -2102,8 +2107,8 @@
                 const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
                 const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
                 
-                // Add receiver info to tooltip without extra gap
-                html += `<strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+                // Add receiver info to tooltip with proper formatting
+                html += `<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
               }
             }
           }
