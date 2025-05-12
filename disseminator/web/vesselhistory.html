@@ -1306,6 +1306,9 @@
           displayVesselTrack(historyData);
           displayMessageHistogram(historyData);
           trackChanges(historyData);
+          
+          // Check for filter parameters in URL and restore if present
+          checkForTimeFilterInUrl(historyData);
         }
       }, 1000); // Small delay to ensure vessel data is loaded first
       
@@ -1628,6 +1631,9 @@
         
         // Apply the filter to the map
         applyTimeFilter(historyData);
+        
+        // Update URL with filter window parameters
+        updateUrlWithTimeFilter();
       });
     }
     
@@ -1735,6 +1741,9 @@
           const historyData = window.currentHistoryData;
           if (historyData) {
             applyTimeFilter(historyData);
+            
+            // Update URL with filter window parameters
+            updateUrlWithTimeFilter();
           }
         }
       }
@@ -1777,7 +1786,38 @@
       const historyData = window.currentHistoryData;
       if (historyData) {
         displayVesselTrack(historyData);
+        
+        // Remove filter parameters from URL
+        removeTimeFilterFromUrl();
       }
+    }
+    
+    // Update URL with time filter parameters
+    function updateUrlWithTimeFilter() {
+      if (!timeFilter.active) return;
+      
+      // Create a new URL object based on the current URL
+      const url = new URL(window.location.href);
+      
+      // Add or update the filter parameters
+      url.searchParams.set('filterStart', timeFilter.startTime.toISOString());
+      url.searchParams.set('filterEnd', timeFilter.endTime.toISOString());
+      
+      // Update the browser history without reloading the page
+      window.history.replaceState({}, '', url);
+    }
+    
+    // Remove time filter parameters from URL
+    function removeTimeFilterFromUrl() {
+      // Create a new URL object based on the current URL
+      const url = new URL(window.location.href);
+      
+      // Remove the filter parameters
+      url.searchParams.delete('filterStart');
+      url.searchParams.delete('filterEnd');
+      
+      // Update the browser history without reloading the page
+      window.history.replaceState({}, '', url);
     }
     
     // Apply time filter to the map
@@ -1894,6 +1934,42 @@
       // Fit map to data
       const latlngs = pts.map(p => [p.lat, p.lng]);
       map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
+    }
+    
+    // Check for time filter parameters in URL and restore if present
+    function checkForTimeFilterInUrl(historyData) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const filterStart = urlParams.get('filterStart');
+      const filterEnd = urlParams.get('filterEnd');
+      
+      if (filterStart && filterEnd) {
+        try {
+          const startTime = new Date(filterStart);
+          const endTime = new Date(filterEnd);
+          
+          // Validate dates
+          if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
+            // Set the time filter
+            timeFilter = {
+              active: true,
+              startTime: startTime,
+              endTime: endTime
+            };
+            
+            // Create the selection window
+            const container = document.getElementById('message-histogram');
+            createSelectionWindow(container,
+              new Date(historyData[0].Timestamp),
+              new Date(historyData[historyData.length - 1].Timestamp)
+            );
+            
+            // Apply the filter to the map
+            applyTimeFilter(historyData);
+          }
+        } catch (e) {
+          console.error('Error restoring time filter from URL:', e);
+        }
+      }
     }
   </script>
 </body>
