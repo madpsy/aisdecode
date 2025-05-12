@@ -311,8 +311,12 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
     if len(counts) > 10 {
         counts = counts[:10]
     }
-    
-    func topClassesHandler(w http.ResponseWriter, r *http.Request) {
+
+    cacheSet(cacheKey, counts)
+    respondJSON(w, counts)
+}
+
+func topClassesHandler(w http.ResponseWriter, r *http.Request) {
         days := parseDaysParam(r)
         receiverID := parseReceiverIDParam(r)
         
