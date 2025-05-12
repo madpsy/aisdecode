@@ -14,6 +14,25 @@
     .row { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.6rem; font-size:0.9rem; }
     .row label { display: flex; flex-direction: column; flex:1 1 150px; }
     .row select, .row input { font-size:1rem; padding:0.3rem; }
+    
+    /* Multi-select styling */
+    select[multiple] {
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background-color: #fff;
+    }
+    select[multiple] option {
+      padding: 0.3rem 0.5rem;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    select[multiple] option:checked {
+      background-color: #e0f0ff;
+      color: #000;
+    }
+    select[multiple] option:hover {
+      background-color: #f0f8ff;
+    }
     .button-row button {
       background:none;border:1px solid #ccc;border-radius:4px;
       padding:0.4rem 0.8rem;font-size:1.2rem;cursor:pointer;
@@ -108,6 +127,7 @@
   <div class="row" id="type-selector" style="display:none;">
     <label>Message Type:
       <select id="message-type-select"></select>
+      <small style="color: #666; margin-top: 0.3rem;">Hold Ctrl/Cmd to select multiple types</small>
     </label>
   </div>
 
@@ -186,6 +206,17 @@
 
     function qsParam(name) {
       const v = new URLSearchParams(location.search).get(name);
+      // For MessageID, support comma-separated list of IDs
+      if (name === 'MessageID' && v) {
+        // Check if it's a comma-separated list
+        if (v.includes(',')) {
+          // Return the comma-separated string as is
+          return v;
+        }
+        // Single ID - validate it's a number
+        return /^\d+$/.test(v) ? v : null;
+      }
+      // For other parameters, keep the original behavior
       return v && /^\d+$/.test(v) ? v : null;
     }
     function setSearch(params) {
@@ -376,17 +407,29 @@
         typeMap = await (await fetch('/message_types.json', { cache:'no-store' })).json();
       } catch {}
 
+      // Parse msgID to handle comma-separated values
+      const selectedMsgIDs = msgID ? msgID.split(',') : [];
+      
+      // Convert typeSelect to a multi-select
+      typeSelect.multiple = true;
+      typeSelect.size = 4; // Show 4 options at once
+      
       available.forEach(t => {
         const o = document.createElement('option');
         o.value = t;
         o.textContent = `${typeMap[t]||'Msg '+t} (ID ${t})`;
-        if (String(t)===msgID) o.selected=true;
+        if (selectedMsgIDs.includes(String(t))) o.selected=true;
         typeSelect.append(o);
       });
+      
       if (available.length) {
         typeDiv.style.display='';
         typeSelect.onchange = () => {
-          setSearch(new URLSearchParams({UserID:userID,MessageID:typeSelect.value}));
+          // Get all selected values
+          const selectedValues = Array.from(typeSelect.selectedOptions).map(opt => opt.value);
+          // Join them with commas
+          const messageIDParam = selectedValues.join(',');
+          setSearch(new URLSearchParams({UserID:userID, MessageID:messageIDParam}));
         };
       }
       
@@ -418,9 +461,14 @@
         });
         
         receiverSelect.onchange = () => {
+          // Get all selected message type values
+          const selectedValues = Array.from(typeSelect.selectedOptions).map(opt => opt.value);
+          // Join them with commas
+          const messageIDParam = selectedValues.length > 0 ? selectedValues.join(',') : msgID;
+          
           const params = new URLSearchParams({
             UserID: userID,
-            MessageID: typeSelect.value || msgID
+            MessageID: messageIDParam
           });
           
           if (receiverSelect.value) {
@@ -433,6 +481,7 @@
 
       let allMsgs = [];
       try {
+        // Use msgID directly as it now supports comma-separated values
         allMsgs = await (await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, {cache:'no-store'})).json();
       } catch {
         errorEl.textContent = 'Failed to load messages.';
