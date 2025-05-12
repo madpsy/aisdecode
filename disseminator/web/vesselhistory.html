@@ -887,7 +887,7 @@
       const timestamp = new Date(pt.timestamp).toLocaleString();
       let html = `<strong>${timestamp}</strong><br/>`;
       html += `<strong>Latitude:</strong> ${pt.lat.toFixed(6)}<br/>`;
-      html += `<strong>Longitude:</strong> ${pt.lng.toFixed(6)}<br/>`;
+      html += `<strong>Longitude:</strong> ${pt.lng.toFixed(6)}`;
       
       // Add other interesting fields if available
       const fields = ['Sog', 'Cog', 'TrueHeading', 'NavigationalStatus', 'Destination'];
@@ -913,7 +913,7 @@
             value = `${value}°`;
           }
           
-          html += `<strong>${displayField}:</strong> ${value}<br/>`;
+          html += `<br/><strong>${displayField}:</strong> ${value}`;
         }
       });
       
@@ -1005,8 +1005,8 @@
                 const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
                 const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
                 
-                // Add receiver info to tooltip
-                html += `<br/><strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+                // Add receiver info to tooltip without extra gap
+                html += `<strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
                 
                 // Clear previous connection lines
                 connectionLayerGroup.clearLayers();
@@ -1999,6 +1999,9 @@
         return timestamp >= timeFilter.startTime && timestamp <= timeFilter.endTime;
       });
       
+      // Store the filtered data globally so it can be accessed by the connection line code
+      window.filteredHistoryData = filteredData;
+      
       // Update the map with filtered data but don't store as current data
       displayVesselTrackFiltered(filteredData);
     }
@@ -2099,8 +2102,8 @@
                 const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
                 const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
                 
-                // Add receiver info to tooltip
-                html += `<br/><strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
+                // Add receiver info to tooltip without extra gap
+                html += `<strong>Receiver:</strong> ${receiver.name} / ${distanceKm} km`;
               }
             }
           }
