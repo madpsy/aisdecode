@@ -1194,8 +1194,11 @@ func connectToIngester(host string, port int, debug bool) (net.Conn, error) {
 
 // Initialize Redis client
 func initRedisClient() {
+    addr := fmt.Sprintf("%s:%d", settings.RedisHost, settings.RedisPort)
+    log.Printf("Connecting to Redis at %s...", addr)
+    
     redisClient = redis.NewClient(&redis.Options{
-        Addr:     fmt.Sprintf("%s:%d", settings.RedisHost, settings.RedisPort),
+        Addr:     addr,
         Password: "", // no password set
         DB:       0,  // use default DB
     })
@@ -1203,9 +1206,10 @@ func initRedisClient() {
     // Test Redis connection
     _, err := redisClient.Ping(ctx).Result()
     if err != nil {
-        log.Printf("Warning: Could not connect to Redis: %v", err)
-        log.Println("Position and NavigationalStatus tracking will be less reliable across restarts")
-    } else if settings.Debug {
+        log.Printf("WARNING: Could not connect to Redis: %v", err)
+        log.Println("Position and NavigationalStatus tracking will use in-memory fallback")
+        log.Println("Data will be synced to Redis when connection is restored")
+    } else {
         log.Println("Connected to Redis successfully")
     }
 }
@@ -1217,12 +1221,16 @@ func monitorRedisConnection() {
     // Initial connection check
     if _, err := redisClient.Ping(ctx).Result(); err != nil {
         redisConnected = false
+        log.Printf("Redis connection check: Not connected")
     } else {
         redisConnected = true
+        log.Printf("Redis connection check: Connected")
     }
     
     ticker := time.NewTicker(30 * time.Second)
     defer ticker.Stop()
+    
+    log.Printf("Redis connection monitoring started (checking every 30 seconds)")
     
     for range ticker.C {
         // Check if Redis is connected
@@ -1230,11 +1238,11 @@ func monitorRedisConnection() {
         
         if err != nil && redisConnected {
             // Connection was lost
-            log.Printf("Lost connection to Redis: %v", err)
+            log.Printf("ALERT: Lost connection to Redis: %v", err)
             redisConnected = false
         } else if err == nil && !redisConnected {
             // Connection was restored
-            log.Println("Redis connection restored")
+            log.Println("SUCCESS: Redis connection restored")
             redisConnected = true
             
             // Check if we need to sync in-memory data to Redis
@@ -1253,7 +1261,7 @@ func monitorRedisConnection() {
             
             // Check if reconnection was successful
             if _, err := redisClient.Ping(ctx).Result(); err == nil {
-                log.Println("Successfully reconnected to Redis")
+                log.Println("SUCCESS: Successfully reconnected to Redis")
                 redisConnected = true
                 
                 // Check if we need to sync in-memory data to Redis
@@ -1265,16 +1273,19 @@ func monitorRedisConnection() {
                 if needsSync {
                     go syncInMemoryToRedis()
                 }
+            } else {
+                log.Printf("FAILED: Could not reconnect to Redis: %v", err)
             }
+        } else if settings.Debug && redisConnected {
+            // Still connected, log if in debug mode
+            log.Printf("Redis connection: Healthy")
         }
     }
 }
 
 // Sync in-memory position and NavigationalStatus data to Redis
 func syncInMemoryToRedis() {
-    if settings.Debug {
-        log.Println("Syncing in-memory data to Redis...")
-    }
+    log.Println("Syncing in-memory data to Redis...")
     
     // Sync positions
     lastPosMu.Lock()
@@ -1285,9 +1296,7 @@ func syncInMemoryToRedis() {
             posKey := fmt.Sprintf("%s%d:%d", positionKeyPrefix, shardID, userID)
             posJSON, _ := json.Marshal(pos)
             if err := redisClient.Set(ctx, posKey, posJSON, 0).Err(); err != nil {
-                if settings.Debug {
-                    log.Printf("Warning: Failed to sync position for user %d to Redis: %v", userID, err)
-                }
+                log.Printf("Warning: Failed to sync position for user %d to Redis: %v", userID, err)
             } else {
                 posCount++
             }
@@ -1303,9 +1312,7 @@ func syncInMemoryToRedis() {
         for _, shardID := range settings.Shards {
             navStatusKey := fmt.Sprintf("%s%d:%d", navStatusKeyPrefix, shardID, userID)
             if err := redisClient.Set(ctx, navStatusKey, fmt.Sprintf("%f", navStatus), 0).Err(); err != nil {
-                if settings.Debug {
-                    log.Printf("Warning: Failed to sync NavigationalStatus for user %d to Redis: %v", userID, err)
-                }
+                log.Printf("Warning: Failed to sync NavigationalStatus for user %d to Redis: %v", userID, err)
             } else {
                 navCount++
             }
@@ -1313,7 +1320,5 @@ func syncInMemoryToRedis() {
     }
     lastNavStatusMu.Unlock()
     
-    if settings.Debug {
-        log.Printf("Synced %d positions and %d NavigationalStatus values to Redis", posCount, navCount)
-    }
+    log.Printf("Synced %d positions and %d NavigationalStatus values to Redis", posCount, navCount)
 }
