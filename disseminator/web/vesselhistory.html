@@ -1491,8 +1491,8 @@
           
           statusTable.appendChild(row);
         });
-      } else if (firstPositionRecord) {
-        // If no changes but we have position data, show the current value
+      } else if (firstPositionRecord && firstPositionRecord.Packet.NavigationalStatus !== undefined) {
+        // If no changes but we have position data with NavigationalStatus, show the current value
         const row = document.createElement('tr');
         
         const timeCell = document.createElement('td');
@@ -1507,18 +1507,13 @@
         
         // Get NavigationalStatus directly from the position record
         const navStatus = firstPositionRecord.Packet.NavigationalStatus;
-        console.log('Position record:', firstPositionRecord);
-        console.log('NavigationalStatus:', navStatus);
-        console.log('Mapped value:', navStatusMapping[navStatus]);
         
         // Convert the status code to a readable string
         if (navStatus === 0) {
           // Special case for 0, which is "Using Engine"
           toCell.textContent = navStatusMapping[0] || "Using Engine";
-        } else if (navStatus !== undefined) {
-          toCell.textContent = navStatusMapping[navStatus] || `${navStatus}`;
         } else {
-          toCell.textContent = '(unknown)';
+          toCell.textContent = navStatusMapping[navStatus] || `${navStatus}`;
         }
         row.appendChild(toCell);
         
