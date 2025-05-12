@@ -1324,18 +1324,21 @@
       const endTime = new Date(positionMessages[positionMessages.length - 1].Timestamp);
       const totalDuration = endTime - startTime;
       
-      // Determine appropriate bin size based on total duration
-      let binSize, binLabel;
+      // Target number of bins based on duration
+      let targetBins, binLabel;
       if (totalDuration <= 3600000) { // 1 hour or less
-        binSize = 60000; // 1 minute bins
-        binLabel = 'minute';
+        targetBins = 60; // ~1 minute bins for 1 hour
+        binLabel = 'interval';
       } else if (totalDuration <= 86400000) { // 1 day or less
-        binSize = 3600000; // 1 hour bins
-        binLabel = 'hour';
+        targetBins = 96; // ~15 minute bins for 1 day
+        binLabel = 'interval';
       } else {
-        binSize = 86400000; // 1 day bins
-        binLabel = 'day';
+        targetBins = 100; // ~43 minute bins for 3 days
+        binLabel = 'interval';
       }
+      
+      // Calculate bin size based on target number of bins
+      const binSize = Math.max(60000, Math.ceil(totalDuration / targetBins)); // Minimum 1 minute
       
       // Create bins
       const bins = {};
@@ -1380,23 +1383,50 @@
         // Position and size
         bar.setAttribute("x", `${index * barWidth}%`);
         bar.setAttribute("y", `${80 - barHeight}%`);
-        bar.setAttribute("width", `${barWidth - 0.2}%`);
+        bar.setAttribute("width", `${barWidth - 0.1}%`);
         bar.setAttribute("height", `${barHeight}%`);
         
-        // Styling - greyscale based on count intensity
-        const intensity = Math.max(0, Math.min(0.8, bin.count / maxCount));
-        const greyValue = Math.floor(255 * (1 - intensity));
-        bar.setAttribute("fill", `rgb(${greyValue},${greyValue},${greyValue})`);
+        // Styling - green to red gradient based on count intensity
+        const ratio = bin.count / maxCount;
+        // Calculate hue: 120 (green) for low counts to 0 (red) for high counts
+        const hue = (1 - ratio) * 120;
+        bar.setAttribute("fill", `hsl(${hue}, 100%, 50%)`);
         
         // Tooltip
         const title = document.createElementNS(svgNS, "title");
-        const formattedStart = bin.startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        const formattedEnd = bin.endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        title.textContent = `${bin.count} messages between ${formattedStart} - ${formattedEnd}`;
+        const formattedStart = bin.startTime.toLocaleString([], {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        title.textContent = `${bin.count} messages at ${formattedStart}`;
         bar.appendChild(title);
         
         svg.appendChild(bar);
       });
+      
+      // Add legend
+      const legend = document.createElement('div');
+      legend.style.position = 'absolute';
+      legend.style.top = '5px';
+      legend.style.right = '10px';
+      legend.style.fontSize = '12px';
+      legend.style.background = 'rgba(255, 255, 255, 0.7)';
+      legend.style.padding = '3px 6px';
+      legend.style.borderRadius = '3px';
+      
+      // Create legend content with color gradient
+      legend.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 5px;">
+          <div style="font-weight: bold;">Message Count:</div>
+          <div style="width: 60px; height: 10px; background: linear-gradient(to right, hsl(120,100%,50%), hsl(60,100%,50%), hsl(0,100%,50%));"></div>
+          <div style="display: flex; justify-content: space-between; width: 60px;">
+            <span>Low</span>
+            <span>High</span>
+          </div>
+        </div>
+      `;
       
       // Add title
       const title = document.createElement('div');
@@ -1405,10 +1435,11 @@
       title.style.left = '10px';
       title.style.fontSize = '12px';
       title.style.fontWeight = 'bold';
-      title.textContent = `Position Messages per ${binLabel} (darker = more messages)`;
+      title.textContent = `Position Message Frequency (${numBins} intervals)`;
       
       histogramContainer.appendChild(svg);
       histogramContainer.appendChild(title);
+      histogramContainer.appendChild(legend);
     }
   </script>
 </body>
