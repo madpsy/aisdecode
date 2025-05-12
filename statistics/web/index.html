@@ -328,7 +328,12 @@
       ];
       
       // Helper function to create vessel history URL
-      function createVesselHistoryUrl(userId, timestamp = null, receiverId = null) {
+      function createVesselHistoryUrl(userId, timestamp = null, receiverId = null, aisClass = null) {
+        // Only create links for AIS class A or B
+        if (aisClass !== 'A' && aisClass !== 'B') {
+          return null;
+        }
+        
         // Base URL with UserID
         let url = `/vesselhistory.html?UserID=${userId}`;
         
@@ -461,7 +466,8 @@
 
         data.forEach(v => {
           const name = v.name || v.user_id;
-          const nameLink = `<a href="${createVesselHistoryUrl(v.user_id, null, receiverId)}" target="_blank">${name}</a>`;
+          const historyUrl = createVesselHistoryUrl(v.user_id, null, receiverId, v.ais_class);
+          const nameLink = historyUrl ? `<a href="${historyUrl}" target="_blank">${name}</a>` : name;
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
@@ -493,7 +499,8 @@
 
         data.forEach(v => {
           const name = v.name || v.user_id;
-          const nameLink = `<a href="${createVesselHistoryUrl(v.user_id, null, receiverId)}" target="_blank">${name}</a>`;
+          const historyUrl = createVesselHistoryUrl(v.user_id, null, receiverId, v.ais_class);
+          const nameLink = historyUrl ? `<a href="${historyUrl}" target="_blank">${name}</a>` : name;
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
@@ -589,7 +596,8 @@
 
         data.forEach(v => {
           const name = v.name || v.user_id;
-          const nameLink = `<a href="${createVesselHistoryUrl(v.user_id, v.timestamp, v.receiver_id)}" target="_blank">${name}</a>`;
+          const historyUrl = createVesselHistoryUrl(v.user_id, v.timestamp, v.receiver_id, v.ais_class);
+          const nameLink = historyUrl ? `<a href="${historyUrl}" target="_blank">${name}</a>` : name;
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
@@ -938,7 +946,20 @@
           
           // Add the link with text inside
           wordGroups.append('a')
-            .attr('xlink:href', d => createVesselHistoryUrl(d.userId))
+            .attr('xlink:href', d => {
+              // We don't have AIS class in the word cloud data, so we need to check if this vessel
+              // is in one of our other datasets where we know the class
+              const vesselInPositions = posChart.data.labels.includes(d.text);
+              const vesselInSog = sogChart.data.labels.includes(d.text);
+              const vesselInDistance = distanceChart.data.labels.includes(d.text);
+              
+              // If we can't confirm this is class A or B, don't create a link
+              if (!vesselInPositions && !vesselInSog && !vesselInDistance) {
+                return null;
+              }
+              
+              return createVesselHistoryUrl(d.userId, null, null, 'A'); // Assume class A for word cloud links that match
+            })
             .attr('target', '_blank')
             .append('text')
             .attr('class', 'word-cloud-text')
