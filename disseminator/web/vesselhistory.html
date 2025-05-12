@@ -795,8 +795,19 @@
         start.setDate(start.getDate() - 1); // 1 day ago
       }
       
-      document.getElementById('end').value = end.toISOString().slice(0, 16);
-      document.getElementById('start').value = start.toISOString().slice(0, 16);
+      // Format the date for the datetime-local input in local time
+      document.getElementById('end').value = formatDateForInput(end);
+      document.getElementById('start').value = formatDateForInput(start);
+      
+      // Helper function to format a date for datetime-local input
+      function formatDateForInput(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+      }
       
       // Set receiver dropdown if ReceiverID parameter exists
       if (receiverIdParam) {
@@ -1661,8 +1672,13 @@
           const url = new URL(window.location.href);
           
           // Update or add the start and end parameters
-          url.searchParams.set('start', new Date(startInput.value).toISOString());
-          url.searchParams.set('end', new Date(endInput.value).toISOString());
+          // Use the input values directly to preserve the exact selected time without timezone conversion
+          const startDate = new Date(startInput.value);
+          const endDate = new Date(endInput.value);
+          
+          // Format dates in a way that preserves the local time information
+          url.searchParams.set('start', startDate.toISOString());
+          url.searchParams.set('end', endDate.toISOString());
           
           // Add receiver ID to URL if selected
           const receiverSelect = document.getElementById('receiver-select');
