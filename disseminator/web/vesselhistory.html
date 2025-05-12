@@ -1719,6 +1719,21 @@
       // This ensures that if ReceiverIDs is empty, only the "All" option is shown
       loadVesselData();
       
+      // Add event listeners to date inputs to clear warning when user changes dates
+      document.getElementById('start').addEventListener('change', () => {
+        if (dateRangeAdjusted) {
+          dateRangeAdjusted = false;
+          document.getElementById('error').textContent = '';
+        }
+      });
+      
+      document.getElementById('end').addEventListener('change', () => {
+        if (dateRangeAdjusted) {
+          dateRangeAdjusted = false;
+          document.getElementById('error').textContent = '';
+        }
+      });
+      
       // Automatically load history data with default 1-day range
       setTimeout(async () => {
         // Check if we need to adjust the date range based on last seen time
@@ -1866,6 +1881,10 @@
       });
       
       document.getElementById('apply-btn').addEventListener('click', async () => {
+        // Clear the date range adjusted flag and warning message when user manually searches
+        dateRangeAdjusted = false;
+        document.getElementById('error').textContent = '';
+        
         // Update URL with current date range
         const startInput = document.getElementById('start');
         const endInput = document.getElementById('end');
