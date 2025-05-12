@@ -933,14 +933,21 @@
             let value = pt.data[field];
             let displayField = field;
             
-            // Rename fields for display
+            // Rename fields for display and format values
             if (field === 'TrueHeading') {
               displayField = 'Heading';
+              value = `${value}°`;
             } else if (field === 'NavigationalStatus') {
               displayField = 'Status';
               if (navStatusMapping[value]) {
                 value = navStatusMapping[value];
               }
+            } else if (field === 'Sog') {
+              displayField = 'Speed';
+              value = `${value} kn`;
+            } else if (field === 'Cog') {
+              displayField = 'Course';
+              value = `${value}°`;
             }
             
             html += `<strong>${displayField}:</strong> ${value}<br/>`;
