@@ -366,6 +366,7 @@
           max-height: 90%;
           overflow-y: auto;
           box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+          z-index: 2000; /* Ensure content is properly stacked */
         }
         
         .packet-json {
@@ -1686,7 +1687,7 @@
         const keyCell = document.createElement('td');
         keyCell.textContent = key;
         const valueCell = document.createElement('td');
-        valueCell.textContent = value;
+        valueCell.textContent = escapeHtml(value);
         row.appendChild(keyCell);
         row.appendChild(valueCell);
         tbody.appendChild(row);
