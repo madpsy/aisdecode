@@ -3100,18 +3100,28 @@
         // Add to body instead of map container
         document.body.appendChild(detailsOverlay);
         
-        // Position the overlay in the bottom right of the map
-        const mapContainer = document.getElementById('map-container');
-        const mapRect = mapContainer.getBoundingClientRect();
+        // Function to update the overlay position
+        function updateOverlayPosition() {
+          const mapContainer = document.getElementById('map-container');
+          const mapRect = mapContainer.getBoundingClientRect();
+          
+          // Set position
+          detailsOverlay.style.left = 'auto';
+          detailsOverlay.style.top = 'auto';
+          detailsOverlay.style.right = (window.innerWidth - mapRect.right + 10) + 'px';
+          detailsOverlay.style.bottom = (window.innerHeight - mapRect.bottom + 10) + 'px';
+        }
         
-        // Set position
-        detailsOverlay.style.left = 'auto';
-        detailsOverlay.style.top = 'auto';
-        detailsOverlay.style.right = (window.innerWidth - mapRect.right + 10) + 'px';
-        detailsOverlay.style.bottom = (window.innerHeight - mapRect.bottom + 10) + 'px';
+        // Initial positioning
+        updateOverlayPosition();
         
         // Store reference to the overlay
         replayTooltip = detailsOverlay;
+        
+        // Add event listeners to update position when map moves or window resizes
+        map.on('move', updateOverlayPosition);
+        map.on('zoom', updateOverlayPosition);
+        window.addEventListener('resize', updateOverlayPosition);
         
         // Add click handler to map to toggle overlay visibility
         map.on('click', toggleTooltipVisibility);
@@ -3391,6 +3401,11 @@
         }
         replayTooltip = null;
         tooltipVisible = true; // Reset overlay visibility state
+        
+        // Remove event listeners
+        map.off('move', updateOverlayPosition);
+        map.off('zoom', updateOverlayPosition);
+        window.removeEventListener('resize', updateOverlayPosition);
         
         // Remove map click handler
         map.off('click', toggleTooltipVisibility);
