@@ -644,183 +644,59 @@
     <!-- Leaflet JS (from CDN, without integrity) -->
     <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js" crossorigin=""></script>
     <script>
-  // Clear vessel data from localStorage immediately
-  localStorage.removeItem('vesselData');
+	 // Clear vessel data from localStorage immediately
+	 localStorage.removeItem('vesselData');
         // Detect if the device is touch capable.
         const isMobile = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
- const TOOLTIP_ZOOM_THRESHOLD = 12;
+	const TOOLTIP_ZOOM_THRESHOLD = 12;
 
- let currentLoadedImageUrl = '';
+	let currentLoadedImageUrl = '';
 
- const vesselSolidTracks = {};
- const vesselColoredTracks = {};
- // Store the vessel-to-receiver polyline
- let receiverPolyline = null;
- let receiverDistanceLabel = null;
- let lastReceiverUpdateTime = 0;
- const RECEIVER_UPDATE_THROTTLE = 250; // ms - reduced from 500ms to be more responsive
- let receiverUpdateInterval = null; // For periodic updates
+	const vesselSolidTracks = {};
+	const vesselColoredTracks = {};
+	// Store the vessel-to-receiver polyline
+	let receiverPolyline = null;
+	let receiverDistanceLabel = null;
+	let lastReceiverUpdateTime = 0;
+	const RECEIVER_UPDATE_THROTTLE = 250; // ms - reduced from 500ms to be more responsive
+	let receiverUpdateInterval = null; // For periodic updates
 
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
- let userLatLng = null;
+	let userLatLng = null;
 
- let messageTypeNames = {};
-        
+	let messageTypeNames = {};
+
+	fetch('/message_types.json')
+	  .then(res => {
+	    if (!res.ok) throw new Error(`Failed to load message types: ${res.status}`);
+	    return res.json();
+	  })
+	  .then(json => {
+	    messageTypeNames = json;
+	  })
+	  .catch(err => console.error(err));
+
+	let mids = {};
+	fetch('mids.json')
+	  .then(response => {
+	    if (!response.ok) {
+	      throw new Error(`Network error: ${response.status}`);
+	    }
+	    return response.json();
+	  })
+	  .then(data => {
+	    mids = data;
+	  })
+	  .catch(error => {
+	    console.error('Error loading mids.json:', error);
+	  });
+
         // Global variable to store the currently focused vessel (if any).
         let focusedVessel = null;
 
- const receiverData = {};    // Stores receiver info keyed by receiver ID.
-        
-        // Declare variables to hold data loaded from JSON files
-        let staticTypeMapping = {};
-        let staticAtoNTypeMapping = {};
-        let vesselTypeGroups = {};
-        let vesselGroupColors = {};
-        
-        // Flag to track when all data is loaded
-        let dataLoaded = {
-          types: false,
-          atonTypes: false,
-          vesselGroups: false,
-          vesselColors: false,
-          messageTypes: false,
-          mids: false
-        };
-        
-        // Store the types data for use across multiple fetch handlers
-        let typesData = null;
-        
-        // Function to check if all data is loaded
-        function checkAllDataLoaded() {
-          const allLoaded = Object.values(dataLoaded).every(loaded => loaded);
-          if (allLoaded) {
-            console.log("All data loaded, initializing application");
-            initializeApplication();
-          }
-        }
-        
-        // Load message types
-        fetch('/message_types.json')
-          .then(res => {
-            if (!res.ok) throw new Error(`Failed to load message types: ${res.status}`);
-            return res.json();
-          })
-          .then(json => {
-            messageTypeNames = json;
-            dataLoaded.messageTypes = true;
-            checkAllDataLoaded();
-          })
-          .catch(err => console.error(err));
-
-        // Load MIDs
-        fetch('mids.json')
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`Network error: ${response.status}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            mids = data;
-            dataLoaded.mids = true;
-            checkAllDataLoaded();
-          })
-          .catch(error => {
-            console.error('Error loading mids.json:', error);
-          });
-        
-        // Load vessel type mappings from types.json
-        fetch('/types.json')
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`Failed to load types.json: ${response.status}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            // Store the types data for use in other fetch handlers
-            typesData = data;
-            
-            // Create staticTypeMapping from the categories
-            data.categories.forEach(category => {
-              category.values.forEach(value => {
-                staticTypeMapping[value] = category.name;
-              });
-            });
-            
-            // Create vesselTypeGroups from the categories
-            data.categories.forEach(category => {
-              if (category.name !== "Not available" && category.name !== "Reserved") {
-                vesselTypeGroups[category.name] = category.values;
-              }
-            });
-            
-            dataLoaded.types = true;
-            dataLoaded.vesselGroups = true;
-            checkAllDataLoaded();
-          })
-          .catch(error => {
-            console.error('Error loading types.json:', error);
-          });
-        
-        // Load AtoN type mappings
-        fetch('/aton_types.json')
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`Failed to load aton_types.json: ${response.status}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            staticAtoNTypeMapping = data;
-            dataLoaded.atonTypes = true;
-            checkAllDataLoaded();
-          })
-          .catch(error => {
-            console.error('Error loading aton_types.json:', error);
-          });
-        
-        // Load vessel group colors
-        fetch('/vesselGroupColors.json')
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`Failed to load vesselGroupColors.json: ${response.status}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            // Store the ID-based colors
-            const colorsByID = data;
-            vesselGroupColors = {};
-            
-            // We need to wait for types.json to be loaded to map IDs to names
-            const checkTypesAndMapColors = () => {
-              if (typesData) {
-                // Map from category IDs to category names
-                typesData.categories.forEach(category => {
-                  if (colorsByID[category.id]) {
-                    vesselGroupColors[category.name] = colorsByID[category.id];
-                  }
-                });
-                dataLoaded.vesselColors = true;
-                checkAllDataLoaded();
-              } else {
-                // If types.json isn't loaded yet, wait and try again
-                setTimeout(checkTypesAndMapColors, 100);
-              }
-            };
-            
-            // Start checking if types are loaded
-            checkTypesAndMapColors();
-          })
-          .catch(error => {
-            console.error('Error loading vesselGroupColors.json:', error);
-          });
-          
-        // Function to initialize the application after all data is loaded
-        function initializeApplication() {
+	const receiverData = {};    // Stores receiver info keyed by receiver ID.
 
 	// Create the base layers
 	const googleSat = L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
@@ -994,93 +870,192 @@ function sendSummaryRequest() {
           15: "Unknown"
         };
 
-        // Declare variables to hold data loaded from JSON files
-        let staticTypeMapping = {};
-        let staticAtoNTypeMapping = {};
-        let vesselTypeGroups = {};
-        let vesselGroupColors = {};
-        
-        // Flag to track when all data is loaded
-        let dataLoaded = {
-          types: false,
-          atonTypes: false,
-          vesselGroups: false,
-          vesselColors: false
+        const staticTypeMapping = {
+          0: "Not available",
+          1: "Reserved",
+          2: "Reserved",
+          3: "Reserved",
+          4: "Reserved",
+          5: "Reserved",
+          6: "Reserved",
+          7: "Reserved",
+          8: "Reserved",
+          9: "Reserved",
+          10: "Reserved",
+          11: "Reserved",
+          12: "Reserved",
+          13: "Reserved",
+          14: "Reserved",
+          15: "Reserved",
+          16: "Reserved",
+          17: "Reserved",
+          18: "Reserved",
+          19: "Reserved",
+          20: "Wing in ground (WIG)",
+          21: "Wing in ground (WIG)",
+          22: "Wing in ground (WIG)",
+          23: "Wing in ground (WIG)",
+          24: "Wing in ground (WIG)",
+          25: "Wing in ground (WIG)",
+          26: "Wing in ground (WIG)",
+          27: "Wing in ground (WIG)",
+          28: "Wing in ground (WIG)",
+          29: "Wing in ground (WIG)",
+          30: "Fishing",
+          31: "Towing",
+          32: "Towing: length>200m, breadth>25m",
+          33: "Dredging or underwater ops",
+          34: "Diving ops",
+          35: "Military ops",
+          36: "Sailing",
+          37: "Pleasure Craft",
+          38: "Reserved",
+          39: "Reserved",
+          40: "High speed craft (HSC)",
+          41: "High speed craft (HSC)",
+          42: "High speed craft (HSC)",
+          43: "High speed craft (HSC)",
+          44: "High speed craft (HSC)",
+          45: "High speed craft (HSC)",
+          46: "High speed craft (HSC)",
+          47: "High speed craft (HSC)",
+          48: "High speed craft (HSC)",
+          49: "High speed craft (HSC)",
+          50: "Pilot Vessel",
+          51: "Search and Rescue",
+          52: "Tug",
+          53: "Port Tender",
+          54: "Anti-pollution equipment",
+          55: "Law Enforcement",
+          56: "Spare - Local Vessel",
+          57: "Spare - Local Vessel",
+          58: "Medical Transport",
+          59: "Noncombatant ship",
+          60: "Passenger",
+          61: "Passenger",
+          62: "Passenger",
+          63: "Passenger",
+          64: "Passenger",
+          65: "Passenger",
+          66: "Passenger",
+          67: "Passenger",
+          68: "Passenger",
+          69: "Passenger",
+          70: "Cargo",
+          71: "Cargo",
+          72: "Cargo",
+          73: "Cargo",
+          74: "Cargo",
+          75: "Cargo",
+          76: "Cargo",
+          77: "Cargo",
+          78: "Cargo",
+          79: "Cargo",
+          80: "Tanker",
+          81: "Tanker",
+          82: "Tanker",
+          83: "Tanker",
+          84: "Tanker",
+          85: "Tanker",
+          86: "Tanker",
+          87: "Tanker",
+          88: "Tanker",
+          89: "Tanker",
+          90: "Other Type",
+          91: "Other Type",
+          92: "Other Type",
+          93: "Other Type",
+          94: "Other Type",
+          95: "Other Type",
+          96: "Other Type",
+          97: "Other Type",
+          98: "Other Type",
+          99: "Other Type"
         };
-        
-        // Function to check if all data is loaded
-        function checkAllDataLoaded() {
-          if (dataLoaded.types && dataLoaded.atonTypes &&
-              dataLoaded.vesselGroups && dataLoaded.vesselColors) {
-            console.log("All vessel type data loaded");
-            initializeApplication();
-          }
-        }
-        
-        // Load vessel type mappings from types.json
-        fetch('/types.json')
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`Failed to load types.json: ${response.status}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            // Create staticTypeMapping from the categories
-            data.categories.forEach(category => {
-              category.values.forEach(value => {
-                staticTypeMapping[value] = category.name;
-              });
-            });
-            
-            // Create vesselTypeGroups from the categories
-            data.categories.forEach(category => {
-              if (category.name !== "Not available" && category.name !== "Reserved") {
-                vesselTypeGroups[category.name] = category.values;
-              }
-            });
-            
-            dataLoaded.types = true;
-            dataLoaded.vesselGroups = true;
-            checkAllDataLoaded();
-          })
-          .catch(error => {
-            console.error('Error loading types.json:', error);
-          });
-        
-        // Load AtoN type mappings
-        fetch('/aton_types.json')
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`Failed to load aton_types.json: ${response.status}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            staticAtoNTypeMapping = data;
-            dataLoaded.atonTypes = true;
-            checkAllDataLoaded();
-          })
-          .catch(error => {
-            console.error('Error loading aton_types.json:', error);
-          });
-        
-        // Load vessel group colors
-        fetch('/vesselGroupColors.json')
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`Failed to load vesselGroupColors.json: ${response.status}`);
-            }
-            return response.json();
-          })
-          .then(data => {
-            vesselGroupColors = data;
-            dataLoaded.vesselColors = true;
-            checkAllDataLoaded();
-          })
-          .catch(error => {
-            console.error('Error loading vesselGroupColors.json:', error);
-          });
+
+	const staticAtoNTypeMapping = {
+	  0:  "Default, Type of AtoN not specified",
+	  1:  "Reference point",
+	  2:  "RACON",
+	  3:  "Fixed structures off-shore",
+	  4:  "Emergency Wreck Marking Buoy",
+	  5:  "Light, without sectors",
+	  6:  "Light, with sectors",
+	  7:  "Leading Light Front",
+	  8:  "Leading Light Rear",
+	  9:  "Beacon, Cardinal N",
+	  10: "Beacon, Cardinal E",
+	  11: "Beacon, Cardinal S",
+	  12: "Beacon, Cardinal W",
+	  13: "Beacon, Port hand",
+	  14: "Beacon, Starboard hand",
+	  15: "Beacon, Preferred Channel port hand",
+	  16: "Beacon, Preferred Channel starboard hand",
+	  17: "Beacon, Isolated danger",
+	  18: "Beacon, Safe water",
+	  19: "Beacon, Special mark",
+	  20: "Cardinal Mark N",
+	  21: "Cardinal Mark E",
+	  22: "Cardinal Mark S",
+	  23: "Cardinal Mark W",
+	  24: "Port hand Mark",
+	  25: "Starboard hand Mark",
+	  26: "Preferred Channel Port hand",
+	  27: "Preferred Channel Starboard hand",
+	  28: "Isolated danger",
+	  29: "Safe Water",
+	  30: "Special Mark",
+	  31: "Light Vessel/LANBY/Rigs"
+	};
+
+
+// Define vessel type groups for better color differentiation
+const vesselTypeGroups = {
+  "Wing in ground": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+  "Fishing": [30],
+  "Towing": [31, 32],
+  "Dredging": [33],
+  "Diving": [34],
+  "Military": [35],
+  "Sailing": [36],
+  "Pleasure": [37],
+  "High speed craft": [40, 41, 42, 43, 44, 45, 46, 47, 48, 49],
+  "Pilot": [50],
+  "Search and Rescue": [51],
+  "Tug": [52],
+  "Port Tender": [53],
+  "Anti-pollution": [54],
+  "Law Enforcement": [55],
+  "Medical": [58],
+  "Passenger": [60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
+  "Cargo": [70, 71, 72, 73, 74, 75, 76, 77, 78, 79],
+  "Tanker": [80, 81, 82, 83, 84, 85, 86, 87, 88, 89],
+  "Other": [90, 91, 92, 93, 94, 95, 96, 97, 98, 99]
+};
+
+// Map each group to a distinct color with maximum contrast
+const vesselGroupColors = {
+  "Wing in ground": "#FF4500", // Orange Red
+  "Fishing": "#006400",        // Dark Green
+  "Towing": "#8B4513",         // Saddle Brown
+  "Dredging": "#00FFFF",       // Cyan
+  "Diving": "#000080",         // Navy Blue
+  "Military": "#8A2BE2",       // Blue Violet
+  "Sailing": "#0082C8",        // Vibrant Blue
+  "Pleasure": "#FF1493",       // Deep Pink
+  "High speed craft": "#E6194B", // Vibrant Red
+  "Pilot": "#FFD700",          // Gold
+  "Search and Rescue": "#00BFFF", // Deep Sky Blue
+  "Tug": "#00FF00",            // Lime
+  "Port Tender": "#FF8C00",    // Dark Orange
+  "Anti-pollution": "#9ACD32", // Yellow Green
+  "Law Enforcement": "#FF6347", // Tomato
+  "Medical": "#DC143C",        // Crimson
+  "Passenger": "#FFFF00",      // Yellow
+  "Cargo": "#800000",          // Maroon
+  "Tanker": "#4682B4",         // Steel Blue
+  "Other": "#20B2AA"           // Light Sea Green
+};
 
 // Fallback color palette for any types not in the groups
 const vesselColorPalette = [
@@ -4256,7 +4231,6 @@ map.on("moveend", debouncedSendSummaryRequest);
           return '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
         }
 
-      } // Close initializeApplication function
 
 
     </script>
