@@ -1049,6 +1049,37 @@
         .leaflet-grid-layer, .leaflet-pane path.leaflet-grid-line {
           display: none !important;
         }
+        /* Fix marker styling */
+        .leaflet-marker-icon {
+          border: none !important;
+          background: none !important;
+          box-shadow: none !important;
+          filter: none !important;
+        }
+        .leaflet-marker-shadow {
+          display: none !important;
+        }
+        /* Fix marker pane */
+        .leaflet-marker-pane {
+          filter: none !important;
+          transform: none !important;
+        }
+        /* Fix shadow pane */
+        .leaflet-shadow-pane {
+          display: none !important;
+        }
+        /* Fix overlay pane */
+        .leaflet-overlay-pane {
+          filter: none !important;
+        }
+        /* Fix popup pane */
+        .leaflet-popup-pane {
+          filter: none !important;
+        }
+        /* Fix tooltip pane */
+        .leaflet-tooltip-pane {
+          filter: none !important;
+        }
       `;
       document.head.appendChild(customStyle);
       
@@ -1070,8 +1101,15 @@
           updateWhenIdle: true
         }).addTo(window.locationMap);
         
-        // Create the most basic marker possible without tooltip
-        L.marker([lat, lon]).addTo(window.locationMap);
+        // Use a circle marker instead of the default marker to avoid grid issues
+        L.circleMarker([lat, lon], {
+          radius: 8,
+          fillColor: "#ff0000",
+          color: "#000",
+          weight: 1,
+          opacity: 1,
+          fillOpacity: 0.8
+        }).addTo(window.locationMap);
         
         // Force a map resize to ensure it renders properly
         window.locationMap.invalidateSize();
