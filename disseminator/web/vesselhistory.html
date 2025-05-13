@@ -3071,6 +3071,9 @@
         detailsOverlay.className = 'vessel-replay-info-box';
         detailsOverlay.innerHTML = tooltipContent;
         
+        // Make sure it's visible by default
+        detailsOverlay.style.display = 'table';
+        
         // Add to body instead of map container
         document.body.appendChild(detailsOverlay);
         
