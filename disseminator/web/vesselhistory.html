@@ -336,6 +336,7 @@
           align-items: center;
           cursor: pointer;
           box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+          z-index: 2001; /* Ensure it's above the overlay */
         }
         
         /* Packet details overlay styles */
@@ -455,7 +456,6 @@
       <h4>Packet Details</h4>
       <div id="packet-json" class="packet-json"></div>
       <div>
-        <h5>Raw Sentence</h5>
         <pre id="raw-sentence" class="raw-sentence"></pre>
       </div>
       <div id="receiver-info" class="receiver-info"></div>
@@ -1706,7 +1706,7 @@
       if (record.ReceiverID && receiversData.length > 0) {
         const receiver = receiversData.find(r => r.id === record.ReceiverID);
         if (receiver) {
-          receiverInfo.innerHTML = `<strong>Receiver:</strong> ${receiver.name} (ID: ${receiver.id})`;
+          receiverInfo.innerHTML = `<strong>Receiver:</strong> ${receiver.name}`;
         } else {
           receiverInfo.innerHTML = `<strong>Receiver ID:</strong> ${record.ReceiverID} (Name not found)`;
         }
