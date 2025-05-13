@@ -111,23 +111,34 @@
       display: flex;
       align-items: flex-start;
       margin-bottom: 2rem;
-      flex-wrap: wrap; /* Allow wrapping on smaller screens */
     }
     
-    /* First make right table move below left table */
+    .vessel-info {
+      flex-grow: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    
+    /* Make right table move below left table first */
     @media (max-width: 992px) {
       .info-column {
         min-width: 100%; /* Make info columns take full width */
       }
     }
     
-    /* Then make vessel image container move below tables on even smaller screens */
+    /* Only on very small screens, make everything stack */
     @media (max-width: 576px) {
+      .vessel-header {
+        flex-wrap: wrap; /* Allow wrapping on very small screens */
+      }
+      
       .vessel-header > div:last-child {
         width: 100%;
         margin-top: 1rem;
-        text-align: left; /* Left align with table above */
+        text-align: left;
       }
+      
       .vessel-image {
         margin-left: 0;
       }
