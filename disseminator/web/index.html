@@ -859,29 +859,6 @@ function sendSummaryRequest() {
     filterParams.minSpeed = 1;
   }
   
-  // Direct mapping from vessel type groups to server group IDs
-  const typeGroupMapping = {
-    "Wing in ground": 2,
-    "Fishing": 3,
-    "Towing": 4,
-    "Dredging": 6,
-    "Diving": 7,
-    "Military": 8,
-    "Sailing": 9,
-    "Pleasure": 10,
-    "High speed craft": 11,
-    "Pilot": 12,
-    "Search and Rescue": 13,
-    "Tug": 14,
-    "Port Tender": 15,
-    "Anti-pollution": 16,
-    "Law Enforcement": 17,
-    "Medical": 19,
-    "Passenger": 21,
-    "Cargo": 22,
-    "Tanker": 23,
-    "Other": 24
-  };
   
   // Get all checked groups
   const checkedGroups = [];
@@ -1063,6 +1040,30 @@ function sendSummaryRequest() {
 	  31: "Light Vessel/LANBY/Rigs"
 	};
 
+
+// Direct mapping from vessel type groups to server group IDs
+const typeGroupMapping = {
+  "Wing in ground": 2,
+  "Fishing": 3,
+  "Towing": 4,
+  "Dredging": 6,
+  "Diving": 7,
+  "Military": 8,
+  "Sailing": 9,
+  "Pleasure": 10,
+  "High speed craft": 11,
+  "Pilot": 12,
+  "Search and Rescue": 13,
+  "Tug": 14,
+  "Port Tender": 15,
+  "Anti-pollution": 16,
+  "Law Enforcement": 17,
+  "Medical": 19,
+  "Passenger": 21,
+  "Cargo": 22,
+  "Tanker": 23,
+  "Other": 24
+};
 
 // Define vessel type groups for better color differentiation
 const vesselTypeGroups = {
