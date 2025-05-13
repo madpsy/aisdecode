@@ -2885,25 +2885,14 @@
         createSelectionWindow(container, startTime, endTime);
       }
       
-      // Add click handler to create a new selection
-      container.addEventListener('mousedown', function(e) {
-        // Ignore if clicking on a handle
-        if (e.target.classList.contains('selection-handle')) {
-          return;
-        }
-        
-        // Double click to remove selection
-        if (e.detail === 2) {
-          removeSelectionWindow();
-          return;
-        }
-        
+      // Function to handle selection creation (shared between mouse and touch)
+      function createSelection(clientX) {
         // Remove any existing selection window first to ensure only one at a time
         removeSelectionWindow();
         
         // Calculate position as percentage
         const rect = container.getBoundingClientRect();
-        const x = e.clientX - rect.left;
+        const x = clientX - rect.left;
         const percentage = (x / rect.width) * 100;
         
         // Calculate time at click position
@@ -2930,6 +2919,34 @@
         
         // Update URL with filter window parameters
         updateUrlWithTimeFilter();
+      }
+      
+      // Add mouse click handler to create a new selection
+      container.addEventListener('mousedown', function(e) {
+        // Ignore if clicking on a handle
+        if (e.target.classList.contains('selection-handle')) {
+          return;
+        }
+        
+        // Double click to remove selection
+        if (e.detail === 2) {
+          removeSelectionWindow();
+          return;
+        }
+        
+        createSelection(e.clientX);
+      });
+      
+      // Add touch handler to create a new selection
+      container.addEventListener('touchstart', function(e) {
+        // Ignore if touching a handle
+        if (e.target.classList.contains('selection-handle')) {
+          return;
+        }
+        
+        // Use the first touch point
+        const touch = e.touches[0];
+        createSelection(touch.clientX);
       });
     }
     
@@ -3006,12 +3023,26 @@
       let isDragging = false;
       let currentHandle = null;
       
-      // Function to handle mouse move during drag
+      // Function to handle mouse/touch move during drag
       function handleDrag(e) {
         if (!isDragging || !currentHandle) return;
         
+        // Prevent default behavior for touch events to avoid scrolling
+        if (e.type === 'touchmove') {
+          e.preventDefault();
+        }
+        
         const rect = container.getBoundingClientRect();
-        const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+        
+        // Get x position from either mouse or touch event
+        let clientX;
+        if (e.type === 'touchmove') {
+          clientX = e.touches[0].clientX;
+        } else {
+          clientX = e.clientX;
+        }
+        
+        const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
         const percentage = (x / rect.width) * 100;
         
         // Calculate time at drag position
@@ -3051,6 +3082,9 @@
           isDragging = false;
           document.removeEventListener('mousemove', handleDrag);
           document.removeEventListener('mouseup', endDrag);
+          document.removeEventListener('touchmove', handleDrag);
+          document.removeEventListener('touchend', endDrag);
+          document.removeEventListener('touchcancel', endDrag);
           
           // Apply the filter to the map
           const historyData = window.originalHistoryData || window.currentHistoryData;
@@ -3063,7 +3097,7 @@
         }
       }
       
-      // Set up left handle drag
+      // Set up left handle mouse drag
       leftHandle.addEventListener('mousedown', function(e) {
         e.stopPropagation();
         isDragging = true;
@@ -3072,13 +3106,33 @@
         document.addEventListener('mouseup', endDrag);
       });
       
-      // Set up right handle drag
+      // Set up left handle touch drag
+      leftHandle.addEventListener('touchstart', function(e) {
+        e.stopPropagation();
+        isDragging = true;
+        currentHandle = leftHandle;
+        document.addEventListener('touchmove', handleDrag, { passive: false });
+        document.addEventListener('touchend', endDrag);
+        document.addEventListener('touchcancel', endDrag);
+      });
+      
+      // Set up right handle mouse drag
       rightHandle.addEventListener('mousedown', function(e) {
         e.stopPropagation();
         isDragging = true;
         currentHandle = rightHandle;
         document.addEventListener('mousemove', handleDrag);
         document.addEventListener('mouseup', endDrag);
+      });
+      
+      // Set up right handle touch drag
+      rightHandle.addEventListener('touchstart', function(e) {
+        e.stopPropagation();
+        isDragging = true;
+        currentHandle = rightHandle;
+        document.addEventListener('touchmove', handleDrag, { passive: false });
+        document.addEventListener('touchend', endDrag);
+        document.addEventListener('touchcancel', endDrag);
       });
     }
     
