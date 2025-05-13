@@ -37,6 +37,7 @@ type filterKey struct {
     MinSpeed   float64 `json:"minSpeed"`
     UserID     int64   `json:"userID"`
     Types      string  `json:"types"`
+    TypeGroups string  `json:"typeGroups"`
 }
 
 type FilterParams struct {
@@ -50,6 +51,7 @@ type FilterParams struct {
     UserID	int64
     LastUpdated time.Time
     Types       string
+    TypeGroups  string
 }
 
 type Settings struct {
@@ -87,6 +89,35 @@ var (
   redisClient *redis.Client
   redisCtx    = context.Background()
 )
+
+// typeGroupsMap maps group IDs to their corresponding vessel type values
+var typeGroupsMap = map[int][]int{
+    0:  {0},
+    1:  {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 38, 39},
+    2:  {20, 21, 22, 23, 24, 25, 26, 27, 28, 29},
+    3:  {30},
+    4:  {31},
+    5:  {32},
+    6:  {33},
+    7:  {34},
+    8:  {35},
+    9:  {36},
+    10: {37},
+    11: {40, 41, 42, 43, 44, 45, 46, 47, 48, 49},
+    12: {50},
+    13: {51},
+    14: {52},
+    15: {53},
+    16: {54},
+    17: {55},
+    18: {56, 57},
+    19: {58},
+    20: {59},
+    21: {60, 61, 62, 63, 64, 65, 66, 67, 68, 69},
+    22: {70, 71, 72, 73, 74, 75, 76, 77, 78, 79},
+    23: {80, 81, 82, 83, 84, 85, 86, 87, 88, 89},
+    24: {90, 91, 92, 93, 94, 95, 96, 97, 98, 99},
+}
 
 var clientConnections map[string]*ClientConnection
 var clientConnectionsMu sync.RWMutex
@@ -160,11 +191,49 @@ func keyForFilter(p FilterParams) string {
         MinSpeed:   p.MinSpeed,
         UserID:     p.UserID,
         Types:      p.Types,
+        TypeGroups: p.TypeGroups,
     }
     raw, _ := json.Marshal(k)
     h := fnv.New64a()
     h.Write(raw)
     return fmt.Sprintf("summary:%x", h.Sum64())
+}
+
+// getTypesFromGroups converts a comma-separated list of group IDs to a list of individual type values
+// Invalid group IDs are logged and ignored
+func getTypesFromGroups(groupsStr string) []int {
+    if groupsStr == "" {
+        return nil
+    }
+    
+    groupsList := strings.Split(groupsStr, ",")
+    var allTypes []int
+    var invalidGroups []string
+    
+    for _, g := range groupsList {
+        g = strings.TrimSpace(g)
+        if g == "" {
+            continue
+        }
+        
+        groupID, err := strconv.Atoi(g)
+        if err != nil {
+            invalidGroups = append(invalidGroups, g)
+            continue
+        }
+        
+        if types, exists := typeGroupsMap[groupID]; exists {
+            allTypes = append(allTypes, types...)
+        } else {
+            invalidGroups = append(invalidGroups, g)
+        }
+    }
+    
+    if len(invalidGroups) > 0 {
+        log.Printf("Warning: Ignoring invalid type groups: %s", strings.Join(invalidGroups, ", "))
+    }
+    
+    return allTypes
 }
 
 func getSummaryJSON(p FilterParams, ttl int) ([]byte, error) {
@@ -178,7 +247,7 @@ func getSummaryJSON(p FilterParams, ttl int) ([]byte, error) {
     // 2) Cache miss → compute the summary as Go map
     summary, err := getSummaryResults(
         p.Latitude, p.Longitude, p.Radius,
-        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types,
+        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types, p.TypeGroups,
     )
     if err != nil {
         return nil, err
@@ -228,7 +297,7 @@ func getSummaryWithRedisCache(p FilterParams, ttl int) (map[string]interface{}, 
     // Miss → compute
     summary, err := getSummaryResults(
         p.Latitude, p.Longitude, p.Radius,
-        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types,
+        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types, p.TypeGroups,
     )
     if err != nil {
         return nil, err
@@ -488,7 +557,7 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
     return results, nil
 }
 
-func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64, types string) (map[string]interface{}, error) {
+func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64, types string, typeGroups string) (map[string]interface{}, error) {
    query := `
        SELECT user_id
             , packet
@@ -558,30 +627,43 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
         }
     }
 
+    // Process individual types and type groups
+    // When both filters are provided, they are combined with OR logic
+    // (a vessel will match if it has any of the types specified in either filter)
+    var typeConditions []string
+    
     // Filter by Type if specified
     if types != "" {
         typesList := strings.Split(types, ",")
-        if len(typesList) > 0 {
-            typeConditions := make([]string, 0, len(typesList))
-            for _, t := range typesList {
-                t = strings.TrimSpace(t)
-                if t != "" {
-                    typeVal, err := strconv.ParseFloat(t, 64)
-                    if err == nil {
-                        typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = %f", typeVal))
-                    }
-                }
-            }
-            
-            if len(typeConditions) > 0 {
-                typeFilter := strings.Join(typeConditions, " OR ")
-                if whereAdded {
-                    query += fmt.Sprintf(" AND (%s)", typeFilter)
+        for _, t := range typesList {
+            t = strings.TrimSpace(t)
+            if t != "" {
+                typeVal, err := strconv.ParseFloat(t, 64)
+                if err == nil {
+                    typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = %f", typeVal))
                 } else {
-                    query += fmt.Sprintf(" WHERE (%s)", typeFilter)
-                    whereAdded = true
+                    log.Printf("Warning: Ignoring invalid type value: %s", t)
                 }
             }
+        }
+    }
+    
+    // Filter by TypeGroups if specified
+    if typeGroups != "" {
+        groupTypes := getTypesFromGroups(typeGroups)
+        for _, typeVal := range groupTypes {
+            typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = %d", typeVal))
+        }
+    }
+    
+    // Apply type conditions if any exist
+    if len(typeConditions) > 0 {
+        typeFilter := strings.Join(typeConditions, " OR ")
+        if whereAdded {
+            query += fmt.Sprintf(" AND (%s)", typeFilter)
+        } else {
+            query += fmt.Sprintf(" WHERE (%s)", typeFilter)
+            whereAdded = true
         }
     }
 
@@ -1274,6 +1356,9 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
     
     // Extract 'types' query parameter for filtering (optional)
     types := r.URL.Query().Get("types")
+    
+    // Extract 'typeGroups' query parameter for filtering (optional)
+    typeGroups := r.URL.Query().Get("typeGroups")
 
     // Parse latitude, longitude, and radius if they are provided
     var lat, lon, radius float64
@@ -1305,6 +1390,7 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
        MinSpeed: minSpeed,
        UserID: userid,
        Types: types,
+       TypeGroups: typeGroups,
     }
     blob, err := getSummaryJSON(p, conf.CacheTime)
     if err != nil {
@@ -1608,13 +1694,19 @@ func handleSummaryRequest(client *serverSocket.Socket, data map[string]interface
     if typesVal, ok := data["types"].(string); ok {
         types = typesVal
     }
+    
+    // Extract typeGroups parameter (comma-delimited string)
+    var typeGroups string
+    if typeGroupsVal, ok := data["typeGroups"].(string); ok {
+        typeGroups = typeGroupsVal
+    }
 
     // Log the parameters for debugging
-    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s",
-        client.Id(), lat, lon, radius, limit, maxAge, minSpeed, userid, types)
+    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s, typeGroups=%s",
+        client.Id(), lat, lon, radius, limit, maxAge, minSpeed, userid, types, typeGroups)
 
     // Now call the function that generates the summary
-    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid, types)
+    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid, types, typeGroups)
     if err != nil {
         log.Printf("Error fetching summary: %v", err)
         return
