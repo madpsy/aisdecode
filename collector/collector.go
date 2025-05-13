@@ -653,7 +653,7 @@ func createIndexesIfNotExist(db *sql.DB) {
             
         // Add index for the Type field to optimize the new type filter
         `CREATE INDEX IF NOT EXISTS idx_state_type
-            ON state ((packet->>'Type')::float);`,
+            ON state (CAST(packet->>'Type' AS FLOAT));`,
     }
 
     for _, s := range stmts {
