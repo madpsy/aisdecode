@@ -198,6 +198,13 @@
       flex: 1;
       min-width: 300px;
     }
+    
+    /* Add word-breaking for destination and status tables */
+    #destination-changes td, #status-changes td {
+      word-break: break-word;
+      overflow-wrap: break-word;
+      max-width: 150px; /* Limit maximum width of cells */
+    }
     .changes-table h3 {
       font-size: 1.2rem;
       margin-bottom: 0.5rem;
