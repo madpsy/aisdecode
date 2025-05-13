@@ -556,9 +556,11 @@
         </div>
       </div>
       <div style="display: flex; justify-content: space-between; margin: 5px 0; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
-        <button id="legend-all-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px;">All</button>
-        <button id="legend-clear-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px;">Clear Filter</button>
-        <button id="legend-filter-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px;">Filter</button>
+        <button id="legend-all-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px; flex: 1;">All</button>
+        <div style="width: 5px;"></div>
+        <button id="legend-filter-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px; flex: 1;">Filter</button>
+        <div style="width: 5px;"></div>
+        <button id="legend-clear-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px; flex: 1;">Clear</button>
       </div>
       <div id="legend-content"></div>
     </div>
@@ -856,64 +858,60 @@ function sendSummaryRequest() {
     filterParams.minSpeed = 1;
   }
   
-  // Check if we have any active filters
-  let hasActiveFilters = false;
+  // Direct mapping from vessel type groups to server group IDs
+  const typeGroupMapping = {
+    "Wing in ground": 2,
+    "Fishing": 3,
+    "Towing": 4,
+    "Dredging": 6,
+    "Diving": 7,
+    "Military": 8,
+    "Sailing": 9,
+    "Pleasure": 10,
+    "High speed craft": 11,
+    "Pilot": 12,
+    "Search and Rescue": 13,
+    "Tug": 14,
+    "Port Tender": 15,
+    "Anti-pollution": 16,
+    "Law Enforcement": 17,
+    "Medical": 19,
+    "Passenger": 21,
+    "Cargo": 22,
+    "Tanker": 23,
+    "Other": 24
+  };
+  
+  // Get all unchecked groups
+  const uncheckedGroups = [];
   for (const groupName in typeGroupCheckboxStates) {
     if (typeGroupCheckboxStates[groupName] === false) {
-      hasActiveFilters = true;
-      break;
+      uncheckedGroups.push(groupName);
     }
   }
   
-  // If we have active filters, create a typeGroups parameter
-  if (hasActiveFilters) {
+  // If we have unchecked groups, create a filter with only the checked groups
+  if (uncheckedGroups.length > 0) {
     // Get all checked groups
-    const checkedGroups = [];
-    for (const groupName in typeGroupCheckboxStates) {
-      if (typeGroupCheckboxStates[groupName] !== false) {
-        checkedGroups.push(groupName);
-      }
-    }
+    const checkedGroups = Object.keys(vesselTypeGroups).filter(group =>
+      !uncheckedGroups.includes(group)
+    );
     
-    // Map group names to their numeric IDs (based on the typeGroups mapping from the server)
+    // Map checked group names to server group IDs
     const groupIds = [];
-    for (let i = 0; i < checkedGroups.length; i++) {
-      const groupName = checkedGroups[i];
-      // Find the corresponding group ID for this group name
-      const groupTypes = vesselTypeGroups[groupName];
-      if (groupTypes) {
-        // Use the first type in the group to determine the group ID
-        const firstType = groupTypes[0];
-        // Find which group this type belongs to in the server's mapping
-        if (firstType >= 20 && firstType <= 29) groupIds.push(2);  // Wing in ground
-        else if (firstType === 30) groupIds.push(3);               // Fishing
-        else if (firstType >= 31 && firstType <= 32) groupIds.push(4); // Towing
-        else if (firstType === 33) groupIds.push(6);               // Dredging
-        else if (firstType === 34) groupIds.push(7);               // Diving
-        else if (firstType === 35) groupIds.push(8);               // Military
-        else if (firstType === 36) groupIds.push(9);               // Sailing
-        else if (firstType === 37) groupIds.push(10);              // Pleasure
-        else if (firstType >= 40 && firstType <= 49) groupIds.push(11); // High speed craft
-        else if (firstType === 50) groupIds.push(12);              // Pilot
-        else if (firstType === 51) groupIds.push(13);              // Search and Rescue
-        else if (firstType === 52) groupIds.push(14);              // Tug
-        else if (firstType === 53) groupIds.push(15);              // Port Tender
-        else if (firstType === 54) groupIds.push(16);              // Anti-pollution
-        else if (firstType === 55) groupIds.push(17);              // Law Enforcement
-        else if (firstType === 58) groupIds.push(19);              // Medical
-        else if (firstType >= 60 && firstType <= 69) groupIds.push(21); // Passenger
-        else if (firstType >= 70 && firstType <= 79) groupIds.push(22); // Cargo
-        else if (firstType >= 80 && firstType <= 89) groupIds.push(23); // Tanker
-        else if (firstType >= 90 && firstType <= 99) groupIds.push(24); // Other
+    for (const groupName of checkedGroups) {
+      const groupId = typeGroupMapping[groupName];
+      if (groupId !== undefined) {
+        groupIds.push(groupId);
       }
     }
     
-    // Remove duplicates
-    const uniqueGroupIds = [...new Set(groupIds)];
-    
-    if (uniqueGroupIds.length > 0) {
-      console.log(`Filtering by type groups: ${uniqueGroupIds.join(',')}`);
-      filterParams.typeGroups = uniqueGroupIds.join(',');
+    if (groupIds.length > 0) {
+      console.log(`Filtering by type groups: ${groupIds.join(',')}`);
+      filterParams.typeGroups = groupIds.join(',');
+      
+      // Debug output to verify the request
+      console.log("Sending filter request:", JSON.stringify(filterParams, null, 2));
     }
   }
   
