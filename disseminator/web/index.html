@@ -4200,33 +4200,32 @@ document.getElementById('legend-filter-button').addEventListener('click', functi
   console.log("Filters applied");
 });
 
-// Add a test button that sends a hardcoded typeGroups=22 parameter (Cargo ships only)
+// Add a test button that sends a hardcoded types parameter for cargo ships
 document.getElementById('test-cargo-filter').addEventListener('click', function() {
   const center = map.getCenter();
   const bounds = map.getBounds();
   const radius = center.distanceTo(bounds.getNorthEast()) * 1.5;
   const maxAge = parseInt(document.getElementById("age-slider").value, 10);
   
-  // Create a request with hardcoded typeGroups=22 (Cargo)
+  // Create a request with types parameter for cargo ships (70-79)
   const testFilterParams = {
     latitude: center.lat,
     longitude: center.lng,
     radius: radius,
     maxResults: 500,
     maxAge: maxAge,
-    typeGroups: 22 // Try as a number instead of a string
+    types: "70,71,72,73,74,75,76,77,78,79" // All cargo ship types
   };
   
-  console.log("Sending test filter request with typeGroups as number:", JSON.stringify(testFilterParams, null, 2));
+  console.log("Sending test filter with types parameter:", JSON.stringify(testFilterParams, null, 2));
   
-  // IMPORTANT: Don't stringify the object - send it directly
-  // The socket.io library will handle the serialization
+  // Send the request directly
   socket.emit("requestSummary", testFilterParams);
   
-  // Also try a direct HTTP request to compare
+  // For comparison, also make a direct HTTP request with typeGroups
   setTimeout(() => {
     const url = `/summary?latitude=${center.lat}&longitude=${center.lng}&radius=${radius}&maxAge=${maxAge}&typeGroups=22`;
-    console.log("Making direct HTTP request:", url);
+    console.log("Making direct HTTP request with typeGroups:", url);
     fetch(url)
       .then(response => response.json())
       .then(data => {
