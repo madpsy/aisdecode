@@ -82,7 +82,7 @@
         /* Style for the known vessels overlay (bottom left) */
         #vessel-overlay {
           position: absolute;
-          bottom: 45px;
+          bottom: 50px;
           left: 10px;
           background: rgba(255, 255, 255, 0.85);
           border: 2px solid #aaa;
@@ -132,7 +132,7 @@
         /* New Style for the vessel detail overlay (bottom right) */
         #vessel-detail {
           position: absolute;
-          bottom: 45px;
+          bottom: 50px;
           right: 10px;
           background: rgba(255, 255, 255, 0.85);
           border: 2px solid #aaa;
@@ -207,7 +207,7 @@
         #live-logs {
           position: absolute;
           bottom: 20px;
-          right: 100px;
+          right: 95px;
           background: rgba(255, 255, 255, 0.9);
           border: 1px solid #ddd;
           border-radius: 8px;
@@ -265,7 +265,7 @@
         #stats-button {
           position: absolute;
           bottom: 20px;
-          right: 175px;  /* Adjust as needed so it appears left of the "Messages" button */
+          right: 170px;  /* Adjust as needed so it appears left of the "Messages" button */
           background: rgba(255, 255, 255, 0.9);
           border: 1px solid #ddd;
           border-radius: 8px;
@@ -575,7 +575,7 @@
 
     <!-- Toggle Buttons -->
     <button id="toggle-known-overlay" class="toggle-button">Show Vessels</button>
-    <button id="toggle-detail-overlay" class="toggle-button">Hide Details</button>
+    <button id="toggle-detail-overlay" class="toggle-button">Hide</button>
 
     <button id="stats-button">Watch</button>
     <button id="live-logs">Decodes</button>
@@ -787,6 +787,7 @@ map.on('click', () => {
     // Hide detail overlay and all related buttons when no vessel is focused.
     document.getElementById('vessel-detail').style.display = 'none';
     document.getElementById('toggle-detail-overlay').style.display = 'none';
+    document.getElementById('toggle-detail-overlay').textContent = 'Show';
     document.getElementById('live-logs').style.display = 'none';
     document.getElementById('stats-button').style.display = 'none';
 
@@ -3555,10 +3556,10 @@ function focusOnVessel(UserID, initialFocus = true) {
   const detailOverlay = document.getElementById('vessel-detail');
   if (!detailsOverlayHidden) {
     detailOverlay.style.display = 'block';
-    document.getElementById('toggle-detail-overlay').textContent = 'Hide Details';
+    document.getElementById('toggle-detail-overlay').textContent = 'Hide';
   } else {
     detailOverlay.style.display = 'none';
-    document.getElementById('toggle-detail-overlay').textContent = 'Show Details';
+    document.getElementById('toggle-detail-overlay').textContent = 'Show';
   }
   
   if (isMobile) {
@@ -3681,11 +3682,11 @@ map.on('moveend zoomend', function() {
           const detailOverlay = document.getElementById('vessel-detail');
           if (detailOverlay.style.display === 'none' || detailOverlay.style.display === '') {
             detailOverlay.style.display = 'block';
-            this.textContent = 'Hide Details';
+            this.textContent = 'Hide';
             detailsOverlayHidden = false;
           } else {
             detailOverlay.style.display = 'none';
-            this.textContent = 'Show Details';
+            this.textContent = 'Show';
             detailsOverlayHidden = true;
           }
        });
