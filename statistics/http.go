@@ -553,7 +553,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
                FROM messages m
                LEFT JOIN state s ON m.user_id = s.user_id
               WHERE m.distance IS NOT NULL
-                AND m.distance <= 1000000  -- Filter out spurious values over 1000km
+                AND m.distance <= 500000  -- Filter out spurious values over 500km
                 AND m.timestamp >= now() - INTERVAL '%d days'
                 AND m.receiver_id = %d
                 AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE'))

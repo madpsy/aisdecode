@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 	"strconv"
 	"crypto/tls"
 	"math"
@@ -1107,7 +1106,7 @@ func shardForUser(userID string) int {
 func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACodec) {
     for pkt := range ch {
         rawBytes, srcIP := pkt.raw, pkt.sourceIP
-        rawStr := *(*string)(unsafe.Pointer(&rawBytes))
+        rawStr := string(rawBytes)
 
         // ── Fragment reassembly ────────────────────────────────────────────────
         complete, joined := addFragment(rawStr)
@@ -1195,9 +1194,14 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         hdr := decoded.Packet.GetHeader()
 
         // Re-marshal the packet into a map so we can inject DecodedBinary
-        rawJSON, _ := json.Marshal(decoded.Packet)
+        rawJSON, err := json.Marshal(decoded.Packet)
+        if err != nil {
+            log.Printf("json.Marshal error: %v", err)
+        }
+        // copy out of the pooled buffer so it can't be mutated underfoot
+        copyBuf := append([]byte(nil), rawJSON...)
         var pktMap map[string]interface{}
-        _ = json.Unmarshal(rawJSON, &pktMap)
+        _ = json.Unmarshal(copyBuf, &pktMap)
 
         // MessageID always comes from the header
         mid := int(hdr.MessageID)
