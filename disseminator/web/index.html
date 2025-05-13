@@ -4214,13 +4214,28 @@ document.getElementById('test-cargo-filter').addEventListener('click', function(
     radius: radius,
     maxResults: 500,
     maxAge: maxAge,
-    typeGroups: "22" // Hardcoded to show only Cargo ships
+    typeGroups: 22 // Try as a number instead of a string
   };
   
-  console.log("Sending test filter request with hardcoded typeGroups=22:", JSON.stringify(testFilterParams, null, 2));
+  console.log("Sending test filter request with typeGroups as number:", JSON.stringify(testFilterParams, null, 2));
   
-  // Send the request directly to the server
-  socket.emit("requestSummary", JSON.stringify(testFilterParams));
+  // IMPORTANT: Don't stringify the object - send it directly
+  // The socket.io library will handle the serialization
+  socket.emit("requestSummary", testFilterParams);
+  
+  // Also try a direct HTTP request to compare
+  setTimeout(() => {
+    const url = `/summary?latitude=${center.lat}&longitude=${center.lng}&radius=${radius}&maxAge=${maxAge}&typeGroups=22`;
+    console.log("Making direct HTTP request:", url);
+    fetch(url)
+      .then(response => response.json())
+      .then(data => {
+        console.log("HTTP request returned", Object.keys(data).length, "vessels");
+      })
+      .catch(error => {
+        console.error("HTTP request failed:", error);
+      });
+  }, 1000);
 });
 
 
