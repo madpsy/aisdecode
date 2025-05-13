@@ -1009,7 +1009,7 @@
       // This event listener will be added at the end of the script
     }
     
-    // Function to show location overlay with map - absolute minimal implementation
+    // Function to show location overlay with map - with custom CSS to fix grid issue
     function showLocationOverlay(lat, lon, name, mmsi) {
       console.log('Opening location overlay:', lat, lon, name, mmsi);
       
@@ -1024,14 +1024,50 @@
       overlay.classList.add('active');
       overlay.style.display = 'flex';
       
+      // Add custom CSS to override any grid-related styling
+      const customStyle = document.createElement('style');
+      customStyle.id = 'location-map-custom-style';
+      customStyle.textContent = `
+        /* Override any grid-related styling */
+        .leaflet-tile-container img {
+          border: none !important;
+          box-shadow: none !important;
+          outline: none !important;
+        }
+        .leaflet-tile-pane {
+          opacity: 1 !important;
+        }
+        .leaflet-tile {
+          border: none !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        .leaflet-container {
+          background: #fff !important;
+        }
+        /* Remove any grid lines */
+        .leaflet-grid-layer, .leaflet-pane path.leaflet-grid-line {
+          display: none !important;
+        }
+      `;
+      document.head.appendChild(customStyle);
+      
       // Give the browser a moment to display the overlay before initializing the map
       setTimeout(() => {
         // Create a new map with absolute minimal configuration
-        window.locationMap = L.map('location-map').setView([lat, lon], 12);
+        window.locationMap = L.map('location-map', {
+          zoomControl: true,
+          attributionControl: true,
+          fadeAnimation: false, // Disable animations
+          zoomAnimation: false, // Disable animations
+          markerZoomAnimation: false // Disable animations
+        }).setView([lat, lon], 12);
         
         // Add only the OpenStreetMap base layer with no additional options
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
+          attribution: '&copy; OpenStreetMap contributors',
+          tileSize: 256,
+          updateWhenIdle: true
         }).addTo(window.locationMap);
         
         // Create the most basic marker possible without tooltip
@@ -1039,7 +1075,15 @@
         
         // Force a map resize to ensure it renders properly
         window.locationMap.invalidateSize();
-      }, 300); // Further increased timeout for better reliability
+      }, 300);
+      
+      // Clean up custom style when the overlay is closed
+      document.querySelector('#location-overlay .close-overlay').addEventListener('click', function() {
+        const customStyle = document.getElementById('location-map-custom-style');
+        if (customStyle) {
+          customStyle.remove();
+        }
+      }, { once: true });
     }
 
     // Fetch receivers data and populate the dropdown
