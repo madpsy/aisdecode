@@ -209,6 +209,20 @@
     .timestamp-overlay {
       top: 45px;
     }
+    
+    /* Replay details overlay */
+    .replay-details-overlay {
+      bottom: 10px;
+      right: 10px;
+      max-width: 300px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      z-index: 1000;
+      display: block;
+    }
     .replay-button {
       padding: 4px 8px;
       background-color: #4CAF50;
@@ -1379,7 +1393,7 @@
       const endMarker = L.marker([last.lat, last.lng], {
         icon: L.divIcon({
           className: 'end-marker',
-          html: '🔴',
+          html: '🟣',
           iconSize: [20, 20],
           iconAnchor: [10, 10]
         })
@@ -2868,16 +2882,16 @@
     let totalDistance = 0; // Track total distance
     let currentDistance = 0; // Track current distance during replay
     
-    // Function to toggle tooltip visibility
+    // Function to toggle overlay visibility
     function toggleTooltipVisibility() {
       if (replayTooltip) {
         if (tooltipVisible) {
-          // Hide tooltip
-          replayTooltip.getElement().style.display = 'none';
+          // Hide overlay
+          replayTooltip.style.display = 'none';
           tooltipVisible = false;
         } else {
-          // Show tooltip
-          replayTooltip.getElement().style.display = '';
+          // Show overlay
+          replayTooltip.style.display = 'block';
           tooltipVisible = true;
         }
       }
@@ -3052,17 +3066,16 @@
                           `<strong>Longitude:</strong> ${pts[0].lng.toFixed(6)}`;
         }
         
-        replayTooltip = L.tooltip({
-          permanent: true,
-          direction: 'top',
-          offset: [0, -10],
-          className: 'replay-tooltip'
-        })
-        .setLatLng([pts[0].lat, pts[0].lng])
-        .setContent(tooltipContent)
-        .addTo(map);
+        // Create a details overlay div instead of a tooltip
+        const detailsOverlay = document.createElement('div');
+        detailsOverlay.className = 'map-overlay replay-details-overlay';
+        detailsOverlay.innerHTML = tooltipContent;
+        document.getElementById('map-container').appendChild(detailsOverlay);
         
-        // Add click handler to map to toggle tooltip visibility
+        // Store reference to the overlay
+        replayTooltip = detailsOverlay;
+        
+        // Add click handler to map to toggle overlay visibility
         map.on('click', toggleTooltipVisibility);
       } catch (e) {
         console.error('Error creating tooltip:', e);
@@ -3156,13 +3169,12 @@
               currentMarker.setLatLng([currentPoint.lat, currentPoint.lng]);
             }
             
-            // Update tooltip position and content (but keep visibility state)
+            // Update overlay content (but keep visibility state)
             if (replayTooltip) {
-              replayTooltip.setLatLng([currentPoint.lat, currentPoint.lng]);
               try {
                 let tooltipContent = makeTooltipHTML(currentPoint);
                 
-                // Add receiver information to tooltip if available
+                // Add receiver information to overlay if available
                 const receiverId = currentPoint.record.ReceiverID;
                 if (receiverId && receiversData.length > 0) {
                   // Find the receiver in receiversData
@@ -3173,24 +3185,22 @@
                     const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
                     const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
                     
-                    // Add receiver info to tooltip with proper formatting
+                    // Add receiver info to overlay with proper formatting
                     tooltipContent += `<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
                   }
                 }
                 
-                replayTooltip.setContent(tooltipContent);
+                replayTooltip.innerHTML = tooltipContent;
                 
                 // Maintain visibility state
-                if (!tooltipVisible && replayTooltip.getElement()) {
-                  replayTooltip.getElement().style.display = 'none';
-                }
+                replayTooltip.style.display = tooltipVisible ? 'block' : 'none';
               } catch (e) {
-                console.error('Error updating tooltip content:', e);
-                // Use a simple fallback tooltip content
+                console.error('Error updating overlay content:', e);
+                // Use a simple fallback content
                 const fallbackContent = `<strong>${new Date(currentPoint.timestamp).toLocaleString()}</strong><br/>` +
                                       `<strong>Latitude:</strong> ${currentPoint.lat.toFixed(6)}<br/>` +
                                       `<strong>Longitude:</strong> ${currentPoint.lng.toFixed(6)}`;
-                replayTooltip.setContent(fallbackContent);
+                replayTooltip.innerHTML = fallbackContent;
               }
             }
             
@@ -3333,15 +3343,18 @@
         timestampOverlay.style.display = 'none';
       }
       
-      // Remove tooltip
+      // Remove overlay
       if (replayTooltip) {
         try {
-          map.removeLayer(replayTooltip);
+          // Remove the overlay element from the DOM
+          if (replayTooltip.parentNode) {
+            replayTooltip.parentNode.removeChild(replayTooltip);
+          }
         } catch (e) {
-          console.error('Error removing tooltip:', e);
+          console.error('Error removing overlay:', e);
         }
         replayTooltip = null;
-        tooltipVisible = true; // Reset tooltip visibility state
+        tooltipVisible = true; // Reset overlay visibility state
         
         // Remove map click handler
         map.off('click', toggleTooltipVisibility);
