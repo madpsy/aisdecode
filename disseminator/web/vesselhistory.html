@@ -1013,35 +1013,54 @@
     function showLocationOverlay(lat, lon, name, mmsi) {
       console.log('Opening location overlay:', lat, lon, name, mmsi);
       
+      // Clean up any existing map instance to prevent memory leaks
+      if (window.locationMap) {
+        window.locationMap.remove();
+        window.locationMap = null;
+      }
+      
       // Show the overlay
       const overlay = document.getElementById('location-overlay');
       overlay.classList.add('active');
       overlay.style.display = 'flex';
       
+      // Clear any existing content in the map container
+      const mapContainer = document.getElementById('location-map');
+      
       // Give the browser a moment to display the overlay before initializing the map
       setTimeout(() => {
-        // Initialize the map and store it in the window object for cleanup
-        window.locationMap = L.map('location-map').setView([lat, lon], 12);
+        // Create a new map with minimal configuration
+        window.locationMap = L.map('location-map', {
+          center: [lat, lon],
+          zoom: 12,
+          zoomControl: true,
+          attributionControl: true,
+          scrollWheelZoom: true,
+          dragging: true,
+          tap: false // Disable tap handler for better mobile experience
+        });
         
-        // Add standard OpenStreetMap layer
+        // Add only the OpenStreetMap base layer with minimal options
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
+          attribution: '&copy; OpenStreetMap contributors',
+          maxZoom: 19,
+          minZoom: 1
         }).addTo(window.locationMap);
         
-        // Do not add OpenSeaMap layer to avoid grid-like overlay issue
+        // Create a simple marker
+        const marker = L.marker([lat, lon]).addTo(window.locationMap);
         
-        // Create tooltip content
+        // Add tooltip to marker
         const tooltipContent = name ? `${name}<br>MMSI: ${mmsi}` : `MMSI: ${mmsi}`;
+        marker.bindTooltip(tooltipContent, {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -10]
+        }).openTooltip();
         
-        // Add marker with permanent tooltip
-        L.marker([lat, lon])
-          .addTo(window.locationMap)
-          .bindTooltip(tooltipContent, {permanent: true, direction: 'top'});
-          
         // Force a map resize to ensure it renders properly
         window.locationMap.invalidateSize();
-      }, 100);
-      
+      }, 200); // Increased timeout for better reliability
     }
 
     // Fetch receivers data and populate the dropdown
