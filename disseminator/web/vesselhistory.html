@@ -180,11 +180,29 @@
       margin-bottom: 2rem;
     }
     
+    /* Adjust vessel header layout on narrower screens */
+    @media (max-width: 992px) {
+      .vessel-header {
+        align-items: center;
+      }
+      
+      .flag-container {
+        align-self: flex-start;
+      }
+    }
+    
     .vessel-info {
       flex-grow: 1;
       display: flex;
       flex-wrap: wrap;
       gap: 1rem;
+    }
+    
+    /* Adjust vessel info on narrower screens */
+    @media (max-width: 992px) {
+      .vessel-info {
+        margin-top: 0;
+      }
     }
     
     /* Make right table move below left table first */
@@ -212,6 +230,13 @@
     }
     .flag-container {
       margin-right: 2rem;
+    }
+    
+    /* Adjust flag container margin on narrower screens */
+    @media (max-width: 992px) {
+      .flag-container {
+        margin-right: 1rem;
+      }
     }
     .flag-img {
       width: 80px;
