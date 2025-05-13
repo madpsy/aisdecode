@@ -135,6 +135,7 @@
       margin-bottom: 1rem;
       border: 1px solid #ddd;
       position: relative;
+      overflow: hidden;
     }
     .changes-container {
       display: flex;
@@ -212,17 +213,19 @@
     
     /* Replay details overlay */
     .replay-details-overlay {
-      position: absolute;
-      bottom: 10px;
-      right: 10px;
+      position: absolute !important;
+      bottom: 10px !important;
+      right: 10px !important;
       background: rgba(0, 0, 0, 0.7);
       color: white;
       padding: 10px;
       border-radius: 5px;
       font-size: 12px;
       z-index: 1000;
-      display: inline-block;
+      white-space: nowrap;
+      max-width: none;
       width: auto;
+      box-sizing: content-box;
     }
     .replay-button {
       padding: 4px 8px;
@@ -3071,7 +3074,15 @@
         const detailsOverlay = document.createElement('div');
         detailsOverlay.className = 'map-overlay replay-details-overlay';
         detailsOverlay.innerHTML = tooltipContent;
-        document.getElementById('map-container').appendChild(detailsOverlay);
+        
+        // Make sure we're adding it directly to the map container
+        const mapContainer = document.getElementById('map-container');
+        mapContainer.appendChild(detailsOverlay);
+        
+        // Force the overlay to be in the bottom right
+        detailsOverlay.style.position = 'absolute';
+        detailsOverlay.style.bottom = '10px';
+        detailsOverlay.style.right = '10px';
         
         // Store reference to the overlay
         replayTooltip = detailsOverlay;
