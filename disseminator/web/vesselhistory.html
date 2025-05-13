@@ -111,6 +111,19 @@
       display: flex;
       align-items: flex-start;
       margin-bottom: 2rem;
+      flex-wrap: wrap; /* Allow wrapping on smaller screens */
+    }
+    
+    /* Make vessel image container take full width on smaller screens */
+    @media (max-width: 768px) {
+      .vessel-header > div:last-child {
+        width: 100%;
+        margin-top: 1rem;
+        text-align: center;
+      }
+      .vessel-image {
+        margin-left: 0;
+      }
     }
     .flag-container {
       margin-right: 2rem;
@@ -161,6 +174,17 @@
       gap: 1rem;
       margin-bottom: 1rem;
       align-items: center;
+      flex-wrap: wrap; /* Allow wrapping on smaller screens */
+    }
+    
+    /* Make buttons stack below inputs on smaller screens */
+    @media (max-width: 768px) {
+      .date-selector label {
+        min-width: 45%; /* Allow two inputs per row */
+      }
+      .date-selector button {
+        margin-top: 0.5rem;
+      }
     }
     .date-selector label {
       display: flex;
