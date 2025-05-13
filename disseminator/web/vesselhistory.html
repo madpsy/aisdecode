@@ -3174,7 +3174,7 @@
         }
         
         // Create a completely new approach for the overlay
-        const detailsOverlay = document.createElement('div');
+        detailsOverlay = document.createElement('div');
         detailsOverlay.className = 'vessel-replay-info-box';
         detailsOverlay.innerHTML = tooltipContent;
         
@@ -3183,18 +3183,6 @@
         
         // Add to body instead of map container
         document.body.appendChild(detailsOverlay);
-        
-        // Function to update the overlay position
-        function updateOverlayPosition() {
-          const mapContainer = document.getElementById('map-container');
-          const mapRect = mapContainer.getBoundingClientRect();
-          
-          // Set position
-          detailsOverlay.style.left = 'auto';
-          detailsOverlay.style.top = 'auto';
-          detailsOverlay.style.right = (window.innerWidth - mapRect.right + 10) + 'px';
-          detailsOverlay.style.bottom = (window.innerHeight - mapRect.bottom + 10) + 'px';
-        }
         
         // Initial positioning
         updateOverlayPosition();
@@ -3498,8 +3486,35 @@
       
       // Redisplay the full track if we have data
       if (window.currentHistoryData && window.currentHistoryData.length > 0) {
+        // Reset detailsOverlay reference
+        detailsOverlay = null;
         try {
+          // Redisplay the track and ensure tooltips are properly initialized
           displayVesselTrack(window.currentHistoryData);
+          
+          // Force a small delay to ensure all map elements are properly reinitialized
+          setTimeout(() => {
+            // Ensure all polyline segments have proper tooltip event handlers
+            if (mapLayerGroup) {
+              mapLayerGroup.eachLayer(layer => {
+                if (layer instanceof L.LayerGroup) {
+                  layer.eachLayer(segment => {
+                    if (segment instanceof L.Polyline) {
+                      // Refresh tooltip bindings if needed
+                      if (!segment.getTooltip()) {
+                        segment.bindTooltip('', {
+                          direction: 'top',
+                          offset: [0, -6],
+                          permanent: false,
+                          sticky: true
+                        });
+                      }
+                    }
+                  });
+                }
+              });
+            }
+          }, 100);
         } catch (e) {
           console.error('Error redisplaying track:', e);
         }
