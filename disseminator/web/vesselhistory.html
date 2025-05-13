@@ -78,21 +78,23 @@
       border-right: 2px solid rgba(255, 165, 0, 0.7);
       pointer-events: none;
       z-index: 10;
+      touch-action: none;
     }
     .selection-handle {
       position: absolute;
       top: 0;
-      width: 8px;
+      width: 16px; /* Wider handles for easier touch */
       height: 100%;
       background-color: rgba(255, 165, 0, 0.7);
       cursor: ew-resize;
       pointer-events: all;
+      touch-action: none; /* Prevent browser handling of touch events */
     }
     .selection-handle-left {
-      left: -4px;
+      left: -8px;
     }
     .selection-handle-right {
-      right: -4px;
+      right: -8px;
     }
     .selection-info {
       position: absolute;
@@ -3049,6 +3051,7 @@
         const dragTime = new Date(startTime.getTime() + (totalDuration * percentage / 100));
         
         const selectionWindow = container.querySelector('.selection-window');
+        if (!selectionWindow) return; // Safety check
         const infoLabel = selectionWindow.querySelector('.selection-info');
         
         if (currentHandle.classList.contains('selection-handle-left')) {
@@ -3100,6 +3103,7 @@
       // Set up left handle mouse drag
       leftHandle.addEventListener('mousedown', function(e) {
         e.stopPropagation();
+        e.preventDefault();
         isDragging = true;
         currentHandle = leftHandle;
         document.addEventListener('mousemove', handleDrag);
@@ -3109,16 +3113,18 @@
       // Set up left handle touch drag
       leftHandle.addEventListener('touchstart', function(e) {
         e.stopPropagation();
+        e.preventDefault(); // Prevent default to ensure touch works properly
         isDragging = true;
         currentHandle = leftHandle;
         document.addEventListener('touchmove', handleDrag, { passive: false });
         document.addEventListener('touchend', endDrag);
         document.addEventListener('touchcancel', endDrag);
-      });
+      }, { passive: false }); // Important: passive: false allows preventDefault
       
       // Set up right handle mouse drag
       rightHandle.addEventListener('mousedown', function(e) {
         e.stopPropagation();
+        e.preventDefault();
         isDragging = true;
         currentHandle = rightHandle;
         document.addEventListener('mousemove', handleDrag);
@@ -3128,12 +3134,13 @@
       // Set up right handle touch drag
       rightHandle.addEventListener('touchstart', function(e) {
         e.stopPropagation();
+        e.preventDefault(); // Prevent default to ensure touch works properly
         isDragging = true;
         currentHandle = rightHandle;
         document.addEventListener('touchmove', handleDrag, { passive: false });
         document.addEventListener('touchend', endDrag);
         document.addEventListener('touchcancel', endDrag);
-      });
+      }, { passive: false }); // Important: passive: false allows preventDefault
     }
     
     // Remove the selection window and clear the time filter
