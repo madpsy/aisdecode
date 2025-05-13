@@ -696,7 +696,12 @@
             },
             { key: 'NavigationalStatus', label: 'Status', format: (val) => lookupNavStatus(val) },
             { key: 'Destination', label: 'Destination' },
-            { key: 'MaximumStaticDraught', label: 'Max Draught', format: (val) => val ? `${val} m` : '' },
+            {
+              key: 'MaximumStaticDraught',
+              label: 'Max Draught',
+              format: (val) => val ? `${val} m` : '',
+              checkValue: (val) => val !== undefined && val !== null && val !== '' && val !== 0
+            },
             {
               key: 'Dimension',
               label: 'Dimension',
