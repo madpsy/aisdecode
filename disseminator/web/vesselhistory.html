@@ -796,9 +796,9 @@
           
           // Update page title with vessel name if available
           if (data.Name) {
-            document.getElementById('main-title').textContent = `Vessel History: ${data.Name.trim()}`;
+            document.getElementById('main-title').textContent = `${data.Name.trim()}`;
           } else {
-            document.getElementById('main-title').textContent = `Vessel History: ${userID}`;
+            document.getElementById('main-title').textContent = `${userID}`;
           }
 
           // Get country code from MID (first 3 digits of UserID)
