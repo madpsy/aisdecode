@@ -7,6 +7,8 @@
     <title>AIS Tracker</title>
     <!-- Leaflet CSS (from CDN, without integrity) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" crossorigin="" />
+    <!-- Google Fonts for modern look -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
     <style>
         html, body, #map {
           height: 100%;
@@ -173,17 +175,24 @@
         /* Styles for the new toggle buttons */
         .toggle-button {
           position: absolute;
-          background: #f0f0f0;
-          border: 1px solid #ccc;
-          border-radius: 3px;
-          padding: 3px 6px;
-          font-family: Arial, sans-serif;
-          font-size: 13px;
+          background: #ffffff;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          padding: 8px 12px;
+          font-family: 'Roboto', sans-serif;
+          font-size: 14px;
+          font-weight: 500;
           cursor: pointer;
           z-index: 1100;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          transition: all 0.2s ease;
+        }
+        .toggle-button:hover {
+          background: #f8f8f8;
+          box-shadow: 0 3px 6px rgba(0,0,0,0.15);
         }
         #toggle-known-overlay {
-          bottom: 60px;
+          bottom: 20px;
           left: 10px;
         }
         #toggle-detail-overlay {
@@ -196,15 +205,22 @@
           position: absolute;
           bottom: 50px;
           right: 100px;
-          background: #f0f0f0;
-          border: 1px solid #ccc;
-          border-radius: 3px;
-          padding: 3px 6px;
-          font-family: Arial, sans-serif;
-          font-size: 13px;
+          background: #ffffff;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          padding: 8px 12px;
+          font-family: 'Roboto', sans-serif;
+          font-size: 14px;
+          font-weight: 500;
           cursor: pointer;
           z-index: 1100;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          transition: all 0.2s ease;
           display: none;
+        }
+        #live-logs:hover {
+          background: #f8f8f8;
+          box-shadow: 0 3px 6px rgba(0,0,0,0.15);
         }
         /* Live Logs overlay styling */
         #live-logs-overlay {
@@ -246,16 +262,23 @@
           position: absolute;
           bottom: 50px;
           right: 175px;  /* Adjust as needed so it appears left of the "Messages" button */
-          background: #f0f0f0;
-          border: 1px solid #ccc;
-          border-radius: 3px;
-          padding: 3px 6px;
-          font-family: Arial, sans-serif;
-          font-size: 13px;
+          background: #ffffff;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          padding: 8px 12px;
+          font-family: 'Roboto', sans-serif;
+          font-size: 14px;
+          font-weight: 500;
           cursor: pointer;
           z-index: 1100;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          transition: all 0.2s ease;
           display: none;  /* Hidden by default */
-    }
+        }
+        #stats-button:hover {
+          background: #f8f8f8;
+          box-shadow: 0 3px 6px rgba(0,0,0,0.15);
+        }
 
 #vessel-legend {
   font-family: Arial, sans-serif;
