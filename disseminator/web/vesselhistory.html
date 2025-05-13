@@ -364,17 +364,21 @@
           display: flex;
         }
         
-        .packet-content {
+        /* Use the same overlay-content class for both overlays */
+        #packet-overlay .overlay-content {
           position: relative;
+          max-width: 90%;
+          max-height: 90%;
+        }
+        
+        .packet-content {
           background-color: white;
           padding: 20px;
           border-radius: 5px;
-          max-width: 90%;
-          max-height: 90%;
+          max-width: 100%;
+          max-height: 90vh;
           overflow-y: auto;
           box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-          z-index: 2000; /* Ensure content is properly stacked */
-          margin-top: 20px; /* Add margin to make room for the close button */
         }
         
         .packet-json {
@@ -460,14 +464,16 @@
   
   <!-- Packet details overlay -->
   <div id="packet-overlay" class="packet-overlay">
-    <div class="packet-content">
+    <div class="overlay-content">
       <div class="close-overlay">&times;</div>
-      <h4>Packet Details</h4>
-      <div id="packet-json" class="packet-json"></div>
-      <div>
-        <pre id="raw-sentence" class="raw-sentence"></pre>
+      <div class="packet-content">
+        <h4>Packet Details</h4>
+        <div id="packet-json" class="packet-json"></div>
+        <div>
+          <pre id="raw-sentence" class="raw-sentence"></pre>
+        </div>
+        <div id="receiver-info" class="receiver-info"></div>
       </div>
-      <div id="receiver-info" class="receiver-info"></div>
     </div>
   </div>
 
