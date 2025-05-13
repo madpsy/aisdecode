@@ -555,12 +555,10 @@
           <span>40 kn</span>
         </div>
       </div>
-      <div style="display: flex; justify-content: space-between; margin: 5px 0; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
-        <button id="legend-all-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px;">All</button>
-        <div style="display: flex;">
-          <button id="legend-filter-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px; margin-right: 5px;">Filter</button>
-          <button id="legend-clear-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px;">Clear</button>
-        </div>
+      <div style="position: relative; height: 30px; margin: 5px 0; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
+        <button id="legend-all-button" class="toggle-button" style="position: absolute; left: 0; padding: 2px 5px; font-size: 12px;">All</button>
+        <button id="legend-filter-button" class="toggle-button" style="position: absolute; left: 50px; padding: 2px 5px; font-size: 12px;">Filter</button>
+        <button id="legend-clear-button" class="toggle-button" style="position: absolute; right: 0; padding: 2px 5px; font-size: 12px;">Clear</button>
       </div>
       <div id="legend-content"></div>
     </div>
