@@ -1194,8 +1194,8 @@
       
       let html = '';
       
-      // Start with timestamp (no label)
-      html += `${new Date(pt.timestamp).toLocaleString()}<br/>`;
+      // Start with timestamp (no label) - make it bold
+      html += `<strong>${new Date(pt.timestamp).toLocaleString()}</strong><br/>`;
       
       // Add navigational status with 'Status' label if available
       if (pt.data.NavigationalStatus != null && navStatusMapping[pt.data.NavigationalStatus]) {
@@ -1269,7 +1269,8 @@
         .filter(r => {
           const flat = flatten(r.Packet);
           return flat.Latitude != null && flat.Longitude != null &&
-                 !isNaN(flat.Latitude) && !isNaN(flat.Longitude);
+                 !isNaN(flat.Latitude) && !isNaN(flat.Longitude) &&
+                 !(flat.Latitude === 91 && flat.Longitude === 181); // Filter out invalid coordinates
         })
         .map(r => {
           const flat = flatten(r.Packet);
@@ -2629,7 +2630,8 @@
         .filter(r => {
           const flat = flatten(r.Packet);
           return flat.Latitude != null && flat.Longitude != null &&
-                 !isNaN(flat.Latitude) && !isNaN(flat.Longitude);
+                 !isNaN(flat.Latitude) && !isNaN(flat.Longitude) &&
+                 !(flat.Latitude === 91 && flat.Longitude === 181); // Filter out invalid coordinates
         })
         .map(r => {
           const flat = flatten(r.Packet);
@@ -3029,7 +3031,8 @@
         .filter(r => {
           const flat = flatten(r.Packet);
           return flat && flat.Latitude != null && flat.Longitude != null &&
-                 !isNaN(flat.Latitude) && !isNaN(flat.Longitude);
+                 !isNaN(flat.Latitude) && !isNaN(flat.Longitude) &&
+                 !(flat.Latitude === 91 && flat.Longitude === 181); // Filter out invalid coordinates
         })
         .map(r => {
           const flat = flatten(r.Packet);
@@ -3443,7 +3446,8 @@
           .filter(r => {
             const flat = flatten(r.Packet);
             return flat.Latitude != null && flat.Longitude != null &&
-                   !isNaN(flat.Latitude) && !isNaN(flat.Longitude);
+                   !isNaN(flat.Latitude) && !isNaN(flat.Longitude) &&
+                   !(flat.Latitude === 91 && flat.Longitude === 181); // Filter out invalid coordinates
           })
           .map(r => {
             const flat = flatten(r.Packet);
