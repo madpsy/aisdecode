@@ -82,19 +82,20 @@
         /* Style for the known vessels overlay (bottom left) */
         #vessel-overlay {
           position: absolute;
-          bottom: 85px;
+          bottom: 45px;
           left: 10px;
-          background: rgba(255, 255, 255, 0.95);
+          background: rgba(255, 255, 255, 0.85);
           border: 1px solid #ccc;
-          border-radius: 5px;
+          border-radius: 8px;
           padding: 5px;
           height: 300px;
           width: 150px;
           overflow-y: auto;
           z-index: 1000;
-          font-family: Arial, sans-serif;
+          font-family: 'Roboto', sans-serif;
           font-size: 13px;
           line-height: 1.4;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         #vessel-overlay h4 {
           margin: 5px 0;
@@ -133,21 +134,22 @@
           position: absolute;
           bottom: 80px;
           right: 10px;
-          background: rgba(255, 255, 255, 0.95);
+          background: rgba(255, 255, 255, 0.85);
           border: 1px solid #ccc;
-          border-radius: 5px;
+          border-radius: 8px;
           padding: 5px;
           max-height: 300px;
           min-width: 200px;
-	  max-width: 200px;
+   max-width: 200px;
           width: auto;
           overflow-y: auto;
           z-index: 1500;
-          font-family: Arial, sans-serif;
+          font-family: 'Roboto', sans-serif;
           font-size: 13px;
           line-height: 1.4;
           display: none;
           white-space: nowrap;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         #vessel-detail h4 {
           margin: 5px 0;
@@ -159,13 +161,14 @@
           position: absolute;
           top: 10px;
           right: 10px;
-          background: rgba(255, 255, 255, 0.95);
+          background: rgba(255, 255, 255, 0.85);
           border: 1px solid #ccc;
-          border-radius: 5px;
+          border-radius: 8px;
           padding: 5px;
           z-index: 1000;
-          font-family: Arial, sans-serif;
+          font-family: 'Roboto', sans-serif;
           font-size: 14px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         #controls label {
           cursor: pointer;
@@ -175,10 +178,10 @@
         /* Styles for the new toggle buttons */
         .toggle-button {
           position: absolute;
-          background: #ffffff;
+          background: rgba(255, 255, 255, 0.9);
           border: 1px solid #ddd;
           border-radius: 8px;
-          padding: 8px 12px;
+          padding: 5px 8px;
           font-family: 'Roboto', sans-serif;
           font-size: 14px;
           font-weight: 500;
@@ -188,7 +191,7 @@
           transition: all 0.2s ease;
         }
         .toggle-button:hover {
-          background: #f8f8f8;
+          background: rgba(248, 248, 248, 0.95);
           box-shadow: 0 3px 6px rgba(0,0,0,0.15);
         }
         #toggle-known-overlay {
@@ -205,10 +208,10 @@
           position: absolute;
           bottom: 50px;
           right: 100px;
-          background: #ffffff;
+          background: rgba(255, 255, 255, 0.9);
           border: 1px solid #ddd;
           border-radius: 8px;
-          padding: 8px 12px;
+          padding: 5px 8px;
           font-family: 'Roboto', sans-serif;
           font-size: 14px;
           font-weight: 500;
@@ -219,7 +222,7 @@
           display: none;
         }
         #live-logs:hover {
-          background: #f8f8f8;
+          background: rgba(248, 248, 248, 0.95);
           box-shadow: 0 3px 6px rgba(0,0,0,0.15);
         }
         /* Live Logs overlay styling */
@@ -228,14 +231,15 @@
           position: absolute;
           top: 100px;
           left: 50px;
-          background: rgba(255,255,255,0.95);
+          background: rgba(255,255,255,0.85);
           border: 1px solid #ccc;
-          border-radius: 5px;
+          border-radius: 8px;
           padding: 10px;
           width: 290px;
           max-height: 400px;
           overflow-y: auto;
           z-index: 1200;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         #live-logs-header {
           cursor: move;
@@ -262,10 +266,10 @@
           position: absolute;
           bottom: 50px;
           right: 175px;  /* Adjust as needed so it appears left of the "Messages" button */
-          background: #ffffff;
+          background: rgba(255, 255, 255, 0.9);
           border: 1px solid #ddd;
           border-radius: 8px;
-          padding: 8px 12px;
+          padding: 5px 8px;
           font-family: 'Roboto', sans-serif;
           font-size: 14px;
           font-weight: 500;
@@ -276,7 +280,7 @@
           display: none;  /* Hidden by default */
         }
         #stats-button:hover {
-          background: #f8f8f8;
+          background: rgba(248, 248, 248, 0.95);
           box-shadow: 0 3px 6px rgba(0,0,0,0.15);
         }
 
@@ -383,9 +387,9 @@
   width: 300px;
   max-height: 400px;
   overflow: auto;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.85);
   border: 1px solid #ccc;
-  border-radius: 5px;
+  border-radius: 8px;
   padding: 10px;
   z-index: 2000;
   display: none;            /* hidden by default */
@@ -534,7 +538,7 @@
         <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Legend</button>
     </div>
 
-    <div id="vessel-legend" style="display: none; position: absolute; top: 200px; right: 5px; background: rgba(255, 255, 255, 0.9); border: 1px solid #ccc; border-radius: 5px; padding: 5px; z-index: 1000; font-family: Arial, sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; display: none;">
+    <div id="vessel-legend" style="display: none; position: absolute; top: 200px; right: 5px; background: rgba(255, 255, 255, 0.85); border: 1px solid #ccc; border-radius: 8px; padding: 5px; z-index: 1000; font-family: 'Roboto', sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: none;">
       <div class="speed-scale-container">
         <div class="speed-scale-bar"></div>
         <div class="speed-scale-labels">
