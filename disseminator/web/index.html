@@ -880,8 +880,8 @@ function sendSummaryRequest() {
     "Other": 24
   };
   
-  // IMPORTANT: The server's typeGroups filter is INCLUSIVE, not EXCLUSIVE
-  // This means we need to send ALL the groups we want to see, not just the ones we want to filter out
+  // SIMPLIFIED APPROACH: Just send a single type group if only one is selected
+  // We know from testing that /summary?typeGroups=22 works correctly
   
   // Get all checked groups
   const checkedGroups = [];
@@ -891,23 +891,14 @@ function sendSummaryRequest() {
     }
   }
   
-  // Check if any groups are unchecked (meaning we need to filter)
-  const hasUncheckedGroups = Object.values(typeGroupCheckboxStates).includes(false);
-  
-  // Only apply filtering if some groups are unchecked
-  if (hasUncheckedGroups) {
-    // Map checked group names to server group IDs
-    const groupIds = [];
-    for (const groupName of checkedGroups) {
-      const groupId = typeGroupMapping[groupName];
-      if (groupId !== undefined) {
-        groupIds.push(groupId);
-      }
-    }
+  // If only one group is checked, use that for filtering
+  if (checkedGroups.length === 1) {
+    const groupName = checkedGroups[0];
+    const groupId = typeGroupMapping[groupName];
     
-    if (groupIds.length > 0) {
-      console.log(`Filtering by type groups: ${groupIds.join(',')}`);
-      filterParams.typeGroups = groupIds.join(',');
+    if (groupId !== undefined) {
+      console.log(`Filtering by single type group: ${groupId}`);
+      filterParams.typeGroups = groupId.toString();
       
       // Debug output to verify the request
       console.log("Sending filter request:", JSON.stringify(filterParams, null, 2));
@@ -4172,8 +4163,35 @@ document.getElementById('legend-clear-button').addEventListener('click', functio
 
 // Add event listener for the "Filter" button
 document.getElementById('legend-filter-button').addEventListener('click', function() {
-  // The checkbox states are already stored in typeGroupCheckboxStates
-  // Just send the request with the current filter state
+  // Count checked boxes
+  let checkedCount = 0;
+  let lastCheckedGroup = "";
+  
+  // Find out how many boxes are checked and which one is the last one
+  for (const groupName in typeGroupCheckboxStates) {
+    if (typeGroupCheckboxStates[groupName] !== false) {
+      checkedCount++;
+      lastCheckedGroup = groupName;
+    }
+  }
+  
+  // If only one box is checked, we'll use that for filtering
+  if (checkedCount === 1) {
+    console.log(`Only one group checked: ${lastCheckedGroup}`);
+    // Force all checkboxes to be unchecked except the selected one
+    for (const groupName in vesselTypeGroups) {
+      if (groupName !== lastCheckedGroup) {
+        typeGroupCheckboxStates[groupName] = false;
+      }
+    }
+    
+    // Update the UI to reflect this
+    document.querySelectorAll('.type-group-checkbox').forEach(checkbox => {
+      checkbox.checked = (checkbox.dataset.group === lastCheckedGroup);
+    });
+  }
+  
+  // Send the request with the current filter state
   sendSummaryRequest();
   
   console.log("Filters applied");
