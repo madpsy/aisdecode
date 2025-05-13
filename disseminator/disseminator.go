@@ -893,8 +893,8 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
     limit := 1
     if v := q.Get("limit"); v != "" {
         if x, err := strconv.Atoi(v); err == nil && x > 0 {
-            if x > 5000 {
-                limit = 5000
+            if x > 10000 {
+                limit = 10000
             } else {
                 limit = x
             }
