@@ -1023,12 +1023,12 @@
         // Initialize the map and store it in the window object for cleanup
         window.locationMap = L.map('location-map').setView([lat, lon], 12);
         
-        // Add base OpenStreetMap layer
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap'
+        // Add base OpenStreetMap layer with a different tile provider
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap contributors, &copy; CartoDB'
         }).addTo(window.locationMap);
         
-        // Removed OpenSeaMap layer to fix square boxes issue
+        // Do not add OpenSeaMap layer to avoid square boxes issue
         
         // Create tooltip content
         const tooltipContent = name ? `${name}<br>MMSI: ${mmsi}` : `MMSI: ${mmsi}`;
