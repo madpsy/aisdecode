@@ -3945,7 +3945,8 @@
           noResults.textContent = 'No results found';
           searchResults.appendChild(noResults);
         } else {
-          results.forEach(result => {
+          // Reverse the results to show most recently seen first
+          results.reverse().forEach(result => {
             const item = document.createElement('div');
             item.className = 'search-result-item';
             
