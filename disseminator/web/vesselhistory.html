@@ -339,6 +339,13 @@
           z-index: 2001; /* Ensure it's above the overlay */
         }
         
+        /* Specific style for packet overlay close button */
+        #packet-overlay .close-overlay {
+          top: -20px;
+          right: -20px;
+          z-index: 3000; /* Even higher z-index */
+        }
+        
         /* Packet details overlay styles */
         .packet-overlay {
           display: none;
@@ -367,6 +374,7 @@
           overflow-y: auto;
           box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
           z-index: 2000; /* Ensure content is properly stacked */
+          margin-top: 20px; /* Add margin to make room for the close button */
         }
         
         .packet-json {
