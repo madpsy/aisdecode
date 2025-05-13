@@ -114,12 +114,19 @@
       flex-wrap: wrap; /* Allow wrapping on smaller screens */
     }
     
-    /* Make vessel image container take full width on smaller screens */
-    @media (max-width: 768px) {
+    /* First make right table move below left table */
+    @media (max-width: 992px) {
+      .info-column {
+        min-width: 100%; /* Make info columns take full width */
+      }
+    }
+    
+    /* Then make vessel image container move below tables on even smaller screens */
+    @media (max-width: 576px) {
       .vessel-header > div:last-child {
         width: 100%;
         margin-top: 1rem;
-        text-align: center;
+        text-align: left; /* Left align with table above */
       }
       .vessel-image {
         margin-left: 0;
