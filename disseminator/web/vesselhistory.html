@@ -2970,6 +2970,22 @@
     let tooltipVisible = true; // Track tooltip visibility
     let totalDistance = 0; // Track total distance
     let currentDistance = 0; // Track current distance during replay
+    let detailsOverlay = null; // Store reference to the overlay globally
+    
+    // Function to update the overlay position
+    function updateOverlayPosition() {
+      // Use replayTooltip as the source of truth for the overlay
+      if (!replayTooltip) return;
+      
+      const mapContainer = document.getElementById('map-container');
+      const mapRect = mapContainer.getBoundingClientRect();
+      
+      // Set position
+      replayTooltip.style.left = 'auto';
+      replayTooltip.style.top = 'auto';
+      replayTooltip.style.right = (window.innerWidth - mapRect.right + 10) + 'px';
+      replayTooltip.style.bottom = (window.innerHeight - mapRect.bottom + 10) + 'px';
+    }
     
     // Function to toggle overlay visibility
     function toggleTooltipVisibility() {
@@ -3174,21 +3190,22 @@
         }
         
         // Create a completely new approach for the overlay
-        detailsOverlay = document.createElement('div');
-        detailsOverlay.className = 'vessel-replay-info-box';
-        detailsOverlay.innerHTML = tooltipContent;
+        const overlay = document.createElement('div');
+        overlay.className = 'vessel-replay-info-box';
+        overlay.innerHTML = tooltipContent;
         
         // Make sure it's visible by default
-        detailsOverlay.style.display = 'table';
+        overlay.style.display = 'table';
         
         // Add to body instead of map container
-        document.body.appendChild(detailsOverlay);
+        document.body.appendChild(overlay);
+        
+        // Store reference to the overlay
+        replayTooltip = overlay;
+        detailsOverlay = overlay;
         
         // Initial positioning
         updateOverlayPosition();
-        
-        // Store reference to the overlay
-        replayTooltip = detailsOverlay;
         
         // Add event listeners to update position when map moves or window resizes
         map.on('move', updateOverlayPosition);
@@ -3473,6 +3490,7 @@
           console.error('Error removing overlay:', e);
         }
         replayTooltip = null;
+        detailsOverlay = null; // Also reset detailsOverlay
         tooltipVisible = true; // Reset overlay visibility state
         
         // Remove event listeners
@@ -3487,7 +3505,7 @@
       // Redisplay the full track if we have data
       if (window.currentHistoryData && window.currentHistoryData.length > 0) {
         // Reset detailsOverlay reference
-        detailsOverlay = null;
+        // Don't set detailsOverlay to null here, it will be handled when replayTooltip is removed
         try {
           // Redisplay the track and ensure tooltips are properly initialized
           displayVesselTrack(window.currentHistoryData);
