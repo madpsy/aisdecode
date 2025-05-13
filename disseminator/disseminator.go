@@ -36,6 +36,7 @@ type filterKey struct {
     MaxAge     int     `json:"maxAge"`
     MinSpeed   float64 `json:"minSpeed"`
     UserID     int64   `json:"userID"`
+    Types      string  `json:"types"`
 }
 
 type FilterParams struct {
@@ -48,6 +49,7 @@ type FilterParams struct {
     UpdatePeriod int
     UserID	int64
     LastUpdated time.Time
+    Types       string
 }
 
 type Settings struct {
@@ -157,6 +159,7 @@ func keyForFilter(p FilterParams) string {
         MaxAge:     p.MaxAge,
         MinSpeed:   p.MinSpeed,
         UserID:     p.UserID,
+        Types:      p.Types,
     }
     raw, _ := json.Marshal(k)
     h := fnv.New64a()
@@ -175,7 +178,7 @@ func getSummaryJSON(p FilterParams, ttl int) ([]byte, error) {
     // 2) Cache miss → compute the summary as Go map
     summary, err := getSummaryResults(
         p.Latitude, p.Longitude, p.Radius,
-        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID,
+        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types,
     )
     if err != nil {
         return nil, err
@@ -225,7 +228,7 @@ func getSummaryWithRedisCache(p FilterParams, ttl int) (map[string]interface{}, 
     // Miss → compute
     summary, err := getSummaryResults(
         p.Latitude, p.Longitude, p.Radius,
-        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID,
+        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types,
     )
     if err != nil {
         return nil, err
@@ -485,7 +488,7 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
     return results, nil
 }
 
-func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64) (map[string]interface{}, error) {
+func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64, types string) (map[string]interface{}, error) {
    query := `
        SELECT user_id
             , packet
@@ -552,6 +555,33 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
                 minSpeed,
             )
             whereAdded = true
+        }
+    }
+
+    // Filter by Type if specified
+    if types != "" {
+        typesList := strings.Split(types, ",")
+        if len(typesList) > 0 {
+            typeConditions := make([]string, 0, len(typesList))
+            for _, t := range typesList {
+                t = strings.TrimSpace(t)
+                if t != "" {
+                    typeVal, err := strconv.ParseFloat(t, 64)
+                    if err == nil {
+                        typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = %f", typeVal))
+                    }
+                }
+            }
+            
+            if len(typeConditions) > 0 {
+                typeFilter := strings.Join(typeConditions, " OR ")
+                if whereAdded {
+                    query += fmt.Sprintf(" AND (%s)", typeFilter)
+                } else {
+                    query += fmt.Sprintf(" WHERE (%s)", typeFilter)
+                    whereAdded = true
+                }
+            }
         }
     }
 
@@ -1241,6 +1271,9 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
             return
         }
     }
+    
+    // Extract 'types' query parameter for filtering (optional)
+    types := r.URL.Query().Get("types")
 
     // Parse latitude, longitude, and radius if they are provided
     var lat, lon, radius float64
@@ -1271,6 +1304,7 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
        MaxAge: maxAge,
        MinSpeed: minSpeed,
        UserID: userid,
+       Types: types,
     }
     blob, err := getSummaryJSON(p, conf.CacheTime)
     if err != nil {
@@ -1568,13 +1602,19 @@ func handleSummaryRequest(client *serverSocket.Socket, data map[string]interface
     maxAge, _ := data["maxAge"].(int)
     minSpeed, _ := data["minSpeed"].(float64)
     userid, _ := data["UserID"].(int64)
+    
+    // Extract types parameter (comma-delimited string)
+    var types string
+    if typesVal, ok := data["types"].(string); ok {
+        types = typesVal
+    }
 
     // Log the parameters for debugging
-    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d",
-        client.Id(), lat, lon, radius, limit, maxAge, minSpeed, userid)
+    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s",
+        client.Id(), lat, lon, radius, limit, maxAge, minSpeed, userid, types)
 
     // Now call the function that generates the summary
-    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid)
+    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid, types)
     if err != nil {
         log.Printf("Error fetching summary: %v", err)
         return
