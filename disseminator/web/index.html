@@ -880,21 +880,22 @@ function sendSummaryRequest() {
     "Other": 24
   };
   
-  // Get all unchecked groups
-  const uncheckedGroups = [];
+  // IMPORTANT: The server's typeGroups filter is INCLUSIVE, not EXCLUSIVE
+  // This means we need to send ALL the groups we want to see, not just the ones we want to filter out
+  
+  // Get all checked groups
+  const checkedGroups = [];
   for (const groupName in typeGroupCheckboxStates) {
-    if (typeGroupCheckboxStates[groupName] === false) {
-      uncheckedGroups.push(groupName);
+    if (typeGroupCheckboxStates[groupName] !== false) {
+      checkedGroups.push(groupName);
     }
   }
   
-  // If we have unchecked groups, create a filter with only the checked groups
-  if (uncheckedGroups.length > 0) {
-    // Get all checked groups
-    const checkedGroups = Object.keys(vesselTypeGroups).filter(group =>
-      !uncheckedGroups.includes(group)
-    );
-    
+  // Check if any groups are unchecked (meaning we need to filter)
+  const hasUncheckedGroups = Object.values(typeGroupCheckboxStates).includes(false);
+  
+  // Only apply filtering if some groups are unchecked
+  if (hasUncheckedGroups) {
     // Map checked group names to server group IDs
     const groupIds = [];
     for (const groupName of checkedGroups) {
