@@ -212,20 +212,16 @@
     }
     
     /* Replay details overlay */
-    .replay-details-overlay {
-      position: absolute !important;
-      bottom: 10px !important;
-      right: 10px !important;
+    .vessel-replay-info-box {
+      position: fixed;
       background: rgba(0, 0, 0, 0.7);
       color: white;
       padding: 10px;
       border-radius: 5px;
       font-size: 12px;
-      z-index: 1000;
-      white-space: nowrap;
-      max-width: none;
-      width: auto;
-      box-sizing: content-box;
+      z-index: 2000;
+      display: table;
+      pointer-events: none;
     }
     .replay-button {
       padding: 4px 8px;
@@ -2895,7 +2891,7 @@
           tooltipVisible = false;
         } else {
           // Show overlay
-          replayTooltip.style.display = 'block';
+          replayTooltip.style.display = 'table';
           tooltipVisible = true;
         }
       }
@@ -3070,19 +3066,23 @@
                           `<strong>Longitude:</strong> ${pts[0].lng.toFixed(6)}`;
         }
         
-        // Create a details overlay div instead of a tooltip
+        // Create a completely new approach for the overlay
         const detailsOverlay = document.createElement('div');
-        detailsOverlay.className = 'map-overlay replay-details-overlay';
+        detailsOverlay.className = 'vessel-replay-info-box';
         detailsOverlay.innerHTML = tooltipContent;
         
-        // Make sure we're adding it directly to the map container
-        const mapContainer = document.getElementById('map-container');
-        mapContainer.appendChild(detailsOverlay);
+        // Add to body instead of map container
+        document.body.appendChild(detailsOverlay);
         
-        // Force the overlay to be in the bottom right
-        detailsOverlay.style.position = 'absolute';
-        detailsOverlay.style.bottom = '10px';
-        detailsOverlay.style.right = '10px';
+        // Position the overlay in the bottom right of the map
+        const mapContainer = document.getElementById('map-container');
+        const mapRect = mapContainer.getBoundingClientRect();
+        
+        // Set position
+        detailsOverlay.style.left = 'auto';
+        detailsOverlay.style.top = 'auto';
+        detailsOverlay.style.right = (window.innerWidth - mapRect.right + 10) + 'px';
+        detailsOverlay.style.bottom = (window.innerHeight - mapRect.bottom + 10) + 'px';
         
         // Store reference to the overlay
         replayTooltip = detailsOverlay;
@@ -3205,7 +3205,7 @@
                 replayTooltip.innerHTML = tooltipContent;
                 
                 // Maintain visibility state
-                replayTooltip.style.display = tooltipVisible ? 'block' : 'none';
+                replayTooltip.style.display = tooltipVisible ? 'table' : 'none';
               } catch (e) {
                 console.error('Error updating overlay content:', e);
                 // Use a simple fallback content
@@ -3359,9 +3359,7 @@
       if (replayTooltip) {
         try {
           // Remove the overlay element from the DOM
-          if (replayTooltip.parentNode) {
-            replayTooltip.parentNode.removeChild(replayTooltip);
-          }
+          document.body.removeChild(replayTooltip);
         } catch (e) {
           console.error('Error removing overlay:', e);
         }
