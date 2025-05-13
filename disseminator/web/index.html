@@ -548,6 +548,10 @@
     </div>
 
     <div id="vessel-legend" style="display: none; position: absolute; top: 200px; right: 5px; background: rgba(255, 255, 255, 0.75); border: 2px solid #aaa; border-radius: 8px; padding: 5px; z-index: 1000; font-family: 'Roboto', sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 5px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
+        <button id="legend-all-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px;">All</button>
+        <button id="legend-filter-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px;">Filter</button>
+      </div>
       <div class="speed-scale-container">
         <div class="speed-scale-bar"></div>
         <div class="speed-scale-labels">
@@ -555,7 +559,7 @@
           <span>40 kn</span>
         </div>
       </div>
-        <div id="legend-content"></div>
+      <div id="legend-content"></div>
     </div>
 
     <!-- Known vessels overlay (bottom left) -->
@@ -849,6 +853,24 @@ function sendSummaryRequest() {
 
   if (!document.getElementById('stationary').checked) {
     filterParams.minSpeed = 1;
+  }
+  
+  // Add typeGroups filter if active
+  if (activeTypeGroupFilters.length > 0) {
+    // Convert type group names to group IDs
+    const groupIds = activeTypeGroupFilters.map(groupName => {
+      // Find the corresponding group ID for each group name
+      for (let i = 0; i < Object.keys(vesselTypeGroups).length; i++) {
+        if (Object.keys(vesselTypeGroups)[i] === groupName) {
+          return i;
+        }
+      }
+      return null;
+    }).filter(id => id !== null);
+    
+    if (groupIds.length > 0) {
+      filterParams.typeGroups = groupIds.join(',');
+    }
   }
   
   socket.emit("requestSummary", JSON.stringify(filterParams));
@@ -1593,9 +1615,12 @@ function updateLegend() {
   sortedGroups.forEach(group => {
     const count = groupCounts[group].count;
     const color = groupCounts[group].color;
+    const groupId = group.replace(/\s+/g, '_').toLowerCase();
+    const checked = !activeTypeGroupFilters.length || activeTypeGroupFilters.includes(group) ? 'checked' : '';
     
     legendContent += `
       <div class="legend-item">
+        <input type="checkbox" id="type-group-${groupId}" class="type-group-checkbox" data-group="${group}" ${checked}>
         <svg width="20" height="50" viewBox="0 0 20 50" style="transform: rotate(0deg); transform-origin: center;">
           <path d="M5 45 L15 45 L15 30 Q10 5,5 30 Z" stroke="${color}" fill="${color}" stroke-width="2" />
         </svg>
@@ -4039,6 +4064,8 @@ setInterval(updateFocussedTooltip, 1000);
 // Call updateLegend periodically to keep the legend up to date
 // Update the legend periodically
 setInterval(updateLegend, 5000); // Update every 5 seconds
+// Array to store active type group filters
+let activeTypeGroupFilters = [];
 
 document.getElementById('toggle-legend').addEventListener('click', function() {
   const legend = document.getElementById('vessel-legend');
@@ -4051,6 +4078,41 @@ document.getElementById('toggle-legend').addEventListener('click', function() {
     this.textContent = 'Show Legend';
   }
 });
+
+// Add event listener for the "All" button
+document.getElementById('legend-all-button').addEventListener('click', function() {
+  // Clear all filters
+  activeTypeGroupFilters = [];
+  
+  // Update all checkboxes to checked
+  document.querySelectorAll('.type-group-checkbox').forEach(checkbox => {
+    checkbox.checked = true;
+  });
+  
+  // Send a new summary request without type group filters
+  sendSummaryRequest();
+});
+
+// Add event listener for the "Filter" button
+document.getElementById('legend-filter-button').addEventListener('click', function() {
+  // Get all checked type groups
+  activeTypeGroupFilters = [];
+  document.querySelectorAll('.type-group-checkbox:checked').forEach(checkbox => {
+    activeTypeGroupFilters.push(checkbox.dataset.group);
+  });
+  
+  // Send a new summary request with the selected type groups
+  sendSummaryRequest();
+});
+
+// Event delegation for type group checkboxes
+document.getElementById('legend-content').addEventListener('change', function(e) {
+  if (e.target.classList.contains('type-group-checkbox')) {
+    // Don't send request immediately - wait for Filter button
+    console.log(`Type group ${e.target.dataset.group} ${e.target.checked ? 'checked' : 'unchecked'}`);
+  }
+});
+
 
 
 
