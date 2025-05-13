@@ -572,6 +572,14 @@
       </div>
     </div>
   </div>
+  
+  <!-- Location map overlay -->
+  <div id="location-overlay" class="image-overlay">
+    <div class="overlay-content" style="width: 80%; height: 80%;">
+      <div class="close-overlay">&times;</div>
+      <div id="location-map" style="width: 100%; height: 100%; min-height: 400px;"></div>
+    </div>
+  </div>
 
   <div class="history-section">
     <div class="date-selector">
@@ -880,13 +888,33 @@
                 lastSeenTime = new Date(val);
                 return `${localTime} (${timeDiff})`;
               }
+            },
+            {
+              key: 'Location',
+              label: 'Last Location',
+              customValue: true,
+              format: () => {
+                // Check if Latitude and Longitude exist and are not null/empty
+                if (data.Latitude !== undefined && data.Latitude !== null &&
+                    data.Longitude !== undefined && data.Longitude !== null) {
+                  // Format coordinates with 5 decimal places
+                  const lat = parseFloat(data.Latitude).toFixed(5);
+                  const lon = parseFloat(data.Longitude).toFixed(5);
+                  
+                  // Create clickable link
+                  return `<a href="#" class="location-link" data-lat="${data.Latitude}" data-lon="${data.Longitude}" data-name="${data.Name || ''}" data-mmsi="${userID}">
+                    ${lat}, ${lon}
+                  </a>`;
+                }
+                return '';
+              }
             }
           ];
 
           // Add rows for each field if it exists and is not empty
           // Manually define which fields go in which table
           const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag'];
-          const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated'];
+          const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location'];
           
           // Process fields for left table
           fieldsToDisplay.filter(field => leftTableFields.includes(field.key)).forEach(field => {
@@ -942,11 +970,22 @@
               const valueCell = document.createElement('td');
               // For custom value fields, just call the format function directly
               if (field.customValue && field.format) {
-                valueCell.textContent = field.format();
+                if (field.key === 'Location') {
+                  // For location, we need to set innerHTML to make the link clickable
+                  valueCell.innerHTML = field.format();
+                } else {
+                  valueCell.textContent = field.format();
+                }
               } else {
                 // Otherwise use formatter function if provided, or use raw value
                 const value = data[field.key];
-                valueCell.textContent = field.format ? field.format(value) : (value || '');
+                const formattedValue = field.format ? field.format(value) : (value || '');
+                if (field.key === 'Location') {
+                  // For location, we need to set innerHTML to make the link clickable
+                  valueCell.innerHTML = formattedValue;
+                } else {
+                  valueCell.textContent = formattedValue;
+                }
               }
               row.appendChild(valueCell);
               
@@ -968,6 +1007,46 @@
           console.error('Error fetching vessel data:', err);
           document.getElementById('error').textContent = 'Failed to load vessel data.';
         });
+      // Add event listener for location links after vessel data is loaded
+      document.querySelectorAll('.location-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          
+          const lat = parseFloat(this.getAttribute('data-lat'));
+          const lon = parseFloat(this.getAttribute('data-lon'));
+          const name = this.getAttribute('data-name') || '';
+          const mmsi = this.getAttribute('data-mmsi');
+          
+          showLocationOverlay(lat, lon, name, mmsi);
+        });
+      });
+    }
+    
+    // Function to show location overlay with map
+    function showLocationOverlay(lat, lon, name, mmsi) {
+      // Show the overlay
+      document.getElementById('location-overlay').classList.add('active');
+      
+      // Initialize the map and store it in the window object for cleanup
+      window.locationMap = L.map('location-map').setView([lat, lon], 12);
+      
+      // Add base OpenStreetMap layer
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(window.locationMap);
+      
+      // Add OpenSeaMap layer
+      L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenSeaMap'
+      }).addTo(window.locationMap);
+      
+      // Create tooltip content
+      const tooltipContent = name ? `${name}<br>MMSI: ${mmsi}` : `MMSI: ${mmsi}`;
+      
+      // Add marker with permanent tooltip
+      L.marker([lat, lon])
+        .addTo(window.locationMap)
+        .bindTooltip(tooltipContent, {permanent: true, direction: 'top'});
     }
 
     // Fetch receivers data and populate the dropdown
@@ -3983,6 +4062,32 @@
         
         // Show results
         searchResults.style.display = 'block';
+      }
+    });
+    
+    // Initialize the page
+    initDateSelectors();
+    fetchReceiversData();
+    
+    // Add event listener for image overlay close button
+    document.querySelector('#image-overlay .close-overlay').addEventListener('click', function() {
+      document.getElementById('image-overlay').classList.remove('active');
+    });
+    
+    // Add event listener for vessel image click
+    document.getElementById('vessel-img').addEventListener('click', function() {
+      const overlay = document.getElementById('image-overlay');
+      document.getElementById('overlay-img').src = this.src;
+      overlay.classList.add('active');
+    });
+    
+    // Add event listener for location overlay close button
+    document.querySelector('#location-overlay .close-overlay').addEventListener('click', function() {
+      document.getElementById('location-overlay').classList.remove('active');
+      // If there's a map instance, destroy it to prevent memory leaks
+      if (window.locationMap) {
+        window.locationMap.remove();
+        window.locationMap = null;
       }
     });
   </script>
