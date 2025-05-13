@@ -1102,7 +1102,7 @@
         }).addTo(window.locationMap);
         
         // Use a circle marker instead of the default marker to avoid grid issues
-        L.circleMarker([lat, lon], {
+        const circleMarker = L.circleMarker([lat, lon], {
           radius: 8,
           fillColor: "#ff0000",
           color: "#000",
@@ -1110,6 +1110,34 @@
           opacity: 1,
           fillOpacity: 0.8
         }).addTo(window.locationMap);
+        
+        // Add tooltip with name in bold (if not empty) and MMSI underneath
+        let tooltipContent = '';
+        if (name && name.trim() !== '') {
+          tooltipContent += `<strong>${name}</strong><br>`;
+        }
+        tooltipContent += `${mmsi}`;
+        
+        circleMarker.bindTooltip(tooltipContent, {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -10],
+          className: 'location-tooltip'
+        }).openTooltip();
+        
+        // Add additional CSS for tooltip styling
+        customStyle.textContent += `
+          .location-tooltip {
+            background: white;
+            border: 1px solid #666;
+            border-radius: 3px;
+            padding: 3px 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            font-size: 12px;
+            white-space: nowrap;
+            text-align: center;
+          }
+        `;
         
         // Force a map resize to ensure it renders properly
         window.locationMap.invalidateSize();
