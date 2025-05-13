@@ -1284,8 +1284,9 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
 
 func searchHandler(w http.ResponseWriter, r *http.Request) {
     var requestBody struct {
-        Query  string `json:"query"`
-        MaxAge int    `json:"maxAge"`
+        Query      string `json:"query"`
+        MaxAge     *int   `json:"maxAge"`     // Using pointer to detect if field is missing
+        MaxResults int    `json:"maxResults"` // Optional parameter for limiting results
     }
 
     if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
@@ -1296,13 +1297,38 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Query must be at least 3 characters long", http.StatusBadRequest)
         return
     }
-    if requestBody.MaxAge > 168 {
-        requestBody.MaxAge = 168
+    
+    // Check if MaxAge is provided
+    if requestBody.MaxAge == nil {
+        http.Error(w, "MaxAge is a required field", http.StatusBadRequest)
+        return
+    }
+    
+    maxAge := *requestBody.MaxAge
+    
+    // No upper limit on MaxAge, just a sanity check for extremely large values
+    const maxPossibleAge = 87600 // 10 years in hours
+    if maxAge > maxPossibleAge {
+        maxAge = maxPossibleAge
+    }
+    
+    // Set default limit if not provided or if it's invalid
+    maxResults := requestBody.MaxResults
+    if maxResults <= 0 {
+        maxResults = 100 // Default limit
+    } else if maxResults > 1000 {
+        maxResults = 1000 // Maximum allowed limit
     }
 
     // compute the cutoff
     currentTime := time.Now()
-    cutoff := currentTime.Add(-time.Duration(requestBody.MaxAge) * time.Hour).UTC().Format(time.RFC3339)
+    var cutoff string
+    if maxAge == 0 {
+        // If MaxAge is 0, no time limit
+        cutoff = "1970-01-01T00:00:00Z" // Beginning of Unix epoch
+    } else {
+        cutoff = currentTime.Add(-time.Duration(maxAge) * time.Hour).UTC().Format(time.RFC3339)
+    }
 
     // build the query—note we now SELECT state.name and add an OR on state.name ILIKE
     query := fmt.Sprintf(`
@@ -1323,8 +1349,8 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
           )
           AND timestamp >= '%[2]s'
         ORDER BY timestamp ASC
-        LIMIT 100
-    `, requestBody.Query, cutoff)
+        LIMIT %[3]d
+    `, requestBody.Query, cutoff, maxResults)
 
     // then everything else stays the same...
     results, err := QueryDatabasesForAllShards(query)
