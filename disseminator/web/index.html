@@ -4200,27 +4200,33 @@ document.getElementById('legend-filter-button').addEventListener('click', functi
   console.log("Filters applied");
 });
 
-// Add a test button that sends a hardcoded types parameter for cargo ships
+// Add a test button that tries different approaches to filter cargo ships
 document.getElementById('test-cargo-filter').addEventListener('click', function() {
   const center = map.getCenter();
   const bounds = map.getBounds();
   const radius = center.distanceTo(bounds.getNorthEast()) * 1.5;
   const maxAge = parseInt(document.getElementById("age-slider").value, 10);
   
-  // Create a request with types parameter for cargo ships (70-79)
-  const testFilterParams = {
+  // Let's check how the original sendSummaryRequest function works
+  console.log("Examining original sendSummaryRequest function:");
+  
+  // Create a request that matches the format in the original code
+  const originalParams = {
     latitude: center.lat,
     longitude: center.lng,
     radius: radius,
     maxResults: 500,
-    maxAge: maxAge,
-    types: "70,71,72,73,74,75,76,77,78,79" // All cargo ship types
+    maxAge: maxAge
   };
   
-  console.log("Sending test filter with types parameter:", JSON.stringify(testFilterParams, null, 2));
+  // Check if we're stringifying the request in the original function
+  console.log("Original socket.emit code from sendSummaryRequest:");
+  console.log("socket.emit(\"requestSummary\", JSON.stringify(filterParams));");
   
-  // Send the request directly
-  socket.emit("requestSummary", testFilterParams);
+  // Try sending the request as a string (like in the original code)
+  const jsonString = JSON.stringify(originalParams);
+  console.log("Sending as JSON string:", jsonString);
+  socket.emit("requestSummary", jsonString);
   
   // For comparison, also make a direct HTTP request with typeGroups
   setTimeout(() => {
@@ -4230,6 +4236,15 @@ document.getElementById('test-cargo-filter').addEventListener('click', function(
       .then(response => response.json())
       .then(data => {
         console.log("HTTP request returned", Object.keys(data).length, "vessels");
+        
+        // Now try sending a WebSocket request with the exact same parameters as the HTTP request
+        const urlParams = new URLSearchParams(url.split('?')[1]);
+        const httpParams = {};
+        for (const [key, value] of urlParams.entries()) {
+          httpParams[key] = value;
+        }
+        console.log("Sending WebSocket request with exact same parameters as HTTP:", httpParams);
+        socket.emit("requestSummary", JSON.stringify(httpParams));
       })
       .catch(error => {
         console.error("HTTP request failed:", error);
