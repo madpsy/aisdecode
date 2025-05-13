@@ -2912,7 +2912,9 @@
       // Create info label
       const infoLabel = document.createElement('div');
       infoLabel.className = 'selection-info';
-      infoLabel.textContent = formatTimeRange(timeFilter.startTime, timeFilter.endTime);
+      // Count messages in the selected time range
+      const messageCount = countMessagesInTimeRange(timeFilter.startTime, timeFilter.endTime);
+      infoLabel.textContent = formatTimeRange(timeFilter.startTime, timeFilter.endTime, messageCount);
       selectionWindow.appendChild(infoLabel);
       
       // Add to container
@@ -2922,15 +2924,31 @@
       setupDragHandlers(container, leftHandle, rightHandle, startTime, endTime);
     }
     
-    // Format a time range for display
-    function formatTimeRange(start, end) {
+    // Format a time range for display with message count
+    function formatTimeRange(start, end, messageCount) {
       const formatOptions = {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
       };
-      return `${start.toLocaleString([], formatOptions)} - ${end.toLocaleString([], formatOptions)}`;
+      return `${start.toLocaleString([], formatOptions)} - ${end.toLocaleString([], formatOptions)}
+${messageCount} messages`;
+    }
+    
+    // Count messages in a specific time range
+    function countMessagesInTimeRange(start, end) {
+      if (!window.currentHistoryData) return 0;
+      
+      // Filter for position messages only
+      const positionMessageTypes = ['1', '2', '3', '18', '19'];
+      const messagesInRange = window.currentHistoryData.filter(msg => {
+        const msgTime = new Date(msg.Timestamp);
+        return msgTime >= start && msgTime <= end &&
+               positionMessageTypes.includes(msg.MessageID.toString());
+      });
+      
+      return messagesInRange.length;
     }
     
     // Setup drag handlers for the selection window handles
@@ -2972,8 +2990,10 @@
           }
         }
         
+        // Count messages in the selected time range
+        const messageCount = countMessagesInTimeRange(timeFilter.startTime, timeFilter.endTime);
         // Update info label
-        infoLabel.textContent = formatTimeRange(timeFilter.startTime, timeFilter.endTime);
+        infoLabel.textContent = formatTimeRange(timeFilter.startTime, timeFilter.endTime, messageCount);
       }
       
       // Function to end dragging
