@@ -528,7 +528,7 @@
   <!-- Packet details overlay -->
   <div id="packet-overlay" class="packet-overlay">
     <div class="overlay-content">
-      <div class="close-overlay">&times;</div>
+      <div class="close-overlay" style="cursor: pointer;">&times;</div>
       <div class="packet-content">
         <h4>Packet Details</h4>
         <div id="packet-json" class="packet-json"></div>
@@ -567,7 +567,7 @@
     <!-- Image overlay -->
     <div id="image-overlay" class="image-overlay">
       <div class="overlay-content">
-        <div class="close-overlay">&times;</div>
+        <div class="close-overlay" style="cursor: pointer;">&times;</div>
         <img id="overlay-img" src="" alt="Vessel Image Full Size">
       </div>
     </div>
@@ -576,7 +576,7 @@
   <!-- Location map overlay -->
   <div id="location-overlay" class="image-overlay">
     <div class="overlay-content" style="width: 80%; height: 80%; max-width: 1000px; max-height: 800px;">
-      <div class="close-overlay">&times;</div>
+      <div class="close-overlay" style="cursor: pointer; z-index: 3000;">&times;</div>
       <div id="location-map" style="width: 100%; height: 100%; min-height: 400px;"></div>
     </div>
   </div>
@@ -1028,10 +1028,7 @@
           attribution: '&copy; OpenStreetMap'
         }).addTo(window.locationMap);
         
-        // Add OpenSeaMap layer
-        L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenSeaMap'
-        }).addTo(window.locationMap);
+        // Removed OpenSeaMap layer to fix square boxes issue
         
         // Create tooltip content
         const tooltipContent = name ? `${name}<br>MMSI: ${mmsi}` : `MMSI: ${mmsi}`;
@@ -4079,9 +4076,12 @@
       overlay.classList.add('active');
     });
     
-    // Add event listener for location overlay close button
+    // Add event listener for location overlay close button - following the same pattern as other overlays
     document.querySelector('#location-overlay .close-overlay').addEventListener('click', function() {
-      document.getElementById('location-overlay').classList.remove('active');
+      const overlay = document.getElementById('location-overlay');
+      overlay.classList.remove('active');
+      overlay.style.display = 'none'; // Need to explicitly set display to none since we set it to flex in showLocationOverlay
+      
       // If there's a map instance, destroy it to prevent memory leaks
       if (window.locationMap) {
         window.locationMap.remove();
