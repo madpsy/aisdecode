@@ -320,7 +320,7 @@
 
 #slider-container {
   position: absolute;
-  bottom: 50px;
+  bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(255, 255, 255, 0.85);
@@ -332,6 +332,13 @@
   text-align: center;
   border: 2px solid #aaa;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Move slider container higher on narrow screens to prevent button overlap */
+@media screen and (max-width: 768px) {
+  #slider-container {
+    bottom: 50px;
+  }
 }
 
 #slider-container label {
