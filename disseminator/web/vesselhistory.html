@@ -291,52 +291,118 @@
     }
     
     /* Image overlay styles */
-    .image-overlay {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0, 0, 0, 0.8);
-      z-index: 2000;
-      justify-content: center;
-      align-items: center;
-    }
-    
-    .image-overlay.active {
-      display: flex;
-    }
-    
-    .overlay-content {
-      position: relative;
-      max-width: 90%;
-      max-height: 90%;
-    }
-    
-    .overlay-content img {
-      max-width: 100%;
-      max-height: 90vh;
-      border: 2px solid white;
-      box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-    }
-    
-    .close-overlay {
-      position: absolute;
-      top: -20px;
-      right: -20px;
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background-color: white;
-      color: black;
-      font-size: 24px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      cursor: pointer;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-    }
+        .image-overlay {
+          display: none;
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background-color: rgba(0, 0, 0, 0.8);
+          z-index: 2000;
+          justify-content: center;
+          align-items: center;
+        }
+        
+        .image-overlay.active {
+          display: flex;
+        }
+        
+        .overlay-content {
+          position: relative;
+          max-width: 90%;
+          max-height: 90%;
+        }
+        
+        .overlay-content img {
+          max-width: 100%;
+          max-height: 90vh;
+          border: 2px solid white;
+          box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        
+        .close-overlay {
+          position: absolute;
+          top: -20px;
+          right: -20px;
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          background-color: white;
+          color: black;
+          font-size: 24px;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          cursor: pointer;
+          box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        
+        /* Packet details overlay styles */
+        .packet-overlay {
+          display: none;
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background-color: rgba(0, 0, 0, 0.8);
+          z-index: 2000;
+          justify-content: center;
+          align-items: center;
+        }
+        
+        .packet-overlay.active {
+          display: flex;
+        }
+        
+        .packet-content {
+          position: relative;
+          background-color: white;
+          padding: 20px;
+          border-radius: 5px;
+          max-width: 90%;
+          max-height: 90%;
+          overflow-y: auto;
+          box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        
+        .packet-json {
+          margin-bottom: 15px;
+          overflow: auto;
+          max-height: 300px;
+        }
+        
+        .packet-json table {
+          border-collapse: collapse;
+          width: 100%;
+        }
+        
+        .packet-json th, .packet-json td {
+          border: 1px solid #ddd;
+          padding: 8px;
+          text-align: left;
+        }
+        
+        .packet-json th {
+          background-color: #f2f2f2;
+        }
+        
+        .raw-sentence {
+          background-color: #f5f5f5;
+          padding: 10px;
+          border-radius: 4px;
+          font-family: monospace;
+          white-space: pre-wrap;
+          word-break: break-all;
+          margin-bottom: 15px;
+        }
+        
+        .receiver-info {
+          padding: 10px;
+          background-color: #e8f4ff;
+          border-radius: 4px;
+        }
     
     #vessel-img {
       cursor: pointer;
@@ -380,6 +446,20 @@
       </svg>
       Copy Link
     </button>
+  </div>
+  
+  <!-- Packet details overlay -->
+  <div id="packet-overlay" class="packet-overlay">
+    <div class="packet-content">
+      <div class="close-overlay">&times;</div>
+      <h4>Packet Details</h4>
+      <div id="packet-json" class="packet-json"></div>
+      <div>
+        <h5>Raw Sentence</h5>
+        <pre id="raw-sentence" class="raw-sentence"></pre>
+      </div>
+      <div id="receiver-info" class="receiver-info"></div>
+    </div>
   </div>
 
   <div class="vessel-header">
@@ -1563,6 +1643,81 @@
       map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
     }
 
+    // Function to show packet details in overlay
+    function showPacketDetails(event) {
+      const timestamp = event.currentTarget.dataset.timestamp;
+      const record = JSON.parse(event.currentTarget.dataset.record);
+      
+      // Get the overlay elements
+      const overlay = document.getElementById('packet-overlay');
+      const jsonContainer = document.getElementById('packet-json');
+      const rawSentence = document.getElementById('raw-sentence');
+      const receiverInfo = document.getElementById('receiver-info');
+      
+      // Clear previous content
+      jsonContainer.innerHTML = '';
+      rawSentence.textContent = '';
+      receiverInfo.innerHTML = '';
+      
+      // Create a table for the packet JSON
+      const table = document.createElement('table');
+      
+      // Create table header
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      const keyHeader = document.createElement('th');
+      keyHeader.textContent = 'Field';
+      const valueHeader = document.createElement('th');
+      valueHeader.textContent = 'Value';
+      headerRow.appendChild(keyHeader);
+      headerRow.appendChild(valueHeader);
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      
+      // Create table body
+      const tbody = document.createElement('tbody');
+      
+      // Flatten the packet for display
+      const flatPacket = flatten(record.Packet);
+      
+      // Add rows for each field in the packet
+      Object.entries(flatPacket).forEach(([key, value]) => {
+        const row = document.createElement('tr');
+        const keyCell = document.createElement('td');
+        keyCell.textContent = key;
+        const valueCell = document.createElement('td');
+        valueCell.textContent = value;
+        row.appendChild(keyCell);
+        row.appendChild(valueCell);
+        tbody.appendChild(row);
+      });
+      
+      table.appendChild(tbody);
+      jsonContainer.appendChild(table);
+      
+      // Set the raw sentence if available
+      if (record.RawSentence) {
+        rawSentence.textContent = record.RawSentence;
+      } else {
+        rawSentence.textContent = 'No raw sentence available';
+      }
+      
+      // Set receiver information if available
+      if (record.ReceiverID && receiversData.length > 0) {
+        const receiver = receiversData.find(r => r.id === record.ReceiverID);
+        if (receiver) {
+          receiverInfo.innerHTML = `<strong>Receiver:</strong> ${receiver.name} (ID: ${receiver.id})`;
+        } else {
+          receiverInfo.innerHTML = `<strong>Receiver ID:</strong> ${record.ReceiverID} (Name not found)`;
+        }
+      } else {
+        receiverInfo.innerHTML = 'No receiver information available';
+      }
+      
+      // Show the overlay
+      overlay.classList.add('active');
+    }
+    
     // Track changes in destination and navigational status
     function trackChanges(historyData) {
       if (!historyData || !historyData.length) {
@@ -1642,7 +1797,8 @@
               timestamp,
               from: lastDestination,
               to: currentDestination,
-              eta: etaStr
+              eta: etaStr,
+              record: record
             });
           }
           lastDestination = currentDestination;
@@ -1655,7 +1811,8 @@
             statusChanges.push({
               timestamp,
               from: lastStatus,
-              to: currentStatus
+              to: currentStatus,
+              record: record
             });
           }
           lastStatus = currentStatus;
@@ -1674,7 +1831,14 @@
           const row = document.createElement('tr');
           
           const timeCell = document.createElement('td');
-          timeCell.textContent = new Date(change.timestamp).toLocaleString();
+          const timeText = new Date(change.timestamp).toLocaleString();
+          timeCell.textContent = timeText;
+          timeCell.style.cursor = 'pointer';
+          timeCell.style.color = '#0066cc';
+          timeCell.style.textDecoration = 'underline';
+          timeCell.dataset.timestamp = change.timestamp;
+          timeCell.dataset.record = JSON.stringify(change.record);
+          timeCell.addEventListener('click', showPacketDetails);
           row.appendChild(timeCell);
           
           const fromCell = document.createElement('td');
@@ -1699,7 +1863,14 @@
           const row = document.createElement('tr');
           
           const timeCell = document.createElement('td');
-          timeCell.textContent = new Date(firstStaticRecord.Timestamp).toLocaleString();
+          const timeText = new Date(firstStaticRecord.Timestamp).toLocaleString();
+          timeCell.textContent = timeText;
+          timeCell.style.cursor = 'pointer';
+          timeCell.style.color = '#0066cc';
+          timeCell.style.textDecoration = 'underline';
+          timeCell.dataset.timestamp = firstStaticRecord.Timestamp;
+          timeCell.dataset.record = JSON.stringify(firstStaticRecord);
+          timeCell.addEventListener('click', showPacketDetails);
           row.appendChild(timeCell);
           
           const fromCell = document.createElement('td');
@@ -1750,7 +1921,14 @@
           const row = document.createElement('tr');
           
           const timeCell = document.createElement('td');
-          timeCell.textContent = new Date(change.timestamp).toLocaleString();
+          const timeText = new Date(change.timestamp).toLocaleString();
+          timeCell.textContent = timeText;
+          timeCell.style.cursor = 'pointer';
+          timeCell.style.color = '#0066cc';
+          timeCell.style.textDecoration = 'underline';
+          timeCell.dataset.timestamp = change.timestamp;
+          timeCell.dataset.record = JSON.stringify(change.record);
+          timeCell.addEventListener('click', showPacketDetails);
           row.appendChild(timeCell);
           
           const fromCell = document.createElement('td');
@@ -1768,7 +1946,14 @@
         const row = document.createElement('tr');
         
         const timeCell = document.createElement('td');
-        timeCell.textContent = new Date(firstPositionRecord.Timestamp).toLocaleString();
+        const timeText = new Date(firstPositionRecord.Timestamp).toLocaleString();
+        timeCell.textContent = timeText;
+        timeCell.style.cursor = 'pointer';
+        timeCell.style.color = '#0066cc';
+        timeCell.style.textDecoration = 'underline';
+        timeCell.dataset.timestamp = firstPositionRecord.Timestamp;
+        timeCell.dataset.record = JSON.stringify(firstPositionRecord);
+        timeCell.addEventListener('click', showPacketDetails);
         row.appendChild(timeCell);
         
         const fromCell = document.createElement('td');
@@ -2050,6 +2235,18 @@
       imageOverlay.addEventListener('click', (e) => {
         if (e.target === imageOverlay) {
           imageOverlay.classList.remove('active');
+        }
+      });
+      
+      // Setup packet overlay close functionality
+      document.querySelector('#packet-overlay .close-overlay').addEventListener('click', () => {
+        document.getElementById('packet-overlay').classList.remove('active');
+      });
+      
+      // Close packet overlay when clicking outside the content
+      document.getElementById('packet-overlay').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('packet-overlay')) {
+          document.getElementById('packet-overlay').classList.remove('active');
         }
       });
       
