@@ -4169,9 +4169,220 @@
       }
     });
     
+    // Auto-refresh vessel data every 60 seconds
+    let autoRefreshInterval = null;
+    
+    function startAutoRefresh() {
+      // Clear any existing interval
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+      }
+      
+      // Set up new interval to refresh vessel data every 60 seconds
+      autoRefreshInterval = setInterval(() => {
+        console.log('Auto-refreshing vessel data...');
+        
+        // Fetch latest vessel data
+        fetch(`/state?UserID=${userID}`, { cache: 'no-store' })
+          .then(response => response.json())
+          .then(data => {
+            console.log('Vessel data refreshed');
+            
+            // Update vessel info tables
+            updateVesselTables(data);
+            
+            // Update last seen time
+            if (data.LastUpdated) {
+              lastSeenTime = new Date(data.LastUpdated);
+            }
+          })
+          .catch(err => {
+            console.error('Error auto-refreshing vessel data:', err);
+          });
+      }, 10000); // 10 seconds
+      
+      console.log('Auto-refresh started');
+    }
+    
+    // Function to update just the vessel tables without reloading everything
+    function updateVesselTables(data) {
+      // Update page title with vessel name if available
+      if (data.Name) {
+        document.getElementById('main-title').textContent = `${data.Name.trim()}`;
+      }
+      
+      // Update vessel image if available
+      if (data.ImageURL) {
+        const vesselImg = document.getElementById('vessel-img');
+        vesselImg.src = data.ImageURL;
+        vesselImg.style.display = 'block';
+      }
+      
+      // Clear existing rows
+      const leftTableBody = document.querySelector('#vessel-table-left tbody');
+      const rightTableBody = document.querySelector('#vessel-table-right tbody');
+      leftTableBody.innerHTML = '';
+      rightTableBody.innerHTML = '';
+      
+      // Fields to display (if available)
+      const fieldsToDisplay = [
+        { key: 'UserID', label: 'MMSI' },
+        { key: 'Name', label: 'Name' },
+        { key: 'CallSign', label: 'Call Sign' },
+        {
+          key: 'ImoNumber',
+          label: 'IMO Number',
+          checkValue: (val) => val !== undefined && val !== null && val !== '' && val !== 0
+        },
+        { key: 'AISClass', label: 'AIS Class' },
+        { key: 'Type', label: 'Type', format: (val) => lookupShipType(val) },
+        {
+          key: 'Flag',
+          label: 'Flag',
+          customValue: true,
+          format: () => {
+            const mid = userID.toString().substring(0, 3);
+            if (midsMapping[mid] && midsMapping[mid][3]) {
+              return midsMapping[mid][3];
+            }
+            return 'Unknown';
+          }
+        },
+        { key: 'NavigationalStatus', label: 'Status', format: (val) => lookupNavStatus(val) },
+        { key: 'Destination', label: 'Destination' },
+        {
+          key: 'MaximumStaticDraught',
+          label: 'Max Draught',
+          format: (val) => val ? `${val} m` : '',
+          checkValue: (val) => val !== undefined && val !== null && val !== '' && val !== 0
+        },
+        {
+          key: 'Dimension',
+          label: 'Dimension',
+          format: (val) => {
+            if (!val || typeof val !== 'object') return '';
+            const length = (val.A || 0) + (val.B || 0);
+            const width = (val.C || 0) + (val.D || 0);
+            return `${length}m × ${width}m`;
+          }
+        },
+        {
+          key: 'LastUpdated',
+          label: 'Last Seen',
+          format: (val) => {
+            const localTime = new Date(val).toLocaleString();
+            const timeDiff = formatTimeDifference(val);
+            lastSeenTime = new Date(val);
+            return `${localTime} (${timeDiff})`;
+          }
+        },
+        {
+          key: 'Location',
+          label: 'Last Location',
+          customValue: true,
+          format: () => {
+            if (data.Latitude !== undefined && data.Latitude !== null &&
+                data.Longitude !== undefined && data.Longitude !== null) {
+              const lat = parseFloat(data.Latitude).toFixed(5);
+              const lon = parseFloat(data.Longitude).toFixed(5);
+              return `<a href="#" class="location-link" data-lat="${data.Latitude}" data-lon="${data.Longitude}" data-name="${data.Name || ''}" data-mmsi="${userID}">${lat}, ${lon}</a>`;
+            }
+            return '';
+          }
+        }
+      ];
+      
+      // Process fields for left and right tables
+      const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag'];
+      const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location'];
+      
+      // Add rows for left table
+      fieldsToDisplay.filter(field => leftTableFields.includes(field.key)).forEach(field => {
+        const shouldDisplay = field.customValue ||
+                             field.key === 'NavigationalStatus' ||
+                             (field.checkValue ? field.checkValue(data[field.key]) :
+                              (data[field.key] !== undefined &&
+                               data[field.key] !== null &&
+                               data[field.key] !== ''));
+        
+        if (shouldDisplay) {
+          const row = document.createElement('tr');
+          
+          const labelCell = document.createElement('td');
+          labelCell.textContent = field.label;
+          labelCell.style.fontWeight = 'bold';
+          row.appendChild(labelCell);
+          
+          const valueCell = document.createElement('td');
+          if (field.customValue && field.format) {
+            valueCell.textContent = field.format();
+          } else {
+            const value = data[field.key];
+            valueCell.textContent = field.format ? field.format(value) : (value || '');
+          }
+          row.appendChild(valueCell);
+          
+          leftTableBody.appendChild(row);
+        }
+      });
+      
+      // Add rows for right table
+      fieldsToDisplay.filter(field => rightTableFields.includes(field.key)).forEach(field => {
+        const shouldDisplay = field.customValue ||
+                             field.key === 'NavigationalStatus' ||
+                             (field.checkValue ? field.checkValue(data[field.key]) :
+                              (data[field.key] !== undefined &&
+                               data[field.key] !== null &&
+                               data[field.key] !== ''));
+        
+        if (shouldDisplay) {
+          const row = document.createElement('tr');
+          
+          const labelCell = document.createElement('td');
+          labelCell.textContent = field.label;
+          labelCell.style.fontWeight = 'bold';
+          row.appendChild(labelCell);
+          
+          const valueCell = document.createElement('td');
+          if (field.customValue && field.format) {
+            if (field.key === 'Location') {
+              valueCell.innerHTML = field.format();
+            } else {
+              valueCell.textContent = field.format();
+            }
+          } else {
+            const value = data[field.key];
+            const formattedValue = field.format ? field.format(value) : (value || '');
+            if (field.key === 'Location') {
+              valueCell.innerHTML = formattedValue;
+            } else {
+              valueCell.textContent = formattedValue;
+            }
+          }
+          row.appendChild(valueCell);
+          
+          rightTableBody.appendChild(row);
+        }
+      });
+      
+      // If no data was added to either table
+      if (leftTableBody.children.length === 0 && rightTableBody.children.length === 0) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 2;
+        cell.textContent = 'No vessel information available';
+        row.appendChild(cell);
+        leftTableBody.appendChild(row);
+      }
+    }
+    
     // Initialize the page
     initDateSelectors();
     fetchReceiversData();
+    loadVesselData();
+    
+    // Start auto-refresh after initial load
+    startAutoRefresh();
     
     // Add event listener for image overlay close button
     document.querySelector('#image-overlay .close-overlay').addEventListener('click', function() {
