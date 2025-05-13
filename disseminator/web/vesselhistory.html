@@ -1123,10 +1123,9 @@
 
     // Helper to format one point's tooltip HTML
     function makeTooltipHTML(pt) {
-      const timestamp = new Date(pt.timestamp).toLocaleString();
-      let html = `<strong>${timestamp}</strong><br/>`;
-      html += `<strong>Latitude:</strong> ${pt.lat.toFixed(6)}<br/>`;
-      html += `<strong>Longitude:</strong> ${pt.lng.toFixed(6)}<br/>`;
+      // Start with position (without timestamp)
+      let html = `<strong>Lat:</strong> ${pt.lat.toFixed(6)}<br/>`;
+      html += `<strong>Lon:</strong> ${pt.lng.toFixed(6)}<br/>`;
       
       // Add other interesting fields if available
       const fields = ['Sog', 'Cog', 'TrueHeading', 'NavigationalStatus', 'Destination'];
@@ -1146,9 +1145,16 @@
             displayField = 'Heading';
             value = `${value}°`;
           } else if (field === 'NavigationalStatus') {
-            displayField = 'Status';
+            // For NavigationalStatus, just show the value without a label
             if (navStatusMapping[value]) {
-              value = navStatusMapping[value];
+              html += `${navStatusMapping[value]}`;
+              // Add line break if this isn't the last field with data
+              const isLastFieldWithData = index === filteredFields.length - 1 ||
+                filteredFields.slice(index + 1).every(nextField => pt.data[nextField] == null);
+              if (!isLastFieldWithData) {
+                html += '<br/>';
+              }
+              return; // Skip the rest of this iteration
             }
           } else if (field === 'Sog') {
             displayField = 'Speed';
@@ -1158,15 +1164,18 @@
             value = `${value}°`;
           }
           
-          html += `<strong>${displayField}:</strong> ${value}`;
-          
-          // Add line break after each field except the last one
-          // Only add a line break if this isn't the last field with data
-          const isLastFieldWithData = index === filteredFields.length - 1 ||
-            filteredFields.slice(index + 1).every(nextField => pt.data[nextField] == null);
-          
-          if (!isLastFieldWithData) {
-            html += '<br/>';
+          // Only add the field if it's not NavigationalStatus (which was handled above)
+          if (field !== 'NavigationalStatus') {
+            html += `<strong>${displayField}:</strong> ${value}`;
+            
+            // Add line break after each field except the last one
+            // Only add a line break if this isn't the last field with data
+            const isLastFieldWithData = index === filteredFields.length - 1 ||
+              filteredFields.slice(index + 1).every(nextField => pt.data[nextField] == null);
+            
+            if (!isLastFieldWithData) {
+              html += '<br/>';
+            }
           }
         }
       });
@@ -1291,7 +1300,7 @@
                 const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
                 
                 // Add receiver info to tooltip with proper formatting
-                html += `<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
+                html += `<br/><strong>via:</strong> ${receiver.name} (${distanceKm} km)`;
                 
                 // Clear previous connection lines
                 connectionLayerGroup.clearLayers();
@@ -3072,7 +3081,7 @@
               const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
               
               // Add receiver info to tooltip with proper formatting
-              tooltipContent += `<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
+              tooltipContent += `<br/><strong>via:</strong> ${receiver.name} (${distanceKm} km)`;
             }
           }
         } catch (e) {
@@ -3218,7 +3227,7 @@
                     const distanceKm = (pointLatLng.distanceTo(receiverLatLng) / 1000).toFixed(2);
                     
                     // Add receiver info to overlay with proper formatting
-                    tooltipContent += `<br/><strong>Receiver:</strong> ${receiver.name} (${distanceKm} km)`;
+                    tooltipContent += `<br/><strong>via:</strong> ${receiver.name} (${distanceKm} km)`;
                   }
                 }
                 
