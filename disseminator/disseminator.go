@@ -2381,7 +2381,7 @@ func setupServer(settings *Settings) {
 	    }
 	    
 	    // Log the parameters for debugging
-	    log.Printf("[requestSummary] Client %s requested with params: lat=%.6f, lon=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s, typeGroups=%s",
+	    // log.Printf("[requestSummary] Client %s requested with params: lat=%.6f, lon=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s, typeGroups=%s",
 	        client.Id(), lat, lon, radius, maxResults, maxAge, minSpeed, userID, types, typeGroups)
 
 	    // 3) Build FilterParams (LastUpdated will gate the next tick)
