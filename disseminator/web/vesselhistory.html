@@ -1126,13 +1126,80 @@
       return L.layerGroup(segments);
     }
 
-    // Helper to format one point's tooltip HTML
+    // Helper to format one point's tooltip HTML for replay overlay
     function makeTooltipHTML(pt) {
+      // Check for invalid coordinates (91, 181)
+      if (pt.lat === 91 && pt.lng === 181) {
+        return 'Invalid position data';
+      }
+      
       let html = '';
       
       // Start with navigational status if available
       if (pt.data.NavigationalStatus != null && navStatusMapping[pt.data.NavigationalStatus]) {
         html += `${navStatusMapping[pt.data.NavigationalStatus]}<br/>`;
+      }
+      
+      // Add position
+      html += `<strong>Lat:</strong> ${pt.lat.toFixed(6)}<br/>`;
+      html += `<strong>Lon:</strong> ${pt.lng.toFixed(6)}<br/>`;
+      
+      // Add other interesting fields if available
+      const fields = ['Sog', 'Cog', 'TrueHeading', 'Destination'];
+      
+      // Create a filtered list of fields, excluding TrueHeading if it's 511
+      const filteredFields = fields.filter(field =>
+        !(field === 'TrueHeading' && pt.data[field] === 511)
+      );
+      
+      filteredFields.forEach((field, index) => {
+        if (pt.data[field] != null) {
+          let value = pt.data[field];
+          let displayField = field;
+          
+          // Rename fields for display and format values
+          if (field === 'TrueHeading') {
+            displayField = 'Heading';
+            value = `${value}°`;
+          } else if (field === 'Sog') {
+            displayField = 'Speed';
+            value = `${value} kn`;
+          } else if (field === 'Cog') {
+            displayField = 'Course';
+            value = `${value}°`;
+          }
+          
+          html += `<strong>${displayField}:</strong> ${value}`;
+          
+          // Add line break after each field except the last one
+          // Only add a line break if this isn't the last field with data
+          const isLastFieldWithData = index === filteredFields.length - 1 ||
+            filteredFields.slice(index + 1).every(nextField => pt.data[nextField] == null);
+          
+          if (!isLastFieldWithData) {
+            html += '<br/>';
+          }
+        }
+      });
+      
+      return html;
+    }
+    
+    // Helper to format one point's tooltip HTML specifically for polyline tooltips
+    function makePolylineTooltipHTML(pt) {
+      // Check for invalid coordinates (91, 181)
+      if (pt.lat === 91 && pt.lng === 181) {
+        return 'Invalid position data';
+      }
+      
+      let html = '';
+      
+      // Start with timestamp (no label)
+      html += `${new Date(pt.timestamp).toLocaleString()}<br/>`;
+      
+      // Add navigational status with 'Status' label if available
+      if (pt.data.NavigationalStatus != null && navStatusMapping[pt.data.NavigationalStatus]) {
+        html += `<strong>Status:</strong> ${navStatusMapping[pt.data.NavigationalStatus]}<br/>`;
       }
       
       // Add position
@@ -1282,8 +1349,15 @@
           });
           
           if (nearestPoint) {
+            // Check for invalid coordinates (91, 181)
+            if (nearestPoint.lat === 91 && nearestPoint.lng === 181) {
+              segment.setTooltipContent('Invalid position data');
+              segment.openTooltip(e.latlng);
+              return;
+            }
+            
             // Use let instead of const for html variable to allow modification
-            let html = makeTooltipHTML(nearestPoint);
+            let html = makePolylineTooltipHTML(nearestPoint);
             
             // Check if the record has a ReceiverID
             const receiverId = nearestPoint.record.ReceiverID;
@@ -2633,7 +2707,14 @@
           });
           
           if (nearestPoint) {
-            let html = makeTooltipHTML(nearestPoint);
+            // Check for invalid coordinates (91, 181)
+            if (nearestPoint.lat === 91 && nearestPoint.lng === 181) {
+              segment.setTooltipContent('Invalid position data');
+              segment.openTooltip(e.latlng);
+              return;
+            }
+            
+            let html = makePolylineTooltipHTML(nearestPoint);
             
             // Clear previous connection lines
             connectionLayerGroup.clearLayers();
