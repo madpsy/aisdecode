@@ -14,6 +14,56 @@
       font-family: sans-serif;
       margin: 2rem;
     }
+    /* Search styles */
+    .search-container {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .search-icon {
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    .search-box {
+      display: none;
+      position: relative;
+    }
+    .search-input {
+      padding: 5px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: 250px;
+    }
+    .search-results {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      width: 100%;
+      max-height: 300px;
+      overflow-y: auto;
+      background-color: white;
+      border: 1px solid #ccc;
+      border-top: none;
+      border-radius: 0 0 4px 4px;
+      z-index: 1000;
+      display: none;
+    }
+    .search-result-item {
+      padding: 8px 12px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+    }
+    .search-result-item:hover {
+      background-color: #f5f5f5;
+    }
+    .search-result-item:last-child {
+      border-bottom: none;
+    }
+    .title-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
     /* Selection window styles for histogram */
     #message-histogram {
       position: relative;
@@ -452,14 +502,27 @@
 </head>
 <body>
   <div style="display: flex; justify-content: space-between; align-items: center;">
-    <h1 id="main-title">Vessel History</h1>
-    <button id="copy-link-btn" class="btn btn-sm btn-outline-secondary">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-link-45deg" viewBox="0 0 16 16">
-        <path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/>
-        <path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243L6.586 4.672z"/>
-      </svg>
-      Copy Link
-    </button>
+    <div class="title-container">
+      <h1 id="main-title">Vessel History</h1>
+      <button id="copy-link-btn" class="btn btn-sm btn-outline-secondary">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-link-45deg" viewBox="0 0 16 16">
+          <path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/>
+          <path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243L6.586 4.672z"/>
+        </svg>
+        Copy Link
+      </button>
+    </div>
+    <div class="search-container">
+      <div class="search-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16">
+          <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+        </svg>
+      </div>
+      <div class="search-box">
+        <input type="text" class="search-input" placeholder="Search vessels...">
+        <div class="search-results"></div>
+      </div>
+    </div>
   </div>
   
   <!-- Packet details overlay -->
@@ -3801,6 +3864,126 @@
           console.error('Error fetching vessel data for receiver markers:', err);
         });
     }
+    
+    // Search functionality
+    document.addEventListener('DOMContentLoaded', function() {
+      const searchIcon = document.querySelector('.search-icon');
+      const searchBox = document.querySelector('.search-box');
+      const searchInput = document.querySelector('.search-input');
+      const searchResults = document.querySelector('.search-results');
+      let searchTimeout = null;
+      
+      // Toggle search box visibility when clicking the search icon
+      searchIcon.addEventListener('click', function() {
+        const isVisible = searchBox.style.display === 'block';
+        searchBox.style.display = isVisible ? 'none' : 'block';
+        if (!isVisible) {
+          searchInput.focus();
+        } else {
+          searchResults.style.display = 'none';
+        }
+      });
+      
+      // Close search results when clicking outside
+      document.addEventListener('click', function(event) {
+        if (!event.target.closest('.search-container')) {
+          searchResults.style.display = 'none';
+        }
+      });
+      
+      // Handle search input
+      searchInput.addEventListener('input', function() {
+        const query = this.value.trim();
+        
+        // Clear previous timeout
+        if (searchTimeout) {
+          clearTimeout(searchTimeout);
+        }
+        
+        // Hide results if query is too short
+        if (query.length < 3) {
+          searchResults.style.display = 'none';
+          return;
+        }
+        
+        // Set a small delay to avoid sending too many requests
+        searchTimeout = setTimeout(() => {
+          performSearch(query);
+        }, 300);
+      });
+      
+      // Perform search request
+      function performSearch(query) {
+        fetch('/search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            query: query,
+            maxAge: 0,
+            maxResults: 100
+          })
+        })
+        .then(response => response.json())
+        .then(results => {
+          displaySearchResults(results);
+        })
+        .catch(error => {
+          console.error('Search error:', error);
+        });
+      }
+      
+      // Display search results
+      function displaySearchResults(results) {
+        // Clear previous results
+        searchResults.innerHTML = '';
+        
+        if (results.length === 0) {
+          const noResults = document.createElement('div');
+          noResults.className = 'search-result-item';
+          noResults.textContent = 'No results found';
+          searchResults.appendChild(noResults);
+        } else {
+          results.forEach(result => {
+            const item = document.createElement('div');
+            item.className = 'search-result-item';
+            
+            // Format the last updated time
+            const lastUpdated = new Date(result.LastUpdated);
+            const timeAgo = formatTimeDifference(result.LastUpdated);
+            const formattedTime = lastUpdated.toLocaleString();
+            
+            // Create content with all required fields
+            let content = `<strong>${result.Name}</strong>`;
+            content += `<br>MMSI: ${result.UserID}`;
+            
+            if (result.CallSign && result.CallSign !== "") {
+              content += `<br>Call Sign: ${result.CallSign}`;
+            }
+            
+            if (result.ImoNumber && result.ImoNumber !== 0) {
+              content += `<br>IMO: ${result.ImoNumber}`;
+            }
+            
+            content += `<br>Seen: ${formattedTime} (${timeAgo})`;
+            content += `<br>Messages: ${result.NumMessages}`;
+            
+            item.innerHTML = content;
+            
+            // Add click event to load vessel history
+            item.addEventListener('click', function() {
+              window.location.href = `?UserID=${result.UserID}`;
+            });
+            
+            searchResults.appendChild(item);
+          });
+        }
+        
+        // Show results
+        searchResults.style.display = 'block';
+      }
+    });
   </script>
 </body>
 </html>
