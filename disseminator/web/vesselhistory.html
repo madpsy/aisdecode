@@ -355,7 +355,7 @@
         }
         
         .image-overlay.active {
-          display: flex;
+          display: flex !important;
         }
         
         .overlay-content {
@@ -575,7 +575,7 @@
   
   <!-- Location map overlay -->
   <div id="location-overlay" class="image-overlay">
-    <div class="overlay-content" style="width: 80%; height: 80%;">
+    <div class="overlay-content" style="width: 80%; height: 80%; max-width: 1000px; max-height: 800px;">
       <div class="close-overlay">&times;</div>
       <div id="location-map" style="width: 100%; height: 100%; min-height: 400px;"></div>
     </div>
@@ -901,10 +901,8 @@
                   const lat = parseFloat(data.Latitude).toFixed(5);
                   const lon = parseFloat(data.Longitude).toFixed(5);
                   
-                  // Create clickable link
-                  return `<a href="#" class="location-link" data-lat="${data.Latitude}" data-lon="${data.Longitude}" data-name="${data.Name || ''}" data-mmsi="${userID}">
-                    ${lat}, ${lon}
-                  </a>`;
+                  // Create clickable link - make sure it's a simple inline element without line breaks
+                  return `<a href="#" class="location-link" data-lat="${data.Latitude}" data-lon="${data.Longitude}" data-name="${data.Name || ''}" data-mmsi="${userID}">${lat}, ${lon}</a>`;
                 }
                 return '';
               }
@@ -1007,46 +1005,46 @@
           console.error('Error fetching vessel data:', err);
           document.getElementById('error').textContent = 'Failed to load vessel data.';
         });
-      // Add event listener for location links after vessel data is loaded
-      document.querySelectorAll('.location-link').forEach(link => {
-        link.addEventListener('click', function(e) {
-          e.preventDefault();
-          
-          const lat = parseFloat(this.getAttribute('data-lat'));
-          const lon = parseFloat(this.getAttribute('data-lon'));
-          const name = this.getAttribute('data-name') || '';
-          const mmsi = this.getAttribute('data-mmsi');
-          
-          showLocationOverlay(lat, lon, name, mmsi);
-        });
-      });
+      // We'll use event delegation for location links since they're created dynamically
+      // This event listener will be added at the end of the script
     }
     
     // Function to show location overlay with map
     function showLocationOverlay(lat, lon, name, mmsi) {
+      console.log('Opening location overlay:', lat, lon, name, mmsi);
+      
       // Show the overlay
-      document.getElementById('location-overlay').classList.add('active');
+      const overlay = document.getElementById('location-overlay');
+      overlay.classList.add('active');
+      overlay.style.display = 'flex';
       
-      // Initialize the map and store it in the window object for cleanup
-      window.locationMap = L.map('location-map').setView([lat, lon], 12);
+      // Give the browser a moment to display the overlay before initializing the map
+      setTimeout(() => {
+        // Initialize the map and store it in the window object for cleanup
+        window.locationMap = L.map('location-map').setView([lat, lon], 12);
+        
+        // Add base OpenStreetMap layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap'
+        }).addTo(window.locationMap);
+        
+        // Add OpenSeaMap layer
+        L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenSeaMap'
+        }).addTo(window.locationMap);
+        
+        // Create tooltip content
+        const tooltipContent = name ? `${name}<br>MMSI: ${mmsi}` : `MMSI: ${mmsi}`;
+        
+        // Add marker with permanent tooltip
+        L.marker([lat, lon])
+          .addTo(window.locationMap)
+          .bindTooltip(tooltipContent, {permanent: true, direction: 'top'});
+          
+        // Force a map resize to ensure it renders properly
+        window.locationMap.invalidateSize();
+      }, 100);
       
-      // Add base OpenStreetMap layer
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap'
-      }).addTo(window.locationMap);
-      
-      // Add OpenSeaMap layer
-      L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenSeaMap'
-      }).addTo(window.locationMap);
-      
-      // Create tooltip content
-      const tooltipContent = name ? `${name}<br>MMSI: ${mmsi}` : `MMSI: ${mmsi}`;
-      
-      // Add marker with permanent tooltip
-      L.marker([lat, lon])
-        .addTo(window.locationMap)
-        .bindTooltip(tooltipContent, {permanent: true, direction: 'top'});
     }
 
     // Fetch receivers data and populate the dropdown
@@ -4088,6 +4086,23 @@
       if (window.locationMap) {
         window.locationMap.remove();
         window.locationMap = null;
+      }
+    });
+    
+    // Use event delegation for location links since they're created dynamically
+    document.addEventListener('click', function(e) {
+      // Check if the clicked element is a location link or a child of a location link
+      const locationLink = e.target.closest('.location-link');
+      if (locationLink) {
+        console.log('Location link clicked:', locationLink);
+        e.preventDefault();
+        
+        const lat = parseFloat(locationLink.getAttribute('data-lat'));
+        const lon = parseFloat(locationLink.getAttribute('data-lon'));
+        const name = locationLink.getAttribute('data-name') || '';
+        const mmsi = locationLink.getAttribute('data-mmsi');
+        
+        showLocationOverlay(lat, lon, name, mmsi);
       }
     });
   </script>
