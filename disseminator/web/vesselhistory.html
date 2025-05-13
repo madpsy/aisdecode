@@ -183,11 +183,24 @@
     /* Adjust vessel header layout on narrower screens */
     @media (max-width: 992px) {
       .vessel-header {
-        align-items: center;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: flex-start;
       }
       
       .flag-container {
-        align-self: flex-start;
+        order: 1;
+        margin-top: 0.5rem;
+      }
+      
+      .vessel-info {
+        order: 2;
+        width: calc(100% - 100px); /* Account for flag width + margin */
+      }
+      
+      .vessel-header > div:last-child {
+        order: 3;
+        width: 100%;
       }
     }
     
@@ -202,6 +215,7 @@
     @media (max-width: 992px) {
       .vessel-info {
         margin-top: 0;
+        padding-left: 0.5rem;
       }
     }
     
@@ -236,12 +250,20 @@
     @media (max-width: 992px) {
       .flag-container {
         margin-right: 1rem;
+        align-self: center;
       }
     }
     .flag-img {
       width: 80px;
       height: auto;
       border: 1px solid #ddd;
+    }
+    
+    /* Adjust flag size on narrower screens */
+    @media (max-width: 992px) {
+      .flag-img {
+        width: 60px;
+      }
     }
     .vessel-info {
       flex-grow: 1;
