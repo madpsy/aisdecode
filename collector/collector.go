@@ -650,6 +650,10 @@ func createIndexesIfNotExist(db *sql.DB) {
         `CREATE INDEX IF NOT EXISTS idx_state_namecol_trgm 
             ON state 
             USING GIN (name gin_trgm_ops);`,
+            
+        // Add index for the Type field to optimize the new type filter
+        `CREATE INDEX IF NOT EXISTS idx_state_type
+            ON state ((packet->>'Type')::float);`,
     }
 
     for _, s := range stmts {
