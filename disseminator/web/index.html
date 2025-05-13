@@ -547,7 +547,7 @@
         <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Legend</button>
     </div>
 
-    <div id="vessel-legend" style="display: none; position: absolute; top: 200px; right: 5px; background: rgba(255, 255, 255, 0.75); border: 2px solid #aaa; border-radius: 8px; padding: 5px; z-index: 1000; font-family: 'Roboto', sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: none;">
+    <div id="vessel-legend" style="display: none; position: absolute; top: 200px; right: 5px; background: rgba(255, 255, 255, 0.75); border: 2px solid #aaa; border-radius: 8px; padding: 5px; z-index: 1000; font-family: 'Roboto', sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
       <div class="speed-scale-container">
         <div class="speed-scale-bar"></div>
         <div class="speed-scale-labels">
@@ -1009,30 +1009,76 @@ function sendSummaryRequest() {
 	};
 
 
+// Define vessel type groups for better color differentiation
+const vesselTypeGroups = {
+  "Wing in ground": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+  "Fishing": [30],
+  "Towing": [31, 32],
+  "Dredging": [33],
+  "Diving": [34],
+  "Military": [35],
+  "Sailing": [36],
+  "Pleasure": [37],
+  "High speed craft": [40, 41, 42, 43, 44, 45, 46, 47, 48, 49],
+  "Pilot": [50],
+  "Search and Rescue": [51],
+  "Tug": [52],
+  "Port Tender": [53],
+  "Anti-pollution": [54],
+  "Law Enforcement": [55],
+  "Medical": [58],
+  "Passenger": [60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
+  "Cargo": [70, 71, 72, 73, 74, 75, 76, 77, 78, 79],
+  "Tanker": [80, 81, 82, 83, 84, 85, 86, 87, 88, 89],
+  "Other": [90, 91, 92, 93, 94, 95, 96, 97, 98, 99]
+};
+
+// Map each group to a distinct color
+const vesselGroupColors = {
+  "Wing in ground": "#FF4500", // Orange Red
+  "Fishing": "#00CED1",        // Dark Turquoise
+  "Towing": "#F58231",         // Vibrant Orange
+  "Dredging": "#FF00FF",       // Fuchsia
+  "Diving": "#FF69B4",         // Hot Pink
+  "Military": "#8A2BE2",       // Blue Violet
+  "Sailing": "#0082C8",        // Vibrant Blue
+  "Pleasure": "#FF1493",       // Deep Pink
+  "High speed craft": "#E6194B", // Vibrant Red
+  "Pilot": "#46F0F0",          // Vibrant Cyan
+  "Search and Rescue": "#00BFFF", // Deep Sky Blue
+  "Tug": "#00FF00",            // Lime
+  "Port Tender": "#F032E6",    // Vibrant Magenta
+  "Anti-pollution": "#FFD700", // Gold
+  "Law Enforcement": "#FF6347", // Tomato
+  "Medical": "#DC143C",        // Crimson
+  "Passenger": "#FFE119",      // Vibrant Yellow
+  "Cargo": "#40E0D0",          // Turquoise
+  "Tanker": "#911EB4",         // Vibrant Purple
+  "Other": "#FF7F50"           // Coral
+};
+
+// Fallback color palette for any types not in the groups
 const vesselColorPalette = [
-  "#FF4500", // Orange Red
-  "#00CED1", // Dark Turquoise
-  "#F58231", // Vibrant Orange
-  "#FF00FF", // Fuchsia
-  "#FF69B4", // Hot Pink
-  "#FF8C00", // Dark Orange
-  "#8A2BE2", // Blue Violet
-  "#0082C8", // Vibrant Blue
-  "#FF1493", // Deep Pink
-  "#E6194B", // Vibrant Red
-  "#46F0F0", // Vibrant Cyan
-  "#00BFFF", // Deep Sky Blue
-  "#00FF00", // Lime
-  "#F032E6", // Vibrant Magenta
-  "#FFD700", // Gold
-  "#FF6347", // Tomato
-  "#DC143C", // Crimson
-  "#FFE119", // Vibrant Yellow
-  "#40E0D0", // Turquoise
-  "#DA70D6", // Orchid
-  "#911EB4", // Vibrant Purple
-  "#FF7F50", // Coral
-  "#3CB44B"  // Vibrant Green
+  "#3CB44B",  // Vibrant Green
+  "#4363d8",  // Blue
+  "#f58231",  // Orange
+  "#911eb4",  // Purple
+  "#42d4f4",  // Cyan
+  "#f032e6",  // Magenta
+  "#bfef45",  // Lime
+  "#fabebe",  // Pink
+  "#469990",  // Teal
+  "#e6beff",  // Lavender
+  "#9A6324",  // Brown
+  "#fffac8",  // Beige
+  "#800000",  // Maroon
+  "#aaffc3",  // Mint
+  "#808000",  // Olive
+  "#ffd8b1",  // Apricot
+  "#000075",  // Navy
+  "#a9a9a9",  // Grey
+  "#ffffff",  // White
+  "#000000"   // Black
 ];
 
 const friendlyMessageTypes = {
@@ -1209,6 +1255,15 @@ function refreshReceivers() {
 
 function getColorForVesselTypeConsistent(type) {
   if (!type) return "blue";
+  
+  // Find which group this vessel type belongs to
+  for (const [groupName, typeArray] of Object.entries(vesselTypeGroups)) {
+    if (typeArray.includes(type)) {
+      return vesselGroupColors[groupName];
+    }
+  }
+  
+  // If not found in any group, fall back to the original hash method
   const description = staticTypeMapping[type] || type;
   const index = hashStringToIndex(description, vesselColorPalette.length);
   return vesselColorPalette[index];
@@ -1489,7 +1544,6 @@ function attachPolylineEvents(layerGroup, UserID) {
 }
 
 function updateLegend() {
-
   const legend = document.getElementById('vessel-legend');
   const currentDisplay = window.getComputedStyle(legend).display;
   
@@ -1497,48 +1551,62 @@ function updateLegend() {
     return; // If the legend is hidden, don't update it
   }
 
-  // Get the top 5 vessel types
-  const vesselTypes = {};
-
-  // Loop through the vessel data to gather vessel types
+  // Count vessels by type group
+  const groupCounts = {};
+  
+  // Initialize all groups with zero count
+  for (const groupName in vesselGroupColors) {
+    groupCounts[groupName] = {
+      count: 0,
+      color: vesselGroupColors[groupName]
+    };
+  }
+  
+  // Count vessels in each group
   for (const UserID in vesselData) {
     const vessel = vesselData[UserID];
     if (vessel.Type) {
-      const typeDescription = staticTypeMapping[vessel.Type] || vessel.Type;
-      const typeColor = getColorForVesselTypeConsistent(vessel.Type);
-
-      if (!vesselTypes[typeDescription]) {
-        vesselTypes[typeDescription] = {
-          count: 0,
-          color: typeColor,
-        };
+      // Find which group this vessel type belongs to
+      let foundGroup = false;
+      for (const [groupName, typeArray] of Object.entries(vesselTypeGroups)) {
+        if (typeArray.includes(vessel.Type)) {
+          groupCounts[groupName].count += 1;
+          foundGroup = true;
+          break;
+        }
       }
-      vesselTypes[typeDescription].count += 1;
+      
+      // If not found in any group, count as "Other"
+      if (!foundGroup && groupCounts["Other"]) {
+        groupCounts["Other"].count += 1;
+      }
     }
   }
-
-  // Get the top 5 types based on count
-  const topTypes = Object.keys(vesselTypes)
-    .sort((a, b) => vesselTypes[b].count - vesselTypes[a].count);
-
+  
+  // Sort groups by count (descending)
+  const sortedGroups = Object.keys(groupCounts)
+    .filter(group => groupCounts[group].count > 0) // Only show groups with vessels
+    .sort((a, b) => groupCounts[b].count - groupCounts[a].count);
+  
+  // Generate legend HTML
   let legendContent = '';
-  topTypes.forEach(type => {
-    const count = vesselTypes[type].count;
-    const color = vesselTypes[type].color;
-
+  sortedGroups.forEach(group => {
+    const count = groupCounts[group].count;
+    const color = groupCounts[group].color;
+    
     legendContent += `
       <div class="legend-item">
         <svg width="20" height="50" viewBox="0 0 20 50" style="transform: rotate(0deg); transform-origin: center;">
           <path d="M5 45 L15 45 L15 30 Q10 5,5 30 Z" stroke="${color}" fill="${color}" stroke-width="2" />
         </svg>
-        <span>${type} (${count})</span>
+        <span>${group} (${count})</span>
       </div>
     `;
   });
-
+  
   // Update the legend content
   document.getElementById('legend-content').innerHTML = legendContent;
-
+  
   // Display the legend
   document.getElementById('vessel-legend').style.display = 'block';
 }
@@ -3969,6 +4037,7 @@ setInterval(updateFocussedTooltip, 1000);
 
 
 // Call updateLegend periodically to keep the legend up to date
+// Update the legend periodically
 setInterval(updateLegend, 5000); // Update every 5 seconds
 
 document.getElementById('toggle-legend').addEventListener('click', function() {
