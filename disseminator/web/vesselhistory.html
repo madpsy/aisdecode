@@ -213,15 +213,17 @@
     
     /* Replay details overlay */
     .vessel-replay-info-box {
-      position: fixed;
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      padding: 10px;
-      border-radius: 5px;
-      font-size: 12px;
-      z-index: 2000;
-      display: table;
-      pointer-events: none;
+      position: fixed !important;
+      background: rgba(0, 0, 0, 0.7) !important;
+      color: white !important;
+      padding: 10px !important;
+      border-radius: 5px !important;
+      font-size: 12px !important;
+      z-index: 2000 !important;
+      display: table !important;
+      pointer-events: none !important;
+      visibility: visible !important;
+      opacity: 1 !important;
     }
     .replay-button {
       padding: 4px 8px;
@@ -2878,21 +2880,25 @@
     let replayAnimationId = null;
     let replayTooltip = null;
     let replayPolyline = null;
-    let tooltipVisible = true; // Track tooltip visibility
+    let tooltipVisible = true; // Track tooltip visibility - should be true by default
+    console.log('Initial tooltipVisible value:', tooltipVisible);
     let totalDistance = 0; // Track total distance
     let currentDistance = 0; // Track current distance during replay
     
     // Function to toggle overlay visibility
     function toggleTooltipVisibility() {
       if (replayTooltip) {
+        console.log('Toggle called, current visibility:', tooltipVisible);
         if (tooltipVisible) {
           // Hide overlay
-          replayTooltip.style.display = 'none';
+          replayTooltip.setAttribute('style', 'display: none !important;');
           tooltipVisible = false;
+          console.log('Set to hidden, new visibility state:', tooltipVisible);
         } else {
           // Show overlay
-          replayTooltip.style.display = 'table';
+          replayTooltip.setAttribute('style', 'display: table !important;');
           tooltipVisible = true;
+          console.log('Set to visible, new visibility state:', tooltipVisible);
         }
       }
     }
@@ -3071,11 +3077,15 @@
         detailsOverlay.className = 'vessel-replay-info-box';
         detailsOverlay.innerHTML = tooltipContent;
         
-        // Make sure it's visible by default
-        detailsOverlay.style.display = 'table';
+        // Force visibility with !important
+        detailsOverlay.setAttribute('style', 'display: table !important;');
+        console.log('Created overlay with visibility:', detailsOverlay.style.display);
         
         // Add to body instead of map container
         document.body.appendChild(detailsOverlay);
+        
+        // Double-check visibility after adding to DOM
+        console.log('Overlay visibility after adding to DOM:', detailsOverlay.style.display);
         
         // Position the overlay in the bottom right of the map
         const mapContainer = document.getElementById('map-container');
@@ -3207,8 +3217,14 @@
                 
                 replayTooltip.innerHTML = tooltipContent;
                 
-                // Maintain visibility state
-                replayTooltip.style.display = tooltipVisible ? 'table' : 'none';
+                // Force visibility based on tooltipVisible state
+                if (tooltipVisible) {
+                  replayTooltip.setAttribute('style', 'display: table !important;');
+                  console.log('Setting overlay to visible during update');
+                } else {
+                  replayTooltip.setAttribute('style', 'display: none !important;');
+                  console.log('Setting overlay to hidden during update');
+                }
               } catch (e) {
                 console.error('Error updating overlay content:', e);
                 // Use a simple fallback content
