@@ -555,13 +555,9 @@
           <span>40 kn</span>
         </div>
       </div>
-      <div style="position: relative; height: 30px; margin: 5px 0; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
-        <button id="legend-all-button" class="toggle-button" style="position: absolute; left: 0; padding: 2px 5px; font-size: 12px;">All</button>
-        <button id="legend-filter-button" class="toggle-button" style="position: absolute; left: 50px; padding: 2px 5px; font-size: 12px;">Filter</button>
-        <button id="legend-clear-button" class="toggle-button" style="position: absolute; right: 0; padding: 2px 5px; font-size: 12px;">Clear</button>
-      </div>
-      <div style="margin: 5px 0; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
-        <button id="test-cargo-filter" class="toggle-button" style="width: 100%; padding: 2px 5px; font-size: 12px; background-color: #ffcc00;">Test Cargo Filter</button>
+      <div style="display: flex; justify-content: center; margin: 5px 0; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
+        <button id="legend-filter-button" class="toggle-button" style="padding: 2px 10px; font-size: 12px; margin-right: 10px;">Filter</button>
+        <button id="legend-clear-button" class="toggle-button" style="padding: 2px 10px; font-size: 12px;">Clear</button>
       </div>
       <div id="legend-content"></div>
     </div>
@@ -4263,28 +4259,6 @@ document.getElementById('legend-filter-button').addEventListener('click', functi
   console.log("Filters applied");
 });
 
-// Add a test button that sends a direct typeGroups parameter
-document.getElementById('test-cargo-filter').addEventListener('click', function() {
-  const center = map.getCenter();
-  const bounds = map.getBounds();
-  const radius = center.distanceTo(bounds.getNorthEast()) * 1.5;
-  const maxAge = parseInt(document.getElementById("age-slider").value, 10);
-  
-  // Create a request with typeGroups parameter for cargo ships
-  const testParams = {
-    latitude: center.lat,
-    longitude: center.lng,
-    radius: radius,
-    maxResults: 500,
-    maxAge: maxAge,
-    typeGroups: "22" // Cargo ships only
-  };
-  
-  console.log("Sending test filter with typeGroups=22:", testParams);
-  
-  // Send the request directly WITHOUT stringifying
-  socket.emit("requestSummary", testParams);
-});
 
 
     document.getElementById('live-log-search').addEventListener('input', applyLogFilters);
