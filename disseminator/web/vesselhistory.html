@@ -1199,7 +1199,7 @@
         } else if (dateRangeAdjusted) {
           // If date range was adjusted, keep the warning message
           const warningDiv = document.getElementById('error');
-          warningDiv.textContent = 'Warning: Start date was too recent - automatically updated to a 24-hour window before the vessel\'s last seen time.';
+          warningDiv.textContent = 'Start date was too recent - automatically updated to a 24-hour window before the vessel\'s last seen time.';
           warningDiv.style.display = 'block';
           console.log('Warning message maintained in fetchVesselHistory, dateRangeAdjusted =', dateRangeAdjusted);
         } else {
