@@ -2368,17 +2368,35 @@ func setupServer(settings *Settings) {
 	        userID = int64(v)
 	    }
 	
+	    // Extract types parameter (comma-delimited string)
+	    var types string
+	    if typesVal, ok := data["types"].(string); ok {
+	        types = typesVal
+	    }
+	    
+	    // Extract typeGroups parameter (comma-delimited string)
+	    var typeGroups string
+	    if typeGroupsVal, ok := data["typeGroups"].(string); ok {
+	        typeGroups = typeGroupsVal
+	    }
+	    
+	    // Log the parameters for debugging
+	    log.Printf("[requestSummary] Client %s requested with params: lat=%.6f, lon=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s, typeGroups=%s",
+	        client.Id(), lat, lon, radius, maxResults, maxAge, minSpeed, userID, types, typeGroups)
+
 	    // 3) Build FilterParams (LastUpdated will gate the next tick)
 	    p := FilterParams{
 	        Latitude:     lat,
 	        Longitude:    lon,
 	        Radius:       radius,
-        	MaxResults:   maxResults,
+	       	MaxResults:   maxResults,
 	        MaxAge:       maxAge,
 	        MinSpeed:     minSpeed,
 	        UpdatePeriod: updatePeriod,
 	        UserID:       userID,
 	        LastUpdated:  time.Now(),
+	        Types:        types,
+	        TypeGroups:   typeGroups,
 	    }
 	
 	    // 4) Stash for the ticker
