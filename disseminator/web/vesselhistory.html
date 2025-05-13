@@ -4178,7 +4178,7 @@
         clearInterval(autoRefreshInterval);
       }
       
-      // Set up new interval to refresh vessel data every 60 seconds
+      // Set up new interval to refresh vessel data every 10 seconds
       autoRefreshInterval = setInterval(() => {
         console.log('Auto-refreshing vessel data...');
         
@@ -4194,6 +4194,45 @@
             // Update last seen time
             if (data.LastUpdated) {
               lastSeenTime = new Date(data.LastUpdated);
+            }
+            
+            // Update location overlay map marker if it's open
+            if (window.locationMap && data.Latitude !== undefined && data.Longitude !== undefined) {
+              // Find all markers on the map
+              window.locationMap.eachLayer(layer => {
+                // Check if this is a marker
+                if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
+                  // Remove the old marker
+                  window.locationMap.removeLayer(layer);
+                }
+              });
+              
+              // Add a new marker at the updated location
+              const circleMarker = L.circleMarker([data.Latitude, data.Longitude], {
+                radius: 8,
+                fillColor: "#1E90FF", // Dodger blue to match the blue circle emoji used on main map
+                color: "#000",
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.8
+              }).addTo(window.locationMap);
+              
+              // Add tooltip with name in bold (if not empty) and MMSI underneath
+              let tooltipContent = '';
+              if (data.Name && data.Name.trim() !== '') {
+                tooltipContent += `<strong>${data.Name}</strong><br>`;
+              }
+              tooltipContent += `${userID}`;
+              
+              circleMarker.bindTooltip(tooltipContent, {
+                permanent: true,
+                direction: 'top',
+                offset: [0, -10],
+                className: 'location-tooltip'
+              }).openTooltip();
+              
+              // Center the map on the new location
+              window.locationMap.setView([data.Latitude, data.Longitude], window.locationMap.getZoom());
             }
           })
           .catch(err => {
@@ -4376,13 +4415,50 @@
       }
     }
     
+    // Function to update the "Last seen" time ago value every second
+    let timeAgoUpdateInterval = null;
+    
+    function startTimeAgoUpdates() {
+      // Clear any existing interval
+      if (timeAgoUpdateInterval) {
+        clearInterval(timeAgoUpdateInterval);
+      }
+      
+      // Set up new interval to update time ago values every second
+      timeAgoUpdateInterval = setInterval(() => {
+        // Find the "Last Seen" cell in the right table
+        const rightTableBody = document.querySelector('#vessel-table-right tbody');
+        if (!rightTableBody) return;
+        
+        // Find the row with the "Last Seen" label
+        const rows = rightTableBody.querySelectorAll('tr');
+        for (const row of rows) {
+          const labelCell = row.querySelector('td:first-child');
+          if (labelCell && labelCell.textContent === 'Last Seen') {
+            const valueCell = row.querySelector('td:last-child');
+            if (valueCell && lastSeenTime) {
+              // Extract the timestamp part (before the parenthesis)
+              const timestampPart = valueCell.textContent.split('(')[0].trim();
+              // Update only the time ago part
+              const timeDiff = formatTimeDifference(lastSeenTime);
+              valueCell.textContent = `${timestampPart} (${timeDiff})`;
+            }
+            break;
+          }
+        }
+      }, 1000); // Update every second
+      
+      console.log('Time ago updates started');
+    }
+    
     // Initialize the page
     initDateSelectors();
     fetchReceiversData();
     loadVesselData();
     
-    // Start auto-refresh after initial load
+    // Start auto-refresh and time ago updates after initial load
     startAutoRefresh();
+    startTimeAgoUpdates();
     
     // Add event listener for image overlay close button
     document.querySelector('#image-overlay .close-overlay').addEventListener('click', function() {
