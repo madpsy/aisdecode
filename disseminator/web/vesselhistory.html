@@ -20,38 +20,30 @@
       display: flex;
       align-items: center;
     }
-    
     /* Position search container for responsive layout */
     @media (max-width: 992px) {
+      .title-container {
+        width: 100%;
+        margin-bottom: 1rem;
+      }
+      
       .search-container {
         position: absolute;
-        right: 0;
+        right: 2rem;
         top: 5rem; /* Align with middle of flag */
-        max-width: 100%;
-        padding-right: 2rem;
-        box-sizing: border-box;
-      }
-      
-      /* Ensure the search box is visible when active */
-      .search-box {
-        right: 0;
-      }
-      
-      .search-box[style*="display: block"] {
-        width: 100%;
-        max-width: 200px;
       }
     }
     
     /* Adjust search position for very small screens */
     @media (max-width: 576px) {
       .search-container {
-        position: static; /* Reset to normal flow */
-        margin-top: 1rem;
+        position: static;
         width: 100%;
         justify-content: flex-end;
+        margin-top: 1rem;
       }
     }
+    
     .search-icon {
       cursor: pointer;
       margin-right: 10px;
@@ -60,25 +52,36 @@
       display: none;
       position: relative;
     }
+    
     .search-input {
       padding: 5px 10px;
       border: 1px solid #ccc;
       border-radius: 4px;
       width: 250px;
+      box-sizing: border-box;
     }
     
     /* Make search input responsive */
     @media (max-width: 992px) {
+      .search-box {
+        position: absolute;
+        right: 0;
+      }
+      
       .search-input {
         width: 200px;
-        max-width: 100%;
-        box-sizing: border-box;
       }
     }
     
     @media (max-width: 768px) {
       .search-input {
         width: 150px;
+      }
+    }
+    
+    @media (max-width: 576px) {
+      .search-box {
+        position: static;
       }
     }
     .search-results {
@@ -94,7 +97,6 @@
       border-radius: 0 0 4px 4px;
       z-index: 1000;
       display: none;
-      max-width: 100%;
       box-sizing: border-box;
     }
     
@@ -616,7 +618,7 @@
   </style>
 </head>
 <body>
-  <div style="display: flex; justify-content: space-between; align-items: center; position: relative;">
+  <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; position: relative;">
     <div class="title-container">
       <h1 id="main-title">Vessel History</h1>
       <button id="copy-link-btn" class="btn btn-sm btn-outline-secondary">
