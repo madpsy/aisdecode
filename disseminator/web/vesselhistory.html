@@ -2924,7 +2924,7 @@
       setupDragHandlers(container, leftHandle, rightHandle, startTime, endTime);
     }
     
-    // Format a time range for display with message count
+    // Format a time range for display with position count
     function formatTimeRange(start, end, messageCount) {
       const formatOptions = {
         month: 'short',
@@ -2932,8 +2932,7 @@
         hour: '2-digit',
         minute: '2-digit'
       };
-      return `${start.toLocaleString([], formatOptions)} - ${end.toLocaleString([], formatOptions)}
-${messageCount} messages`;
+      return `${start.toLocaleString([], formatOptions)} - ${end.toLocaleString([], formatOptions)}\n${messageCount} positions`;
     }
     
     // Count messages in a specific time range
