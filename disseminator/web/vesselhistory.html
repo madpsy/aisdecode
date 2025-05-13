@@ -2899,11 +2899,28 @@
     
     // Initialize replay button
     document.addEventListener('DOMContentLoaded', () => {
-      const replayButton = document.getElementById('replay-button');
-      if (replayButton) {
-        replayButton.addEventListener('click', startReplay);
-      }
-    });
+          const replayButton = document.getElementById('replay-button');
+          if (replayButton) {
+            replayButton.addEventListener('click', function(e) {
+              // Stop event propagation to prevent the map click handler from being triggered
+              e.stopPropagation();
+              startReplay();
+            });
+          }
+          
+          // Also prevent propagation for the replay duration dropdown
+          const replayDuration = document.getElementById('replay-duration');
+          if (replayDuration) {
+            replayDuration.addEventListener('click', function(e) {
+              e.stopPropagation();
+            });
+            
+            // Also prevent propagation for change events
+            replayDuration.addEventListener('change', function(e) {
+              e.stopPropagation();
+            });
+          }
+        });
     
     function startReplay() {
       // If replay is in progress, stop it instead
