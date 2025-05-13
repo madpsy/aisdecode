@@ -562,6 +562,9 @@
     </div>
     <div>
       <img id="vessel-img" class="vessel-image" src="" alt="Vessel Image" style="display: none;">
+      <div id="vesselfinder-link" style="text-align: center; margin-top: 5px; display: none;">
+        <a href="" target="_blank" rel="noopener noreferrer">VesselFinder</a>
+      </div>
     </div>
     
     <!-- Image overlay -->
@@ -825,6 +828,12 @@
             const vesselImg = document.getElementById('vessel-img');
             vesselImg.src = data.ImageURL;
             vesselImg.style.display = 'block';
+            
+            // Display VesselFinder link
+            const vesselfinderLink = document.getElementById('vesselfinder-link');
+            const vesselfinderUrl = `https://www.vesselfinder.com/vessels/details/${userID}`;
+            vesselfinderLink.querySelector('a').href = vesselfinderUrl;
+            vesselfinderLink.style.display = 'block';
           }
 
           // Create table rows for vessel information
