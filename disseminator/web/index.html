@@ -4164,36 +4164,100 @@ document.getElementById('legend-clear-button').addEventListener('click', functio
 
 // Add event listener for the "Filter" button
 document.getElementById('legend-filter-button').addEventListener('click', function() {
-  // Count checked boxes
-  let checkedCount = 0;
-  let lastCheckedGroup = "";
+  // Get all checked groups
+  const checkedGroups = [];
   
-  // Find out how many boxes are checked and which one is the last one
+  // Find out which groups are checked
   for (const groupName in typeGroupCheckboxStates) {
     if (typeGroupCheckboxStates[groupName] !== false) {
-      checkedCount++;
-      lastCheckedGroup = groupName;
+      checkedGroups.push(groupName);
     }
   }
   
-  // If only one box is checked, we'll use that for filtering
-  if (checkedCount === 1) {
-    console.log(`Only one group checked: ${lastCheckedGroup}`);
-    // Force all checkboxes to be unchecked except the selected one
-    for (const groupName in vesselTypeGroups) {
-      if (groupName !== lastCheckedGroup) {
-        typeGroupCheckboxStates[groupName] = false;
+  console.log(`Checked groups: ${checkedGroups.join(', ')}`);
+  
+  // If only one group is checked, filter to show only that group
+  if (checkedGroups.length === 1) {
+    const groupName = checkedGroups[0];
+    const groupId = typeGroupMapping[groupName];
+    
+    if (groupId !== undefined) {
+      console.log(`Filtering by single type group: ${groupId}`);
+      
+      // Create a custom request with the typeGroups parameter
+      const center = map.getCenter();
+      const bounds = map.getBounds();
+      const radius = center.distanceTo(bounds.getNorthEast()) * 1.5;
+      const maxAge = parseInt(document.getElementById("age-slider").value, 10);
+      
+      const filterParams = {
+        latitude: center.lat,
+        longitude: center.lng,
+        radius: radius,
+        maxResults: 500,
+        maxAge: maxAge,
+        typeGroups: groupId.toString()
+      };
+      
+      // Send the request directly WITHOUT stringifying
+      console.log("Sending filter request with typeGroups:", filterParams);
+      socket.emit("requestSummary", filterParams);
+    }
+  } else if (checkedGroups.length > 1) {
+    // Multiple groups checked - show all of them
+    const groupIds = [];
+    for (const groupName of checkedGroups) {
+      const groupId = typeGroupMapping[groupName];
+      if (groupId !== undefined) {
+        groupIds.push(groupId);
       }
     }
     
-    // Update the UI to reflect this
-    document.querySelectorAll('.type-group-checkbox').forEach(checkbox => {
-      checkbox.checked = (checkbox.dataset.group === lastCheckedGroup);
-    });
+    if (groupIds.length > 0) {
+      console.log(`Filtering by multiple type groups: ${groupIds.join(',')}`);
+      
+      // Create a custom request with the typeGroups parameter
+      const center = map.getCenter();
+      const bounds = map.getBounds();
+      const radius = center.distanceTo(bounds.getNorthEast()) * 1.5;
+      const maxAge = parseInt(document.getElementById("age-slider").value, 10);
+      
+      const filterParams = {
+        latitude: center.lat,
+        longitude: center.lng,
+        radius: radius,
+        maxResults: 500,
+        maxAge: maxAge,
+        typeGroups: groupIds.join(',')
+      };
+      
+      // Send the request directly WITHOUT stringifying
+      console.log("Sending filter request with typeGroups:", filterParams);
+      socket.emit("requestSummary", filterParams);
+    }
+  } else {
+    // No groups checked - show nothing
+    console.log("No groups checked - showing nothing");
+    
+    // Create a custom request with an invalid typeGroups parameter
+    const center = map.getCenter();
+    const bounds = map.getBounds();
+    const radius = center.distanceTo(bounds.getNorthEast()) * 1.5;
+    const maxAge = parseInt(document.getElementById("age-slider").value, 10);
+    
+    const filterParams = {
+      latitude: center.lat,
+      longitude: center.lng,
+      radius: radius,
+      maxResults: 500,
+      maxAge: maxAge,
+      typeGroups: "-1" // Invalid group ID to show nothing
+    };
+    
+    // Send the request directly WITHOUT stringifying
+    console.log("Sending filter request with invalid typeGroups:", filterParams);
+    socket.emit("requestSummary", filterParams);
   }
-  
-  // Send the request with the current filter state
-  sendSummaryRequest();
   
   console.log("Filters applied");
 });
