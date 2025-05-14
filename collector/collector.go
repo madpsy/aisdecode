@@ -618,6 +618,10 @@ func createIndexesIfNotExist(db *sql.DB) {
         `CREATE INDEX IF NOT EXISTS idx_state_timestamp 
             ON state(timestamp);`,
 
+        // state table: filter by ais_class
+        `CREATE INDEX IF NOT EXISTS idx_state_ais_class 
+            ON state(ais_class);`,
+
         // state table: geospatial radius queries
         `CREATE INDEX IF NOT EXISTS idx_state_geo 
             ON state 
