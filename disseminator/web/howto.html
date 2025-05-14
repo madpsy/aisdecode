@@ -103,6 +103,11 @@
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
     const origin = window.location.origin;
+    // Populate ingest configuration using current domain
+    const ingestConfigEl = document.getElementById('ingest-config');
+    if (ingestConfigEl) {
+      ingestConfigEl.textContent = `ingest.${window.location.host} port 8101 (UDP)`;
+    }
     let lat = 51.5074, lng = -0.1278; // default to London
     const codeEl = document.getElementById('cmd');
     const btn = document.getElementById('copy-btn');
