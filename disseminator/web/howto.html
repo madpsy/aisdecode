@@ -109,6 +109,8 @@
     const host = window.location.host;
     const ingestCodeEl = document.getElementById('ingest-code');
     if (ingestCodeEl) ingestCodeEl.textContent = `ingest.${host} port 8101 (UDP)`;
+    const visitDomainEl = document.getElementById('visit-domain');
+    if (visitDomainEl) visitDomainEl.textContent = origin;
     let lat = 51.5074, lng = -0.1278; // default to London
     const codeEl = document.getElementById('cmd');
     const btn = document.getElementById('copy-btn');
