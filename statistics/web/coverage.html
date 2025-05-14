@@ -35,6 +35,16 @@
     .controls {
       margin-bottom: 1rem;
     }
+    .receiver-tooltip {
+      background-color: rgba(255, 255, 255, 0.9);
+      border: none;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -131,8 +141,9 @@
         
         // Convert data to heatmap format
         const heatData = data.map(point => {
-          // Intensity based on logarithmic scale of count
-          const intensity = Math.min(1, Math.log10(point.count) / 3);
+          // Intensity based on logarithmic scale of count, but amplified for better visibility
+          // Increase the divisor to make low counts more visible
+          const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
           return [point.lat, point.lon, intensity];
         });
         
@@ -141,12 +152,13 @@
           map.removeLayer(heatLayer);
         }
         
-        // Create new heat layer
+        // Create new heat layer with improved visibility
         heatLayer = L.heatLayer(heatData, {
-          radius: 15,
-          blur: 20,
+          radius: 20,           // Increased from 15
+          blur: 15,             // Decreased from 20 for sharper points
           maxZoom: 17,
-          gradient: {0.4: 'blue', 0.65: 'lime', 0.85: 'yellow', 1: 'red'}
+          minOpacity: 0.4,      // Added minimum opacity
+          gradient: {0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}
         }).addTo(map);
         
         // Find receiver from the list we already loaded
@@ -161,9 +173,21 @@
             iconSize: [12, 12]
           });
           
-          L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
+          // Add marker with popup
+          const marker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
             .addTo(map)
             .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
+          
+          // Add permanent tooltip with receiver name
+          L.tooltip({
+            permanent: true,
+            direction: 'top',
+            className: 'receiver-tooltip',
+            offset: [0, -10]
+          })
+          .setContent(`<b>${selectedReceiver.name}</b>`)
+          .setLatLng([selectedReceiver.latitude, selectedReceiver.longitude])
+          .addTo(map);
           
           // Center map on receiver
           map.setView([selectedReceiver.latitude, selectedReceiver.longitude], 9);
