@@ -119,6 +119,12 @@ function startEdit(id) {
       
       // Show regenerate button when editing
       document.getElementById('regenerate-password').style.display = 'inline-block';
+      
+      // Scroll to the top of the page to show the form
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth' // Add smooth scrolling for better user experience
+      });
     });
 }
 
