@@ -544,6 +544,29 @@
     <input type="checkbox" id="stationary" checked>
     Stationary
   </label>
+        <div style="border-top: 1px solid #ccc; margin-top: 10px; padding-top: 10px;">
+            <div style="margin-bottom: 5px; font-weight: bold;">Vessel Classes:</div>
+            <label>
+                <input type="checkbox" id="class-a" checked>
+                Class A
+            </label>
+            <label>
+                <input type="checkbox" id="class-b" checked>
+                Class B
+            </label>
+            <label>
+                <input type="checkbox" id="class-sar" checked>
+                SAR
+            </label>
+            <label>
+                <input type="checkbox" id="class-base" checked>
+                Base Station
+            </label>
+            <label>
+                <input type="checkbox" id="class-aton" checked>
+                AtoN
+            </label>
+        </div>
         <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Legend</button>
     </div>
 
@@ -654,8 +677,33 @@
     <!-- Leaflet JS (from CDN, without integrity) -->
     <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js" crossorigin=""></script>
     <script>
-	 // Clear vessel data from localStorage immediately
-	 localStorage.removeItem('vesselData');
+  // Clear vessel data from localStorage immediately
+  localStorage.removeItem('vesselData');
+     
+     // Function to get selected vessel classes
+     function getSelectedClasses() {
+       const classA = document.getElementById('class-a').checked;
+       const classB = document.getElementById('class-b').checked;
+       const classSAR = document.getElementById('class-sar').checked;
+       const classBASE = document.getElementById('class-base').checked;
+       const classAtoN = document.getElementById('class-aton').checked;
+       
+       // Build the classes string based on checked boxes
+       const selectedClasses = [];
+       if (classA) selectedClasses.push('A');
+       if (classB) selectedClasses.push('B');
+       if (classSAR) selectedClasses.push('SAR');
+       if (classBASE) selectedClasses.push('BASE');
+       if (classAtoN) selectedClasses.push('AtoN');
+       
+       // Ensure at least one class is selected
+       if (selectedClasses.length === 0) {
+         document.getElementById('class-a').checked = true;
+         selectedClasses.push('A');
+       }
+       
+       return selectedClasses.join(',');
+     }
         // Detect if the device is touch capable.
         const isMobile = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
@@ -822,7 +870,8 @@ function sendSummaryRequest() {
   
   if (onlyTracked && focusedVessel) {
     const filterParams = {
-      UserID: parseInt(focusedVessel, 10)
+      UserID: parseInt(focusedVessel, 10),
+      classes: getSelectedClasses()
     };
     console.log(`sendSummaryRequest: onlyTracked for vessel ${focusedVessel}`);
     socket.emit("requestSummary", JSON.stringify(filterParams));
@@ -854,7 +903,8 @@ function sendSummaryRequest() {
     radius:       radius,
     maxResults:   500,
     maxAge:       maxAge,
-    updatePeriod: updatePeriod
+    updatePeriod: updatePeriod,
+    classes:      getSelectedClasses()
   };
 
   if (!document.getElementById('stationary').checked) {
@@ -888,6 +938,13 @@ function sendSummaryRequest() {
   socket.emit("requestSummary", filterParams);
   updateOverlay();
 }
+
+// Add event listeners for class checkboxes
+document.getElementById('class-a').addEventListener('change', sendSummaryRequest);
+document.getElementById('class-b').addEventListener('change', sendSummaryRequest);
+document.getElementById('class-sar').addEventListener('change', sendSummaryRequest);
+document.getElementById('class-base').addEventListener('change', sendSummaryRequest);
+document.getElementById('class-aton').addEventListener('change', sendSummaryRequest);
 
         // Mapping objects for Nav Status, and Static Message Types.
 
@@ -4182,7 +4239,8 @@ document.getElementById('legend-filter-button').addEventListener('click', functi
         radius: radius,
         maxResults: 500,
         maxAge: maxAge,
-        typeGroups: groupId.toString()
+        typeGroups: groupId.toString(),
+        classes: getSelectedClasses()
       };
       
       // Send the request directly WITHOUT stringifying
@@ -4214,7 +4272,8 @@ document.getElementById('legend-filter-button').addEventListener('click', functi
         radius: radius,
         maxResults: 500,
         maxAge: maxAge,
-        typeGroups: groupIds.join(',')
+        typeGroups: groupIds.join(','),
+        classes: getSelectedClasses()
       };
       
       // Send the request directly WITHOUT stringifying
@@ -4236,7 +4295,8 @@ document.getElementById('legend-filter-button').addEventListener('click', functi
       longitude: center.lng,
       radius: radius,
       maxResults: 500,
-      maxAge: maxAge
+      maxAge: maxAge,
+      classes: getSelectedClasses()
       // No typeGroups parameter - this will show all vessels
     };
     
