@@ -339,6 +339,19 @@
       overflow-wrap: break-word;
       max-width: 150px; /* Limit maximum width of cells */
     }
+    
+    /* Style for receivers list to ensure proper wrapping */
+    .receivers-cell {
+      word-break: break-word;
+      overflow-wrap: break-word;
+      max-width: 200px; /* Limit maximum width */
+    }
+    
+    .receivers-cell a {
+      display: inline-block;
+      margin-right: 2px;
+      margin-bottom: 2px;
+    }
     .changes-table h3 {
       font-size: 1.2rem;
       margin-bottom: 0.5rem;
@@ -1106,6 +1119,9 @@
               if (field.customValue && field.format) {
                 if (field.key === 'ReceiverIDs' || field.key === 'Location') {
                   valueCell.innerHTML = field.format();
+                  if (field.key === 'ReceiverIDs') {
+                    valueCell.className = 'receivers-cell';
+                  }
                 } else {
                   valueCell.textContent = field.format();
                 }
@@ -4620,6 +4636,9 @@
           if (field.customValue && field.format) {
             if (field.key === 'ReceiverIDs' || field.key === 'Location') {
               valueCell.innerHTML = field.format();
+              if (field.key === 'ReceiverIDs') {
+                valueCell.className = 'receivers-cell';
+              }
             } else {
               valueCell.textContent = field.format();
             }
