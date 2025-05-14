@@ -923,8 +923,9 @@ function sendSummaryRequest() {
     }
   }
   
-  // If only one group is checked, use that for filtering
+  // Handle filtering by type groups
   if (checkedGroups.length === 1) {
+    // If only one group is checked, use that for filtering
     const groupName = checkedGroups[0];
     const groupId = typeGroupMapping[groupName];
     
@@ -934,6 +935,21 @@ function sendSummaryRequest() {
       
       // Debug output to verify the request
       console.log("Sending filter request:", JSON.stringify(filterParams, null, 2));
+    }
+  } else if (checkedGroups.length > 1) {
+    // Multiple groups checked - include all of them
+    const groupIds = [];
+    for (const groupName of checkedGroups) {
+      const groupId = typeGroupMapping[groupName];
+      if (groupId !== undefined) {
+        groupIds.push(groupId);
+      }
+    }
+    
+    if (groupIds.length > 0) {
+      console.log(`Filtering by multiple type groups: ${groupIds.join(',')}`);
+      filterParams.typeGroups = groupIds.join(',');
+      console.log("Sending filter request with multiple typeGroups:", JSON.stringify(filterParams, null, 2));
     }
   }
   
