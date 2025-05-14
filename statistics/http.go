@@ -836,6 +836,7 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
             AND (packet->>'Longitude')::float IS NOT NULL
             AND (packet->>'Latitude')::float BETWEEN -90 AND 90
             AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+            AND (distance IS NULL OR distance <= 500000) -- Filter out points with distance > 500km
         GROUP BY
             ST_SnapToGrid(
                 ST_SetSRID(ST_MakePoint(
