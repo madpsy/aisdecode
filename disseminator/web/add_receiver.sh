@@ -11,23 +11,26 @@ NC='\033[0m'
 # Required base URL (no default)
 BASE_URL=""
 AUTO_YES_IP=false
+LAT_LONG=""
 
 print_usage() {
   cat <<EOF
-Usage: $(basename "$0") -u base_url [-y]
+Usage: $(basename "$0") -u base_url [-y] [-l lat,long]
 Options:
 -u base_url      Base URL of server (required)
 -y               Automatically use detected IP without prompt
+-l lat,long      Specify latitude and longitude (comma-separated)
 -h               Show this help message
 EOF
 }
 
 # Parse optional flags
-while getopts "u:hy" opt; do
+while getopts "u:hyl:" opt; do
   case $opt in
     u) BASE_URL="$OPTARG" ;;
     h) print_usage; exit 0 ;;
     y) AUTO_YES_IP=true ;;
+    l) LAT_LONG="$OPTARG" ;;
     *) print_usage; exit 1 ;;
   esac
 done
@@ -107,33 +110,42 @@ while true; do
   fi
 done
 
-# Prompt for Latitude (-90 to 90)
-while true; do
-  read -p "Latitude (-90 to 90): " LATITUDE
-  if ! [[ $LATITUDE =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "Invalid number."
-    continue
+if [[ -n "$LAT_LONG" ]]; then
+  if ! [[ "$LAT_LONG" =~ ^-?[0-9]+(\.[0-9]+)?,\-?[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "Invalid latitude,longitude format."
+    exit 1
   fi
-  if (( $(echo "$LATITUDE < -90" | bc -l) )) || (( $(echo "$LATITUDE > 90" | bc -l) )); then
-    echo "Latitude must be between -90 and 90."
-  else
-    break
-  fi
-done
+  LATITUDE="${LAT_LONG%%,*}"
+  LONGITUDE="${LAT_LONG##*,}"
+else
+  # Prompt for Latitude (-90 to 90)
+  while true; do
+    read -p "Latitude (-90 to 90): " LATITUDE
+    if ! [[ $LATITUDE =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+      echo "Invalid number."
+      continue
+    fi
+    if (( $(echo "$LATITUDE < -90" | bc -l) )) || (( $(echo "$LATITUDE > 90" | bc -l) )); then
+      echo "Latitude must be between -90 and 90."
+    else
+      break
+    fi
+  done
 
-# Prompt for Longitude (-180 to 180)
-while true; do
-  read -p "Longitude (-180 to 180): " LONGITUDE
-  if ! [[ $LONGITUDE =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "Invalid number."
-    continue
-  fi
-  if (( $(echo "$LONGITUDE < -180" | bc -l) )) || (( $(echo "$LONGITUDE > 180" | bc -l) )); then
-    echo "Longitude must be between -180 and 180."
-  else
-    break
-  fi
-done
+  # Prompt for Longitude (-180 to 180)
+  while true; do
+    read -p "Longitude (-180 to 180): " LONGITUDE
+    if ! [[ $LONGITUDE =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+      echo "Invalid number."
+      continue
+    fi
+    if (( $(echo "$LONGITUDE < -180" | bc -l) )) || (( $(echo "$LONGITUDE > 180" | bc -l) )); then
+      echo "Longitude must be between -180 and 180."
+    else
+      break
+    fi
+  done
+fi
 
 # Prompt for URL (optional)
 read -p "URL (optional): " URL
