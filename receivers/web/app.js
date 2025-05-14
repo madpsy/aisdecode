@@ -75,6 +75,7 @@ function renderList(list) {
       <td>${r.ip_address}</td>
       <td>${r.password !== undefined ? r.password : '—'}</td>
       <td>${r.messages !== undefined && r.messages !== null ? r.messages : 'No messages'}</td>
+      <td><button class="cron-btn" data-id="${r.id}" data-password="${r.password}">Cron</button></td>
       <td>
         <a class="action" data-id="${r.id}">Edit</a>
         &nbsp;|&nbsp;
@@ -245,4 +246,33 @@ window.addEventListener('load', () => {
   loadReceivers();
   // Hide regenerate button initially (for new receivers)
   document.getElementById('regenerate-password').style.display = 'none';
+});
+// Cron functionality
+// Handle cron button clicks
+document.body.addEventListener('click', function(e) {
+  if (e.target.matches('.cron-btn')) {
+    const id = e.target.dataset.id;
+    const pwd = e.target.dataset.password;
+    const offset = Math.floor(Math.random() * 10);
+    const baseUrl = window.location.origin;
+    const entry = `${offset}-59/${10} * * * * curl -X POST ${baseUrl}/receiverip -H "Content-Type: application/json" -d '{"id": ${id}, "password": "${pwd}"}'`;
+    document.getElementById('cron-entry').textContent = entry;
+    document.getElementById('cron-overlay').classList.remove('hidden');
+  }
+});
+
+// Handle copy and close in overlay
+document.getElementById('copy-cron').addEventListener('click', function() {
+  const text = document.getElementById('cron-entry').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    this.textContent = 'Copied!';
+    setTimeout(() => { this.textContent = 'Copy to clipboard'; }, 2000);
+  }, () => {
+    this.textContent = 'Failed to copy';
+    setTimeout(() => { this.textContent = 'Copy to clipboard'; }, 2000);
+  });
+});
+
+document.getElementById('close-cron').addEventListener('click', function() {
+  document.getElementById('cron-overlay').classList.add('hidden');
 });

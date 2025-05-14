@@ -168,3 +168,24 @@ a.action:hover, button.delete-btn:hover {
 .password-button:hover {
   background-color: #3a8bc2;
 }
+/* Cron overlay styles */
+.hidden { display: none; }
+#cron-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+#cron-overlay .overlay-content {
+  background: #fff;
+  padding: 1rem;
+  border-radius: var(--radius);
+  max-width: 90%;
+  width: 400px;
+}
