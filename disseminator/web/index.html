@@ -570,7 +570,7 @@
                 </label>
             </div>
         </div>
-        <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Types</button>
+        <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Legend</button>
     </div>
 
     <div id="vessel-legend" style="display: none; position: absolute; top: 240px; right: 5px; background: rgba(255, 255, 255, 0.75); border: 2px solid #aaa; border-radius: 8px; padding: 5px; z-index: 1000; font-family: 'Roboto', sans-serif; font-size: 13px; max-height: 400px; overflow-y: auto; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -581,7 +581,7 @@
           <span>40 kn</span>
         </div>
       </div>
-      <table style="width: 100%; margin: 0 0 20px 0;">
+      <table style="width: 100%; margin: 0 0 23px 0;">
         <tr>
           <td style="width: 60px; padding-top: 0px; padding-left: 5px;">
             <button id="legend-filter-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px; width: 50px;">Filter</button>
@@ -4207,10 +4207,10 @@ document.getElementById('toggle-legend').addEventListener('click', function() {
   if (window.getComputedStyle(legend).display === 'none') {
     legend.style.display = 'block';  // Make it visible first
     updateLegend();                  // Then update the content immediately
-    this.textContent = 'Hide Types';
+    this.textContent = 'Hide Legend';
   } else {
     legend.style.display = 'none';
-    this.textContent = 'Show Types';
+    this.textContent = 'Show Legend';
   }
 });
 
