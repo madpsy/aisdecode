@@ -87,7 +87,7 @@
     <div id="map"></div>
     <p>Run the following command to add a receiver:</p>
     <pre><code id="cmd"></code></pre>
-    <button id="copy-btn">Copy to clipboard</button>
+    <button id="copy-btn" disabled>Copy to clipboard</button>
   </div>
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
@@ -98,19 +98,32 @@
     const callsignInput = document.getElementById('callsign');
     const descInput = document.getElementById('description');
     const urlInput = document.getElementById('url');
+    // Initial placeholder and hide command and disable copy until form complete
+    codeEl.textContent = 'Command will appear once form is filled in';
+    btn.disabled = true;
+    codeEl.parentElement.style.display = 'none';
+    btn.style.display = 'none';
 
     function updateCommand() {
-      let cmd = `bash <(curl -fsSL ${origin}/add_receiver.sh) -u ${origin} -y -l ${lat.toFixed(6)},${lng.toFixed(6)}`;
-      if (callsignInput.value) {
-        cmd += ` -c ${callsignInput.value}`;
+      const hasCalls = callsignInput.value.trim() !== '';
+      const hasDesc = descInput.value.trim() !== '';
+      if (hasCalls && hasDesc) {
+        let cmd = `bash <(curl -fsSL ${origin}/add_receiver.sh) -u ${origin} -y -l ${lat.toFixed(6)},${lng.toFixed(6)}`;
+        cmd += ` -c ${callsignInput.value.trim()}`;
+        cmd += ` -d "${descInput.value.trim()}"`;
+        if (urlInput.value.trim()) {
+          cmd += ` -U ${urlInput.value.trim()}`;
+        }
+        codeEl.textContent = cmd;
+        codeEl.parentElement.style.display = 'block';
+        btn.style.display = 'inline-block';
+        btn.disabled = false;
+      } else {
+        codeEl.textContent = '';
+        codeEl.parentElement.style.display = 'none';
+        btn.style.display = 'none';
+        btn.disabled = true;
       }
-      if (descInput.value) {
-        cmd += ` -d "${descInput.value}"`;
-      }
-      if (urlInput.value) {
-        cmd += ` -U ${urlInput.value}`;
-      }
-      codeEl.textContent = cmd;
     }
 
     // Update on input change
