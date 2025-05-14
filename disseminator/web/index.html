@@ -1680,6 +1680,11 @@ function attachPolylineEvents(layerGroup, UserID) {
 // Store the checkbox states separately from the legend update
 const typeGroupCheckboxStates = {};
 
+// Initialize all type groups as checked by default
+for (const groupName in vesselTypeGroups) {
+  typeGroupCheckboxStates[groupName] = true;
+}
+
 function updateLegend() {
   const legend = document.getElementById('vessel-legend');
   const currentDisplay = window.getComputedStyle(legend).display;
