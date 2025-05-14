@@ -1010,16 +1010,16 @@ function loadReceivers() {
               box.innerHTML = `
                 <div class="receiver-info-content">
                   <h3>Receiver Information</h3>
-                  <div style="margin-bottom: 10px;">
-                    <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
-                    <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
-                  </div>
                   <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
                   <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
                   <p class="receiver-url"><strong>URL:</strong>
                     ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
                   </p>
-                  <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-bottom: 10px;">Edit Receiver</button>
+                  <div style="margin-bottom: 10px;">
+                    <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
+                    <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
+                    <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
+                  </div>
                 </div>
                 <div id="receiver-map"></div> <!-- Receiver map will go here -->
               `;
@@ -1531,16 +1531,16 @@ function fetchReceiversById(receiverId) {
       box.innerHTML = `
         <div class="receiver-info-content">
           <h3>Receiver Information</h3>
-          <div style="margin-bottom: 10px;">
-            <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
-            <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
-          </div>
           <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
           <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
           <p class="receiver-url"><strong>URL:</strong>
             ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
           </p>
-          <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-bottom: 10px;">Edit Receiver</button>
+          <div style="margin-bottom: 10px;">
+            <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
+            <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
+            <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
+          </div>
         </div>
         <div id="receiver-map"></div> <!-- Receiver map will go here -->
       `;
@@ -1696,16 +1696,16 @@ async function fetchReceivers(ip) {
     // Display receiver information
     receiverBox.innerHTML = `
       <h3>Receiver Information</h3>
-      <div style="margin-bottom: 10px;">
-        <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
-        <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
-      </div>
       <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
       <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
       <p class="receiver-url"><strong>URL:</strong>
         ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
       </p>
-      <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-bottom: 10px;">Edit Receiver</button>
+      <div style="margin-bottom: 10px;">
+        <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
+        <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
+        <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
+      </div>
       <div id="receiver-map"></div> <!-- Receiver map will go here -->
     `;
     
