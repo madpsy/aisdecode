@@ -98,10 +98,9 @@
     const callsignInput = document.getElementById('callsign');
     const descInput = document.getElementById('description');
     const urlInput = document.getElementById('url');
-    // Initial placeholder and hide command and disable copy until form complete
+    // Initial placeholder and disable copy until form complete
     codeEl.textContent = 'Command will appear once form is filled in';
     btn.disabled = true;
-    codeEl.parentElement.style.display = 'none';
     btn.style.display = 'none';
 
     function updateCommand() {
@@ -119,8 +118,9 @@
         btn.style.display = 'inline-block';
         btn.disabled = false;
       } else {
-        codeEl.textContent = '';
-        codeEl.parentElement.style.display = 'none';
+        // Show placeholder message until form is complete
+        codeEl.textContent = 'Command will appear once form is filled in';
+        codeEl.parentElement.style.display = 'block';
         btn.style.display = 'none';
         btn.disabled = true;
       }
