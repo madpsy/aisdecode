@@ -1544,6 +1544,7 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
                 "Name":       name,
                 "NumMessages": getFieldInt(row, "count"),
                 "UserID":     getFieldFloat(packetMap, "UserID"),
+                "Type":       getFieldFloat(packetMap, "Type"),
             }
             if ts, ok := row["timestamp"].(time.Time); ok {
                 summary["LastUpdated"] = ts.UTC().Format(time.RFC3339Nano)
