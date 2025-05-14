@@ -192,6 +192,43 @@ func main() {
     if settings.Debug {
         log.Println("Debug mode enabled")
     }
+    
+    // Fetch UDP listen port from ingest_host:ingest_port/settings
+    if settings.IngestHost != "" && settings.IngestPort > 0 {
+        client := &http.Client{
+            Timeout: 5 * time.Second,
+        }
+        
+        url := fmt.Sprintf("http://%s:%d/settings", settings.IngestHost, settings.IngestPort)
+        if settings.Debug {
+            log.Printf("Fetching UDP listen port from %s", url)
+        }
+        
+        resp, err := client.Get(url)
+        if err != nil {
+            log.Printf("Warning: Failed to fetch settings from ingester: %v", err)
+        } else {
+            defer resp.Body.Close()
+            
+            if resp.StatusCode == http.StatusOK {
+                var ingestSettings struct {
+                    UDPListenPort int `json:"udp_listen_port"`
+                }
+                
+                if err := json.NewDecoder(resp.Body).Decode(&ingestSettings); err != nil {
+                    log.Printf("Warning: Failed to parse settings from ingester: %v", err)
+                } else if ingestSettings.UDPListenPort > 0 {
+                    if settings.Debug {
+                        log.Printf("Updated UDP listen port from %d to %d",
+                            settings.IngestUDPListenPort, ingestSettings.UDPListenPort)
+                    }
+                    settings.IngestUDPListenPort = ingestSettings.UDPListenPort
+                }
+            } else {
+                log.Printf("Warning: Failed to fetch settings from ingester, status code: %d", resp.StatusCode)
+            }
+        }
+    }
 
     minimumDistance = float64(settings.MinimumDistance)
 
@@ -205,6 +242,9 @@ func main() {
     
     // Start Redis connection monitoring in background
     go monitorRedisConnection()
+
+    // Log the discovered UDP port
+    log.Printf("Ingester primary UDP port: %d", settings.IngestUDPListenPort)
 
     go startHTTPServer()
     go startSocketIOServer()
