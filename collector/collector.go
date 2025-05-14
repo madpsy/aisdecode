@@ -33,6 +33,7 @@ import (
 type Settings struct {
     IngestPort            int      `json:"ingest_port"`
     IngestHost            string   `json:"ingest_host"`
+    IngestUDPListenPort   int      `json:"ingest_udp_listen_port"`  // Main UDP port from ingester
     DbHost                string   `json:"db_host"`
     DbPort                int      `json:"db_port"`
     DbUser                string   `json:"db_user"`
@@ -582,12 +583,18 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
 
     // 6) Build payload for Socket.IO emit
     
-    // Look up receiver ID from UDP port (primary) or source IP (secondary)
+    // Look up receiver ID based on UDP port and source IP
     var receiverID interface{} = nil
     receiverMapMutex.RLock()
     
-    // First try to match based on UDP port only (primary method)
-    if id, exists := receiverPortToIDMap[msg.UDPPort]; exists && msg.UDPPort > 0 {
+    // Special case: if the UDP port is the main ingest port, use IP as primary lookup method
+    if msg.UDPPort == settings.IngestUDPListenPort {
+        // For the main UDP port, use IP address as primary lookup
+        if id, exists := receiverIPToIDMap[msg.SourceIP]; exists {
+            receiverID = id
+        }
+    } else if id, exists := receiverPortToIDMap[msg.UDPPort]; exists && msg.UDPPort > 0 {
+        // For dedicated ports, use port as primary lookup method
         receiverID = id
     } else if id, exists := receiverIPToIDMap[msg.SourceIP]; exists {
         // Fall back to IP-only matching if port match not found
@@ -975,13 +982,19 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
             }
             log.Printf("Storing MessageID=%d for user %d%s", mid, userID, reason)
         }
-        // Look up receiver ID from UDP port (primary) or source IP (secondary)
+        // Look up receiver ID based on UDP port and source IP
         var receiverID interface{} = nil // Use nil (SQL NULL) as default
         receiverMapMutex.RLock()
         
-        // First try to match based on UDP port only (primary method)
-        if id, exists := receiverPortToIDMap[message.UDPPort]; exists && message.UDPPort > 0 {
-            receiverID = id // Use port match if available
+        // Special case: if the UDP port is the main ingest port, use IP as primary lookup method
+        if message.UDPPort == settings.IngestUDPListenPort {
+            // For the main UDP port, use IP address as primary lookup
+            if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
+                receiverID = id
+            }
+        } else if id, exists := receiverPortToIDMap[message.UDPPort]; exists && message.UDPPort > 0 {
+            // For dedicated ports, use port as primary lookup method
+            receiverID = id
         } else if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
             // Fall back to IP-only matching if port match not found
             receiverID = id
