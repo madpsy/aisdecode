@@ -70,6 +70,10 @@
       background-color: #6c757d;
       cursor: default;
     }
+/* Prominent numbered step styling */
+      .steps { counter-reset: step; margin: 1rem 0 1.5rem; }
+      .steps li { list-style: none; position: relative; padding-left: 3rem; margin-bottom: 1rem; font-size: 1.1rem; }
+      .steps li:before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: 0; width: 2rem; height: 2rem; border-radius: 50%; background-color: #007bff; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; }
   </style>
 </head>
 <body>
