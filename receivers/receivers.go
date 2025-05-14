@@ -1364,7 +1364,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     }
     
     if messageCount <= 0 {
-        http.Error(w, fmt.Sprintf("IP address '%s' has no messages", input.IPAddress), http.StatusBadRequest)
+        http.Error(w, fmt.Sprintf("IP address '%s' has not sent any AIS data", input.IPAddress), http.StatusBadRequest)
         return
     }
 
