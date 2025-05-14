@@ -1057,13 +1057,14 @@
                 }
                 return '';
               }
-            }
-          ];
+            },
+            { key: 'NumMessages', label: 'Messages' }
+           ];
 
           // Add rows for each field if it exists and is not empty
           // Manually define which fields go in which table
           const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag'];
-          const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location'];
+          const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location', 'NumMessages'];
           
           // Process fields for left table
           fieldsToDisplay.filter(field => leftTableFields.includes(field.key)).forEach(field => {
@@ -4557,7 +4558,7 @@
       
       // Process fields for left and right tables
       const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag'];
-      const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location'];
+      const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location', 'NumMessages'];
       
       // Add rows for left table
       fieldsToDisplay.filter(field => leftTableFields.includes(field.key)).forEach(field => {
