@@ -97,12 +97,19 @@ button:hover {
   border-radius: var(--radius);
 }
 
+/* Add overflow handling to the list section containing the table */
+#list-section {
+  overflow-x: auto;
+  width: 100%;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
   border-radius: var(--radius);
   overflow: hidden;
+  min-width: 100%; /* Ensure table takes at least full width of container */
 }
 
 th, td {
