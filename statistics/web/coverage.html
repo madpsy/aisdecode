@@ -189,12 +189,15 @@
           .setLatLng([selectedReceiver.latitude, selectedReceiver.longitude])
           .addTo(map);
           
-          // Center map on receiver
-          map.setView([selectedReceiver.latitude, selectedReceiver.longitude], 9);
+          // Create bounds that include both the receiver and all heatmap points
+          const points = heatData.map(p => [p[0], p[1]]);
+          points.push([selectedReceiver.latitude, selectedReceiver.longitude]);
+          const bounds = L.latLngBounds(points);
+          map.fitBounds(bounds, { padding: [50, 50] });
         } else {
           // If no receiver location, fit bounds to data
           const bounds = L.latLngBounds(heatData.map(p => [p[0], p[1]]));
-          map.fitBounds(bounds);
+          map.fitBounds(bounds, { padding: [50, 50] });
         }
       } catch (e) {
         console.error('Failed to load coverage data:', e);
