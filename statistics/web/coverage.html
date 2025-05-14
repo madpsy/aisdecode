@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Coverage Map</title>
+  <title>AIS Coverage Map</title>
   
   <!-- Bootstrap 5 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -50,7 +50,7 @@
 <body>
   <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
-      <h1>Coverage Map</h1>
+      <h1>AIS Coverage Map</h1>
       <button id="copy-link-btn" class="btn btn-outline-secondary">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-link-45deg" viewBox="0 0 16 16">
           <path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/>
@@ -147,6 +147,8 @@
     let heatLayer = null;
     let receiverMarker = null;
     let receiverTooltip = null;
+    let rangeCircles = []; // Array to store the range circles
+    let rangeLabels = []; // Array to store the range labels
     
     // Function to clear all previous map layers
     function clearMapLayers() {
@@ -167,6 +169,89 @@
         map.removeLayer(receiverTooltip);
         receiverTooltip = null;
       }
+      
+      // Remove range circles and labels
+      rangeCircles.forEach(circle => {
+        if (circle) map.removeLayer(circle);
+      });
+      rangeCircles = [];
+      
+      rangeLabels.forEach(label => {
+        if (label) map.removeLayer(label);
+      });
+      rangeLabels = [];
+    }
+    
+    // Calculate the maximum distance from the receiver to any point in the heatmap
+    function calculateMaxDistance(receiverLatLng, heatData) {
+      let maxDistance = 0;
+      
+      heatData.forEach(point => {
+        const pointLatLng = L.latLng(point[0], point[1]);
+        const distance = receiverLatLng.distanceTo(pointLatLng);
+        if (distance > maxDistance) {
+          maxDistance = distance;
+        }
+      });
+      
+      return maxDistance; // in meters
+    }
+    
+    // Draw concentric circles around the receiver
+    function drawRangeCircles(receiverLatLng, maxDistance) {
+      // Clear any existing circles and labels
+      rangeCircles.forEach(circle => {
+        if (circle) map.removeLayer(circle);
+      });
+      rangeCircles = [];
+      
+      rangeLabels.forEach(label => {
+        if (label) map.removeLayer(label);
+      });
+      rangeLabels = [];
+      
+      // Create 3 equally spaced circles
+      for (let i = 1; i <= 3; i++) {
+        const radiusMeters = maxDistance * i / 3;
+        const radiusNM = (radiusMeters / 1852).toFixed(1); // Convert meters to nautical miles
+        
+        // Create circle
+        const circle = L.circle(receiverLatLng, {
+          radius: radiusMeters,
+          color: '#3388ff',
+          fillColor: 'transparent',
+          weight: 1.5,
+          opacity: 0.7,
+          dashArray: '5, 5' // Make the circles dashed
+        }).addTo(map);
+        
+        rangeCircles.push(circle);
+        
+        // Calculate position for the label (east of the center)
+        const labelLatLng = calculateLabelPosition(receiverLatLng, radiusMeters);
+        
+        // Create label
+        const label = L.tooltip({
+          permanent: true,
+          direction: 'center',
+          className: 'receiver-tooltip'
+        })
+        .setLatLng(labelLatLng)
+        .setContent(`${radiusNM} NM`)
+        .addTo(map);
+        
+        rangeLabels.push(label);
+      }
+    }
+    
+    // Calculate position for range label (east of center)
+    function calculateLabelPosition(center, radiusMeters) {
+      // Convert radius from meters to degrees longitude (approximate)
+      // This is a simplified calculation that works for small distances
+      const radiusLng = radiusMeters / (111320 * Math.cos(center.lat * Math.PI / 180));
+      
+      // Position the label to the east of the center
+      return L.latLng(center.lat, center.lng + radiusLng);
     }
     
     // Load receivers
@@ -265,6 +350,11 @@
           .setContent(`<b>${selectedReceiver.name}</b>`)
           .setLatLng([selectedReceiver.latitude, selectedReceiver.longitude])
           .addTo(map);
+          
+          // Calculate maximum distance and draw range circles
+          const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
+          const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
+          drawRangeCircles(receiverLatLng, maxDistance);
           
           // Create bounds that include both the receiver and all heatmap points
           const points = heatData.map(p => [p[0], p[1]]);
