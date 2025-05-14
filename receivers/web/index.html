@@ -1,208 +1,101 @@
-:root {
-  --primary: #246;
-  --accent: #48a;
-  --bg: #f9f9f9;
-  --fg: #333;
-  --radius: 6px;
-}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Receivers Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><h1>Receivers</h1></header>
+  <main>
+    <section id="form-section">
+      <h2 id="form-title">Add New Receiver</h2>
+      <form id="receiver-form">
+        <input type="hidden" id="field-id">
+        <label>
+          Name
+          <input type="text" id="field-name" maxlength="15" required>
+        </label>
+        <label>
+          Description
+          <input type="text" id="field-description" maxlength="30" required>
+        </label>
+        <label>
+          Latitude
+          <input type="number" id="field-latitude" step="any" min="-90" max="90" required>
+        </label>
+        <label>
+          Longitude
+          <input type="number" id="field-longitude" step="any" min="-180" max="180" required>
+        </label>
+        <label>
+          URL
+          <input type="url" id="field-url">
+        </label>
+        <label>
+          IP Address
+          <input type="text" id="field-ip-address" placeholder="e.g., 192.168.1.1">
+        </label>
+        <div class="password-container">
+          <label>
+            Password
+            <div class="password-field">
+              <input type="text" id="field-password" readonly>
+              <button type="button" id="regenerate-password" class="password-button">Regenerate</button>
+            </div>
+          </label>
+        </div>
+        <div class="buttons">
+          <button type="submit">Save</button>
+          <button type="button" id="cancel-edit">Cancel</button>
+        </div>
+      </form>
+    </section>
 
-* { box-sizing: border-box; }
+    <section id="search-section">
+      <input
+        type="text"
+        id="search-input"
+        placeholder="🔍 Search by description or name…"
+        autocomplete="off"
+      >
+    </section>
 
-body {
-  margin: 0; padding: 1rem;
-  font-family: Arial, sans-serif;
-  background: var(--bg);
-  color: var(--fg);
-}
-
-header {
-  text-align: center;
-  margin-bottom: 1rem;
-}
-
-main {
-  display: grid;
-  gap: 2rem;
-  max-width: 800px;
-  margin: auto;
-}
-
-form {
-  background: #fff;
-  padding: 1rem;
-  border: 1px solid #ddd;
-  border-radius: var(--radius);
-  display: grid;
-  gap: 0.5rem;
-}
-
-label {
-  display: flex;
-  flex-direction: column;
-  font-size: 0.9rem;
-}
-
-input {
-  padding: 0.4rem;
-  font-size: 1rem;
-  border: 1px solid #ccc;
-  border-radius: var(--radius);
-}
-
-input.error {
-  border: 2px solid #e74c3c;
-  background-color: #fef5f5;
-  animation: shake 0.5s;
-}
-
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
-  20%, 40%, 60%, 80% { transform: translateX(5px); }
-}
-
-.buttons {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-}
-
-button {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: var(--radius);
-  background: var(--primary);
-  color: #fff;
-  cursor: pointer;
-}
-
-button#cancel-edit {
-  background: #aaa;
-}
-
-button:hover {
-  opacity: 0.9;
-}
-
-#search-section {
-  max-width: 800px;
-  margin: 0 auto 1rem;
-}
-
-#search-input {
-  width: 100%;
-  padding: 0.5rem;
-  font-size: 1rem;
-  border: 1px solid #ccc;
-  border-radius: var(--radius);
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: #fff;
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-th, td {
-  padding: 0.6rem;
-  text-align: left;
-  border-bottom: 1px solid #eee;
-}
-
-tr:nth-child(even) {
-  background: #fafafa;
-}
-
-th.sortable {
-  cursor: pointer;
-}
-
-th.sortable:hover {
-  background: #f0f0f0;
-}
-
-a.action, button.delete-btn {
-  color: var(--accent);
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  font-size: 0.9rem;
-  text-decoration: underline;
-}
-
-button.delete-btn {
-  color: #c22;
-}
-
-a.action:hover, button.delete-btn:hover {
-  opacity: 0.8;
-}
-
-/* Password field styling */
-.password-container {
-  margin-bottom: 0.5rem;
-}
-
-.password-field {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-#field-password {
-  flex: 1;
-  font-family: monospace;
-  background-color: #f5f5f5;
-}
-
-.password-button {
-  background-color: var(--accent);
-  padding: 0.4rem 0.8rem;
-  font-size: 0.85rem;
-  white-space: nowrap;
-}
-/* Cron button styling */
-button.cron-btn {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 0.9rem;
-  text-decoration: underline;
-}
-button.cron-btn:hover {
-  opacity: 0.8;
-}
-
-.password-button:hover {
-  background-color: #3a8bc2;
-}
-/* Cron overlay styles */
-.hidden { display: none !important; }
-
-/* Show overlay only when not hidden */
-#cron-overlay:not(.hidden) {
-  display: flex;
-}
-#cron-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  /* display removed; handled by :not(.hidden) rule */
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-}
-#cron-overlay .overlay-content {
-  background: #fff;
-  padding: 1rem;
-  border-radius: var(--radius);
-  max-width: 90%;
-  width: 400px;
-}
+    <section id="list-section">
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" data-key="id">ID</th>
+            <th class="sortable" data-key="lastupdated">Last Updated</th>
+            <th class="sortable" data-key="name">Name</th>
+            <th class="sortable" data-key="description">Description</th>
+            <th class="sortable" data-key="latitude">Lat</th>
+            <th class="sortable" data-key="longitude">Long</th>
+            <th class="sortable" data-key="url">URL</th>
+            <th class="sortable" data-key="ip_address">IP Address</th>
+            <th class="sortable" data-key="password">Password</th>
+            <th class="sortable" data-key="messages">Messages</th>
+            <th>Cron</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="receivers-tbody">
+          <!-- rows filled by JS -->
+        </tbody>
+      </table>
+    </section>
+  </main>
+  <!-- Cron overlay -->
+<div id="cron-overlay" class="hidden">
+  <div class="overlay-content">
+    <h3>Cron Entry</h3>
+    <pre id="cron-entry" style="background: #f5f5f5; padding: 6px; overflow-x: auto; white-space: pre-wrap; font-size: 0.9em;"></pre>
+    <div style="margin-top: 8px; display: flex; gap: 8px; justify-content: flex-end;">
+      <button id="copy-cron" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Copy to clipboard</button>
+      <button id="close-cron" style="background-color: #aaa; color: white; border: none; padding: 4px 8px; cursor: pointer;">Close</button>
+    </div>
+  </div>
+</div>
+  <script src="app.js"></script>
+</body>
+</html>
