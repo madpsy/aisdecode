@@ -926,20 +926,29 @@
         const layout = d3.layout.cloud()
           .size([width, height])
           .words(words)
-          .padding(5)
+          .padding(3) // Reduced padding to allow more words to fit
           .rotate(() => 0) // No rotation for better readability
           .font('Segoe UI')
           .fontSize(d => {
             // Adjust font size based on container width for better responsiveness
             const scaleFactor = Math.min(1, width / 500); // Scale down on narrow screens
-            return d.size * scaleFactor;
+            // Cap maximum font size to prevent single large words from dominating
+            return Math.min(40, d.size * scaleFactor);
           })
           .spiral('archimedean') // Use archimedean spiral for better distribution
           .on('end', draw);
+          
+        // Set parameters for better word placement
+        layout.timeInterval(10);  // Reduce time between placement attempts
+        layout.spiral('rectangular');  // Try rectangular spiral for better space usage
         
-        // Fix for word cloud not showing all words
+        // Log attempt to render words
         console.log(`Rendering word cloud with ${words.length} words`);
-        layout.start();
+        
+        // Try to render the word cloud with a slight delay to ensure DOM is ready
+        setTimeout(() => {
+          layout.start();
+        }, 50);
         
         // Draw the word cloud
         function draw(words) {
@@ -957,10 +966,9 @@
             .enter()
             .append('g')
             .attr('transform', d => {
-              // Ensure words stay within boundaries
-              const x = Math.max(-width/2 + d.size/2, Math.min(width/2 - d.size/2, d.x));
-              const y = Math.max(-height/2 + d.size/2, Math.min(height/2 - d.size/2, d.y));
-              return `translate(${x},${y})`;
+              // Use original positions from layout algorithm with less restrictive boundaries
+              // to allow more words to fit even if they're slightly outside the ideal area
+              return `translate(${d.x},${d.y})`;
             });
           
           // Add the link with text inside
