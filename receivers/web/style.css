@@ -23,8 +23,9 @@ header {
 main {
   display: grid;
   gap: 2rem;
-  max-width: 800px;
-  margin: auto;
+  max-width: 1200px; /* Increased max-width to accommodate the wide table */
+  margin: 0 auto; /* Explicit 0 for top/bottom, auto for left/right */
+  width: 100%; /* Ensure it takes full width up to max-width */
 }
 
 form {
@@ -99,24 +100,40 @@ button:hover {
 
 /* Add overflow handling to the list section containing the table */
 #list-section {
-  overflow-x: auto;
+  overflow-x: auto; /* Enable horizontal scrolling */
   width: 100%;
+  border: 1px solid #ddd;
+  border-radius: var(--radius);
+  background: #fff;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
-  border-radius: var(--radius);
-  overflow: hidden;
-  min-width: 100%; /* Ensure table takes at least full width of container */
+  table-layout: fixed; /* Fixed table layout for better column control */
 }
 
+/* Set reasonable widths for table columns */
 th, td {
   padding: 0.6rem;
   text-align: left;
   border-bottom: 1px solid #eee;
+  white-space: nowrap; /* Prevent text wrapping */
+  overflow: hidden;
+  text-overflow: ellipsis; /* Add ellipsis for overflowing text */
 }
+
+/* Column width adjustments */
+th[data-key="id"], td:nth-child(1) { width: 50px; }
+th[data-key="name"], td:nth-child(3) { width: 100px; }
+th[data-key="description"], td:nth-child(4) { width: 150px; }
+th[data-key="latitude"], td:nth-child(5) { width: 70px; }
+th[data-key="longitude"], td:nth-child(6) { width: 70px; }
+th[data-key="url"], td:nth-child(7) { width: 120px; }
+th[data-key="ip_address"], td:nth-child(8) { width: 100px; }
+th[data-key="password"], td:nth-child(9) { width: 100px; }
+th[data-key="messages"], td:nth-child(10) { width: 80px; }
 
 tr:nth-child(even) {
   background: #fafafa;
