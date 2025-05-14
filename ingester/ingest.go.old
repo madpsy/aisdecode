@@ -279,11 +279,10 @@ func cleanupFragments(ttl time.Duration) {
     }
 }
 
-// UDPPacket holds raw data, source IP and the port it was received on
+// UDPPacket holds raw data and source IP
 type UDPPacket struct {
 	raw      []byte
 	sourceIP string
-	port     int
 }
 
 // StreamMessage is what we send to TCP clients
@@ -293,7 +292,6 @@ type StreamMessage struct {
 	Timestamp   string      `json:"timestamp"`
 	ShardID     int         `json:"shard_id"`
 	RawSentence string      `json:"raw_sentence"`
-	UDPPort     int         `json:"udp_port"`
 }
 
 // handshakeReq is the JSON clients must send on connect
@@ -336,7 +334,6 @@ var udpDestinationMetrics = map[string]*UDPDestinationMetrics{}
 
 type Config struct {
     UDPListenPort          int      `json:"udp_listen_port"`
-    UDPDedicatedPorts      string   `json:"udp_dedicated_ports"`
     Destinations           []UDPDestination `json:"udp_destinations"`
     MetricWindowSize       int      `json:"metric_window_size"`
     HTTPPort               int      `json:"http_port"`
@@ -986,7 +983,14 @@ func main() {
         // Initialize UDP destination metrics
         initializeUDPDestinationMetrics()
 
-	// Listen for UDP packets on main port and dedicated ports
+	// Listen for UDP packets
+	udpAddrStr := fmt.Sprintf(":%d", udpPort)
+	pc, err := net.ListenPacket("udp", udpAddrStr)
+	if err != nil {
+		log.Fatalf("UDP listen %s: %v", udpAddrStr, err)
+	}
+	defer pc.Close()
+
 	codec := ais.CodecNew(false, false)
 	codec.DropSpace = true
 	nmeaCodec := aisnmea.NMEACodecNew(codec)
@@ -996,114 +1000,27 @@ func main() {
 		go worker(packetChan, udpConns, nmeaCodec)
 	}
 
-	// Set up listeners for all ports
-	var listeners []net.PacketConn
-	
-	// Main UDP port
-	udpAddrStr := fmt.Sprintf(":%d", udpPort)
-	pc, err := net.ListenPacket("udp", udpAddrStr)
-	if err != nil {
-		log.Fatalf("UDP listen %s: %v", udpAddrStr, err)
-	}
-	listeners = append(listeners, pc)
-	log.Printf("Listening on UDP port %d", udpPort)
-	
-	// Parse and set up dedicated port range if specified
-	if cfg.UDPDedicatedPorts != "" {
-		portRange := strings.Split(cfg.UDPDedicatedPorts, "-")
-		if len(portRange) == 2 {
-			startPort, err1 := strconv.Atoi(portRange[0])
-			endPort, err2 := strconv.Atoi(portRange[1])
-			
-			if err1 != nil || err2 != nil {
-				log.Printf("Invalid port range format: %s. Expected format: start-end", cfg.UDPDedicatedPorts)
-			} else if startPort > endPort {
-				log.Printf("Invalid port range: start port %d is greater than end port %d", startPort, endPort)
-			} else {
-				log.Printf("Setting up dedicated UDP ports from %d to %d", startPort, endPort)
-				for port := startPort; port <= endPort; port++ {
-					if port == udpPort {
-						// Skip if it's the same as the main UDP port
-						continue
-					}
-					
-					dedicatedAddrStr := fmt.Sprintf(":%d", port)
-					dedicatedPC, err := net.ListenPacket("udp", dedicatedAddrStr)
-					if err != nil {
-						log.Printf("Failed to listen on dedicated UDP port %d: %v", port, err)
-						continue
-					}
-					listeners = append(listeners, dedicatedPC)
-					log.Printf("Listening on dedicated UDP port %d", port)
-					
-					// Start a goroutine to handle packets from this dedicated port
-					go func(pc net.PacketConn, portNum int) {
-						for {
-							buf := bufPool.Get().([]byte)
-							n, addr, err := pc.ReadFrom(buf)
-							if err != nil {
-								log.Printf("UDP read error on port %d: %v", portNum, err)
-								bufPool.Put(buf)
-								continue
-							}
-							pkt := packetPool.Get().(*UDPPacket)
-							pkt.raw = buf[:n]
-							pkt.sourceIP = strings.Split(addr.String(), ":")[0]
-							pkt.port = portNum
-							
-							// Rate limiting
-							if !allow(pkt.sourceIP) {
-								log.Printf("Rate limit exceeded for IP %s on port %d, dropping packet", pkt.sourceIP, portNum)
-								bufPool.Put(buf)
-								packetPool.Put(pkt)
-								continue
-							}
-							packetChan <- pkt
-						}
-					}(dedicatedPC, port)
-				}
-			}
-		} else {
-			log.Printf("Invalid port range format: %s. Expected format: start-end", cfg.UDPDedicatedPorts)
-		}
-	}
-	
-	// Ensure all listeners are closed on exit
-	defer func() {
-		for _, listener := range listeners {
-			listener.Close()
-		}
-		
-		if mqttClient.IsConnected() {
-			mqttClient.Disconnect(250)
-			log.Println("Disconnected from MQTT broker")
-		}
-	}()
-
-	// Main packet loop for the primary UDP port
+	// Main packet loop
 	for {
-		buf := bufPool.Get().([]byte)
-		n, addr, err := pc.ReadFrom(buf)
-		if err != nil {
-			log.Printf("UDP read error on main port: %v", err)
-			bufPool.Put(buf)
-			continue
-		}
-		pkt := packetPool.Get().(*UDPPacket)
-		// Give worker the full buffer and the length it needs
-		pkt.raw = buf[:n]
-		pkt.sourceIP = strings.Split(addr.String(), ":")[0]
-		pkt.port = udpPort
-		
-		// Rate limiting
-		if !allow(pkt.sourceIP) {
-			// drop the packet and recycle buffers
-			log.Printf("Rate limit exceeded for IP %s on main port, dropping packet", pkt.sourceIP)
-			bufPool.Put(buf)
-			packetPool.Put(pkt)
-			continue
-		}
-		packetChan <- pkt
+		  buf := bufPool.Get().([]byte)
+		  n, addr, err := pc.ReadFrom(buf)
+		  if err != nil {
+		    log.Printf("UDP read error: %v", err)
+		    continue
+		  }
+		  pkt := packetPool.Get().(*UDPPacket)
+		  // Give worker the full buffer and the length it needs
+		  pkt.raw = buf[:n]
+		  pkt.sourceIP = strings.Split(addr.String(), ":")[0]
+	          // Rate limiting
+ 	          if !allow(pkt.sourceIP) {
+                     // drop the packet and recycle buffers
+                     log.Printf("Rate limit exceeded for IP %s, dropping packet", pkt.sourceIP)
+                     bufPool.Put(buf)
+                     packetPool.Put(pkt)
+                     continue
+                 }
+		  packetChan <- pkt
 	}
 
 	defer func() {
@@ -1493,17 +1410,16 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         }
 
         streamObj := StreamMessage{
-        	Message: map[string]interface{}{
-        		"packet":  packetPayload,
-        		"channel": channel,
-        	},
-        	Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
-        	ShardID:     shardID,
-        	RawSentence: rawToSend,
-        	UDPPort:     pkt.port,
+            Message: map[string]interface{}{
+                "packet":  packetPayload,
+                "channel": channel,
+            },
+            Timestamp:   time.Now().UTC().Format(time.RFC3339Nano),
+            ShardID:     shardID,
+            RawSentence: rawToSend,
         }
         if includeSource {
-        	streamObj.SourceIP = srcIP
+            streamObj.SourceIP = srcIP
         }
 
         buf := jsonBufPool.Get().(*bytes.Buffer)
@@ -1520,7 +1436,6 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
             var mqttMap map[string]interface{}
             if err := json.Unmarshal(payload, &mqttMap); err == nil {
                 delete(mqttMap, "source_ip")
-                delete(mqttMap, "udp_port")
                 if mqttBuf, err := json.Marshal(mqttMap); err == nil {
                     token := mqttClient.Publish(topic, 0, false, mqttBuf)
                     token.Wait()
