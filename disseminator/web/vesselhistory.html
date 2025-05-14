@@ -1011,6 +1011,23 @@
                 return 'Unknown';
               }
             },
+            {
+              key: 'ReceiverIDs',
+              label: 'Receivers',
+              customValue: true,
+              format: () => {
+                if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
+                  // Map receiver IDs to linked names
+                  const receiverLinks = data.ReceiverIDs.map(id => {
+                    const receiver = receiversData.find(r => r.id === id);
+                    const name = receiver ? receiver.name : id;
+                    return `<a href="/metrics/receiver.html?receiver=${id}" target="_blank">${name}</a>`;
+                  });
+                  return receiverLinks.join(', ');
+                }
+                return 'None';
+              }
+            },
             { key: 'NavigationalStatus', label: 'Status', format: (val) => lookupNavStatus(val) },
             { key: 'Destination', label: 'Destination' },
             {
@@ -1063,7 +1080,7 @@
 
           // Add rows for each field if it exists and is not empty
           // Manually define which fields go in which table
-          const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag'];
+          const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag', 'ReceiverIDs'];
           const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location', 'NumMessages'];
           
           // Process fields for left table
@@ -1087,7 +1104,11 @@
               const valueCell = document.createElement('td');
               // For custom value fields, just call the format function directly
               if (field.customValue && field.format) {
-                valueCell.textContent = field.format();
+                if (field.key === 'ReceiverIDs' || field.key === 'Location') {
+                  valueCell.innerHTML = field.format();
+                } else {
+                  valueCell.textContent = field.format();
+                }
               } else {
                 // Otherwise use formatter function if provided, or use raw value
                 const value = data[field.key];
@@ -4512,6 +4533,23 @@
             return 'Unknown';
           }
         },
+        {
+          key: 'ReceiverIDs',
+          label: 'Receivers',
+          customValue: true,
+          format: () => {
+            if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
+              // Map receiver IDs to linked names
+              const receiverLinks = data.ReceiverIDs.map(id => {
+                const receiver = receiversData.find(r => r.id === id);
+                const name = receiver ? receiver.name : id;
+                return `<a href="/metrics/receiver.html?receiver=${id}" target="_blank">${name}</a>`;
+              });
+              return receiverLinks.join(', ');
+            }
+            return 'None';
+          }
+        },
         { key: 'NavigationalStatus', label: 'Status', format: (val) => lookupNavStatus(val) },
         { key: 'Destination', label: 'Destination' },
         {
@@ -4558,7 +4596,7 @@
       ];
       
       // Process fields for left and right tables
-      const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag'];
+      const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag', 'ReceiverIDs'];
       const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location', 'NumMessages'];
       
       // Add rows for left table
@@ -4580,7 +4618,11 @@
           
           const valueCell = document.createElement('td');
           if (field.customValue && field.format) {
-            valueCell.textContent = field.format();
+            if (field.key === 'ReceiverIDs' || field.key === 'Location') {
+              valueCell.innerHTML = field.format();
+            } else {
+              valueCell.textContent = field.format();
+            }
           } else {
             const value = data[field.key];
             valueCell.textContent = field.format ? field.format(value) : (value || '');
