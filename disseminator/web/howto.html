@@ -85,7 +85,7 @@
         <li>Configure AIS Catcher to send AIS data to us by adding <code id="ingest-code"></code></li>
 <img src="/images/aiscatcher.png" alt="AIS Catcher configuration screenshot" style="width:100%; height:auto; margin-bottom:1rem;">
         <li>Complete the form and run the command below on your AIS Catcher computer</li>
-<li>Visit <code id="visit-domain"></code> and you should see your receiver on the map</li>
+<li>Visit <a id="visit-domain" href="" target="_blank"></a> and you should see your receiver on the map</li>
       </ol>
     <form id="params-form">
       <label for="callsign">Callsign or Name (≤15 chars):</label>
@@ -110,7 +110,10 @@
     const ingestCodeEl = document.getElementById('ingest-code');
     if (ingestCodeEl) ingestCodeEl.textContent = `ingest.${host} port 8101 (UDP)`;
     const visitDomainEl = document.getElementById('visit-domain');
-    if (visitDomainEl) visitDomainEl.textContent = origin;
+    if (visitDomainEl) {
+      visitDomainEl.textContent = origin;
+      visitDomainEl.href = origin;
+    }
     let lat = 51.5074, lng = -0.1278; // default to London
     const codeEl = document.getElementById('cmd');
     const btn = document.getElementById('copy-btn');
