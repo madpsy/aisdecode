@@ -3228,7 +3228,6 @@ socket.on("summaryData", (data) => {
   }
   // Update UI elements but avoid triggering vessel-receiver connection updates
   // This helps prevent flickering when summary data arrives
-  console.log("[summaryData] Updating UI without recreating vessel-receiver connection");
   updateOverlay();
   
   // Don't call these functions as they might trigger vessel-receiver connection updates
