@@ -38,6 +38,7 @@ type filterKey struct {
     UserID     int64   `json:"userID"`
     Types      string  `json:"types"`
     TypeGroups string  `json:"typeGroups"`
+    Classes    string  `json:"classes"`
 }
 
 type FilterParams struct {
@@ -52,6 +53,7 @@ type FilterParams struct {
     LastUpdated time.Time
     Types       string
     TypeGroups  string
+    Classes     string
 }
 
 type Settings struct {
@@ -192,6 +194,7 @@ func keyForFilter(p FilterParams) string {
         UserID:     p.UserID,
         Types:      p.Types,
         TypeGroups: p.TypeGroups,
+        Classes:    p.Classes,
     }
     raw, _ := json.Marshal(k)
     h := fnv.New64a()
@@ -247,7 +250,7 @@ func getSummaryJSON(p FilterParams, ttl int) ([]byte, error) {
     // 2) Cache miss → compute the summary as Go map
     summary, err := getSummaryResults(
         p.Latitude, p.Longitude, p.Radius,
-        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types, p.TypeGroups,
+        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types, p.TypeGroups, p.Classes,
     )
     if err != nil {
         return nil, err
@@ -297,7 +300,7 @@ func getSummaryWithRedisCache(p FilterParams, ttl int) (map[string]interface{}, 
     // Miss → compute
     summary, err := getSummaryResults(
         p.Latitude, p.Longitude, p.Radius,
-        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types, p.TypeGroups,
+        p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types, p.TypeGroups, p.Classes,
     )
     if err != nil {
         return nil, err
@@ -557,7 +560,7 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
     return results, nil
 }
 
-func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64, types string, typeGroups string) (map[string]interface{}, error) {
+func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64, types string, typeGroups string, classes string) (map[string]interface{}, error) {
    query := `
        SELECT user_id
             , packet
@@ -664,6 +667,35 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
         } else {
             query += fmt.Sprintf(" WHERE (%s)", typeFilter)
             whereAdded = true
+        }
+    }
+    
+    // Filter by AIS Class if specified
+    if classes != "" {
+        var classConditions []string
+        classesList := strings.Split(classes, ",")
+        
+        for _, c := range classesList {
+            c = strings.TrimSpace(c)
+            if c != "" {
+                // Valid values are A, B, BASE, SAR and AtoN
+                switch c {
+                case "A", "B", "BASE", "SAR", "AtoN":
+                    classConditions = append(classConditions, fmt.Sprintf("ais_class = '%s'", c))
+                default:
+                    log.Printf("Warning: Ignoring invalid AIS class value: %s", c)
+                }
+            }
+        }
+        
+        if len(classConditions) > 0 {
+            classFilter := strings.Join(classConditions, " OR ")
+            if whereAdded {
+                query += fmt.Sprintf(" AND (%s)", classFilter)
+            } else {
+                query += fmt.Sprintf(" WHERE (%s)", classFilter)
+                whereAdded = true
+            }
         }
     }
 
@@ -1359,6 +1391,9 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
     
     // Extract 'typeGroups' query parameter for filtering (optional)
     typeGroups := r.URL.Query().Get("typeGroups")
+    
+    // Extract 'classes' query parameter for filtering (optional)
+    classes := r.URL.Query().Get("classes")
 
     // Parse latitude, longitude, and radius if they are provided
     var lat, lon, radius float64
@@ -1391,6 +1426,7 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
        UserID: userid,
        Types: types,
        TypeGroups: typeGroups,
+       Classes: classes,
     }
     blob, err := getSummaryJSON(p, conf.CacheTime)
     if err != nil {
@@ -1700,13 +1736,19 @@ func handleSummaryRequest(client *serverSocket.Socket, data map[string]interface
     if typeGroupsVal, ok := data["typeGroups"].(string); ok {
         typeGroups = typeGroupsVal
     }
+    
+    // Extract classes parameter (comma-delimited string)
+    var classes string
+    if classesVal, ok := data["classes"].(string); ok {
+        classes = classesVal
+    }
 
     // Log the parameters for debugging
-    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s, typeGroups=%s",
-        client.Id(), lat, lon, radius, limit, maxAge, minSpeed, userid, types, typeGroups)
+    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s, typeGroups=%s, classes=%s",
+        client.Id(), lat, lon, radius, limit, maxAge, minSpeed, userid, types, typeGroups, classes)
 
     // Now call the function that generates the summary
-    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid, types, typeGroups)
+    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid, types, typeGroups, classes)
     if err != nil {
         log.Printf("Error fetching summary: %v", err)
         return
@@ -2380,9 +2422,15 @@ func setupServer(settings *Settings) {
 	        typeGroups = typeGroupsVal
 	    }
 	    
+	    // Extract classes parameter (comma-delimited string)
+	    var classes string
+	    if classesVal, ok := data["classes"].(string); ok {
+	        classes = classesVal
+	    }
+	    
 	    // Log the parameters for debugging
-	    // log.Printf("[requestSummary] Client %s requested with params: lat=%.6f, lon=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s, typeGroups=%s",
-	    //     client.Id(), lat, lon, radius, maxResults, maxAge, minSpeed, userID, types, typeGroups)
+	    // log.Printf("[requestSummary] Client %s requested with params: lat=%.6f, lon=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s, typeGroups=%s, classes=%s",
+	    //     client.Id(), lat, lon, radius, maxResults, maxAge, minSpeed, userID, types, typeGroups, classes)
 
 	    // 3) Build FilterParams (LastUpdated will gate the next tick)
 	    p := FilterParams{
@@ -2397,6 +2445,7 @@ func setupServer(settings *Settings) {
 	        LastUpdated:  time.Now(),
 	        Types:        types,
 	        TypeGroups:   typeGroups,
+	        Classes:      classes,
 	    }
 	
 	    // 4) Stash for the ticker
