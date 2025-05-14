@@ -320,6 +320,7 @@
   <script>
     $(function() {
       let typeMapping = {};
+      let atonTypeMapping = {};
       let receivers = [];
       const sliceColors = [
         '#4dc9f6','#f67019','#f53794','#537bc4',
@@ -356,10 +357,27 @@
 
       async function loadTypeMapping() {
         try {
+          // Load vessel types
           typeMapping = await fetch('vessel_types.json').then(r => r.json());
+          
+          // Load AtoN types
+          atonTypeMapping = await fetch('/aton_types.json').then(r => r.json());
         } catch (e) {
           console.error('Failed to load type mapping:', e);
         }
+      }
+      
+      // Helper function to get type description based on vessel class and type
+      function getTypeDescription(vesselClass, type) {
+        if (!type) return '';
+        
+        // If vessel class is AtoN, use AtoN type mapping
+        if (vesselClass === 'AtoN' && atonTypeMapping[type]) {
+          return atonTypeMapping[type];
+        }
+        
+        // Otherwise use regular vessel type mapping
+        return typeMapping[type] || type;
       }
       
       async function loadReceivers() {
@@ -471,7 +489,7 @@
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
-          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
+          const typeDesc = v.type ? getTypeDescription(v.ais_class, v.type) : '';
           posTable.row.add([
             nameLink,
             imgTag,
@@ -504,7 +522,7 @@
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
-          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
+          const typeDesc = v.type ? getTypeDescription(v.ais_class, v.type) : '';
           sogTable.row.add([
             nameLink,
             imgTag,
@@ -533,6 +551,7 @@
         typeChart.data.datasets[0].data = [];
 
         data.forEach((t, i) => {
+          // For top types table, we don't have class information, so use regular mapping
           const typeDesc = typeMapping[t.type] || t.type;
           const desc = `${typeDesc} (ID: ${t.type})`;
           typeTable.row.add([ desc, t.count ]);
@@ -601,7 +620,7 @@
           const imgTag = v.image_url
             ? `<img class="thumb" src="${v.image_url}" alt="${name}">`
             : '';
-          const typeDesc = v.type ? (typeMapping[v.type] || v.type) : '';
+          const typeDesc = v.type ? getTypeDescription(v.ais_class, v.type) : '';
           
           // Find receiver name from receivers array
           let receiverName = v.receiver_id;
@@ -686,7 +705,7 @@
                   
                   const marker = L.marker([v.lat, v.lon], {icon: vesselIcon})
                     .addTo(distanceMap)
-                    .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
+                    .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? getTypeDescription(v.ais_class, v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
                   
                   // Add permanent tooltip showing vessel name/ID
                   const tooltip = L.tooltip({
@@ -815,7 +834,7 @@
                     
                     const marker = L.marker([v.lat, v.lon], {icon: vesselIcon})
                       .addTo(distanceMap)
-                      .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Receiver: ${receiverObj.name}<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? (typeMapping[v.type] || v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
+                      .bindPopup(`<b>${v.name || v.user_id}</b><br>Distance: ${(v.distance / 1000).toFixed(2)} km<br>Receiver: ${receiverObj.name}<br>Class: ${v.ais_class || 'N/A'}<br>Type: ${v.type ? getTypeDescription(v.ais_class, v.type) : 'N/A'}<br>Timestamp: ${timestamp}`);
                     
                     // Add permanent tooltip showing vessel name/ID
                     const tooltip = L.tooltip({
