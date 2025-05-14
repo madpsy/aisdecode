@@ -157,7 +157,6 @@
       if (urlVal) {
         try {
           new URL(urlVal);
-          cmd += ` -U ${urlVal}`;
         } catch (e) {
           urlErrorEl.style.display = 'block';
           // invalid url: show placeholder and hide button
@@ -168,6 +167,8 @@
           return;
         }
       }
+      // always include -U flag (empty string if no URL) to leverage new script feature
+      cmd += ` -U "${urlVal}"`;
       // show command and enable button
       codeEl.textContent = cmd;
       codeEl.parentElement.style.display = 'block';
