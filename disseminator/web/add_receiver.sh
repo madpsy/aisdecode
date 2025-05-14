@@ -269,7 +269,8 @@ if [[ "$HTTP_CODE" -eq 201 ]]; then
       echo -e "${GREEN}Cron job installed: $CRON_MIN * * * * $CRON_CMD${NC}"
     fi
     rm "$TMP_CRON"
-    echo -e "${GREEN}All operations completed successfully.${NC}"
+    echo -e "${GREEN}All operations completed successfully. You can see your receiver at the following URL:${NC}"
+    echo "${BASE_URL}/metrics/receiver.html?receiver=${ID}"
   fi
   exit 0
 else
