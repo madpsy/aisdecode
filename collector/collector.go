@@ -33,6 +33,7 @@ import (
 type Settings struct {
     IngestPort            int      `json:"ingest_port"`
     IngestHost            string   `json:"ingest_host"`
+    IngestHTTPPort        int      `json:"ingest_http_port"`        // HTTP port for ingester web interface
     IngestUDPListenPort   int      `json:"ingest_udp_listen_port"`  // Main UDP port from ingester
     DbHost                string   `json:"db_host"`
     DbPort                int      `json:"db_port"`
@@ -193,13 +194,13 @@ func main() {
         log.Println("Debug mode enabled")
     }
     
-    // Fetch UDP listen port from ingest_host:ingest_port/settings
-    if settings.IngestHost != "" && settings.IngestPort > 0 {
+    // Fetch UDP listen port from ingest_host:ingest_http_port/settings
+    if settings.IngestHost != "" && settings.IngestHTTPPort > 0 {
         client := &http.Client{
             Timeout: 5 * time.Second,
         }
         
-        url := fmt.Sprintf("http://%s:%d/settings", settings.IngestHost, settings.IngestPort)
+        url := fmt.Sprintf("http://%s:%d/settings", settings.IngestHost, settings.IngestHTTPPort)
         if settings.Debug {
             log.Printf("Fetching UDP listen port from %s", url)
         }
