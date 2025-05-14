@@ -1764,6 +1764,9 @@ function updateLegend() {
       // Store the checkbox state when it changes
       typeGroupCheckboxStates[this.dataset.group] = this.checked;
       console.log(`Checkbox ${this.dataset.group} changed to ${this.checked}`);
+      
+      // Update the legend immediately when a checkbox changes
+      updateLegend();
     });
   });
   
@@ -4198,7 +4201,7 @@ setInterval(updateFocussedTooltip, 1000);
 
 // Call updateLegend periodically to keep the legend up to date
 // Update the legend periodically
-setInterval(updateLegend, 5000); // Update every 5 seconds
+setInterval(updateLegend, 2000); // Update every 2 seconds (reduced from 5 seconds)
 document.getElementById('toggle-legend').addEventListener('click', function() {
   const legend = document.getElementById('vessel-legend');
   if (window.getComputedStyle(legend).display === 'none') {
