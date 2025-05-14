@@ -82,6 +82,7 @@
       <input id="description" type="text" maxlength="30" placeholder="Description" />
       <label for="url">URL (optional):</label>
       <input id="url" type="url" placeholder="https://example.com" />
+      <span id="url-error" style="color: red; font-size: 0.9rem; display: none;">Invalid URL</span>
     </form>
     <p>Drag the marker to your location (default is your browser location or London):</p>
     <div id="map"></div>
@@ -98,6 +99,7 @@
     const callsignInput = document.getElementById('callsign');
     const descInput = document.getElementById('description');
     const urlInput = document.getElementById('url');
+    const urlErrorEl = document.getElementById('url-error');
     // Initial placeholder and disable copy until form complete
     codeEl.textContent = 'Command will appear once form is filled in';
     btn.disabled = true;
@@ -108,31 +110,40 @@
     function updateCommand() {
       const hasCalls = callsignInput.value.trim() !== '';
       const hasDesc = descInput.value.trim() !== '';
-      if (hasCalls && hasDesc) {
-        let cmd = `bash <(curl -fsSL ${origin}/add_receiver.sh) -u ${origin} -y -l ${lat.toFixed(6)},${lng.toFixed(6)}`;
-        cmd += ` -c ${callsignInput.value.trim()}`;
-        cmd += ` -d "${descInput.value.trim()}"`;
-        // Validate URL before adding to command
-        const urlVal = urlInput.value.trim();
-        if (urlVal) {
-          try {
-            new URL(urlVal);
-            cmd += ` -U ${urlVal}`;
-          } catch (e) {
-            console.warn('Invalid URL, not added to command:', urlVal);
-          }
-        }
-        codeEl.textContent = cmd;
-        codeEl.parentElement.style.display = 'block';
-        btn.style.display = 'inline-block';
-        btn.disabled = false;
-      } else {
-        // Show placeholder message until form is complete
+      // hide url error initially
+      urlErrorEl.style.display = 'none';
+      if (!hasCalls || !hasDesc) {
         codeEl.textContent = 'Command will appear once form is filled in';
         codeEl.parentElement.style.display = 'block';
         btn.style.display = 'none';
         btn.disabled = true;
+        return;
       }
+      // build base command
+      let cmd = `bash <(curl -fsSL ${origin}/add_receiver.sh) -u ${origin} -y -l ${lat.toFixed(6)},${lng.toFixed(6)}`;
+      cmd += ` -c ${callsignInput.value.trim()}`;
+      cmd += ` -d "${descInput.value.trim()}"`;
+      // validate URL if provided
+      const urlVal = urlInput.value.trim();
+      if (urlVal) {
+        try {
+          new URL(urlVal);
+          cmd += ` -U ${urlVal}`;
+        } catch (e) {
+          urlErrorEl.style.display = 'block';
+          // invalid url: show placeholder and hide button
+          codeEl.textContent = 'Command will appear once form is filled in';
+          codeEl.parentElement.style.display = 'block';
+          btn.style.display = 'none';
+          btn.disabled = true;
+          return;
+        }
+      }
+      // show command and enable button
+      codeEl.textContent = cmd;
+      codeEl.parentElement.style.display = 'block';
+      btn.style.display = 'inline-block';
+      btn.disabled = false;
     }
 
     // Update on input change
