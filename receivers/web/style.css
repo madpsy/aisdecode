@@ -148,14 +148,19 @@ th, td {
 
 /* Column width adjustments */
 th[data-key="id"], td:nth-child(1) { width: 50px; }
-th[data-key="name"], td:nth-child(3) { width: 100px; }
-th[data-key="description"], td:nth-child(4) { width: 150px; }
-th[data-key="latitude"], td:nth-child(5) { width: 70px; }
-th[data-key="longitude"], td:nth-child(6) { width: 70px; }
-th[data-key="url"], td:nth-child(7) { width: 120px; }
-th[data-key="ip_address"], td:nth-child(8) { width: 100px; }
-th[data-key="password"], td:nth-child(9) { width: 100px; }
-th[data-key="messages"], td:nth-child(10) { width: 80px; }
+th[data-key="lastupdated"], td:nth-child(2) { width: 180px; white-space: normal; } /* Allow wrapping for last updated */
+th[data-key="name"], td:nth-child(3) { width: 120px; }
+th[data-key="ip_address"], td:nth-child(8) { width: 120px; }
+th[data-key="messages"], td:nth-child(10) { width: 100px; }
+
+/* Hide specified columns */
+th[data-key="description"], td:nth-child(4),
+th[data-key="latitude"], td:nth-child(5),
+th[data-key="longitude"], td:nth-child(6),
+th[data-key="url"], td:nth-child(7),
+th[data-key="password"], td:nth-child(9) {
+  display: none;
+}
 
 tr:nth-child(even) {
   background: #fafafa;
