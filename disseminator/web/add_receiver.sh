@@ -15,6 +15,7 @@ LAT_LONG=""
 CALLSIGN=""
 DESCRIPTION=""
 URL=""
+URL_SPECIFIED=false
 
 print_usage() {
   cat <<EOF
@@ -39,7 +40,7 @@ while getopts "u:hyl:c:d:U:" opt; do
     l) LAT_LONG="$OPTARG" ;;
     c) CALLSIGN="$OPTARG" ;;
     d) DESCRIPTION="$OPTARG" ;;
-    U) URL="$OPTARG" ;;
+    U) URL="$OPTARG"; URL_SPECIFIED=true ;;
     *) print_usage; exit 1 ;;
   esac
 done
@@ -175,14 +176,17 @@ else
   done
 fi
 
-# Prompt for URL (optional)
-if [[ -n "$URL" ]]; then
-  # Validate full URL format
-  if ! [[ "$URL" =~ ^https?://([A-Za-z0-9][-A-Za-z0-9]*\.)+[A-Za-z]{2,}(:[0-9]+)?(/.*)?$ ]]; then
-    echo "Invalid URL format; must be a valid http(s) URL."
-    exit 1
+# Handle URL input based on -U flag
+if [[ "$URL_SPECIFIED" == true ]]; then
+  # User specified -U; if non-empty, validate; if empty, skip prompting
+  if [[ -n "$URL" ]]; then
+    if ! [[ "$URL" =~ ^https?://([A-Za-z0-9][-A-Za-z0-9]*\.)+[A-Za-z]{2,}(:[0-9]+)?(/.*)?$ ]]; then
+      echo "Invalid URL format; must be a valid http(s) URL."
+      exit 1
+    fi
   fi
 else
+  # Interactive prompt for optional URL
   read -p "URL (optional): " URL
   if [[ -n "$URL" ]]; then
     if ! [[ "$URL" =~ ^https?://([A-Za-z0-9][-A-Za-z0-9]*\.)+[A-Za-z]{2,}(:[0-9]+)?(/.*)?$ ]]; then
