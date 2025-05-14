@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIS Coverage Map</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <!-- Leaflet Heat plugin -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+  
+  <style>
+    body {
+      background-color: #f8f9fa;
+      padding: 2rem;
+      font-family: sans-serif;
+    }
+    h1 {
+      color: #343a40;
+      margin-bottom: 1.5rem;
+    }
+    .card {
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      margin-bottom: 2rem;
+    }
+    #coverage-map {
+      height: 600px;
+      width: 100%;
+      border-radius: 5px;
+    }
+    .controls {
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container-fluid">
+    <h1>AIS Coverage Map</h1>
+    
+    <div class="card">
+      <div class="card-body">
+        <div class="controls row">
+          <div class="col-md-4">
+            <label for="receiver-select" class="form-label">Receiver:</label>
+            <select id="receiver-select" class="form-select">
+              <option value="" disabled selected>Select a receiver</option>
+              <!-- Receivers will be loaded dynamically -->
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label for="days-select" class="form-label">Time window:</label>
+            <select id="days-select" class="form-select">
+              <option value="1">1 day</option>
+              <option value="2">2 days</option>
+              <option value="7" selected>7 days</option>
+              <option value="14">14 days</option>
+              <option value="30">30 days</option>
+            </select>
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <button id="load-btn" class="btn btn-primary">Load Coverage Map</button>
+          </div>
+        </div>
+        
+        <div id="coverage-map"></div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Initialize map
+    const map = L.map('coverage-map').setView([51.505, -0.09], 6);
+    
+    // Add base map layer
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    
+    // Heat layer
+    let heatLayer = null;
+    
+    // Load receivers
+    async function loadReceivers() {
+      try {
+        const receivers = await fetch('/receivers').then(r => r.json());
+        const select = document.getElementById('receiver-select');
+        
+        // Sort receivers by name
+        receivers.sort((a, b) => a.name.localeCompare(b.name));
+        
+        // Add receivers to dropdown
+        receivers.forEach(receiver => {
+          const option = document.createElement('option');
+          option.value = receiver.id;
+          option.textContent = receiver.name;
+          select.appendChild(option);
+        });
+      } catch (e) {
+        console.error('Failed to load receivers:', e);
+        alert('Failed to load receivers. Please try again later.');
+      }
+    }
+    
+    // Load coverage data
+    async function loadCoverageData() {
+      const receiverId = document.getElementById('receiver-select').value;
+      const days = document.getElementById('days-select').value;
+      
+      if (!receiverId) {
+        alert('Please select a receiver');
+        return;
+      }
+      
+      try {
+        // Show loading state
+        document.getElementById('load-btn').disabled = true;
+        document.getElementById('load-btn').textContent = 'Loading...';
+        
+        // Fetch coverage data
+        const url = `/statistics/stats/coverage-map?receiver_id=${receiverId}&days=${days}`;
+        const data = await fetch(url).then(r => r.json());
+        
+        if (data.length === 0) {
+          alert('No coverage data available for the selected receiver and time period');
+          return;
+        }
+        
+        // Convert data to heatmap format
+        const heatData = data.map(point => {
+          // Intensity based on logarithmic scale of count
+          const intensity = Math.min(1, Math.log10(point.count) / 3);
+          return [point.lat, point.lon, intensity];
+        });
+        
+        // Remove existing heat layer if any
+        if (heatLayer) {
+          map.removeLayer(heatLayer);
+        }
+        
+        // Create new heat layer
+        heatLayer = L.heatLayer(heatData, {
+          radius: 15,
+          blur: 20,
+          maxZoom: 17,
+          gradient: {0.4: 'blue', 0.65: 'lime', 0.85: 'yellow', 1: 'red'}
+        }).addTo(map);
+        
+        // Find receiver location
+        const receiver = await fetch(`/receivers/${receiverId}`).then(r => r.json());
+        if (receiver && receiver.latitude && receiver.longitude) {
+          // Add receiver marker
+          const receiverIcon = L.divIcon({
+            html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+            className: 'receiver-marker',
+            iconSize: [12, 12]
+          });
+          
+          L.marker([receiver.latitude, receiver.longitude], {icon: receiverIcon})
+            .addTo(map)
+            .bindPopup(`<b>Receiver:</b> ${receiver.name}`);
+          
+          // Center map on receiver
+          map.setView([receiver.latitude, receiver.longitude], 9);
+        } else {
+          // If no receiver location, fit bounds to data
+          const bounds = L.latLngBounds(heatData.map(p => [p[0], p[1]]));
+          map.fitBounds(bounds);
+        }
+      } catch (e) {
+        console.error('Failed to load coverage data:', e);
+        alert('Failed to load coverage data. Please try again later.');
+      } finally {
+        // Reset button state
+        document.getElementById('load-btn').disabled = false;
+        document.getElementById('load-btn').textContent = 'Load Coverage Map';
+      }
+    }
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      loadReceivers();
+      document.getElementById('load-btn').addEventListener('click', loadCoverageData);
+    });
+  </script>
+</body>
+</html>

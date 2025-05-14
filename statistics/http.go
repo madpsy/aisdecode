@@ -131,6 +131,7 @@ func registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/statistics/stats/top-positions", topPositionsHandler)
 	mux.HandleFunc("/statistics/stats/top-distance", topDistanceHandler)
 	mux.HandleFunc("/statistics/stats/user-counts", userCountsHandler)
+	mux.HandleFunc("/statistics/stats/coverage-map", coverageMapHandler)
 }
 
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
@@ -773,4 +774,117 @@ func userCountsHandler(w http.ResponseWriter, r *http.Request) {
 
 	cacheSet(cacheKey, users)
 	respondJSON(w, users)
+}
+
+// coverageMapHandler generates a grid-based coverage map for a specific receiver
+// Required parameter: receiver_id
+// Optional parameter: days (default: 7)
+func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
+    days := parseDaysParam(r)
+    receiverId := parseReceiverIDParam(r)
+    
+    // Require a specific receiver ID
+    if receiverId < 0 {
+        http.Error(w, "receiver_id parameter is required", http.StatusBadRequest)
+        return
+    }
+    
+    // Define cache key
+    cacheKey := fmt.Sprintf("coverage-map:%dd:r%d", days, receiverId)
+    
+    // Define the response structure
+    type GridCell struct {
+        Lat   float64 `json:"lat"`
+        Lon   float64 `json:"lon"`
+        Count int     `json:"count"`
+    }
+    
+    var coverageData []GridCell
+    
+    // Try to get from cache
+    if ok, _ := cacheGet(cacheKey, &coverageData); ok {
+        respondJSON(w, coverageData)
+        return
+    }
+    
+    // Grid size in degrees (approximately 1km at the equator)
+    const gridSize = 0.01
+    
+    // Build query with PostGIS functions
+    qry := fmt.Sprintf(`
+        SELECT
+            ST_Y(ST_Centroid(ST_SnapToGrid(
+                ST_SetSRID(ST_MakePoint(
+                    (packet->>'Longitude')::float,
+                    (packet->>'Latitude')::float
+                ), 4326),
+                %f
+            ))) AS lat,
+            ST_X(ST_Centroid(ST_SnapToGrid(
+                ST_SetSRID(ST_MakePoint(
+                    (packet->>'Longitude')::float,
+                    (packet->>'Latitude')::float
+                ), 4326),
+                %f
+            ))) AS lon,
+            COUNT(*) AS count
+        FROM messages
+        WHERE message_id IN (1,2,3,18,19)
+            AND receiver_id = %d
+            AND timestamp >= now() - INTERVAL '%d days'
+            AND (packet->>'Latitude')::float IS NOT NULL
+            AND (packet->>'Longitude')::float IS NOT NULL
+            AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+            AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+        GROUP BY
+            ST_SnapToGrid(
+                ST_SetSRID(ST_MakePoint(
+                    (packet->>'Longitude')::float,
+                    (packet->>'Latitude')::float
+                ), 4326),
+                %f
+            )
+    `, gridSize, gridSize, receiverId, days, gridSize)
+    
+    // Query all shards
+    shardResults, err := QueryDatabasesForAllShards(qry)
+    if err != nil {
+        respondError(w, err)
+        return
+    }
+    
+    // Process results from all shards
+    cellMap := make(map[string]GridCell)
+    
+    for _, recs := range shardResults {
+        for _, rec := range recs {
+            lat, _ := parseFloat(rec["lat"])
+            lon, _ := parseFloat(rec["lon"])
+            count, _ := parseInt(rec["count"])
+            
+            // Create a key for the grid cell to aggregate across shards
+            key := fmt.Sprintf("%.6f:%.6f", lat, lon)
+            
+            if cell, exists := cellMap[key]; exists {
+                cell.Count += count
+                cellMap[key] = cell
+            } else {
+                cellMap[key] = GridCell{
+                    Lat:   lat,
+                    Lon:   lon,
+                    Count: count,
+                }
+            }
+        }
+    }
+    
+    // Convert map to slice
+    coverageData = make([]GridCell, 0, len(cellMap))
+    for _, cell := range cellMap {
+        coverageData = append(coverageData, cell)
+    }
+    
+    // Cache the result
+    cacheSet(cacheKey, coverageData)
+    respondJSON(w, coverageData)
 }
