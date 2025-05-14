@@ -75,6 +75,31 @@
       .steps li { list-style: none; position: relative; padding-left: 3rem; margin-bottom: 1rem; font-size: 1.1rem; }
       .steps li:before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: 0; width: 2rem; height: 2rem; border-radius: 50%; background-color: #007bff; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; }
   </style>
+/* Modal styles */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+}
+.modal-content {
+  margin: 5% auto;
+  display: block;
+  max-width: 90%;
+}
+.close-btn {
+  position: absolute;
+  top: 20px;
+  right: 35px;
+  color: #fff;
+  font-size: 40px;
+  font-weight: bold;
+  cursor: pointer;
+}
 </head>
 <body>
   <div class="container">
