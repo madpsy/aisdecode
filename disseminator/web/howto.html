@@ -82,7 +82,7 @@
 <p>Follow these steps:</p>
       <ol class="steps">
         <li>Install AIS Catcher using their docs at <a href="https://aiscatcher.org/howto" target="_blank">https://aiscatcher.org/howto</a></li>
-        <li>Configure it to send AIS data to us by adding <code>ingest.&lt;base domain&gt; port 8101 (UDP)</code></li>
+        <li>Configure it to send AIS data to us by adding <code id="ingest-code"></code></li>
         <li>Complete the form and run the command below</li>
       </ol>
     <form id="params-form">
@@ -103,11 +103,9 @@
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
     const origin = window.location.origin;
-    // Populate ingest configuration using current domain
-    const ingestConfigEl = document.getElementById('ingest-config');
-    if (ingestConfigEl) {
-      ingestConfigEl.textContent = `ingest.${window.location.host} port 8101 (UDP)`;
-    }
+    const host = window.location.host;
+    const ingestCodeEl = document.getElementById('ingest-code');
+    if (ingestCodeEl) ingestCodeEl.textContent = `ingest.${host} port 8101 (UDP)`;
     let lat = 51.5074, lng = -0.1278; // default to London
     const codeEl = document.getElementById('cmd');
     const btn = document.getElementById('copy-btn');
@@ -211,4 +209,3 @@
     });
   </script>
 </body>
-</html>
