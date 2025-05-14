@@ -471,12 +471,17 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     respondJSON(w, ps)
 }
 
-// parseDaysParam reads 'days' query param, defaults to 1.
+// parseDaysParam reads 'days' query param, defaults to 1, max 90.
 func parseDaysParam(r *http.Request) int {
     days := 1
     if d := r.URL.Query().Get("days"); d != "" {
         if n, err := strconv.Atoi(d); err == nil && n > 0 {
-            days = n
+            if n > 90 {
+                // Cap at 90 days to prevent excessive queries
+                days = 90
+            } else {
+                days = n
+            }
         }
     }
     return days
@@ -836,7 +841,7 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
             AND (packet->>'Longitude')::float IS NOT NULL
             AND (packet->>'Latitude')::float BETWEEN -90 AND 90
             AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-            AND (distance IS NULL OR distance <= 500000) -- Filter out points with distance > 500km
+            AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
         GROUP BY
             ST_SnapToGrid(
                 ST_SetSRID(ST_MakePoint(
