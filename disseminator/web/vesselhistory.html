@@ -4370,17 +4370,12 @@
             // Create content with all required fields
             let content = `<strong>${result.Name}</strong>`;
             content += `<br>MMSI: ${result.UserID}`;
-            
-            if (result.CallSign && result.CallSign !== "") {
-              content += `<br>Call Sign: ${result.CallSign}`;
-            }
-            
+
             if (result.ImoNumber && result.ImoNumber !== 0) {
               content += `<br>IMO: ${result.ImoNumber}`;
             }
-            
-            content += `<br>Seen: ${formattedTime} (${timeAgo})`;
-            content += `<br>Messages: ${result.NumMessages}`;
+
+            content += `<br>Seen: ${timeAgo}`;
             
             item.innerHTML = content;
             
