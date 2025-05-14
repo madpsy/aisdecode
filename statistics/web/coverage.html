@@ -90,8 +90,31 @@
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
     
-    // Heat layer
+    // Map layers that need to be cleared between receiver changes
     let heatLayer = null;
+    let receiverMarker = null;
+    let receiverTooltip = null;
+    
+    // Function to clear all previous map layers
+    function clearMapLayers() {
+      // Remove heat layer if it exists
+      if (heatLayer) {
+        map.removeLayer(heatLayer);
+        heatLayer = null;
+      }
+      
+      // Remove receiver marker if it exists
+      if (receiverMarker) {
+        map.removeLayer(receiverMarker);
+        receiverMarker = null;
+      }
+      
+      // Remove receiver tooltip if it exists
+      if (receiverTooltip) {
+        map.removeLayer(receiverTooltip);
+        receiverTooltip = null;
+      }
+    }
     
     // Load receivers
     async function loadReceivers() {
@@ -147,10 +170,8 @@
           return [point.lat, point.lon, intensity];
         });
         
-        // Remove existing heat layer if any
-        if (heatLayer) {
-          map.removeLayer(heatLayer);
-        }
+        // Clear all previous map layers
+        clearMapLayers();
         
         // Create new heat layer with improved visibility
         heatLayer = L.heatLayer(heatData, {
@@ -173,13 +194,13 @@
             iconSize: [12, 12]
           });
           
-          // Add marker with popup
-          const marker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
+          // Add marker with popup and store reference
+          receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
             .addTo(map)
             .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
           
-          // Add permanent tooltip with receiver name
-          L.tooltip({
+          // Add permanent tooltip with receiver name and store reference
+          receiverTooltip = L.tooltip({
             permanent: true,
             direction: 'top',
             className: 'receiver-tooltip',
