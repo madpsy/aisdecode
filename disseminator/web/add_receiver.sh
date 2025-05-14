@@ -10,21 +10,24 @@ NC='\033[0m'
 
 # Required base URL (no default)
 BASE_URL=""
+AUTO_YES_IP=false
 
 print_usage() {
   cat <<EOF
-Usage: $(basename "$0") -u base_url
+Usage: $(basename "$0") -u base_url [-y]
 Options:
-  -u base_url  Base URL of server (required)
-  -h           Show this help message
+-u base_url      Base URL of server (required)
+-y               Automatically use detected IP without prompt
+-h               Show this help message
 EOF
 }
 
 # Parse optional flags
-while getopts "u:h" opt; do
+while getopts "u:hy" opt; do
   case $opt in
     u) BASE_URL="$OPTARG" ;;
     h) print_usage; exit 0 ;;
+    y) AUTO_YES_IP=true ;;
     *) print_usage; exit 1 ;;
   esac
 done

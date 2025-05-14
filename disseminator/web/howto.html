@@ -60,7 +60,7 @@
   </div>
   <script>
     const origin = window.location.origin;
-    const cmd = `bash <(curl -fsSL ${origin}/add_receiver.sh) -u ${origin}`;
+    const cmd = `bash <(curl -fsSL ${origin}/add_receiver.sh) -u ${origin} -y`;
     const codeEl = document.getElementById('cmd');
     const btn = document.getElementById('copy-btn');
     codeEl.textContent = cmd;
