@@ -1,6 +1,6 @@
 {
   "udp_listen_port": 8101,
-  "udp_dedicated_ports": "9000,9999",
+  "udp_dedicated_ports": "9000-9999",
   "udp_destinations": [
     {
       "host": "127.0.0.1",
