@@ -545,27 +545,32 @@
     Stationary
   </label>
         <div style="border-top: 1px solid #ccc; margin-top: 10px; padding-top: 10px;">
-            <div style="margin-bottom: 5px; font-weight: bold;">Vessel Classes:</div>
-            <label>
-                <input type="checkbox" id="class-a" checked>
-                Class A
-            </label>
-            <label>
-                <input type="checkbox" id="class-b" checked>
-                Class B
-            </label>
-            <label>
-                <input type="checkbox" id="class-sar" checked>
-                SAR
-            </label>
-            <label>
-                <input type="checkbox" id="class-base" checked>
-                Base Station
-            </label>
-            <label>
-                <input type="checkbox" id="class-aton" checked>
-                AtoN
-            </label>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <label style="margin-right: 10px;">
+                    <input type="checkbox" id="class-a" checked>
+                    A
+                </label>
+                <label>
+                    <input type="checkbox" id="class-b" checked>
+                    B
+                </label>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <label style="margin-right: 10px;">
+                    <input type="checkbox" id="class-sar" checked>
+                    SAR
+                </label>
+                <label>
+                    <input type="checkbox" id="class-aton" checked>
+                    AtoN
+                </label>
+            </div>
+            <div>
+                <label>
+                    <input type="checkbox" id="class-base" checked>
+                    Base Station
+                </label>
+            </div>
         </div>
         <button id="toggle-legend" class="toggle-button" style="margin-top: 15px;">Show Legend</button>
     </div>
