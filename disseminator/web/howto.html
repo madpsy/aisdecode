@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How to Add Receiver</title>
+</head>
+<body>
+  <h1>How to Add a Receiver</h1>
+  <p>Run the following command to add a receiver:</p>
+  <pre id="cmd"></pre>
+  <script>
+    const origin = window.location.origin;
+    const cmd = `bash <(curl -fsSL ${origin}/add_receiver.sh) -u ${origin}`;
+    document.getElementById('cmd').textContent = cmd;
+  </script>
+</body>
+</html>
