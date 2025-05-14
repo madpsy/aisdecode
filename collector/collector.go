@@ -59,7 +59,8 @@ var ctx = context.Background()
 
 // Map to store IP address to receiver ID mapping and receiver location data
 var (
-    receiverIPToIDMap = make(map[string]int)
+    receiverIPToIDMap = make(map[string]int)      // Map of IP to receiver ID (secondary)
+    receiverPortToIDMap = make(map[int]int)       // Map of port to receiver ID (primary)
     receiverLocations = make(map[int]struct {
         Latitude  float64
         Longitude float64
@@ -170,6 +171,7 @@ type Message struct {
     Timestamp   string          `json:"timestamp"`
     SourceIP    string          `json:"source_ip"`
     RawSentence string          `json:"raw_sentence"`
+    UDPPort     int             `json:"udp_port"`
 }
 
 // ── MAIN ─────────────────────────────────────────────────────────────────────
@@ -236,7 +238,8 @@ func main() {
             message_id INT,
             raw_sentence TEXT,
             receiver_id INT,
-            distance INT
+            distance INT,
+            udp_port INT
         );
     `)
     if err != nil {
@@ -254,13 +257,25 @@ func main() {
             name TEXT,
             ext_lookup_complete BOOLEAN DEFAULT FALSE,
             source_ip VARCHAR(45),
-            receiver_id INT
+            receiver_id INT,
+            udp_port INT
         );
     `)
     if err != nil {
         log.Fatal("Error creating state table: ", err)
     }
     createIndexesIfNotExist(db)
+    
+    // Create indexes for the new udp_port column
+    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_udp_port ON messages(udp_port);`)
+    if err != nil {
+        log.Printf("Error creating index on messages.udp_port: %v", err)
+    }
+    
+    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_state_udp_port ON state(udp_port);`)
+    if err != nil {
+        log.Printf("Error creating index on state.udp_port: %v", err)
+    }
 
     requestData := map[string]interface{}{
         "shards":      settings.Shards,
@@ -329,6 +344,7 @@ func updateReceiverMapping(client *http.Client, baseURL string) {
     var receivers []struct {
         ID        int     `json:"id"`
         IPAddress string  `json:"ip_address"`
+        UDPPort   int     `json:"udp_port,omitempty"`
         Latitude  float64 `json:"latitude"`
         Longitude float64 `json:"longitude"`
     }
@@ -340,12 +356,19 @@ func updateReceiverMapping(client *http.Client, baseURL string) {
 
     // Create new maps to avoid partial updates
     newIPMap := make(map[string]int)
+    newPortMap := make(map[int]int)
     newLocationMap := make(map[int]struct {
         Latitude  float64
         Longitude float64
     })
     
     for _, receiver := range receivers {
+        // If UDP port is specified, create a port-to-ID mapping (primary)
+        if receiver.UDPPort > 0 {
+            newPortMap[receiver.UDPPort] = receiver.ID
+        }
+        
+        // Always store the IP-only mapping as fallback (secondary)
         if receiver.IPAddress != "" {
             newIPMap[receiver.IPAddress] = receiver.ID
         }
@@ -369,6 +392,7 @@ func updateReceiverMapping(client *http.Client, baseURL string) {
     // Update the global maps atomically
     receiverMapMutex.Lock()
     receiverIPToIDMap = newIPMap
+    receiverPortToIDMap = newPortMap
     receiverLocations = newLocationMap
     receiverMapMutex.Unlock()
 
@@ -558,12 +582,18 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
 
     // 6) Build payload for Socket.IO emit
     
-    // Look up receiver ID from source IP
+    // Look up receiver ID from UDP port (primary) or source IP (secondary)
     var receiverID interface{} = nil
     receiverMapMutex.RLock()
-    if id, exists := receiverIPToIDMap[msg.SourceIP]; exists {
+    
+    // First try to match based on UDP port only (primary method)
+    if id, exists := receiverPortToIDMap[msg.UDPPort]; exists && msg.UDPPort > 0 {
+        receiverID = id
+    } else if id, exists := receiverIPToIDMap[msg.SourceIP]; exists {
+        // Fall back to IP-only matching if port match not found
         receiverID = id
     }
+    
     receiverMapMutex.RUnlock()
     
     emitPayload := map[string]interface{}{
@@ -572,6 +602,7 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
         "timestamp":    msg.Timestamp,
         "raw_sentence": msg.RawSentence,
         "receiver_id":  receiverID,
+        "udp_port":     msg.UDPPort,
     }
 
     // 7) Emit to any subscribers
@@ -931,7 +962,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
     receiverMapMutex.RUnlock()
 
     // 8) Always update the state table
-    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, userID, messageIDf, message.SourceIP, receiverID); err != nil {
+    if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, userID, messageIDf, message.SourceIP, receiverID, message.UDPPort); err != nil {
         log.Printf("Error storing state: %v", err)
     }
 
@@ -944,15 +975,21 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
             }
             log.Printf("Storing MessageID=%d for user %d%s", mid, userID, reason)
         }
-        // Look up receiver ID from source IP
+        // Look up receiver ID from UDP port (primary) or source IP (secondary)
         var receiverID interface{} = nil // Use nil (SQL NULL) as default
         receiverMapMutex.RLock()
-        if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
-            receiverID = id // Only set a value if mapping exists
+        
+        // First try to match based on UDP port only (primary method)
+        if id, exists := receiverPortToIDMap[message.UDPPort]; exists && message.UDPPort > 0 {
+            receiverID = id // Use port match if available
+        } else if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
+            // Fall back to IP-only matching if port match not found
+            receiverID = id
         }
+        
         receiverMapMutex.RUnlock()
 
-        if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, receiverID, settings); err != nil {
+        if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, receiverID, message.UDPPort, settings); err != nil {
             log.Printf("Error storing message: %v", err)
         }
     }
@@ -960,7 +997,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
     return nil
 }
 
-func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, userID int, messageID float64, sourceIP string, receiverID interface{}) error {
+func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, userID int, messageID float64, sourceIP string, receiverID interface{}, udpPort int) error {
     var existingPacketJSON []byte
     var existingAisClass string
     var existingCount int
@@ -1019,8 +1056,8 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
 
     _, err = db.Exec(`
         INSERT INTO state
-          (packet, shard_id, timestamp, user_id, ais_class, count, image_url, name, ext_lookup_complete, source_ip, receiver_id)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+          (packet, shard_id, timestamp, user_id, ais_class, count, image_url, name, ext_lookup_complete, source_ip, receiver_id, udp_port)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
         ON CONFLICT (user_id) DO UPDATE SET
           packet              = EXCLUDED.packet,
           shard_id            = EXCLUDED.shard_id,
@@ -1028,8 +1065,9 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
           ais_class           = EXCLUDED.ais_class,
           count               = state.count + 1,
           source_ip           = EXCLUDED.source_ip,
-          receiver_id         = EXCLUDED.receiver_id
-    `, packetJSON, shardID, timestamp, userID, existingAisClass, existingCount, "", "", existingLookupComplete, sourceIP, receiverID)
+          receiver_id         = EXCLUDED.receiver_id,
+          udp_port            = EXCLUDED.udp_port
+    `, packetJSON, shardID, timestamp, userID, existingAisClass, existingCount, "", "", existingLookupComplete, sourceIP, receiverID, udpPort)
     if err != nil {
         return fmt.Errorf("Error inserting or updating state table: %v", err)
     }
@@ -1135,7 +1173,7 @@ func calculateDistance(packetJSON []byte, receiverID interface{}) (float64, bool
     return math.Round(distance), true
 }
 
-func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, rawSentence string, receiverID interface{}, settings *Settings) error {
+func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, rawSentence string, receiverID interface{}, udpPort int, settings *Settings) error {
     // Calculate distance if this is a position message and we have receiver info
     var distance interface{} = nil // Default to SQL NULL
     if hasPositionData(int(messageID)) {
@@ -1144,9 +1182,9 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
         }
     }
     
-    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence, receiver_id, distance)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
-    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance)
+    stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence, receiver_id, distance, udp_port)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+    _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance, udpPort)
     if err != nil {
         log.Printf("Error executing query: %v", err)
         if isDatabaseConnectionError(err) {
@@ -1156,7 +1194,7 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
                 log.Printf("Failed to reconnect to the database: %v", err)
                 return err
             }
-            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance)
+            _, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance, udpPort)
             if err != nil {
                 log.Printf("Error executing query after reconnecting: %v", err)
                 return err
