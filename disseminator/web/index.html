@@ -4474,15 +4474,17 @@ map.on('zoomend', function() {
     let marker = vesselMarkers[userid];
     // Focused vessel: update icon and tooltip based on the current zoom.
     if (userid === focusedVessel?.toString()) {
-      if (currentZoom >= TOOLTIP_ZOOM_THRESHOLD) {
-        marker.bindTooltip(vesselData[userid].Name, {
-          permanent: true,
-          direction: 'top',
-          className: 'vessel-tooltip'
-        }).openTooltip();
-      } else {
-        marker.unbindTooltip();
-      }
+      // Always keep tooltip for focused vessel regardless of zoom level
+      const tooltipContent = marker.getTooltip() ?
+        marker.getTooltip().getContent() :
+        vesselData[userid].Name;
+      
+      marker.bindTooltip(tooltipContent, {
+        permanent: true,
+        direction: 'top',
+        className: 'vessel-tooltip'
+      }).openTooltip();
+      
       // Always use the detailed icon logic (which itself checks zoom level)
       marker.setIcon(getVesselIcon(vesselData[userid]));
     } else {
