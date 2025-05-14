@@ -1008,7 +1008,7 @@
               // Treat IMO Number = 0 as empty
               checkValue: (val) => val !== undefined && val !== null && val !== '' && val !== 0
             },
-            { key: 'AISClass', label: 'AIS Class' },
+            { key: 'AISClass', label: 'Class' },
             { key: 'Type', label: 'Type', format: (val) => lookupShipType(val) },
             {
               key: 'Flag',
@@ -4535,7 +4535,7 @@
           label: 'IMO Number',
           checkValue: (val) => val !== undefined && val !== null && val !== '' && val !== 0
         },
-        { key: 'AISClass', label: 'AIS Class' },
+        { key: 'AISClass', label: 'Class' },
         { key: 'Type', label: 'Type', format: (val) => lookupShipType(val) },
         {
           key: 'Flag',
