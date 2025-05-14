@@ -79,19 +79,23 @@ if [[ -z "$DETECTED_IP" || "$DETECTED_IP" == "null" ]]; then
 fi
 echo "Detected IP address: $DETECTED_IP"
 
-# Confirm or override IP
-read -p "Use detected IP? [Y/n]: " ip_resp
-if [[ "$ip_resp" =~ ^[Nn]$ ]]; then
-  while true; do
-    read -p "Enter IP address: " IPADDRESS
-    if [[ $IPADDRESS =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-      break
-    else
-      echo "Invalid IP address format."
-    fi
-  done
-else
+if [[ "$AUTO_YES_IP" == true ]]; then
   IPADDRESS="$DETECTED_IP"
+else
+  # Confirm or override IP
+  read -p "Use detected IP? [Y/n]: " ip_resp
+  if [[ "$ip_resp" =~ ^[Nn]$ ]]; then
+    while true; do
+      read -p "Enter IP address: " IPADDRESS
+      if [[ $IPADDRESS =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        break
+      else
+        echo "Invalid IP address format."
+      fi
+    done
+  else
+    IPADDRESS="$DETECTED_IP"
+  fi
 fi
 
 if [[ -n "$CALLSIGN" ]]; then
@@ -241,7 +245,11 @@ if [[ "$HTTP_CODE" -eq 201 ]]; then
   ID=$(echo "$HTTP_BODY" | jq -r .id)
   PASSWORD=$(echo "$HTTP_BODY" | jq -r .password)
   # Ask to add cron job
-  read -p "Add a cron job to update IP every 10 minutes? [y/N]: " cron_resp
+  if [[ "$AUTO_YES_IP" == true ]]; then
+    cron_resp="y"
+  else
+    read -p "Add a cron job to update IP every 10 minutes? [y/N]: " cron_resp
+  fi
   if [[ "$cron_resp" =~ ^[Yy]$ ]]; then
     OFFSET=$(( RANDOM % 10 ))
     CRON_MIN="${OFFSET}-59/10"
