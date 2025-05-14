@@ -102,6 +102,8 @@
     codeEl.textContent = 'Command will appear once form is filled in';
     btn.disabled = true;
     btn.style.display = 'none';
+    // Ensure placeholder message is visible
+    codeEl.parentElement.style.display = 'block';
 
     function updateCommand() {
       const hasCalls = callsignInput.value.trim() !== '';
@@ -110,8 +112,15 @@
         let cmd = `bash <(curl -fsSL ${origin}/add_receiver.sh) -u ${origin} -y -l ${lat.toFixed(6)},${lng.toFixed(6)}`;
         cmd += ` -c ${callsignInput.value.trim()}`;
         cmd += ` -d "${descInput.value.trim()}"`;
-        if (urlInput.value.trim()) {
-          cmd += ` -U ${urlInput.value.trim()}`;
+        // Validate URL before adding to command
+        const urlVal = urlInput.value.trim();
+        if (urlVal) {
+          try {
+            new URL(urlVal);
+            cmd += ` -U ${urlVal}`;
+          } catch (e) {
+            console.warn('Invalid URL, not added to command:', urlVal);
+          }
         }
         codeEl.textContent = cmd;
         codeEl.parentElement.style.display = 'block';
