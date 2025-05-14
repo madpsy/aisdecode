@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>How to Add Receiver</title>
+  <title>AIS: How To</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     body {
@@ -84,7 +84,7 @@
 </head>
 <body>
   <div class="container">
-    <h1>How to Add a Receiver</h1>
+    <h1>AIS: How To</h1>
 <p>Follow these steps:</p>
       <ol class="steps">
 <!-- Modal structure -->
@@ -93,7 +93,7 @@
   <img class="modal-content" id="modal-img" alt="Enlarged AIS Catcher screenshot" />
 </div>
         <li>Install AIS Catcher using their docs at <a href="https://aiscatcher.org/howto" target="_blank">https://aiscatcher.org/howto</a></li>
-        <li>Configure AIS Catcher to send AIS data to us by adding <code id="ingest-code"></code></li>
+        <li>Configure AIS Catcher to send data to us by adding <code id="ingest-code"></code></li> as a UDP output
 <img id="aiscatcher-img" src="/images/aiscatcher.png" alt="AIS Catcher configuration screenshot" style="width:100%; height:auto; margin-bottom:1rem;">
         <li>Complete the form and run the command below on your AIS Catcher computer</li>
 <li>Visit <a id="visit-domain" href="" target="_blank"></a> and you should see your receiver on the map</li>
@@ -119,7 +119,7 @@
     const origin = window.location.origin;
     const host = window.location.host;
     const ingestCodeEl = document.getElementById('ingest-code');
-    if (ingestCodeEl) ingestCodeEl.textContent = `ingest.${host} port 8101 (UDP)`;
+    if (ingestCodeEl) ingestCodeEl.textContent = `Host: ingest.${host} Port 8101`;
     const visitDomainEl = document.getElementById('visit-domain');
     if (visitDomainEl) {
       visitDomainEl.textContent = origin;
