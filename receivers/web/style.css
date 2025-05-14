@@ -130,10 +130,10 @@ button:hover {
 
 table {
   width: 100%;
-  min-width: 1100px; /* Ensure table has a minimum width to show all columns */
+  min-width: 800px; /* Reduced minimum width since we're hiding columns */
   border-collapse: collapse;
   background: #fff;
-  table-layout: fixed; /* Fixed table layout for better column control */
+  table-layout: auto; /* Auto layout to let browser adjust column widths */
 }
 
 /* Set reasonable widths for table columns */
@@ -153,6 +153,16 @@ th[data-key="name"], td:nth-child(3) { width: 120px; }
 th[data-key="ip_address"], td:nth-child(8) { width: 120px; }
 th[data-key="messages"], td:nth-child(10) { width: 100px; }
 
+/* Adjust Cron and Actions columns to be closer together */
+th:nth-child(11), td:nth-child(11) { /* Cron column */
+  width: 80px;
+  padding-right: 5px;
+}
+th:nth-child(12), td:nth-child(12) { /* Actions column */
+  width: 120px;
+  padding-left: 5px;
+}
+
 /* Hide specified columns */
 th[data-key="description"], td:nth-child(4),
 th[data-key="latitude"], td:nth-child(5),
@@ -160,6 +170,12 @@ th[data-key="longitude"], td:nth-child(6),
 th[data-key="url"], td:nth-child(7),
 th[data-key="password"], td:nth-child(9) {
   display: none;
+}
+
+/* Force table to recalculate layout after hiding columns */
+table {
+  display: table;
+  width: 100%;
 }
 
 tr:nth-child(even) {
