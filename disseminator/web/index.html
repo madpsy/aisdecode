@@ -2060,6 +2060,9 @@ function renderSearchResults(data) {
     data = Object.values(data);
   }
   
+  // Sort by update time (newest first).
+  data.sort((a, b) => new Date(b.LastUpdated || Date.now()) - new Date(a.LastUpdated || Date.now()));
+  
   let content = "";
   data.forEach(entry => {
     const name = entry.Name;
