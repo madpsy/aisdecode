@@ -149,9 +149,11 @@
           gradient: {0.4: 'blue', 0.65: 'lime', 0.85: 'yellow', 1: 'red'}
         }).addTo(map);
         
-        // Find receiver location
-        const receiver = await fetch(`/receivers/${receiverId}`).then(r => r.json());
-        if (receiver && receiver.latitude && receiver.longitude) {
+        // Find receiver from the list we already loaded
+        const receivers = await fetch('/receivers').then(r => r.json());
+        const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
+        
+        if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
           // Add receiver marker
           const receiverIcon = L.divIcon({
             html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
@@ -159,12 +161,12 @@
             iconSize: [12, 12]
           });
           
-          L.marker([receiver.latitude, receiver.longitude], {icon: receiverIcon})
+          L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
             .addTo(map)
-            .bindPopup(`<b>Receiver:</b> ${receiver.name}`);
+            .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
           
           // Center map on receiver
-          map.setView([receiver.latitude, receiver.longitude], 9);
+          map.setView([selectedReceiver.latitude, selectedReceiver.longitude], 9);
         } else {
           // If no receiver location, fit bounds to data
           const bounds = L.latLngBounds(heatData.map(p => [p[0], p[1]]));
