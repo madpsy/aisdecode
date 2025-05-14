@@ -86,8 +86,9 @@ button:hover {
 }
 
 #search-section {
-  max-width: 800px;
+  max-width: 1200px; /* Match the main container width */
   margin: 0 auto 1rem;
+  width: 100%;
 }
 
 #search-input {
@@ -105,10 +106,31 @@ button:hover {
   border: 1px solid #ddd;
   border-radius: var(--radius);
   background: #fff;
+  max-width: 100%; /* Ensure it doesn't exceed the container width */
+  position: relative; /* Create a positioning context */
+}
+
+/* Add a subtle indicator that the table is scrollable */
+#list-section::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  background: linear-gradient(to right, transparent, rgba(0,0,0,0.05));
+  pointer-events: none; /* Allow clicks to pass through */
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+#list-section:hover::after {
+  opacity: 1;
 }
 
 table {
   width: 100%;
+  min-width: 1100px; /* Ensure table has a minimum width to show all columns */
   border-collapse: collapse;
   background: #fff;
   table-layout: fixed; /* Fixed table layout for better column control */
