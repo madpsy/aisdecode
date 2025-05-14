@@ -266,13 +266,34 @@ document.body.addEventListener('click', function(e) {
 // Handle copy and close in overlay
 document.getElementById('copy-cron').addEventListener('click', function() {
   const text = document.getElementById('cron-entry').textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    this.textContent = 'Copied!';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      this.textContent = 'Copied!';
+      setTimeout(() => { this.textContent = 'Copy to clipboard'; }, 2000);
+    }, () => {
+      this.textContent = 'Failed to copy';
+      setTimeout(() => { this.textContent = 'Copy to clipboard'; }, 2000);
+    });
+  } else {
+    // Fallback for browsers without navigator.clipboard
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      this.textContent = 'Copied!';
+    } catch (err) {
+      this.textContent = 'Failed to copy';
+    }
     setTimeout(() => { this.textContent = 'Copy to clipboard'; }, 2000);
-  }, () => {
-    this.textContent = 'Failed to copy';
-    setTimeout(() => { this.textContent = 'Copy to clipboard'; }, 2000);
-  });
+    document.body.removeChild(textarea);
+  }
 });
 
 document.getElementById('close-cron').addEventListener('click', function() {
