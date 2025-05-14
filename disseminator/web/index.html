@@ -2069,7 +2069,7 @@ function renderSearchResults(data) {
     // Use extra info if the entry represents a receiver.
     const extraInfo = entry.isReceiver
       ? `<div class="vessel-callsign">Receiver</div>`
-      : `<div class="vessel-callsign">Type: ${staticTypeMapping[entry.Type] || entry.Type || "N/A"}</div>`;
+      : `<div class="vessel-callsign">${staticTypeMapping[entry.Type] || entry.Type || "N/A"}</div>`;
   
     content += `<div class="vessel-entry" data-userid="${entry.UserID}">
                   <div class="vessel-name">${name}</div>
