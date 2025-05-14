@@ -898,8 +898,6 @@ function sendSummaryRequest() {
     updatePeriod = 15;
   }
 
-  console.log(`sendSummaryRequest called at zoom ${zoom}, setting updatePeriod=${updatePeriod}`);
-
   const filterParams = {
     latitude:     center.lat,
     longitude:    center.lng,
@@ -947,9 +945,7 @@ function sendSummaryRequest() {
     }
     
     if (groupIds.length > 0) {
-      console.log(`Filtering by multiple type groups: ${groupIds.join(',')}`);
       filterParams.typeGroups = groupIds.join(',');
-      console.log("Sending filter request with multiple typeGroups:", JSON.stringify(filterParams, null, 2));
     }
   }
   
