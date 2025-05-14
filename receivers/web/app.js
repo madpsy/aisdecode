@@ -246,6 +246,8 @@ window.addEventListener('load', () => {
   loadReceivers();
   // Hide regenerate button initially (for new receivers)
   document.getElementById('regenerate-password').style.display = 'none';
+  // Ensure cron overlay is hidden on initial load
+  document.getElementById('cron-overlay').classList.add('hidden');
 });
 // Cron functionality
 // Handle cron button clicks
