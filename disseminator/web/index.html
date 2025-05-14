@@ -581,16 +581,10 @@
           <span>40 kn</span>
         </div>
       </div>
-      <table style="width: 100%; margin: 0 0 15px 0;">
-        <tr>
-          <td style="width: 60px; padding-top: 3px; padding-left: 5px;">
-            <button id="legend-filter-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px; width: 50px;">Filter</button>
-          </td>
-          <td style="padding-top: 3px;">
-            <button id="legend-clear-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px; width: 50px;">Clear</button>
-          </td>
-        </tr>
-      </table>
+      <div style="margin: 5px 0 15px 10px;">
+        <button id="legend-filter-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px; width: 50px; margin-right: 5px;">Filter</button>
+        <button id="legend-clear-button" class="toggle-button" style="padding: 2px 5px; font-size: 12px; width: 50px;">Clear</button>
+      </div>
       <div id="legend-content"></div>
     </div>
 
@@ -923,8 +917,9 @@ function sendSummaryRequest() {
     }
   }
   
-  // If only one group is checked, use that for filtering
+  // Handle filtering by type groups
   if (checkedGroups.length === 1) {
+    // If only one group is checked, use that for filtering
     const groupName = checkedGroups[0];
     const groupId = typeGroupMapping[groupName];
     
@@ -934,6 +929,21 @@ function sendSummaryRequest() {
       
       // Debug output to verify the request
       console.log("Sending filter request:", JSON.stringify(filterParams, null, 2));
+    }
+  } else if (checkedGroups.length > 1) {
+    // Multiple groups checked - include all of them
+    const groupIds = [];
+    for (const groupName of checkedGroups) {
+      const groupId = typeGroupMapping[groupName];
+      if (groupId !== undefined) {
+        groupIds.push(groupId);
+      }
+    }
+    
+    if (groupIds.length > 0) {
+      console.log(`Filtering by multiple type groups: ${groupIds.join(',')}`);
+      filterParams.typeGroups = groupIds.join(',');
+      console.log("Sending filter request with multiple typeGroups:", JSON.stringify(filterParams, null, 2));
     }
   }
   
@@ -1743,6 +1753,9 @@ function updateLegend() {
       // Store the checkbox state when it changes
       typeGroupCheckboxStates[this.dataset.group] = this.checked;
       console.log(`Checkbox ${this.dataset.group} changed to ${this.checked}`);
+      
+      // Automatically trigger filter when checkbox changes
+      document.getElementById('legend-filter-button').click();
     });
   });
   
