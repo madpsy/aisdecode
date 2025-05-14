@@ -88,6 +88,7 @@
     <form id="params-form">
       <label for="callsign">Callsign or Name (≤15 chars):</label>
       <input id="callsign" type="text" maxlength="15" placeholder="CALLSIGN" />
+      <span id="callsign-error" style="color: red; font-size: 0.9rem; display: none;">Name already in use</span>
       <label for="description">Description (≤30 chars):</label>
       <input id="description" type="text" maxlength="30" placeholder="Description" />
       <label for="url">URL (optional):</label>
@@ -113,6 +114,14 @@
     const descInput = document.getElementById('description');
     const urlInput = document.getElementById('url');
     const urlErrorEl = document.getElementById('url-error');
+    const callsignErrorEl = document.getElementById('callsign-error');
+    // Fetch existing receivers for duplicate name validation
+    let receiversData = [];
+    fetch('/receivers')
+      .then(res => res.json())
+      .then(data => receiversData = data)
+      .catch(() => { receiversData = []; });
+    
     // Initial placeholder and disable copy until form complete
     codeEl.textContent = 'Command will appear once form is filled in';
     btn.disabled = true;
@@ -121,7 +130,14 @@
     codeEl.parentElement.style.display = 'block';
 
     function updateCommand() {
-      const hasCalls = callsignInput.value.trim() !== '';
+      const callVal = callsignInput.value.trim();
+      const duplicate = receiversData.some(r => r.name.toLowerCase() === callVal.toLowerCase());
+      if (duplicate) {
+        callsignErrorEl.style.display = 'block';
+      } else {
+        callsignErrorEl.style.display = 'none';
+      }
+      const hasCalls = callVal !== '' && !duplicate;
       const hasDesc = descInput.value.trim() !== '';
       // hide url error initially
       urlErrorEl.style.display = 'none';
