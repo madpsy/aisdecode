@@ -49,7 +49,16 @@
 </head>
 <body>
   <div class="container-fluid">
-    <h1>AIS Coverage Map</h1>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h1>AIS Coverage Map</h1>
+      <button id="copy-link-btn" class="btn btn-outline-secondary">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-link-45deg" viewBox="0 0 16 16">
+          <path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/>
+          <path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243L6.586 4.672z"/>
+        </svg>
+        Copy Link
+      </button>
+    </div>
     
     <div class="card">
       <div class="card-body">
@@ -148,6 +157,9 @@
         return;
       }
       
+      // Update URL with current selections
+      updateURL();
+      
       try {
         // Show loading state
         document.getElementById('load-btn').disabled = true;
@@ -230,10 +242,76 @@
       }
     }
     
+    // Parse URL query parameters
+    function getQueryParams() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        receiverId: params.get('receiver_id'),
+        days: params.get('days')
+      };
+    }
+    
+    // Update URL with current selections without reloading the page
+    function updateURL() {
+      const receiverId = document.getElementById('receiver-select').value;
+      const days = document.getElementById('days-select').value;
+      
+      const url = new URL(window.location.href);
+      
+      if (receiverId) {
+        url.searchParams.set('receiver_id', receiverId);
+      } else {
+        url.searchParams.delete('receiver_id');
+      }
+      
+      if (days) {
+        url.searchParams.set('days', days);
+      } else {
+        url.searchParams.delete('days');
+      }
+      
+      window.history.replaceState({}, '', url);
+    }
+    
+    // Copy current URL to clipboard
+    function copyLinkToClipboard() {
+      const url = window.location.href;
+      navigator.clipboard.writeText(url).then(() => {
+        const btn = document.getElementById('copy-link-btn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = 'Copied!';
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+        }, 2000);
+      }).catch(err => {
+        console.error('Failed to copy URL: ', err);
+        alert('Failed to copy URL to clipboard');
+      });
+    }
+    
     // Initialize
-    document.addEventListener('DOMContentLoaded', () => {
-      loadReceivers();
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Add event listeners
       document.getElementById('load-btn').addEventListener('click', loadCoverageData);
+      document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
+      
+      // Update URL when selections change
+      document.getElementById('receiver-select').addEventListener('change', updateURL);
+      document.getElementById('days-select').addEventListener('change', updateURL);
+      
+      // Load receivers
+      await loadReceivers();
+      
+      // Check for query parameters and load map if both are present
+      const params = getQueryParams();
+      if (params.receiverId && params.days) {
+        // Set the dropdown values to match query parameters
+        document.getElementById('receiver-select').value = params.receiverId;
+        document.getElementById('days-select').value = params.days;
+        
+        // Load the coverage map
+        loadCoverageData();
+      }
     });
   </script>
 </body>
