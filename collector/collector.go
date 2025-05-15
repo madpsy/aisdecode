@@ -1089,14 +1089,21 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
         }
     }
 
-    // 7) Look up receiver ID from source IP
+    // 7) Look up receiver ID from source IP or port
     var receiverID interface{} = nil // Use nil (SQL NULL) as default
     receiverMapMutex.RLock()
-    if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
-        receiverID = id // Only set a value if mapping exists
-    } else if message.UDPPort == settings.IngestUDPListenPort {
-        // When no IP address match is found on the primary UDP port, set receiverID to 0
-        receiverID = 0
+    
+    if message.UDPPort == settings.IngestUDPListenPort {
+        // For the main UDP port, use IP address as primary lookup
+        if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
+            receiverID = id
+        } else {
+            // When no IP address match is found on the primary UDP port, set receiverID to 0
+            receiverID = 0
+        }
+    } else if id, exists := receiverPortToIDMap[message.UDPPort]; exists && message.UDPPort > 0 {
+        // For dedicated ports, use port as primary lookup method
+        receiverID = id
     }
     receiverMapMutex.RUnlock()
 
