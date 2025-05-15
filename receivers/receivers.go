@@ -825,7 +825,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     idParam := r.URL.Query().Get("id")
     ipParam := r.URL.Query().Get("ip_address")
 
-    // Build the query based on filters
+    // Build the query based on filters - only filter by ID, not by IP address
     baseQuery := `
         SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, r.ip_address, rp.udp_port
         FROM receivers r
@@ -849,13 +849,6 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         idx++
     }
 
-    if ipParam != "" {
-        // Add ip_address filter
-        conditions = append(conditions, fmt.Sprintf("ip_address = $%d", idx))
-        args = append(args, ipParam)
-        idx++
-    }
-
     if len(conditions) > 0 {
         baseQuery += " AND " + strings.Join(conditions, " AND ")
     }
@@ -869,6 +862,17 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         return
     }
     defer rows.Close()
+
+    // If we're filtering by IP address, we'll need to use the portMetricsMap
+    var ipAddressFilter string
+    if ipParam != "" {
+        ipAddressFilter = ipParam
+    }
+
+    // Map to track receivers by port for IP address filtering
+    receiversByPort := make(map[int]PublicReceiver)
+    // Map to track last_seen time for each port
+    lastSeenByPort := make(map[int]time.Time)
 
     var list []PublicReceiver
     for rows.Next() {
@@ -904,10 +908,52 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             Name:        rec.Name,
             URL:         rec.URL,
             Messages:    msgs,
-            // UDPPort is not exposed in the public API
+            UDPPort:     rec.UDPPort, // Store UDPPort for filtering but don't expose in JSON
         }
 
-        list = append(list, publicRec)
+        // If we're filtering by IP address, store this receiver by its port
+        if ipAddressFilter != "" && rec.UDPPort != nil {
+            // We'll check the portMetricsMap later
+            receiversByPort[*rec.UDPPort] = publicRec
+        } else {
+            // If not filtering by IP or receiver has no port, add to the list directly
+            list = append(list, publicRec)
+        }
+    }
+
+    // If we're filtering by IP address, check the portMetricsMap
+    if ipAddressFilter != "" {
+        // Lock the map for reading
+        portMetricsMutex.RLock()
+        
+        // Check if we have metrics for this IP address
+        if portMap, ok := portMetricsMap[ipAddressFilter]; ok {
+            // For each port this IP has been seen on
+            for port, metric := range portMap {
+                // If we have a receiver for this port
+                if receiver, ok := receiversByPort[port]; ok {
+                    // Store the last_seen time for this port
+                    lastSeenByPort[port] = metric.LastSeen
+                }
+            }
+        }
+        
+        portMetricsMutex.RUnlock()
+        
+        // Find the port with the most recent last_seen time
+        var mostRecentPort int
+        var mostRecentTime time.Time
+        for port, lastSeen := range lastSeenByPort {
+            if lastSeen.After(mostRecentTime) {
+                mostRecentPort = port
+                mostRecentTime = lastSeen
+            }
+        }
+        
+        // If we found a matching port, add its receiver to the list
+        if !mostRecentTime.IsZero() {
+            list = append(list, receiversByPort[mostRecentPort])
+        }
     }
 
     // If no receivers are found, return an empty array instead of null
