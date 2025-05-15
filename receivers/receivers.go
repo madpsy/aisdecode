@@ -19,14 +19,16 @@ import (
 )
 
 type Settings struct {
-    DbHost     string `json:"db_host"`
-    DbPort     int    `json:"db_port"`
-    DbUser     string `json:"db_user"`
-    DbPass     string `json:"db_pass"`
-    DbName     string `json:"db_name"`
-    ListenPort int    `json:"listen_port"`
-    Debug      bool   `json:"debug"`
+    DbHost         string `json:"db_host"`
+    DbPort         int    `json:"db_port"`
+    DbUser         string `json:"db_user"`
+    DbPass         string `json:"db_pass"`
+    DbName         string `json:"db_name"`
+    ListenPort     int    `json:"listen_port"`
+    Debug          bool   `json:"debug"`
     MetricsBaseURL string `json:"metrics_base_url"`
+    IngestHost     string `json:"ingest_host"`
+    IngestHTTPPort int    `json:"ingest_http_port"`
 }
 
 type Receiver struct {
@@ -40,6 +42,7 @@ type Receiver struct {
     IPAddress   string     `json:"ip_address,omitempty"`
     Password    string     `json:"password"`
     Messages    int        `json:"messages"`
+    UDPPort     *int       `json:"udp_port,omitempty"`
 }
 
 // PublicReceiver is used for public API responses without sensitive fields
@@ -52,6 +55,7 @@ type PublicReceiver struct {
     Name        string     `json:"name"`
     URL         *string    `json:"url,omitempty"`
     Messages    int        `json:"messages"`
+    UDPPort     *int       `json:"udp_port,omitempty"`
 }
 
 type ReceiverInput struct {
@@ -75,9 +79,35 @@ type ReceiverPatch struct {
 }
 
 var (
-    db       *sql.DB
-    settings Settings
+    db                *sql.DB
+    settings          Settings
+    udpDedicatedPorts string
+    availablePorts    []int
 )
+
+// IngestSettings represents the settings returned by the ingester
+type IngestSettings struct {
+    UDPListenPort        int      `json:"udp_listen_port"`
+    UDPDedicatedPorts    string   `json:"udp_dedicated_ports"`
+    UDPDestinations      []interface{} `json:"udp_destinations"`
+    MetricWindowSize     int      `json:"metric_window_size"`
+    HTTPPort             int      `json:"http_port"`
+    NumWorkers           int      `json:"num_workers"`
+    DownsampleWindow     int      `json:"downsample_window"`
+    DeduplicationWindow  int      `json:"deduplication_window_ms"`
+    WebPath              string   `json:"web_path"`
+    Debug                bool     `json:"debug"`
+    IncludeSource        bool     `json:"include_source"`
+    StreamPort           int      `json:"stream_port"`
+    StreamShards         int      `json:"stream_shards"`
+    MQTTServer           string   `json:"mqtt_server"`
+    MQTTTLS              bool     `json:"mqtt_tls"`
+    MQTTAuth             string   `json:"mqtt_auth"`
+    MQTTTopic            string   `json:"mqtt_topic"`
+    DownsampleMessageTypes []string `json:"downsample_message_types"`
+    BlockedIPs           []string `json:"blocked_ips"`
+    FailedDecodeLog      string   `json:"failed_decode_log"`
+}
 
 func getClientIP(r *http.Request) string {
     if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
@@ -90,6 +120,91 @@ func getClientIP(r *http.Request) string {
         return host
     }
     return r.RemoteAddr
+}
+
+// fetchIngestSettings fetches settings from the ingester
+func fetchIngestSettings() (*IngestSettings, error) {
+    url := fmt.Sprintf("http://%s:%d/settings", settings.IngestHost, settings.IngestHTTPPort)
+    resp, err := http.Get(url)
+    if err != nil {
+        return nil, fmt.Errorf("failed to fetch settings from ingester: %v", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("received non-OK response from ingester: %v", resp.Status)
+    }
+
+    var ingestSettings IngestSettings
+    if err := json.NewDecoder(resp.Body).Decode(&ingestSettings); err != nil {
+        return nil, fmt.Errorf("error decoding ingester settings: %v", err)
+    }
+
+    return &ingestSettings, nil
+}
+
+// parsePortRange parses a port range string like "9000-9999" into a slice of integers
+func parsePortRange(portRange string) ([]int, error) {
+    parts := strings.Split(portRange, "-")
+    if len(parts) != 2 {
+        return nil, fmt.Errorf("invalid port range format: %s", portRange)
+    }
+
+    start, err := strconv.Atoi(parts[0])
+    if err != nil {
+        return nil, fmt.Errorf("invalid start port: %v", err)
+    }
+
+    end, err := strconv.Atoi(parts[1])
+    if err != nil {
+        return nil, fmt.Errorf("invalid end port: %v", err)
+    }
+
+    if start > end {
+        return nil, fmt.Errorf("start port cannot be greater than end port")
+    }
+
+    var ports []int
+    for i := start; i <= end; i++ {
+        ports = append(ports, i)
+    }
+
+    return ports, nil
+}
+
+// allocatePort allocates a random unused port from the available ports
+func allocatePort(receiverID int) (int, error) {
+    // Ensure database connection
+    if err := ensureConnection(); err != nil {
+        return 0, err
+    }
+
+    // Get an available port that's not already allocated
+    var selectedPort int
+    err := db.QueryRow(`
+        SELECT udp_port FROM receiver_ports
+        WHERE receiver_id IS NULL
+        ORDER BY RANDOM()
+        LIMIT 1
+    `).Scan(&selectedPort)
+    
+    if err == sql.ErrNoRows {
+        return 0, fmt.Errorf("no available ports")
+    } else if err != nil {
+        return 0, fmt.Errorf("failed to query available port: %v", err)
+    }
+
+    // Update the receiver_ports table
+    _, err = db.Exec(`
+        UPDATE receiver_ports
+        SET receiver_id = $1, last_updated = NOW()
+        WHERE udp_port = $2
+    `, receiverID, selectedPort)
+    if err != nil {
+        return 0, fmt.Errorf("failed to update receiver_ports: %v", err)
+    }
+
+    return selectedPort, nil
 }
 
 func main() {
@@ -116,6 +231,28 @@ func main() {
     // Ensure connection is alive initially
     if err = ensureConnection(); err != nil {
         log.Fatalf("Unable to connect to database: %v", err)
+    }
+
+    // Fetch settings from ingester with retry
+    var ingestSettings *IngestSettings
+    for {
+        ingestSettings, err = fetchIngestSettings()
+        if err == nil {
+            break
+        }
+        log.Printf("Failed to fetch settings from ingester: %v. Retrying in 5 seconds...", err)
+        time.Sleep(5 * time.Second)
+    }
+
+    // Parse UDP dedicated ports
+    udpDedicatedPorts = ingestSettings.UDPDedicatedPorts
+    log.Printf("UDP dedicated ports: %s", udpDedicatedPorts)
+
+    // Verify it's a range of ports
+    var err2 error
+    availablePorts, err2 = parsePortRange(udpDedicatedPorts)
+    if err2 != nil {
+        log.Fatalf("Invalid UDP dedicated ports format: %v", err2)
     }
 
     createSchema()
@@ -172,7 +309,7 @@ func createSchema() {
         );
     `)
     if err != nil {
-        log.Fatalf("Error creating table: %v", err)
+        log.Fatalf("Error creating receivers table: %v", err)
     }
     _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_receivers_id ON receivers(id);`)
     if err != nil {
@@ -193,6 +330,56 @@ func createSchema() {
     `)
     if err != nil {
         log.Fatalf("Error syncing receivers_id_seq: %v", err)
+    }
+
+    // Create receiver_ports table
+    _, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS receiver_ports (
+            udp_port INT PRIMARY KEY,
+            receiver_id INT REFERENCES receivers(id) ON DELETE SET NULL,
+            last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    `)
+    if err != nil {
+        log.Fatalf("Error creating receiver_ports table: %v", err)
+    }
+
+    // Create index on receiver_id
+    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_receiver_ports_receiver_id ON receiver_ports(receiver_id);`)
+    if err != nil {
+        log.Fatalf("Error creating index on receiver_id: %v", err)
+    }
+
+    // Populate receiver_ports table with available ports
+    if len(availablePorts) > 0 {
+        // First, check which ports already exist in the table
+        rows, err := db.Query(`SELECT udp_port FROM receiver_ports`)
+        if err != nil {
+            log.Fatalf("Error querying receiver_ports: %v", err)
+        }
+        defer rows.Close()
+
+        existingPorts := make(map[int]bool)
+        for rows.Next() {
+            var port int
+            if err := rows.Scan(&port); err != nil {
+                log.Fatalf("Error scanning port: %v", err)
+            }
+            existingPorts[port] = true
+        }
+
+        // Insert any ports that don't already exist
+        for _, port := range availablePorts {
+            if !existingPorts[port] {
+                _, err := db.Exec(`
+                    INSERT INTO receiver_ports (udp_port)
+                    VALUES ($1)
+                `, port)
+                if err != nil {
+                    log.Fatalf("Error inserting port %d: %v", port, err)
+                }
+            }
+        }
     }
 }
 
@@ -228,16 +415,18 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
 
     // Base query
     baseQuery := `
-        SELECT id,
-               lastupdated,
-               description,
-               latitude,
-               longitude,
-               name,
-               url,
-               ip_address,
-               password
-          FROM receivers`
+        SELECT r.id,
+               r.lastupdated,
+               r.description,
+               r.latitude,
+               r.longitude,
+               r.name,
+               r.url,
+               r.ip_address,
+               r.password,
+               rp.udp_port
+          FROM receivers r
+          LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id`
     
     var (
         conditions []string
@@ -278,6 +467,9 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
     var list []Receiver
     for rows.Next() {
         var rec Receiver
+        // Create a nullable int for UDP port
+        var udpPort sql.NullInt64
+        
         if err := rows.Scan(
             &rec.ID,
             &rec.LastUpdated,
@@ -288,8 +480,15 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
             &rec.URL,
             &rec.IPAddress,  // Ensure this is correctly mapped
             &rec.Password,   // Add password field
+            &udpPort,        // Scan into nullable int
         ); err != nil {
             return nil, err
+        }
+        
+        // Only set UDPPort if it's not null
+        if udpPort.Valid {
+            port := int(udpPort.Int64)
+            rec.UDPPort = &port
         }
 
         list = append(list, rec)
@@ -681,7 +880,29 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 6) send response
+    // 6) Allocate a UDP port for this receiver
+    udpPort, err := allocatePort(rec.ID)
+    if err != nil {
+        if err.Error() == "no available ports" {
+            log.Printf("ERROR: No available UDP ports found for receiver ID %d", rec.ID)
+            http.Error(w, "Failed to create receiver: No available UDP ports", http.StatusServiceUnavailable)
+        } else {
+            log.Printf("ERROR: Failed to allocate UDP port for receiver ID %d: %v", rec.ID, err)
+            http.Error(w, fmt.Sprintf("Failed to create receiver: UDP port allocation error: %v", err), http.StatusInternalServerError)
+        }
+        
+        // Clean up the created receiver since we couldn't allocate a port
+        _, cleanupErr := db.Exec(`DELETE FROM receivers WHERE id = $1`, rec.ID)
+        if cleanupErr != nil {
+            log.Printf("ERROR: Failed to clean up receiver %d after port allocation failure: %v", rec.ID, cleanupErr)
+        }
+        
+        return
+    }
+    
+    rec.UDPPort = &udpPort
+
+    // 7) send response
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusCreated)
     json.NewEncoder(w).Encode(rec)
@@ -690,13 +911,24 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
 func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
     var rec Receiver
     // Query the receiver from the database.
+    // Create a nullable int for UDP port
+    var udpPort sql.NullInt64
+    
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address, password
-        FROM receivers WHERE id = $1
+        SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, r.ip_address, r.password, rp.udp_port
+        FROM receivers r
+        LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
+        WHERE r.id = $1
     `, id).Scan(
         &rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.IPAddress, &rec.Password,
+        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.IPAddress, &rec.Password, &udpPort,
     )
+    
+    // Only set UDPPort if it's not null
+    if udpPort.Valid {
+        port := int(udpPort.Int64)
+        rec.UDPPort = &port
+    }
     if err == sql.ErrNoRows {
         w.WriteHeader(http.StatusNotFound)
         return
@@ -892,16 +1124,44 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
 }
 
 func handleDeleteReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    res, err := db.Exec(`DELETE FROM receivers WHERE id = $1`, id)
+    // Begin a transaction
+    tx, err := db.Begin()
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Failed to begin transaction: %v", err), http.StatusInternalServerError)
+        return
+    }
+    defer tx.Rollback() // Rollback if not committed
+
+    // First, unallocate the UDP port by setting receiver_id to NULL
+    _, err = tx.Exec(`
+        UPDATE receiver_ports
+        SET receiver_id = NULL, last_updated = NOW()
+        WHERE receiver_id = $1
+    `, id)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Failed to unallocate UDP port: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    // Then delete the receiver
+    res, err := tx.Exec(`DELETE FROM receivers WHERE id = $1`, id)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
+    
     n, _ := res.RowsAffected()
     if n == 0 {
         w.WriteHeader(http.StatusNotFound)
         return
     }
+
+    // Commit the transaction
+    if err := tx.Commit(); err != nil {
+        http.Error(w, fmt.Sprintf("Failed to commit transaction: %v", err), http.StatusInternalServerError)
+        return
+    }
+
     w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1393,7 +1653,29 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Return the complete receiver object including password
+    // Allocate a UDP port for this receiver
+    udpPort, err := allocatePort(rec.ID)
+    if err != nil {
+        if err.Error() == "no available ports" {
+            log.Printf("ERROR: No available UDP ports found for receiver ID %d", rec.ID)
+            http.Error(w, "Failed to create receiver: No available UDP ports", http.StatusServiceUnavailable)
+        } else {
+            log.Printf("ERROR: Failed to allocate UDP port for receiver ID %d: %v", rec.ID, err)
+            http.Error(w, fmt.Sprintf("Failed to create receiver: UDP port allocation error: %v", err), http.StatusInternalServerError)
+        }
+        
+        // Clean up the created receiver since we couldn't allocate a port
+        _, cleanupErr := db.Exec(`DELETE FROM receivers WHERE id = $1`, rec.ID)
+        if cleanupErr != nil {
+            log.Printf("ERROR: Failed to clean up receiver %d after port allocation failure: %v", rec.ID, cleanupErr)
+        }
+        
+        return
+    }
+    
+    rec.UDPPort = &udpPort
+
+    // Return the complete receiver object including password and UDP port
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusCreated)
     json.NewEncoder(w).Encode(rec)
