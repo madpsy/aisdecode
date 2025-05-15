@@ -931,7 +931,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             // For each port this IP has been seen on
             for port, metric := range portMap {
                 // If we have a receiver for this port
-                if receiver, ok := receiversByPort[port]; ok {
+                if _, ok := receiversByPort[port]; ok {
                     // Store the last_seen time for this port
                     lastSeenByPort[port] = metric.LastSeen
                 }
