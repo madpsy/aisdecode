@@ -1688,10 +1688,10 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     // The primary UDP port is the UDP listen port from the ingester settings
     primaryUDPPort := ingestSettings.UDPListenPort
     
-    // Check if the IP address is sending data to the primary UDP port and not to any non-primary port
+    // Check if the IP address is sending data to the primary UDP port and not to any non-primary port with a receiver
     portMetricsMutex.RLock()
     sendingToPrimaryPort := false
-    sendingToNonPrimaryPort := false
+    nonPrimaryPorts := make([]int, 0)
     
     if portMap, ok := portMetricsMap[ipToCheck]; ok {
         for port, metric := range portMap {
@@ -1703,7 +1703,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
             if port == primaryUDPPort {
                 sendingToPrimaryPort = true
             } else {
-                sendingToNonPrimaryPort = true
+                nonPrimaryPorts = append(nonPrimaryPorts, port)
             }
         }
     }
@@ -1715,10 +1715,22 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Check if the IP address is sending data to any non-primary port
-    if sendingToNonPrimaryPort {
-        http.Error(w, fmt.Sprintf("The IP address '%s' is already sending data to a non-primary port", ipToCheck), http.StatusBadRequest)
-        return
+    // Check if the IP address is sending data to any non-primary port that has a receiver assigned
+    if len(nonPrimaryPorts) > 0 {
+        // Check each non-primary port to see if it has a receiver assigned
+        for _, port := range nonPrimaryPorts {
+            var receiverID sql.NullInt64
+            err := db.QueryRow(`
+                SELECT receiver_id FROM receiver_ports
+                WHERE udp_port = $1 AND receiver_id IS NOT NULL
+            `, port).Scan(&receiverID)
+            
+            // If we found a receiver assigned to this port, block the new receiver
+            if err == nil && receiverID.Valid {
+                http.Error(w, fmt.Sprintf("The IP address '%s' is already sending data to a non-primary port with an assigned receiver", ipToCheck), http.StatusBadRequest)
+                return
+            }
+        }
     }
 
     // Insert the new receiver into the database
