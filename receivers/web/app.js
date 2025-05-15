@@ -105,9 +105,12 @@ function renderList(list) {
       <td>${r.password !== undefined ? r.password : '—'}</td>
       <td>${r.messages !== undefined && r.messages !== null ? r.messages : 'No messages'}</td>
       <td>
-        <a class="action" data-id="${r.id}">Edit</a>
-        &nbsp;|&nbsp;
-        <button class="delete-btn" data-id="${r.id}">Delete</button>
+        ${r.id === 0 ?
+          '—' :
+          `<a class="action" data-id="${r.id}">Edit</a>
+           &nbsp;|&nbsp;
+           <button class="delete-btn" data-id="${r.id}">Delete</button>`
+        }
       </td>
     `;
     tbody.appendChild(tr);
@@ -142,7 +145,7 @@ function startEdit(id) {
       document.getElementById('field-latitude').value    = r.latitude;
       document.getElementById('field-longitude').value   = r.longitude;
       document.getElementById('field-url').value         = r.url ?? '';
-      document.getElementById('field-ip-address').value  = r.ip_address ?? '';
+      // IP address field removed - automatically tracked by collector system
       document.getElementById('field-udp-port').value    = r.udp_port !== undefined ? r.udp_port : '';
       document.getElementById('field-password').value    = r.password !== undefined ? r.password : '';
       
@@ -161,7 +164,7 @@ cancelBtn.onclick = () => {
   editId = null;
   formTitle.textContent = 'Add New Receiver';
   form.reset();
-  document.getElementById('field-ip-address').value = '';
+  // IP address field removed - automatically tracked by collector system
   document.getElementById('field-udp-port').value = '';
   document.getElementById('field-password').value = '';
   // Hide regenerate button for new receivers (will be auto-generated)
@@ -208,9 +211,7 @@ form.onsubmit = async e => {
   const urlVal = document.getElementById('field-url').value.trim();
   if (urlVal) payload.url = urlVal;
   
-  // Include IP address in payload if it exists
-  const ipAddressVal = document.getElementById('field-ip-address').value.trim();
-  if (ipAddressVal) payload.ip_address = ipAddressVal;
+  // IP address field removed - automatically tracked by collector system
   
   // Include password in payload if it exists
   const passwordVal = document.getElementById('field-password').value.trim();
@@ -252,7 +253,7 @@ form.onsubmit = async e => {
   form.reset();
   editId = null;
   formTitle.textContent = 'Add New Receiver';
-  document.getElementById('field-ip-address').value = '';
+  // IP address field removed - automatically tracked by collector system
   document.getElementById('field-udp-port').value = '';
   document.getElementById('field-password').value = '';
   document.getElementById('regenerate-password').style.display = 'none';
