@@ -727,10 +727,8 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
     } else if id, exists := receiverPortToIDMap[msg.UDPPort]; exists && msg.UDPPort > 0 {
         // For dedicated ports, use port as primary lookup method
         receiverID = id
-    } else if id, exists := receiverIPToIDMap[msg.SourceIP]; exists {
-        // Fall back to IP-only matching if port match not found
-        receiverID = id
     }
+    // No IP fallback for non-primary ports
     
     receiverMapMutex.RUnlock()
     
@@ -1137,11 +1135,8 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
             // For dedicated ports, use port as primary lookup method
             receiverID = id
             receiverFound = true
-        } else if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
-            // Fall back to IP-only matching if port match not found
-            receiverID = id
-            receiverFound = true
         }
+        // No IP fallback for non-primary ports
         
         receiverMapMutex.RUnlock()
 
