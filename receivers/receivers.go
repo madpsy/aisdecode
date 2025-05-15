@@ -244,6 +244,36 @@ func allocatePort(receiverID int) (int, error) {
     return selectedPort, nil
 }
 
+// allocatePortTx allocates a random unused port from the available ports within a transaction
+func allocatePortTx(tx *sql.Tx, receiverID int) (int, error) {
+    // Get an available port that's not already allocated
+    var selectedPort int
+    err := tx.QueryRow(`
+        SELECT udp_port FROM receiver_ports
+        WHERE receiver_id IS NULL
+        ORDER BY RANDOM()
+        LIMIT 1
+    `).Scan(&selectedPort)
+    
+    if err == sql.ErrNoRows {
+        return 0, fmt.Errorf("no available ports")
+    } else if err != nil {
+        return 0, fmt.Errorf("failed to query available port: %v", err)
+    }
+
+    // Update the receiver_ports table within the transaction
+    _, err = tx.Exec(`
+        UPDATE receiver_ports
+        SET receiver_id = $1, last_updated = NOW()
+        WHERE udp_port = $2
+    `, receiverID, selectedPort)
+    if err != nil {
+        return 0, fmt.Errorf("failed to update receiver_ports: %v", err)
+    }
+
+    return selectedPort, nil
+}
+
 // fetchCollectors fetches the list of collectors from the ingester
 func fetchCollectors() ([]Collector, error) {
 	url := fmt.Sprintf("http://%s:%d/clients", settings.IngestHost, settings.IngestHTTPPort)
@@ -1733,8 +1763,15 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // Insert the new receiver into the database
-    err = db.QueryRow(`
+    // Start a transaction to ensure atomicity
+    tx, err := db.Begin()
+    if err != nil {
+        http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // Insert the new receiver into the database within the transaction
+    err = tx.QueryRow(`
         INSERT INTO receivers (
             description,
             latitude,
@@ -1748,6 +1785,8 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         Scan(&rec.ID, &rec.LastUpdated)
     
     if err != nil {
+        tx.Rollback() // Rollback the transaction on error
+        
         // Check for name uniqueness violation
         if strings.Contains(err.Error(), "unique constraint") && strings.Contains(err.Error(), "idx_receivers_name") {
             http.Error(w, fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name), http.StatusBadRequest)
@@ -1757,9 +1796,11 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Allocate a UDP port for this receiver
-    udpPort, err := allocatePort(rec.ID)
+    // Allocate a UDP port for this receiver within the transaction
+    udpPort, err := allocatePortTx(tx, rec.ID)
     if err != nil {
+        tx.Rollback() // Rollback the transaction on error
+        
         if err.Error() == "no available ports" {
             log.Printf("ERROR: No available UDP ports found for receiver ID %d", rec.ID)
             http.Error(w, "Failed to create receiver: No available UDP ports", http.StatusServiceUnavailable)
@@ -1767,13 +1808,14 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
             log.Printf("ERROR: Failed to allocate UDP port for receiver ID %d: %v", rec.ID, err)
             http.Error(w, fmt.Sprintf("Failed to create receiver: UDP port allocation error: %v", err), http.StatusInternalServerError)
         }
-        
-        // Clean up the created receiver since we couldn't allocate a port
-        _, cleanupErr := db.Exec(`DELETE FROM receivers WHERE id = $1`, rec.ID)
-        if cleanupErr != nil {
-            log.Printf("ERROR: Failed to clean up receiver %d after port allocation failure: %v", rec.ID, cleanupErr)
-        }
-        
+        return
+    }
+    
+    // Commit the transaction
+    if err := tx.Commit(); err != nil {
+        tx.Rollback()
+        log.Printf("ERROR: Failed to commit transaction for receiver ID %d: %v", rec.ID, err)
+        http.Error(w, "Failed to create receiver: Transaction commit error", http.StatusInternalServerError)
         return
     }
     
