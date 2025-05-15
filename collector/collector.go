@@ -287,6 +287,25 @@ func main() {
     if err != nil {
         log.Printf("Error creating index on state.udp_port: %v", err)
     }
+    
+    // Create the ports_ips table to track IP addresses sending messages on UDP ports
+    _, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS ports_ips (
+            id SERIAL PRIMARY KEY,
+            ip_address VARCHAR(45) NOT NULL,
+            udp_port INT NOT NULL,
+            first_seen TIMESTAMP NOT NULL,
+            last_seen TIMESTAMP NOT NULL,
+            message_count INT DEFAULT 1,
+            UNIQUE(ip_address, udp_port)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ports_ips_ip ON ports_ips(ip_address);
+        CREATE INDEX IF NOT EXISTS idx_ports_ips_port ON ports_ips(udp_port);
+        CREATE INDEX IF NOT EXISTS idx_ports_ips_last_seen ON ports_ips(last_seen);
+    `)
+    if err != nil {
+        log.Printf("Error creating ports_ips table: %v", err)
+    }
 
     requestData := map[string]interface{}{
         "shards":      settings.Shards,
@@ -562,6 +581,9 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
     if err := storeMessage(db, msg, settings, msg.RawSentence); err != nil {
         log.Printf("[DEBUG] Error storing message: %v", err)
     }
+    
+    // Update the ports_ips table to track this IP/port combination
+    updatePortsIPs(db, msg.SourceIP, msg.UDPPort)
 
     // 3) Unwrap the inner envelope to get at the real packet object
     var inner struct {
@@ -1460,4 +1482,25 @@ func syncInMemoryToRedis() {
     lastNavStatusMu.Unlock()
     
     log.Printf("Synced %d positions and %d NavigationalStatus values to Redis", posCount, navCount)
+}
+
+// updatePortsIPs updates the ports_ips table with the given IP address and UDP port
+// It either inserts a new record or updates the last_seen timestamp and increments the message count
+func updatePortsIPs(db *sql.DB, ipAddress string, udpPort int) {
+    // Get current timestamp
+    now := time.Now().UTC().Format(time.RFC3339)
+    
+    // Use an upsert (INSERT ... ON CONFLICT DO UPDATE) to handle both new and existing records
+    stmt := `
+        INSERT INTO ports_ips (ip_address, udp_port, first_seen, last_seen, message_count)
+        VALUES ($1, $2, $3, $4, 1)
+        ON CONFLICT (ip_address, udp_port) DO UPDATE SET
+            last_seen = $4,
+            message_count = ports_ips.message_count + 1
+    `
+    
+    _, err := db.Exec(stmt, ipAddress, udpPort, now, now)
+    if err != nil {
+        log.Printf("Error updating ports_ips table: %v", err)
+    }
 }
