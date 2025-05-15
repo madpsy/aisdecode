@@ -219,11 +219,14 @@ if [[ "$HTTP_CODE" -eq 201 ]]; then
   echo -e "${GREEN}Receiver created successfully:${NC}"
   printf "%s\n" "$HTTP_BODY" | jq .
   
-  # Extract UDP port from response
+  # Extract UDP port and password from response
   UDP_PORT=$(echo "$HTTP_BODY" | jq -r .udp_port)
   ID=$(echo "$HTTP_BODY" | jq -r .id)
+  PASSWORD=$(echo "$HTTP_BODY" | jq -r .password)
   
-  echo -e "${GREEN}Success! Please configure your feeder to send data to UDP port: ${UDP_PORT}${NC}"
+  echo -e "${GREEN}UDP port: ${UDP_PORT}${NC}"
+  echo -e "${GREEN}Password: ${PASSWORD}${NC}"
+  echo
   echo -e "${GREEN}You can see your receiver at the following URL:${NC}"
   echo "${BASE_URL}/metrics/receiver.html?receiver=${ID}"
   exit 0
