@@ -10,19 +10,19 @@ NC='\033[0m'
 
 # Required base URL (no default)
 BASE_URL=""
-AUTO_YES_IP=false
 LAT_LONG=""
 CALLSIGN=""
 DESCRIPTION=""
 URL=""
 URL_SPECIFIED=false
+AUTO_YES=false
 
 print_usage() {
   cat <<EOF
 Usage: $(basename "$0") -u base_url [-y] [-l lat,long] [-c callsign] [-d description] [-U url]
 Options:
   -u base_url      Base URL of server (required)
-  -y               Automatically use detected IP without prompt
+  -y               Automatically proceed without confirmation prompt
   -l lat,long      Specify latitude and longitude (comma-separated)
   -c callsign      Specify callsign or name (max 15 characters)
   -d description   Specify description (max 30 characters)
@@ -36,7 +36,7 @@ while getopts "u:hyl:c:d:U:" opt; do
   case $opt in
     u) BASE_URL="$OPTARG" ;;
     h) print_usage; exit 0 ;;
-    y) AUTO_YES_IP=true ;;
+    y) AUTO_YES=true ;;
     l) LAT_LONG="$OPTARG" ;;
     c) CALLSIGN="$OPTARG" ;;
     d) DESCRIPTION="$OPTARG" ;;
@@ -55,7 +55,7 @@ fi
 
 # Ensure dependencies
 MISSING_CMDS=()
-for cmd in curl jq bc crontab mktemp; do
+for cmd in curl jq bc; do
   if ! command -v "$cmd" >/dev/null; then
     MISSING_CMDS+=("$cmd")
   fi
@@ -71,33 +71,6 @@ if [ ${#MISSING_CMDS[@]} -ne 0 ]; then
   sudo apt-get install -y "${MISSING_CMDS[@]}"
 fi
 
-# Detect IP from /myip
-echo "Detecting public IP from $BASE_URL/myip..."
-DETECTED_IP=$(curl -s "$BASE_URL/myip" | jq -r .ip)
-if [[ -z "$DETECTED_IP" || "$DETECTED_IP" == "null" ]]; then
-  echo "Failed to detect IP."
-  exit 1
-fi
-echo "Detected IP address: $DETECTED_IP"
-
-if [[ "$AUTO_YES_IP" == true ]]; then
-  IPADDRESS="$DETECTED_IP"
-else
-  # Confirm or override IP
-  read -p "Use detected IP? [Y/n]: " ip_resp
-  if [[ "$ip_resp" =~ ^[Nn]$ ]]; then
-    while true; do
-      read -p "Enter IP address: " IPADDRESS
-      if [[ $IPADDRESS =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-        break
-      else
-        echo "Invalid IP address format."
-      fi
-    done
-  else
-    IPADDRESS="$DETECTED_IP"
-  fi
-fi
 
 if [[ -n "$CALLSIGN" ]]; then
   NAME="${CALLSIGN^^}"
@@ -199,17 +172,20 @@ fi
 # Display entered values for confirmation
 echo
 echo "Please confirm the following values:"
-echo "Base URL: $BASE_URL"
 echo "Name: $NAME"
 echo "Description: $DESCRIPTION"
 echo "Latitude: $LATITUDE"
 echo "Longitude: $LONGITUDE"
-echo "IP Address: $IPADDRESS"
 echo "URL: ${URL:-<none>}"
-read -p "Proceed? [y/N]: " confirm
-if ! [[ "$confirm" =~ ^[Yy]$ ]]; then
-  echo "Aborting."
-  exit 1
+if [[ "$AUTO_YES" == true ]]; then
+  # Skip confirmation if -y flag is set
+  echo "Proceeding automatically..."
+else
+  read -p "Proceed? [y/N]: " confirm
+  if ! [[ "$confirm" =~ ^[Yy]$ ]]; then
+    echo "Aborting."
+    exit 1
+  fi
 fi
 
 # Build JSON payload using jq
@@ -219,17 +195,15 @@ if [[ -n "${URL-}" ]]; then
     --arg description "$DESCRIPTION" \
     --argjson latitude "$LATITUDE" \
     --argjson longitude "$LONGITUDE" \
-    --arg ipaddress "$IPADDRESS" \
     --arg url "$URL" \
-    '{name:$name,description:$description,latitude:$latitude,longitude:$longitude,ipaddress:$ipaddress,url:$url}')
+    '{name:$name,description:$description,latitude:$latitude,longitude:$longitude,url:$url}')
 else
   PAYLOAD=$(jq -n \
     --arg name "$NAME" \
     --arg description "$DESCRIPTION" \
     --argjson latitude "$LATITUDE" \
     --argjson longitude "$LONGITUDE" \
-    --arg ipaddress "$IPADDRESS" \
-    '{name:$name,description:$description,latitude:$latitude,longitude:$longitude,ipaddress:$ipaddress}')
+    '{name:$name,description:$description,latitude:$latitude,longitude:$longitude}')
 fi
 
 # Send POST request
@@ -244,34 +218,14 @@ HTTP_CODE=$(echo "$HTTP_RESPONSE" | tr -d '\n' | sed -e 's/.*HTTP_CODE://')
 if [[ "$HTTP_CODE" -eq 201 ]]; then
   echo -e "${GREEN}Receiver created successfully:${NC}"
   printf "%s\n" "$HTTP_BODY" | jq .
-  # Extract id and password for cron setup
-  # Extract id and password for cron setup
+  
+  # Extract UDP port from response
+  UDP_PORT=$(echo "$HTTP_BODY" | jq -r .udp_port)
   ID=$(echo "$HTTP_BODY" | jq -r .id)
-  PASSWORD=$(echo "$HTTP_BODY" | jq -r .password)
-  # Ask to add cron job
-  if [[ "$AUTO_YES_IP" == true ]]; then
-    cron_resp="y"
-  else
-    read -p "Add a cron job to update IP every 10 minutes? [y/N]: " cron_resp
-  fi
-  if [[ "$cron_resp" =~ ^[Yy]$ ]]; then
-    OFFSET=$(( RANDOM % 10 ))
-    CRON_MIN="${OFFSET}-59/10"
-    JSON_PAYLOAD=$(jq -nc --arg id "$ID" --arg password "$PASSWORD" '{id:( $id | tonumber), password:$password}')
-    CRON_CMD="curl -s -X POST \"$BASE_URL/receiverip\" -H 'Content-Type: application/json' -d '$JSON_PAYLOAD' > /dev/null"
-    TMP_CRON=$(mktemp)
-    crontab -l 2>/dev/null > "$TMP_CRON" || true
-    if grep -F "$BASE_URL/receiverip" "$TMP_CRON"; then
-      echo -e "${GREEN}Cron job already exists for $BASE_URL${NC}"
-    else
-      echo "$CRON_MIN * * * * $CRON_CMD" >> "$TMP_CRON"
-      crontab "$TMP_CRON"
-      echo -e "${GREEN}Cron job installed: $CRON_MIN * * * * $CRON_CMD${NC}"
-    fi
-    rm "$TMP_CRON"
-    echo -e "${GREEN}All operations completed successfully. You can see your receiver at the following URL:${NC}"
-    echo "${BASE_URL}/metrics/receiver.html?receiver=${ID}"
-  fi
+  
+  echo -e "${GREEN}Success! Please configure your feeder to send data to UDP port: ${UDP_PORT}${NC}"
+  echo -e "${GREEN}You can see your receiver at the following URL:${NC}"
+  echo "${BASE_URL}/metrics/receiver.html?receiver=${ID}"
   exit 0
 else
   echo -e "${RED}Error creating receiver (HTTP $HTTP_CODE):${NC}"
