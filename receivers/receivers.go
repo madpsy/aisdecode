@@ -1168,6 +1168,7 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         }
     }
 
+
     // 3) build Receiver and validate
     rec := Receiver{
         ID:          id,
@@ -1637,7 +1638,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         Description string   `json:"description"`
         Latitude    float64  `json:"latitude"`
         Longitude   float64  `json:"longitude"`
-        IPAddress   string   `json:"ipaddress"`
+        IPAddress   *string  `json:"ipaddress,omitempty"`
         URL         *string  `json:"url,omitempty"`
     }
 
@@ -1655,10 +1656,6 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "description is required", http.StatusBadRequest)
         return
     }
-    if input.IPAddress == "" {
-        http.Error(w, "ipaddress is required", http.StatusBadRequest)
-        return
-    }
 
     // Generate a random password
     password, err := generateRandomPassword()
@@ -1668,6 +1665,9 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create receiver object
+    // Get the client's IP address for verification, but don't store it in the receiver
+    clientIP := getClientIP(r)
+    
     rec := Receiver{
         Description: input.Description,
         Latitude:    input.Latitude,
@@ -1675,7 +1675,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         Name:        strings.ToUpper(input.Name),
         URL:         input.URL,
         Password:    password,
-        IPAddress:   input.IPAddress,
+        IPAddress:   "", // Don't store the IP address
     }
 
     // Validate the receiver
@@ -1690,32 +1690,46 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Check if there's already a receiver with the same IP address
-    var existingCount int
-    err = db.QueryRow(`SELECT COUNT(*) FROM receivers WHERE ip_address = $1`, input.IPAddress).Scan(&existingCount)
+    // Fetch the UDP listen port from the ingester settings
+    ingestSettings, err := fetchIngestSettings()
     if err != nil {
-        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        http.Error(w, fmt.Sprintf("Failed to fetch ingester settings: %v", err), http.StatusInternalServerError)
         return
     }
     
-    if existingCount > 0 {
-        http.Error(w, fmt.Sprintf("IP address '%s' is already in use by another receiver", input.IPAddress), http.StatusBadRequest)
-        return
-    }
+    // The primary UDP port is the UDP listen port from the ingester settings
+    primaryUDPPort := ingestSettings.UDPListenPort
     
-    // For new receivers, we check if the IP address has any messages on any port
-    // since we haven't allocated a UDP port yet
+    // Check if the client's IP address is sending data to the primary UDP port and not to any non-primary port
     portMetricsMutex.RLock()
-    messageCount := 0
-    if portMap, ok := portMetricsMap[input.IPAddress]; ok {
-        for _, metric := range portMap {
-            messageCount += metric.MessageCount
+    sendingToPrimaryPort := false
+    sendingToNonPrimaryPort := false
+    
+    if portMap, ok := portMetricsMap[clientIP]; ok {
+        for port, metric := range portMap {
+            // Skip ports with no messages
+            if metric.MessageCount <= 0 {
+                continue
+            }
+            
+            if port == primaryUDPPort {
+                sendingToPrimaryPort = true
+            } else {
+                sendingToNonPrimaryPort = true
+            }
         }
     }
     portMetricsMutex.RUnlock()
     
-    if messageCount <= 0 {
-        http.Error(w, fmt.Sprintf("IP address '%s' has not sent any AIS data", input.IPAddress), http.StatusBadRequest)
+    // Check if the client's IP address is sending data to the primary UDP port
+    if !sendingToPrimaryPort {
+        http.Error(w, fmt.Sprintf("Your IP address '%s' is not sending data to the primary UDP port (%d)", clientIP, primaryUDPPort), http.StatusBadRequest)
+        return
+    }
+    
+    // Check if the client's IP address is sending data to any non-primary port
+    if sendingToNonPrimaryPort {
+        http.Error(w, fmt.Sprintf("Your IP address '%s' is already sending data to a non-primary port", clientIP), http.StatusBadRequest)
         return
     }
 
@@ -1727,11 +1741,10 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
             longitude,
             name,
             url,
-            ip_address,
             password
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+        ) VALUES ($1,$2,$3,$4,$5,$6)
         RETURNING id, lastupdated`,
-        rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password).
+        rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password).
         Scan(&rec.ID, &rec.LastUpdated)
     
     if err != nil {
