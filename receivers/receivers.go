@@ -341,20 +341,24 @@ func startCollectorTracking() {
 	}()
 }
 
-// getMessagesByIPFromPortMetrics gets the total message count for an IP address from the port metrics map
-func getMessagesByIPFromPortMetrics(ipAddress string) (int, map[string]PortMetric) {
+// getMessagesByIPAndPort gets the message count for a specific IP address and UDP port from the port metrics map
+func getMessagesByIPAndPort(ipAddress string, udpPort *int) (int, map[string]PortMetric) {
 	portMetricsMutex.RLock()
 	defer portMetricsMutex.RUnlock()
 
 	totalMessages := 0
 	messageMap := make(map[string]PortMetric)
 
+	// If no UDP port is specified, return 0
+	if udpPort == nil {
+		return 0, messageMap
+	}
+
 	// Check if we have metrics for this IP address
 	if portMap, ok := portMetricsMap[ipAddress]; ok {
-		// Sum up message counts for all ports
-		for _, metric := range portMap {
-			totalMessages += metric.MessageCount
-			// Add to message map with port as key
+		// Check if we have metrics for this UDP port
+		if metric, ok := portMap[*udpPort]; ok {
+			totalMessages = metric.MessageCount
 			key := fmt.Sprintf("%d", metric.UDPPort)
 			messageMap[key] = metric
 		}
@@ -723,9 +727,9 @@ type MetricsResponse struct {
     SimpleMetrics SimpleMetrics `json:"simple_metrics"` // This is where the simple_metrics field is mapped
 }
 
-func getMessagesByIP(ipAddress string) (int, error) {
+func getMessagesByIP(ipAddress string, udpPort *int) (int, error) {
     // Use the new port metrics tracking system instead of the metrics API
-    messages, _ := getMessagesByIPFromPortMetrics(ipAddress)
+    messages, _ := getMessagesByIPAndPort(ipAddress, udpPort)
     return messages, nil
 }
 
@@ -844,7 +848,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         }
 
         // Fetch message count (0 on error)
-        msgs, err := getMessagesByIP(rec.IPAddress)
+        msgs, err := getMessagesByIP(rec.IPAddress, rec.UDPPort)
         if err != nil {
             msgs = 0
         }
@@ -893,12 +897,12 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
 
     // For each receiver in the list, fetch messages based on the ip_address
     for i, rec := range list {
-        // Fetch messages count and message map for each receiver based on ip_address
+        // Fetch messages count and message map for each receiver based on ip_address and udp_port
         if rec.IPAddress == "" {
             log.Printf("Error: IP Address is empty for Receiver ID: %d", rec.ID)
         }
 
-        msgs, messageMap := getMessagesByIPFromPortMetrics(rec.IPAddress)
+        msgs, messageMap := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
 
         // Set the messages field and message map
         list[i].Messages = msgs
@@ -1069,8 +1073,8 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
         return
     }
 
-    // Now, fetch the number of messages and message map for the receiver's IP.
-    messages, messageMap := getMessagesByIPFromPortMetrics(rec.IPAddress)
+    // Now, fetch the number of messages and message map for the receiver's IP and UDP port.
+    messages, messageMap := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
 
     // Add the messages field and message map to the receiver struct.
     rec.Messages = messages
@@ -1651,7 +1655,7 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
     }
 
     // Get message count and message map for the updated receiver
-    messages, messageMap := getMessagesByIPFromPortMetrics(rec.IPAddress)
+    messages, messageMap := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
     rec.Messages = messages
     rec.MessageMap = messageMap
 
@@ -1743,8 +1747,16 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Check if the IP address has a message count > 0
-    messageCount, _ := getMessagesByIPFromPortMetrics(input.IPAddress)
+    // For new receivers, we check if the IP address has any messages on any port
+    // since we haven't allocated a UDP port yet
+    portMetricsMutex.RLock()
+    messageCount := 0
+    if portMap, ok := portMetricsMap[input.IPAddress]; ok {
+        for _, metric := range portMap {
+            messageCount += metric.MessageCount
+        }
+    }
+    portMetricsMutex.RUnlock()
     
     if messageCount <= 0 {
         http.Error(w, fmt.Sprintf("IP address '%s' has not sent any AIS data", input.IPAddress), http.StatusBadRequest)
