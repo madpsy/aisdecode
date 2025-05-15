@@ -1144,7 +1144,6 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
 
     // 2) Get current password and IP address if not provided in the input
     var password string
-    var ipAddress string
     
     if input.Password != nil {
         password = *input.Password
