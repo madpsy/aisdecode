@@ -575,7 +575,7 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
 
     // Extract parameters
     idParam := filters["id"]
-    ipParam := filters["ipaddress"]
+    ipParam := filters["ip_address"]
 
     // Base query
     baseQuery := `
@@ -792,7 +792,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
 
     // Extract query parameters
     idParam := r.URL.Query().Get("id")
-    ipParam := r.URL.Query().Get("ipaddress")
+    ipParam := r.URL.Query().Get("ip_address")
 
     // Build the query based on filters
     baseQuery := `
@@ -896,7 +896,7 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
     // Parse filters from query parameters (can be the same as public)
     filters := map[string]string{
         "id":        r.URL.Query().Get("id"),
-        "ipaddress": r.URL.Query().Get("ipaddress"),
+        "ip_address": r.URL.Query().Get("ip_address"),
     }
 
     // Call the helper function to get the filtered receivers
@@ -1605,8 +1605,8 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
 
 // handleAddReceiver handles POST /addreceiver
 // This is a public endpoint that allows adding a new receiver
-// It requires name, description, lat, long, and ipaddress
-// URL is optional, and password is automatically generated
+// It requires name, description, lat, long
+// URL and ip_address are optional, and password is automatically generated
 func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     // Only allow POST method
     if r.Method != http.MethodPost {
