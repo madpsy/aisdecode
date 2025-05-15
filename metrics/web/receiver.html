@@ -758,9 +758,9 @@ window.addEventListener('DOMContentLoaded', () => {
         // Reset message count for new receiver
         currentMessageCount = 0;
         console.log("Reset currentMessageCount to 0 for receiver parameter");
-        // Now that map is initialized, fetch metrics and receiver info
-        console.log('Map initialized, now fetching metrics with receiver ID:', overrideReceiverId);
-        fetchMetrics();
+        // Now that map is initialized, fetch receiver info first
+        console.log('Map initialized, now fetching receiver info with ID:', overrideReceiverId);
+        // Only fetch metrics after confirming the receiver exists
         fetchReceiversById(overrideReceiverId);
       } else {
         // No query parameters - fetch user's IP and use it
@@ -1550,6 +1550,10 @@ function fetchReceiversById(receiverId) {
       
       // Draw radius circles around the selected receiver
       drawRadiusCircles();
+      
+      // Now that we've confirmed the receiver exists, fetch metrics for it
+      console.log('Receiver found, now fetching metrics for ID:', receiver.id);
+      fetchMetrics();
 
       // Remove existing info box if present
       const oldBox = document.getElementById('receiver-box');
