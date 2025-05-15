@@ -72,7 +72,14 @@ function renderList(list) {
           : `—`
         }
       </td>
-      <td>${r.ip_address}</td>
+      <td>
+        ${r.message_stats ?
+          Object.keys(r.message_stats).map(ip =>
+            `${ip} (${r.message_stats[ip].message_count})`
+          ).join('<br>') :
+          r.ip_address || '—'
+        }
+      </td>
       <td>${r.udp_port !== undefined ? r.udp_port : '—'}</td>
       <td>${r.password !== undefined ? r.password : '—'}</td>
       <td>${r.messages !== undefined && r.messages !== null ? r.messages : 'No messages'}</td>
