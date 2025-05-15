@@ -44,7 +44,7 @@ type Receiver struct {
 	Password    string     `json:"password"`
 	Messages    int        `json:"messages"`
 	UDPPort     *int       `json:"udp_port,omitempty"`
-	MessageStats map[string]PortMetric `json:"message_stats"` // Added for admin endpoints
+	MessageStats map[string]MessageStat `json:"message_stats"` // Added for admin endpoints
 }
 
 // PublicReceiver is used for public API responses without sensitive fields
@@ -109,6 +109,13 @@ type CollectorsResponse struct {
 type PortMetric struct {
 	IPAddress    string    `json:"ip_address"`
 	UDPPort      int       `json:"udp_port"`
+	FirstSeen    time.Time `json:"first_seen"`
+	LastSeen     time.Time `json:"last_seen"`
+	MessageCount int       `json:"message_count"`
+}
+
+// MessageStat is a simplified version of PortMetric without redundant fields
+type MessageStat struct {
 	FirstSeen    time.Time `json:"first_seen"`
 	LastSeen     time.Time `json:"last_seen"`
 	MessageCount int       `json:"message_count"`
@@ -343,12 +350,12 @@ func startCollectorTracking() {
 
 // getMessagesByPort gets the message count for a specific UDP port from the port metrics map
 // This ignores the receiver's IP address and only filters by UDP port
-func getMessagesByPort(udpPort *int) (int, map[string]PortMetric) {
+func getMessagesByPort(udpPort *int) (int, map[string]MessageStat) {
 	portMetricsMutex.RLock()
 	defer portMetricsMutex.RUnlock()
 
 	totalMessages := 0
-	messageStats := make(map[string]PortMetric)
+	messageStats := make(map[string]MessageStat)
 
 	// If no UDP port is specified, return 0 and empty map
 	if udpPort == nil {
@@ -360,8 +367,14 @@ func getMessagesByPort(udpPort *int) (int, map[string]PortMetric) {
 		// Check if we have metrics for this UDP port
 		if metric, ok := portMap[*udpPort]; ok {
 			totalMessages += metric.MessageCount
-			// Use just the IP address as the key since the port is already in the metric
-			messageStats[ipAddress] = metric
+			// Convert PortMetric to MessageStat to remove redundant fields
+			messageStat := MessageStat{
+				FirstSeen:    metric.FirstSeen,
+				LastSeen:     metric.LastSeen,
+				MessageCount: metric.MessageCount,
+			}
+			// Use just the IP address as the key
+			messageStats[ipAddress] = messageStat
 		}
 	}
 
@@ -934,7 +947,7 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         IPAddress:   "255.255.255.255",
         Password:    "",
         Messages:    0,
-        MessageStats: make(map[string]PortMetric),
+        MessageStats: make(map[string]MessageStat),
     }
     
     // Set the UDP port
