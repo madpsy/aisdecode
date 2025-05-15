@@ -44,7 +44,7 @@ type Receiver struct {
 	Password    string     `json:"password"`
 	Messages    int        `json:"messages"`
 	UDPPort     *int       `json:"udp_port,omitempty"`
-	MessageMap  map[string]PortMetric `json:"message_map,omitempty"` // Added for admin endpoints
+	MessageStats map[string]PortMetric `json:"message_stats"` // Added for admin endpoints
 }
 
 // PublicReceiver is used for public API responses without sensitive fields
@@ -347,11 +347,11 @@ func getMessagesByIPAndPort(ipAddress string, udpPort *int) (int, map[string]Por
 	defer portMetricsMutex.RUnlock()
 
 	totalMessages := 0
-	messageMap := make(map[string]PortMetric)
+	messageStats := make(map[string]PortMetric)
 
-	// If no UDP port is specified, return 0
+	// If no UDP port is specified, return 0 and empty map
 	if udpPort == nil {
-		return 0, messageMap
+		return 0, messageStats
 	}
 
 	// Check if we have metrics for this IP address
@@ -360,11 +360,11 @@ func getMessagesByIPAndPort(ipAddress string, udpPort *int) (int, map[string]Por
 		if metric, ok := portMap[*udpPort]; ok {
 			totalMessages = metric.MessageCount
 			key := fmt.Sprintf("%d", metric.UDPPort)
-			messageMap[key] = metric
+			messageStats[key] = metric
 		}
 	}
 
-	return totalMessages, messageMap
+	return totalMessages, messageStats
 }
 
 func main() {
@@ -483,13 +483,13 @@ func createSchema() {
     if err != nil {
         log.Fatalf("Error creating unique index on name: %v", err)
     }
-    // Sync the SERIAL sequence
+    // Sync the SERIAL sequence to start at 1 to ensure the first receiver has ID 1
     _, err = db.Exec(`
         SELECT setval(
           pg_get_serial_sequence('receivers','id'),
-          COALESCE(MAX(id), 1),
-          true
-        ) FROM receivers;
+          1,
+          false
+        );
     `)
     if err != nil {
         log.Fatalf("Error syncing receivers_id_seq: %v", err)
@@ -897,19 +897,57 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
 
     // For each receiver in the list, fetch messages based on the ip_address
     for i, rec := range list {
-        // Fetch messages count and message map for each receiver based on ip_address and udp_port
+        // Fetch messages count and message stats for each receiver based on ip_address and udp_port
         if rec.IPAddress == "" {
             log.Printf("Error: IP Address is empty for Receiver ID: %d", rec.ID)
         }
 
-        msgs, messageMap := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
+        msgs, messageStats := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
 
-        // Set the messages field and message map
+        // Set the messages field and message stats
         list[i].Messages = msgs
-        list[i].MessageMap = messageMap
+        list[i].MessageStats = messageStats
     }
 
-    // Return the list of receivers in JSON format, including ip_address, messages, and message map
+    // Add dummy entry for receiver ID 0
+    // Fetch the UDP listen port from the ingester settings
+    ingestSettings, err := fetchIngestSettings()
+    var udpListenPort int
+    if err != nil {
+        log.Printf("Error fetching ingester settings: %v", err)
+        udpListenPort = 0 // Default to 0 if we can't fetch the settings
+    } else {
+        udpListenPort = ingestSettings.UDPListenPort
+    }
+
+    // Create dummy receiver
+    dummyReceiver := Receiver{
+        ID:          0,
+        LastUpdated: time.Now(),
+        Description: "Anonymous",
+        Latitude:    0,
+        Longitude:   0,
+        Name:        "Anonymous",
+        URL:         nil,
+        IPAddress:   "255.255.255.255",
+        Password:    "",
+        Messages:    0,
+        MessageStats: make(map[string]PortMetric),
+    }
+    
+    // Set the UDP port
+    dummyReceiver.UDPPort = &udpListenPort
+    
+    // Fetch message stats for the dummy receiver based on the UDP listen port
+    // We use 255.255.255.255 as the IP address for the dummy receiver
+    msgs, messageStats := getMessagesByIPAndPort("255.255.255.255", &udpListenPort)
+    dummyReceiver.Messages = msgs
+    dummyReceiver.MessageStats = messageStats
+
+    // Add the dummy receiver to the beginning of the list
+    list = append([]Receiver{dummyReceiver}, list...)
+
+    // Return the list of receivers in JSON format, including ip_address, messages, and message stats
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(list)
 }
@@ -1073,12 +1111,12 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
         return
     }
 
-    // Now, fetch the number of messages and message map for the receiver's IP and UDP port.
-    messages, messageMap := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
+    // Now, fetch the number of messages and message stats for the receiver's IP and UDP port.
+    messages, messageStats := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
 
-    // Add the messages field and message map to the receiver struct.
+    // Add the messages field and message stats to the receiver struct.
     rec.Messages = messages
-    rec.MessageMap = messageMap
+    rec.MessageStats = messageStats
 
     // Send the full receiver response with messages count and message map.
     w.Header().Set("Content-Type", "application/json")
@@ -1654,10 +1692,10 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Get message count and message map for the updated receiver
-    messages, messageMap := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
+    // Get message count and message stats for the updated receiver
+    messages, messageStats := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
     rec.Messages = messages
-    rec.MessageMap = messageMap
+    rec.MessageStats = messageStats
 
     // Return the updated receiver
     w.Header().Set("Content-Type", "application/json")
