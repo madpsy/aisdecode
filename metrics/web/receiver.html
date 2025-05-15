@@ -1506,6 +1506,39 @@ function fetchReceiversById(receiverId) {
   fetch(`/receivers?id=${encodeURIComponent(receiverId)}`)
     .then(res => res.ok ? res.json() : Promise.reject(res.status))
     .then(data => {
+      // Handle the case where no receivers are found
+      if (!Array.isArray(data) || data.length === 0) {
+        console.warn('No receivers found with ID:', receiverId);
+        
+        // Clear previous receiver info
+        const ipHeading = document.getElementById('ip-address');
+        const existingReceiverBox = document.getElementById('receiver-box');
+        if (existingReceiverBox) existingReceiverBox.remove();
+
+        // Create a new box for "No receiver found"
+        const receiverBox = document.createElement('div');
+        receiverBox.id = 'receiver-box';
+        receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
+        
+        // Check if we have messages but no receiver using our tracked message count
+        if (currentMessageCount > 0) {
+          // Show link to howto page
+          console.log('Setting up howto link');
+          
+          receiverBox.innerHTML = `
+            <p>No receiver found with ID ${receiverId} but AIS data is flowing.
+            <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
+          `;
+        } else {
+          // No receiver found and no messages
+          console.log('Setting message to "No receiver found"');
+          receiverBox.innerHTML = `<p>No receiver found with ID ${receiverId}. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+        }
+
+        ipHeading.insertAdjacentElement('afterend', receiverBox);
+        return;
+      }
+
       const receiver = Array.isArray(data) ? data[0] : data;
 
       // Set the selectedReceiverLatLng for map operations
@@ -1563,7 +1596,36 @@ function fetchReceiversById(receiverId) {
         .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
         .openPopup();
     })
-    .catch(err => console.error('Error fetching receiver by id:', err));
+    .catch(err => {
+      console.error('Error fetching receiver by id:', err);
+      
+      // Handle error in case of failure to get receiver information
+      const ipHeading = document.getElementById('ip-address');
+      const existingReceiverBox = document.getElementById('receiver-box');
+      if (existingReceiverBox) existingReceiverBox.remove();
+
+      // Create a new box for "No receiver found"
+      const receiverBox = document.createElement('div');
+      receiverBox.id = 'receiver-box';
+      receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
+      
+      // Check if we have messages but no receiver using our tracked message count
+      if (currentMessageCount > 0) {
+        // Show link to howto page (error handler)
+        console.log('Setting up howto link (error handler)');
+        
+        receiverBox.innerHTML = `
+          <p>Error loading receiver with ID ${receiverId}, but AIS data is flowing.
+          <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
+        `;
+      } else {
+        // No receiver found and no messages
+        console.log('Setting message to "Error loading receiver" (error handler)');
+        receiverBox.innerHTML = `<p>Error loading receiver with ID ${receiverId}.</p>`;
+      }
+
+      ipHeading.insertAdjacentElement('afterend', receiverBox);
+    });
 }
 
 function updateURLWithReceiverId(receiverId) {
