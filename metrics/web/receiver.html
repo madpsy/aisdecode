@@ -1614,7 +1614,7 @@ async function fetchReceivers(ip) {
       url += `?id=${encodeURIComponent(params.get('receiver'))}`;
     } else if (ip) {
       // Use IP address if no receiver ID in the URL
-      url += `?ipaddress=${encodeURIComponent(ip)}`;
+      url += `?ip_address=${encodeURIComponent(ip)}`;
     }
 
     // Fetch receivers from the API
