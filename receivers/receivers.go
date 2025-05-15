@@ -1620,7 +1620,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         Description string   `json:"description"`
         Latitude    float64  `json:"latitude"`
         Longitude   float64  `json:"longitude"`
-        IPAddress   *string  `json:"ipaddress,omitempty"`
+        IPAddress   *string  `json:"ip_address,omitempty"`
         URL         *string  `json:"url,omitempty"`
     }
 
