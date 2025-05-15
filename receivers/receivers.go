@@ -1778,7 +1778,16 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Find the maximum ID currently in the table and increment it
+    // Get the current value of the sequence
+    var currSeqVal int
+    err = tx.QueryRow(`SELECT last_value FROM receivers_id_seq`).Scan(&currSeqVal)
+    if err != nil {
+        tx.Rollback()
+        http.Error(w, "Failed to get sequence value: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // Find the maximum ID ever used (including deleted receivers)
     var maxID int
     err = tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM receivers`).Scan(&maxID)
     if err != nil {
@@ -1787,8 +1796,24 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Increment the max ID to get a new unique ID
-    newID := maxID + 1
+    // If the max ID is greater than the current sequence value, update the sequence
+    if maxID >= currSeqVal {
+        _, err = tx.Exec(`SELECT setval('receivers_id_seq', $1)`, maxID+1)
+        if err != nil {
+            tx.Rollback()
+            http.Error(w, "Failed to update sequence: "+err.Error(), http.StatusInternalServerError)
+            return
+        }
+    }
+    
+    // Get a new ID from the sequence (which is now guaranteed to be higher than any ID ever used)
+    var newID int
+    err = tx.QueryRow(`SELECT nextval('receivers_id_seq')`).Scan(&newID)
+    if err != nil {
+        tx.Rollback()
+        http.Error(w, "Failed to get new ID: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
     
     // Insert the new receiver with the explicit ID
     err = tx.QueryRow(`
