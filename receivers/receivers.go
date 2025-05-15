@@ -923,6 +923,19 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
 
     // If we're filtering by IP address, check the portMetricsMap
     if ipAddressFilter != "" {
+        // Fetch the primary UDP port from the ingester settings
+        ingestSettings, err := fetchIngestSettings()
+        if err != nil {
+            log.Printf("Error fetching ingester settings: %v", err)
+            // Continue without filtering if we can't get the primary port
+            w.Header().Set("Content-Type", "application/json")
+            json.NewEncoder(w).Encode(list)
+            return
+        }
+        
+        // The primary UDP port is the UDP listen port from the ingester settings
+        primaryUDPPort := ingestSettings.UDPListenPort
+        
         // Lock the map for reading
         portMetricsMutex.RLock()
         
@@ -930,6 +943,11 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         if portMap, ok := portMetricsMap[ipAddressFilter]; ok {
             // For each port this IP has been seen on
             for port, metric := range portMap {
+                // Skip the primary UDP port - we only want receivers on non-primary ports
+                if port == primaryUDPPort {
+                    continue
+                }
+                
                 // If we have a receiver for this port
                 if _, ok := receiversByPort[port]; ok {
                     // Store the last_seen time for this port
@@ -950,7 +968,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             }
         }
         
-        // If we found a matching port, add its receiver to the list
+        // If we found a matching non-primary port, add its receiver to the list
         if !mostRecentTime.IsZero() {
             list = append(list, receiversByPort[mostRecentPort])
         }
