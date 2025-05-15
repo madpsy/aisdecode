@@ -1770,14 +1770,25 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // First, explicitly get a new ID from the sequence to avoid race conditions
-    var newID int
-    err = tx.QueryRow(`SELECT nextval('receivers_id_seq')`).Scan(&newID)
+    // Lock the receivers table to prevent concurrent inserts
+    _, err = tx.Exec(`LOCK TABLE receivers IN EXCLUSIVE MODE`)
     if err != nil {
         tx.Rollback()
-        http.Error(w, "Failed to generate ID: "+err.Error(), http.StatusInternalServerError)
+        http.Error(w, "Failed to lock table: "+err.Error(), http.StatusInternalServerError)
         return
     }
+    
+    // Find the maximum ID currently in the table and increment it
+    var maxID int
+    err = tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM receivers`).Scan(&maxID)
+    if err != nil {
+        tx.Rollback()
+        http.Error(w, "Failed to get max ID: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // Increment the max ID to get a new unique ID
+    newID := maxID + 1
     
     // Insert the new receiver with the explicit ID
     err = tx.QueryRow(`
