@@ -1381,11 +1381,9 @@ socket.on("metrics/bysource", function(data) {
         console.log("Message count > 0, updating to show 'AIS data is flowing'");
         // Check if we're using an override IP
         if (overrideIp) {
-          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for IP ${overrideIp}. <button id="show-receiver-form" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Add a receiver</button></p>`;
-          document.getElementById('show-receiver-form').addEventListener('click', showReceiverForm);
+          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for IP ${overrideIp}. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
         } else {
-          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for your IP. <button id="show-receiver-form" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Add a receiver</button></p>`;
-          document.getElementById('show-receiver-form').addEventListener('click', showReceiverForm);
+          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for your IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
         }
       } else {
         console.log("Message count = 0, updating to show 'No receiver found'");
@@ -1642,21 +1640,13 @@ async function fetchReceivers(ip) {
       
       // Check if we have messages but no receiver using our tracked message count
       if (currentMessageCount > 0) {
-        // Instead of showing the form directly, show a button to display the form
-        console.log('Setting up receiver creation button');
+        // Show link to howto page
+        console.log('Setting up howto link');
         
         receiverBox.innerHTML = `
           <p>No receiver found but AIS data is flowing for ${overrideIp ? `IP ${overrideIp}` : 'your IP'}.
-          <button id="show-receiver-form" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Add a receiver</button></p>
+          <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
         `;
-        
-        // Add event listener to the button after DOM update
-        setTimeout(() => {
-          const button = document.getElementById('show-receiver-form');
-          if (button) {
-            button.addEventListener('click', showReceiverForm);
-          }
-        }, 0);
         
         // No map initialization here - it will be done in showReceiverForm
           
@@ -1770,21 +1760,13 @@ async function fetchReceivers(ip) {
     
     // Check if we have messages but no receiver using our tracked message count
     if (currentMessageCount > 0) {
-      // Instead of showing the form directly, show a button to display the form (error handler)
-      console.log('Setting up receiver creation button (error handler)');
+      // Show link to howto page (error handler)
+      console.log('Setting up howto link (error handler)');
       
       receiverBox.innerHTML = `
         <p>No receiver found but AIS data is flowing for ${overrideIp ? `IP ${overrideIp}` : 'your IP'}.
-        <button id="show-receiver-form" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Add a receiver</button></p>
+        <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
       `;
-      
-      // Add event listener to the button after DOM update
-      setTimeout(() => {
-        const button = document.getElementById('show-receiver-form');
-        if (button) {
-          button.addEventListener('click', showReceiverForm);
-        }
-      }, 0);
     } else {
       // No receiver found and no messages
       console.log('Setting message to "No receiver found" (error handler)');
@@ -2054,268 +2036,6 @@ async function fetchReceivers(ip) {
       applyOverride(ip);
     });
 
-  // Function to show the receiver creation form
-  function showReceiverForm() {
-    // Get the current IP (either override or real)
-    const currentIpForForm = overrideIp || document.getElementById('ip-address').textContent.split(' ')[0];
-    
-    // Get the receiver box
-    const receiverBox = document.getElementById('receiver-box');
-    
-    // Replace the content with the form
-    receiverBox.innerHTML = `
-      <h3>Create New Receiver</h3>
-      <p style="margin-bottom: 8px;">AIS data is flowing from ${overrideIp ? `IP ${overrideIp}` : 'your IP'}</p>
-      
-      <form id="receiver-form" style="font-size: 0.8em;">
-        <div style="margin-bottom: 8px;">
-          <label for="receiver-name">Callsign/Name:</label>
-          <input type="text" id="receiver-name" required style="width: 100%; padding: 4px; margin-top: 2px;">
-        </div>
-        
-        <div style="margin-bottom: 8px;">
-          <label for="receiver-description">Description:</label>
-          <textarea id="receiver-description" style="width: 100%; padding: 4px; margin-top: 2px; height: 40px;"></textarea>
-        </div>
-        
-        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-          <div style="flex: 1;">
-            <label for="receiver-latitude">Latitude:</label>
-            <input type="number" id="receiver-latitude" step="any" required style="width: 100%; padding: 4px; margin-top: 2px;">
-          </div>
-          <div style="flex: 1;">
-            <label for="receiver-longitude">Longitude:</label>
-            <input type="number" id="receiver-longitude" step="any" required style="width: 100%; padding: 4px; margin-top: 2px;">
-          </div>
-        </div>
-        
-        <div style="margin-bottom: 8px;">
-          <label for="receiver-url">URL (optional):</label>
-          <input type="url" id="receiver-url" style="width: 100%; padding: 4px; margin-top: 2px;">
-        </div>
-        
-        <div id="location-map" style="height: 200px; margin-bottom: 8px;"></div>
-        <p style="font-size: 0.8em; margin: 0 0 8px 0;">Drag the marker to set your receiver's location</p>
-        
-        <div id="form-error" style="color: red; margin-bottom: 8px; display: none;"></div>
-        
-        <div style="display: flex; gap: 8px;">
-          <button type="submit" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Create Receiver</button>
-          <button type="button" id="cancel-form" style="background-color: #f0f0f0; border: 1px solid #ccc; padding: 4px 8px; cursor: pointer;">Cancel</button>
-        </div>
-      </form>
-      
-      <div id="success-result" style="display: none; margin-top: 12px; font-size: 0.8em;">
-        <h4 style="margin-top: 0; font-size: 1em;">Receiver Created Successfully!</h4>
-        <p>Add this to your crontab to keep your receiver's IP updated (runs once per hour):</p>
-        <pre id="crontab-entry" style="background: #f5f5f5; padding: 6px; overflow-x: auto; white-space: pre-wrap; font-size: 0.8em;"></pre>
-        <div style="display: flex; gap: 8px; margin-top: 8px;">
-          <button id="copy-crontab" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Copy to clipboard</button>
-          <button id="continue-button" style="background-color: #4CAF50; color: white; border: none; padding: 4px 8px; cursor: pointer;">Continue to receiver page</button>
-        </div>
-        <p id="countdown" style="font-size: 0.8em; margin-top: 8px;"></p>
-      </div>
-    `;
-    
-    // Add event listener to the cancel button
-    document.getElementById('cancel-form').addEventListener('click', function() {
-      // Restore the original message with the "Add a receiver" button
-      if (overrideIp) {
-        receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for IP ${overrideIp}. <button id="show-receiver-form" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Add a receiver</button></p>`;
-      } else {
-        receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for your IP. <button id="show-receiver-form" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Add a receiver</button></p>`;
-      }
-      // Add event listener to the button after DOM update
-      setTimeout(() => {
-        const button = document.getElementById('show-receiver-form');
-        if (button) {
-          button.addEventListener('click', showReceiverForm);
-        }
-      }, 0);
-    });
-    
-    // Initialize the map after the form is added to the DOM
-    setTimeout(() => {
-      // Default to center of London
-      const defaultLat = 51.5074;
-      const defaultLng = -0.1278;
-      const locationMap = L.map('location-map').setView([defaultLat, defaultLng], 10);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(locationMap);
-      
-      // Add a draggable marker
-      const marker = L.marker([defaultLat, defaultLng], { draggable: true }).addTo(locationMap);
-      
-      // Set default values in form fields
-      document.getElementById('receiver-latitude').value = defaultLat.toFixed(6);
-      document.getElementById('receiver-longitude').value = defaultLng.toFixed(6);
-      
-      // Update form fields when marker is moved
-      marker.on('dragend', function(e) {
-        const position = marker.getLatLng();
-        document.getElementById('receiver-latitude').value = position.lat.toFixed(6);
-        document.getElementById('receiver-longitude').value = position.lng.toFixed(6);
-      });
-      
-      // Try to get user's location
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          function(position) {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-            
-            // Update map and marker
-            locationMap.setView([lat, lng], 13);
-            marker.setLatLng([lat, lng]);
-            
-            // Update form fields
-            document.getElementById('receiver-latitude').value = lat.toFixed(6);
-            document.getElementById('receiver-longitude').value = lng.toFixed(6);
-          },
-          function(error) {
-            console.error("Error getting location:", error);
-          }
-        );
-      }
-      
-      // Update marker when lat/lng fields change
-      document.getElementById('receiver-latitude').addEventListener('change', updateMarkerFromFields);
-      document.getElementById('receiver-longitude').addEventListener('change', updateMarkerFromFields);
-      
-      function updateMarkerFromFields() {
-        const lat = parseFloat(document.getElementById('receiver-latitude').value);
-        const lng = parseFloat(document.getElementById('receiver-longitude').value);
-        
-        if (!isNaN(lat) && !isNaN(lng)) {
-          marker.setLatLng([lat, lng]);
-          locationMap.setView([lat, lng], locationMap.getZoom());
-        }
-      }
-      
-      // Handle form submission
-      document.getElementById('receiver-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        
-        const formData = {
-          name: document.getElementById('receiver-name').value,
-          description: document.getElementById('receiver-description').value,
-          latitude: parseFloat(document.getElementById('receiver-latitude').value),
-          longitude: parseFloat(document.getElementById('receiver-longitude').value),
-          ipaddress: currentIpForForm,
-          url: document.getElementById('receiver-url').value || undefined
-        };
-        
-        // Clear previous errors
-        const errorElement = document.getElementById('form-error');
-        errorElement.style.display = 'none';
-        errorElement.textContent = '';
-        
-        // Submit the form
-        fetch('/addreceiver', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(formData)
-        })
-        .then(response => {
-          if (!response.ok) {
-            return response.text().then(text => {
-              throw new Error(text || `HTTP error! Status: ${response.status}`);
-            });
-          }
-          return response.json();
-        })
-        .then(data => {
-          // Handle successful response
-          if (data.id && data.password) {
-            // Generate a random offset (0-9) for the 10-minute interval
-            const randomOffset = Math.floor(Math.random() * 10);
-            
-            // Create the crontab entry to run every 10 minutes with the random offset
-            // This will run at minutes randomOffset, randomOffset+10, randomOffset+20, etc.
-            const baseUrl = window.location.origin;
-            const crontabEntry = `${randomOffset}-59/${10} * * * * curl -X POST ${baseUrl}/receiverip -H "Content-Type: application/json" -d '{"id": ${data.id}, "password": "${data.password}"}'`;
-            
-            // Show the success message and crontab entry
-            document.getElementById('crontab-entry').textContent = crontabEntry;
-            document.getElementById('success-result').style.display = 'block';
-            document.getElementById('receiver-form').style.display = 'none';
-            
-            // Show a notification that the crontab entry has been created
-            const notification = document.createElement('div');
-            notification.style.cssText = 'position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background-color: #4CAF50; color: white; padding: 16px; border-radius: 4px; z-index: 9999; text-align: center;';
-            notification.textContent = 'Receiver created successfully! See the crontab entry below.';
-            document.body.appendChild(notification);
-            
-            // Remove the notification after 5 seconds
-            setTimeout(() => {
-              notification.style.opacity = '0';
-              notification.style.transition = 'opacity 1s';
-              setTimeout(() => notification.remove(), 1000);
-            }, 5000);
-            
-            // Add copy to clipboard functionality
-            document.getElementById('copy-crontab').addEventListener('click', function() {
-              const crontabText = document.getElementById('crontab-entry').textContent;
-              navigator.clipboard.writeText(crontabText).then(
-                function() {
-                  // Success feedback
-                  this.textContent = "Copied!";
-                  setTimeout(() => {
-                    this.textContent = "Copy to clipboard";
-                  }, 2000);
-                }.bind(this),
-                function() {
-                  // Error feedback
-                  this.textContent = "Failed to copy";
-                  setTimeout(() => {
-                    this.textContent = "Copy to clipboard";
-                  }, 2000);
-                }.bind(this)
-              );
-            });
-            
-            // Add continue button functionality
-            document.getElementById('continue-button').addEventListener('click', function() {
-              // Update the URL with the new receiver ID
-              updateURLWithReceiverId(data.id);
-              
-              // Fetch the receiver details to update the UI
-              fetchReceiversById(data.id);
-            });
-            
-            // Don't automatically redirect - let the user decide when to continue
-            // Instead, show a countdown that can be canceled
-            let countdownSeconds = 60;
-            const countdownEl = document.getElementById('countdown');
-            
-            const updateCountdown = () => {
-              countdownEl.textContent = `Auto-update in ${countdownSeconds}s. Click "Continue" to proceed now.`;
-              
-              if (countdownSeconds > 0) {
-                countdownSeconds--;
-                setTimeout(updateCountdown, 1000);
-              } else {
-                // When countdown reaches zero, update the page
-                updateURLWithReceiverId(data.id);
-                fetchReceiversById(data.id);
-              }
-            };
-            
-            // Start the countdown
-            updateCountdown();
-          }
-        })
-        .catch(error => {
-          // Display error message
-          errorElement.textContent = `Error: ${error.message}`;
-          errorElement.style.display = 'block';
-        });
-      });
-    }, 100);
-  }
 
   // Function to show the edit receiver form
   function showEditReceiverForm(receiverId) {
