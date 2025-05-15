@@ -1510,6 +1510,14 @@ function fetchReceiversById(receiverId) {
       if (!Array.isArray(data) || data.length === 0) {
         console.warn('No receivers found with ID:', receiverId);
         
+        // Reset all data to prevent showing data from other receivers
+        resetCardsAndCharts();  // Reset all cards and charts
+        resetMapAndTable(true); // Reset the map and table
+        resetFilters();         // Reset filters
+        
+        // Reset message count to avoid showing "data is flowing" message
+        currentMessageCount = 0;
+        
         // Clear previous receiver info
         const ipHeading = document.getElementById('ip-address');
         const existingReceiverBox = document.getElementById('receiver-box');
@@ -1520,22 +1528,13 @@ function fetchReceiversById(receiverId) {
         receiverBox.id = 'receiver-box';
         receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
         
-        // Check if we have messages but no receiver using our tracked message count
-        if (currentMessageCount > 0) {
-          // Show link to howto page
-          console.log('Setting up howto link');
-          
-          receiverBox.innerHTML = `
-            <p>No receiver found with ID ${receiverId} but AIS data is flowing.
-            <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
-          `;
-        } else {
-          // No receiver found and no messages
-          console.log('Setting message to "No receiver found"');
-          receiverBox.innerHTML = `<p>No receiver found with ID ${receiverId}. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
-        }
+        receiverBox.innerHTML = `<p>No receiver found with ID ${receiverId}. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
 
         ipHeading.insertAdjacentElement('afterend', receiverBox);
+        
+        // Clear the socket connection to prevent receiving data from other sources
+        socket.off("metrics/bysource");
+        
         return;
       }
 
@@ -1599,6 +1598,14 @@ function fetchReceiversById(receiverId) {
     .catch(err => {
       console.error('Error fetching receiver by id:', err);
       
+      // Reset all data to prevent showing data from other receivers
+      resetCardsAndCharts();  // Reset all cards and charts
+      resetMapAndTable(true); // Reset the map and table
+      resetFilters();         // Reset filters
+      
+      // Reset message count to avoid showing "data is flowing" message
+      currentMessageCount = 0;
+      
       // Handle error in case of failure to get receiver information
       const ipHeading = document.getElementById('ip-address');
       const existingReceiverBox = document.getElementById('receiver-box');
@@ -1609,22 +1616,13 @@ function fetchReceiversById(receiverId) {
       receiverBox.id = 'receiver-box';
       receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
       
-      // Check if we have messages but no receiver using our tracked message count
-      if (currentMessageCount > 0) {
-        // Show link to howto page (error handler)
-        console.log('Setting up howto link (error handler)');
-        
-        receiverBox.innerHTML = `
-          <p>Error loading receiver with ID ${receiverId}, but AIS data is flowing.
-          <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
-        `;
-      } else {
-        // No receiver found and no messages
-        console.log('Setting message to "Error loading receiver" (error handler)');
-        receiverBox.innerHTML = `<p>Error loading receiver with ID ${receiverId}.</p>`;
-      }
+      // Show error message
+      receiverBox.innerHTML = `<p>Error loading receiver with ID ${receiverId}.</p>`;
 
       ipHeading.insertAdjacentElement('afterend', receiverBox);
+      
+      // Clear the socket connection to prevent receiving data from other sources
+      socket.off("metrics/bysource");
     });
 }
 
