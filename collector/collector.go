@@ -195,40 +195,9 @@ func main() {
     }
     
     // Fetch UDP listen port from ingest_host:ingest_http_port/settings
+    // Keep trying until successful
     if settings.IngestHost != "" && settings.IngestHTTPPort > 0 {
-        client := &http.Client{
-            Timeout: 5 * time.Second,
-        }
-        
-        url := fmt.Sprintf("http://%s:%d/settings", settings.IngestHost, settings.IngestHTTPPort)
-        if settings.Debug {
-            log.Printf("Fetching UDP listen port from %s", url)
-        }
-        
-        resp, err := client.Get(url)
-        if err != nil {
-            log.Printf("Warning: Failed to fetch settings from ingester: %v", err)
-        } else {
-            defer resp.Body.Close()
-            
-            if resp.StatusCode == http.StatusOK {
-                var ingestSettings struct {
-                    UDPListenPort int `json:"udp_listen_port"`
-                }
-                
-                if err := json.NewDecoder(resp.Body).Decode(&ingestSettings); err != nil {
-                    log.Printf("Warning: Failed to parse settings from ingester: %v", err)
-                } else if ingestSettings.UDPListenPort > 0 {
-                    if settings.Debug {
-                        log.Printf("Updated UDP listen port from %d to %d",
-                            settings.IngestUDPListenPort, ingestSettings.UDPListenPort)
-                    }
-                    settings.IngestUDPListenPort = ingestSettings.UDPListenPort
-                }
-            } else {
-                log.Printf("Warning: Failed to fetch settings from ingester, status code: %d", resp.StatusCode)
-            }
-        }
+        fetchIngesterSettings(settings)
     }
 
     minimumDistance = float64(settings.MinimumDistance)
@@ -1028,23 +997,37 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
         receiverMapMutex.RLock()
         
         // Special case: if the UDP port is the main ingest port, use IP as primary lookup method
+        var portMatched, receiverFound bool
+        
         if message.UDPPort == settings.IngestUDPListenPort {
             // For the main UDP port, use IP address as primary lookup
+            portMatched = true
             if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
                 receiverID = id
+                receiverFound = true
             }
         } else if id, exists := receiverPortToIDMap[message.UDPPort]; exists && message.UDPPort > 0 {
             // For dedicated ports, use port as primary lookup method
             receiverID = id
+            receiverFound = true
         } else if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
             // Fall back to IP-only matching if port match not found
             receiverID = id
+            receiverFound = true
         }
         
         receiverMapMutex.RUnlock()
 
-        if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, receiverID, message.UDPPort, settings); err != nil {
-            log.Printf("Error storing message: %v", err)
+        // Only insert the message if:
+        // 1. The UDP port matches the ingester's port, OR
+        // 2. There's a matching port for a receiver
+        if portMatched || receiverFound {
+            if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, receiverID, message.UDPPort, settings); err != nil {
+                log.Printf("Error storing message: %v", err)
+            }
+        } else if settings.Debug {
+            log.Printf("Skipping message storage: UDP port %d doesn't match ingester port %d and no matching receiver found",
+                message.UDPPort, settings.IngestUDPListenPort)
         }
     }
 
@@ -1274,6 +1257,62 @@ func reconnectToDatabase(settings *Settings) (*sql.DB, error) {
     }
     log.Println("Successfully reconnected to the PostgreSQL database.")
     return db, nil
+}
+
+// fetchIngesterSettings attempts to fetch settings from the ingester
+// It will keep retrying every 5 seconds until successful
+func fetchIngesterSettings(settings *Settings) {
+    client := &http.Client{
+        Timeout: 5 * time.Second,
+    }
+    
+    url := fmt.Sprintf("http://%s:%d/settings", settings.IngestHost, settings.IngestHTTPPort)
+    
+    for {
+        if settings.Debug {
+            log.Printf("Fetching UDP listen port from %s", url)
+        }
+        
+        resp, err := client.Get(url)
+        if err != nil {
+            log.Printf("Failed to fetch settings from ingester: %v. Retrying in 5 seconds...", err)
+            time.Sleep(5 * time.Second)
+            continue
+        }
+        
+        if resp.StatusCode != http.StatusOK {
+            log.Printf("Failed to fetch settings from ingester, status code: %d. Retrying in 5 seconds...", resp.StatusCode)
+            resp.Body.Close()
+            time.Sleep(5 * time.Second)
+            continue
+        }
+        
+        var ingestSettings struct {
+            UDPListenPort int `json:"udp_listen_port"`
+        }
+        
+        if err := json.NewDecoder(resp.Body).Decode(&ingestSettings); err != nil {
+            log.Printf("Failed to parse settings from ingester: %v. Retrying in 5 seconds...", err)
+            resp.Body.Close()
+            time.Sleep(5 * time.Second)
+            continue
+        }
+        
+        resp.Body.Close()
+        
+        if ingestSettings.UDPListenPort > 0 {
+            if settings.Debug {
+                log.Printf("Updated UDP listen port from %d to %d",
+                    settings.IngestUDPListenPort, ingestSettings.UDPListenPort)
+            }
+            settings.IngestUDPListenPort = ingestSettings.UDPListenPort
+            log.Printf("Successfully fetched settings from ingester")
+            return
+        }
+        
+        log.Printf("Received invalid UDP listen port from ingester. Retrying in 5 seconds...")
+        time.Sleep(5 * time.Second)
+    }
 }
 
 func connectToIngester(host string, port int, debug bool) (net.Conn, error) {
