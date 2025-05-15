@@ -252,7 +252,7 @@ HTTP_CODE=$(echo "$HTTP_RESPONSE" | tr -d '\n' | sed -e 's/.*HTTP_CODE://')
 # Display result
 if [[ "$HTTP_CODE" -eq 201 ]]; then
   echo -e "${GREEN}Receiver created successfully:${NC}"
-  printf "%s\n" "$HTTP_BODY" | jq .
+  printf "\n"
   
   # Extract UDP port and password from response
   UDP_PORT=$(echo "$HTTP_BODY" | jq -r .udp_port)
