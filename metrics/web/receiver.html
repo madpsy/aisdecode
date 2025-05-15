@@ -1358,7 +1358,17 @@ let receiversFetched = false; // Flag to ensure receivers are only fetched once
 socket.on("metrics/bysource", function(data) {
   console.log("Received metrics data via WebSocket, autoFit =", autoFit);
   
-  const currentIp = data.requested_ip_address; // Use IP from the API response if available
+  // Extract parameters from the URL
+  const params = new URLSearchParams(location.search);
+  
+  // Only use the requested_ip_address if we're not already using a receiver ID
+  let currentIp = null;
+  if (!overrideReceiverId && !params.has('receiver')) {
+    currentIp = data.requested_ip_address; // Use IP from the API response if available
+    console.log("Using requested_ip_address from server:", currentIp);
+  } else {
+    console.log("Already using a receiver ID, ignoring requested_ip_address");
+  }
 
   // Update our message count tracker
   // Use the same data source as the cards (simple_metrics.messages)
@@ -1396,17 +1406,14 @@ socket.on("metrics/bysource", function(data) {
     console.log("No receiver box found");
   }
   
-  // Extract parameters from the URL
-  const params = new URLSearchParams(location.search);
-
   // Only update the URL with the IP address if 'receiver' is not in the URL and 'ip_address' is not in the URL
-  if (!params.has('receiver') && !params.has('ip_address')) {
+  if (currentIp && !params.has('receiver') && !params.has('ip_address')) {
     updateURLWithIp(currentIp);
   }
 
-  // ** Fetch receivers only once **
-  if (!receivedReceivers) {
-    fetchReceivers(currentIp); // Fetch receivers using current IP or receiver ID if necessary
+  // ** Fetch receivers only once and only if we have an IP to use **
+  if (!receivedReceivers && currentIp) {
+    fetchReceivers(currentIp); // Fetch receivers using current IP
     receivedReceivers = true;  // Set the flag to true after fetching
   }
   
@@ -1434,9 +1441,9 @@ socket.on("metrics/bysource", function(data) {
   });
 
   // ** Handle messages and fetch receivers if necessary **
-  if (data.messages > 0 && !receivedReceivers) {
+  if (data.messages > 0 && !receivedReceivers && currentIp) {
     receivedReceivers = true;
-    fetchReceivers(currentIp); // Use IP or receiver ID to fetch receivers
+    fetchReceivers(currentIp); // Use IP to fetch receivers, but only if we have an IP
   }
   
   // Debug log to track autoFit state after processing data
