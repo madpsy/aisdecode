@@ -439,9 +439,105 @@ func startHTTPServer() {
         w.Header().Set("Content-Type", "application/json")
         _ = json.NewEncoder(w).Encode(settings)
     })
+    
+    http.HandleFunc("/portmetrics", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        
+        // Parse the time parameter (in hours)
+        timeParam := r.URL.Query().Get("time")
+        timeHours := 24.0 // Default to 24 hours
+        
+        if timeParam != "" {
+            parsedHours, err := strconv.ParseFloat(timeParam, 64)
+            if err != nil {
+                http.Error(w, "Invalid time parameter, must be a number of hours", http.StatusBadRequest)
+                return
+            }
+            
+            // Limit to 30 days (720 hours)
+            if parsedHours > 720 {
+                parsedHours = 720
+            } else if parsedHours < 1 {
+                parsedHours = 1 // Minimum 1 hour
+            }
+            
+            timeHours = parsedHours
+        }
+        
+        // Query the database for port metrics within the specified time window
+        portMetrics, err := getPortMetrics(timeHours)
+        if err != nil {
+            http.Error(w, fmt.Sprintf("Error retrieving port metrics: %v", err), http.StatusInternalServerError)
+            return
+        }
+        
+        // Return the results as JSON
+        _ = json.NewEncoder(w).Encode(portMetrics)
+    })
+    
     addr := fmt.Sprintf(":%d", settings.ListenPort)
     log.Printf("HTTP server on %s", addr)
     log.Fatal(http.ListenAndServe(addr, nil))
+}
+
+// PortMetric represents a record from the ports_ips table
+type PortMetric struct {
+    IPAddress    string    `json:"ip_address"`
+    UDPPort      int       `json:"udp_port"`
+    FirstSeen    time.Time `json:"first_seen"`
+    LastSeen     time.Time `json:"last_seen"`
+    MessageCount int       `json:"message_count"`
+}
+
+// getPortMetrics retrieves port metrics from the database within the specified time window
+func getPortMetrics(timeHours float64) ([]PortMetric, error) {
+    // Calculate the cutoff time
+    cutoffTime := time.Now().UTC().Add(-time.Duration(timeHours) * time.Hour)
+    
+    // Query the database
+    rows, err := db.Query(`
+        SELECT ip_address, udp_port, first_seen, last_seen, message_count
+        FROM ports_ips
+        WHERE last_seen >= $1
+        ORDER BY last_seen DESC
+    `, cutoffTime.Format(time.RFC3339))
+    
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+    
+    // Process the results
+    var metrics []PortMetric
+    for rows.Next() {
+        var metric PortMetric
+        var firstSeenStr, lastSeenStr string
+        
+        if err := rows.Scan(&metric.IPAddress, &metric.UDPPort, &firstSeenStr, &lastSeenStr, &metric.MessageCount); err != nil {
+            return nil, err
+        }
+        
+        // Parse the timestamps
+        firstSeen, err := time.Parse(time.RFC3339, firstSeenStr)
+        if err != nil {
+            return nil, fmt.Errorf("error parsing first_seen timestamp: %v", err)
+        }
+        metric.FirstSeen = firstSeen
+        
+        lastSeen, err := time.Parse(time.RFC3339, lastSeenStr)
+        if err != nil {
+            return nil, fmt.Errorf("error parsing last_seen timestamp: %v", err)
+        }
+        metric.LastSeen = lastSeen
+        
+        metrics = append(metrics, metric)
+    }
+    
+    if err := rows.Err(); err != nil {
+        return nil, err
+    }
+    
+    return metrics, nil
 }
 
 // ── SOCKET.IO SERVER ─────────────────────────────────────────────────────────
