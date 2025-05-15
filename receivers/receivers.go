@@ -795,8 +795,9 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
 
     // Build the query based on filters
     baseQuery := `
-        SELECT id, lastupdated, description, latitude, longitude, name, url, ip_address
-        FROM receivers
+        SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, r.ip_address, rp.udp_port
+        FROM receivers r
+        LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
         WHERE 1=1
     `
 
@@ -840,12 +841,19 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     var list []PublicReceiver
     for rows.Next() {
         var rec Receiver
+        var udpPort sql.NullInt64
         if err := rows.Scan(
             &rec.ID, &rec.LastUpdated, &rec.Description,
-            &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.IPAddress,
+            &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.IPAddress, &udpPort,
         ); err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
+        }
+        
+        // Only set UDPPort if it's not null
+        if udpPort.Valid {
+            port := int(udpPort.Int64)
+            rec.UDPPort = &port
         }
 
         // Fetch message count (0 on error)
@@ -864,6 +872,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             Name:        rec.Name,
             URL:         rec.URL,
             Messages:    msgs,
+            UDPPort:     rec.UDPPort,
         }
 
         list = append(list, publicRec)
