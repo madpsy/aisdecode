@@ -13,6 +13,7 @@ import (
     "net/url"
     "strconv"
     "strings"
+    "sync"
     "time"
 
     _ "github.com/lib/pq"
@@ -32,17 +33,18 @@ type Settings struct {
 }
 
 type Receiver struct {
-    ID          int        `json:"id"`
-    LastUpdated time.Time  `json:"lastupdated"`
-    Description string     `json:"description"`
-    Latitude    float64    `json:"latitude"`
-    Longitude   float64    `json:"longitude"`
-    Name        string     `json:"name"`
-    URL         *string    `json:"url,omitempty"`
-    IPAddress   string     `json:"ip_address,omitempty"`
-    Password    string     `json:"password"`
-    Messages    int        `json:"messages"`
-    UDPPort     *int       `json:"udp_port,omitempty"`
+	ID          int        `json:"id"`
+	LastUpdated time.Time  `json:"lastupdated"`
+	Description string     `json:"description"`
+	Latitude    float64    `json:"latitude"`
+	Longitude   float64    `json:"longitude"`
+	Name        string     `json:"name"`
+	URL         *string    `json:"url,omitempty"`
+	IPAddress   string     `json:"ip_address,omitempty"`
+	Password    string     `json:"password"`
+	Messages    int        `json:"messages"`
+	UDPPort     *int       `json:"udp_port,omitempty"`
+	MessageMap  map[string]PortMetric `json:"message_map,omitempty"` // Added for admin endpoints
 }
 
 // PublicReceiver is used for public API responses without sensitive fields
@@ -79,11 +81,38 @@ type ReceiverPatch struct {
 }
 
 var (
-    db                *sql.DB
-    settings          Settings
-    udpDedicatedPorts string
-    availablePorts    []int
+	db                *sql.DB
+	settings          Settings
+	udpDedicatedPorts string
+	availablePorts    []int
+	
+	// New variables for collector tracking
+	collectorsMutex   sync.RWMutex
+	collectors        []Collector
+	portMetricsMutex  sync.RWMutex
+	portMetricsMap    map[string]map[int]PortMetric // Map of IP address to map of UDP port to PortMetric
 )
+
+// New types for collector tracking
+type Collector struct {
+	Description string `json:"description"`
+	IP          string `json:"ip"`
+	Port        int    `json:"port"`
+	Shards      []int  `json:"shards"`
+}
+
+type CollectorsResponse struct {
+	Clients          []Collector `json:"clients"`
+	ConfiguredShards int         `json:"configured_shards"`
+}
+
+type PortMetric struct {
+	IPAddress    string    `json:"ip_address"`
+	UDPPort      int       `json:"udp_port"`
+	FirstSeen    time.Time `json:"first_seen"`
+	LastSeen     time.Time `json:"last_seen"`
+	MessageCount int       `json:"message_count"`
+}
 
 // IngestSettings represents the settings returned by the ingester
 type IngestSettings struct {
@@ -207,6 +236,133 @@ func allocatePort(receiverID int) (int, error) {
     return selectedPort, nil
 }
 
+// fetchCollectors fetches the list of collectors from the ingester
+func fetchCollectors() ([]Collector, error) {
+	url := fmt.Sprintf("http://%s:%d/clients", settings.IngestHost, settings.IngestHTTPPort)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch collectors from ingester: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("received non-OK response from ingester: %v", resp.Status)
+	}
+
+	var collectorsResponse CollectorsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&collectorsResponse); err != nil {
+		return nil, fmt.Errorf("error decoding collectors response: %v", err)
+	}
+
+	return collectorsResponse.Clients, nil
+}
+
+// fetchPortMetrics fetches port metrics from a collector
+func fetchPortMetrics(collector Collector) ([]PortMetric, error) {
+	url := fmt.Sprintf("http://%s:%d/portmetrics", collector.IP, collector.Port)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch port metrics from collector %s:%d: %v", collector.IP, collector.Port, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("received non-OK response from collector %s:%d: %v", collector.IP, collector.Port, resp.Status)
+	}
+
+	var portMetrics []PortMetric
+	if err := json.NewDecoder(resp.Body).Decode(&portMetrics); err != nil {
+		return nil, fmt.Errorf("error decoding port metrics from collector %s:%d: %v", collector.IP, collector.Port, err)
+	}
+
+	return portMetrics, nil
+}
+
+// startCollectorTracking starts the background goroutine to track collectors
+func startCollectorTracking() {
+	// Initialize the port metrics map
+	portMetricsMap = make(map[string]map[int]PortMetric)
+
+	// Start the collector tracking goroutine
+	go func() {
+		for {
+			// Fetch collectors
+			newCollectors, err := fetchCollectors()
+			if err != nil {
+				log.Printf("Error fetching collectors: %v", err)
+			} else {
+				// Update collectors list
+				collectorsMutex.Lock()
+				collectors = newCollectors
+				collectorsMutex.Unlock()
+
+				// For each collector, fetch port metrics
+				for _, collector := range newCollectors {
+					go func(c Collector) {
+						portMetrics, err := fetchPortMetrics(c)
+						if err != nil {
+							log.Printf("Error fetching port metrics from collector %s:%d: %v", c.IP, c.Port, err)
+							return
+						}
+
+						// Update port metrics map
+						portMetricsMutex.Lock()
+						for _, metric := range portMetrics {
+							// Create map for IP address if it doesn't exist
+							if _, ok := portMetricsMap[metric.IPAddress]; !ok {
+								portMetricsMap[metric.IPAddress] = make(map[int]PortMetric)
+							}
+
+							// Update or add port metric
+							existingMetric, exists := portMetricsMap[metric.IPAddress][metric.UDPPort]
+							if exists {
+								// Update existing metric
+								existingMetric.MessageCount += metric.MessageCount
+								if metric.FirstSeen.Before(existingMetric.FirstSeen) {
+									existingMetric.FirstSeen = metric.FirstSeen
+								}
+								if metric.LastSeen.After(existingMetric.LastSeen) {
+									existingMetric.LastSeen = metric.LastSeen
+								}
+								portMetricsMap[metric.IPAddress][metric.UDPPort] = existingMetric
+							} else {
+								// Add new metric
+								portMetricsMap[metric.IPAddress][metric.UDPPort] = metric
+							}
+						}
+						portMetricsMutex.Unlock()
+					}(collector)
+				}
+			}
+
+			// Sleep for 5 seconds
+			time.Sleep(5 * time.Second)
+		}
+	}()
+}
+
+// getMessagesByIPFromPortMetrics gets the total message count for an IP address from the port metrics map
+func getMessagesByIPFromPortMetrics(ipAddress string) (int, map[string]PortMetric) {
+	portMetricsMutex.RLock()
+	defer portMetricsMutex.RUnlock()
+
+	totalMessages := 0
+	messageMap := make(map[string]PortMetric)
+
+	// Check if we have metrics for this IP address
+	if portMap, ok := portMetricsMap[ipAddress]; ok {
+		// Sum up message counts for all ports
+		for _, metric := range portMap {
+			totalMessages += metric.MessageCount
+			// Add to message map with port as key
+			key := fmt.Sprintf("%d", metric.UDPPort)
+			messageMap[key] = metric
+		}
+	}
+
+	return totalMessages, messageMap
+}
+
 func main() {
     // Load settings.json
     data, err := ioutil.ReadFile("settings.json")
@@ -256,6 +412,9 @@ func main() {
     }
 
     createSchema()
+
+    // Start collector tracking
+    startCollectorTracking()
 
     // Public API: GET /receivers and POST /addreceiver
     http.HandleFunc("/receivers", func(w http.ResponseWriter, r *http.Request) {
@@ -565,28 +724,9 @@ type MetricsResponse struct {
 }
 
 func getMessagesByIP(ipAddress string) (int, error) {
-    // Create the URL for the metrics API endpoint.
-    metricsURL := fmt.Sprintf("%s/metrics/bysource?ipaddress=%s", settings.MetricsBaseURL, ipAddress)
-
-    // Send a GET request to the metrics API.
-    resp, err := http.Get(metricsURL)
-    if err != nil {
-        return 0, fmt.Errorf("error making request to metrics API: %v", err)
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        return 0, fmt.Errorf("received non-OK response from metrics API: %v", resp.Status)
-    }
-
-    // Decode the JSON response into the MetricsResponse struct.
-    var metricsResponse MetricsResponse
-    if err := json.NewDecoder(resp.Body).Decode(&metricsResponse); err != nil {
-        return 0, fmt.Errorf("error decoding metrics API response: %v", err)
-    }
-
-    // Access the messages field correctly from SimpleMetrics
-    return metricsResponse.SimpleMetrics.Messages, nil
+    // Use the new port metrics tracking system instead of the metrics API
+    messages, _ := getMessagesByIPFromPortMetrics(ipAddress)
+    return messages, nil
 }
 
 // --- Public listing only ---
@@ -751,29 +891,21 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Log the list of receivers to debug if IP addresses are being pulled correctly
-    //log.Printf("Filtered Receivers: %+v", list)
-
     // For each receiver in the list, fetch messages based on the ip_address
     for i, rec := range list {
-        //log.Printf("Fetching messages for IP address: %s", rec.IPAddress)  // Debug log for IP address
-
-        // Fetch messages count for each receiver based on ip_address
+        // Fetch messages count and message map for each receiver based on ip_address
         if rec.IPAddress == "" {
             log.Printf("Error: IP Address is empty for Receiver ID: %d", rec.ID)
         }
 
-        msgs, err := getMessagesByIP(rec.IPAddress)
-        if err != nil {
-            msgs = 0
-        }
+        msgs, messageMap := getMessagesByIPFromPortMetrics(rec.IPAddress)
 
-        // Set the messages field
+        // Set the messages field and message map
         list[i].Messages = msgs
-        //log.Printf("Receiver ID: %d, IP: %s, Messages: %d", rec.ID, rec.IPAddress, msgs)  // Debug log for messages
+        list[i].MessageMap = messageMap
     }
 
-    // Return the list of receivers in JSON format, including ip_address and messages
+    // Return the list of receivers in JSON format, including ip_address, messages, and message map
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(list)
 }
@@ -937,17 +1069,14 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
         return
     }
 
-    // Now, fetch the number of messages for the receiver's IP.
-    messages, err := getMessagesByIP(rec.IPAddress)
-    if err != nil {
-        // If the metrics API call fails, set messages to 0.
-        messages = 0
-    }
+    // Now, fetch the number of messages and message map for the receiver's IP.
+    messages, messageMap := getMessagesByIPFromPortMetrics(rec.IPAddress)
 
-    // Add the messages field to the receiver struct.
+    // Add the messages field and message map to the receiver struct.
     rec.Messages = messages
+    rec.MessageMap = messageMap
 
-    // Send the full receiver response with messages count.
+    // Send the full receiver response with messages count and message map.
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(rec)
 }
@@ -1521,12 +1650,10 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Get message count for the updated receiver
-    messages, err := getMessagesByIP(rec.IPAddress)
-    if err != nil {
-        messages = 0
-    }
+    // Get message count and message map for the updated receiver
+    messages, messageMap := getMessagesByIPFromPortMetrics(rec.IPAddress)
     rec.Messages = messages
+    rec.MessageMap = messageMap
 
     // Return the updated receiver
     w.Header().Set("Content-Type", "application/json")
@@ -1617,11 +1744,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     }
     
     // Check if the IP address has a message count > 0
-    messageCount, err := getMessagesByIP(input.IPAddress)
-    if err != nil {
-        http.Error(w, "Failed to verify message count: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
+    messageCount, _ := getMessagesByIPFromPortMetrics(input.IPAddress)
     
     if messageCount <= 0 {
         http.Error(w, fmt.Sprintf("IP address '%s' has not sent any AIS data", input.IPAddress), http.StatusBadRequest)
