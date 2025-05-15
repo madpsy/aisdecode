@@ -49,15 +49,16 @@ type Receiver struct {
 
 // PublicReceiver is used for public API responses without sensitive fields
 type PublicReceiver struct {
-    ID          int        `json:"id"`
-    LastUpdated time.Time  `json:"lastupdated"`
-    Description string     `json:"description"`
-    Latitude    float64    `json:"latitude"`
-    Longitude   float64    `json:"longitude"`
-    Name        string     `json:"name"`
-    URL         *string    `json:"url,omitempty"`
-    Messages    int        `json:"messages"`
-    UDPPort     *int       `json:"udp_port,omitempty"`
+	ID          int        `json:"id"`
+	LastUpdated time.Time  `json:"lastupdated"`
+	Description string     `json:"description"`
+	Latitude    float64    `json:"latitude"`
+	Longitude   float64    `json:"longitude"`
+	Name        string     `json:"name"`
+	URL         *string    `json:"url,omitempty"`
+	Messages    int        `json:"messages"`
+	// UDPPort is intentionally not exposed in the public API
+	UDPPort     *int       `json:"-"`
 }
 
 type ReceiverInput struct {
@@ -872,7 +873,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             Name:        rec.Name,
             URL:         rec.URL,
             Messages:    msgs,
-            UDPPort:     rec.UDPPort,
+            // UDPPort is not exposed in the public API
         }
 
         list = append(list, publicRec)
