@@ -499,7 +499,8 @@ func createSchema() {
             name VARCHAR(15) NOT NULL UNIQUE,
             url TEXT,
             ip_address TEXT NOT NULL DEFAULT '',
-            password VARCHAR(20) NOT NULL DEFAULT ''
+            password VARCHAR(20) NOT NULL DEFAULT '',
+            request_ip_address TEXT NOT NULL DEFAULT ''
         );
     `)
     if err != nil {
@@ -1598,19 +1599,23 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Get the client's IP address for tracking
+    clientIP := getClientIP(r)
+    
     // Update the receiver in the database
     err = db.QueryRow(`
         UPDATE receivers
-        SET description  = $1,
-            latitude     = $2,
-            longitude    = $3,
-            name         = $4,
-            url          = $5,
-            password     = $6,
-            lastupdated  = NOW()
-        WHERE id = $7
+        SET description      = $1,
+            latitude         = $2,
+            longitude        = $3,
+            name             = $4,
+            url              = $5,
+            password         = $6,
+            request_ip_address = $7,
+            lastupdated      = NOW()
+        WHERE id = $8
         RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, rec.ID).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, clientIP, rec.ID).
         Scan(&rec.LastUpdated)
     
     if err != nil {
@@ -1677,13 +1682,36 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create receiver object
-    // Get the client's IP address for verification
+    // Get the client's IP address for verification and tracking
     clientIP := getClientIP(r)
     
     // Check if an IP address was provided in the input for validation purposes
     ipToCheck := clientIP
     if input.IPAddress != nil && *input.IPAddress != "" {
         ipToCheck = *input.IPAddress
+    }
+    
+    // Check if this client IP has already added a receiver within the last 24 hours
+    var existingID int
+    var existingLastUpdated time.Time
+    err = db.QueryRow(`
+        SELECT id, lastupdated FROM receivers
+        WHERE request_ip_address = $1
+        ORDER BY lastupdated DESC
+        LIMIT 1
+    `, clientIP).Scan(&existingID, &existingLastUpdated)
+    
+    // If we found a receiver with this client IP
+    if err == nil {
+        // Check if it was updated within the last 24 hours
+        if time.Since(existingLastUpdated) < 24*time.Hour {
+            http.Error(w, "Client IP address has already added a receiver recently", http.StatusBadRequest)
+            return
+        }
+    } else if err != sql.ErrNoRows {
+        // If there was an error other than "no rows", return it
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
     }
     
     rec := Receiver{
@@ -1815,7 +1843,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Insert the new receiver with the explicit ID
+    // Insert the new receiver with the explicit ID and client IP
     err = tx.QueryRow(`
         INSERT INTO receivers (
             id,
@@ -1824,10 +1852,11 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
             longitude,
             name,
             url,
-            password
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+            password,
+            request_ip_address
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         RETURNING id, lastupdated`,
-        newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password).
+        newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, clientIP).
         Scan(&rec.ID, &rec.LastUpdated)
     
     if err != nil {
