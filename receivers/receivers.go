@@ -341,8 +341,9 @@ func startCollectorTracking() {
 	}()
 }
 
-// getMessagesByIPAndPort gets the message count for a specific IP address and UDP port from the port metrics map
-func getMessagesByIPAndPort(ipAddress string, udpPort *int) (int, map[string]PortMetric) {
+// getMessagesByPort gets the message count for a specific UDP port from the port metrics map
+// This ignores the receiver's IP address and only filters by UDP port
+func getMessagesByPort(udpPort *int) (int, map[string]PortMetric) {
 	portMetricsMutex.RLock()
 	defer portMetricsMutex.RUnlock()
 
@@ -354,12 +355,12 @@ func getMessagesByIPAndPort(ipAddress string, udpPort *int) (int, map[string]Por
 		return 0, messageStats
 	}
 
-	// Check if we have metrics for this IP address
-	if portMap, ok := portMetricsMap[ipAddress]; ok {
+	// Iterate through all IP addresses and find metrics for the specified UDP port
+	for ipAddress, portMap := range portMetricsMap {
 		// Check if we have metrics for this UDP port
 		if metric, ok := portMap[*udpPort]; ok {
-			totalMessages = metric.MessageCount
-			key := fmt.Sprintf("%d", metric.UDPPort)
+			totalMessages += metric.MessageCount
+			key := fmt.Sprintf("%s:%d", ipAddress, metric.UDPPort)
 			messageStats[key] = metric
 		}
 	}
@@ -729,7 +730,8 @@ type MetricsResponse struct {
 
 func getMessagesByIP(ipAddress string, udpPort *int) (int, error) {
     // Use the new port metrics tracking system instead of the metrics API
-    messages, _ := getMessagesByIPAndPort(ipAddress, udpPort)
+    // We only care about the UDP port, not the IP address
+    messages, _ := getMessagesByPort(udpPort)
     return messages, nil
 }
 
@@ -902,7 +904,7 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
             log.Printf("Error: IP Address is empty for Receiver ID: %d", rec.ID)
         }
 
-        msgs, messageStats := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
+        msgs, messageStats := getMessagesByPort(rec.UDPPort)
 
         // Set the messages field and message stats
         list[i].Messages = msgs
@@ -939,8 +941,8 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
     dummyReceiver.UDPPort = &udpListenPort
     
     // Fetch message stats for the dummy receiver based on the UDP listen port
-    // We use 255.255.255.255 as the IP address for the dummy receiver
-    msgs, messageStats := getMessagesByIPAndPort("255.255.255.255", &udpListenPort)
+    // This will aggregate all messages for this UDP port across all IP addresses
+    msgs, messageStats := getMessagesByPort(&udpListenPort)
     dummyReceiver.Messages = msgs
     dummyReceiver.MessageStats = messageStats
 
@@ -1111,8 +1113,8 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
         return
     }
 
-    // Now, fetch the number of messages and message stats for the receiver's IP and UDP port.
-    messages, messageStats := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
+    // Now, fetch the number of messages and message stats for the receiver's UDP port.
+    messages, messageStats := getMessagesByPort(rec.UDPPort)
 
     // Add the messages field and message stats to the receiver struct.
     rec.Messages = messages
@@ -1693,7 +1695,7 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
     }
 
     // Get message count and message stats for the updated receiver
-    messages, messageStats := getMessagesByIPAndPort(rec.IPAddress, rec.UDPPort)
+    messages, messageStats := getMessagesByPort(rec.UDPPort)
     rec.Messages = messages
     rec.MessageStats = messageStats
 
