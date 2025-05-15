@@ -39,6 +39,7 @@ type filterKey struct {
     Types      string  `json:"types"`
     TypeGroups string  `json:"typeGroups"`
     Classes    string  `json:"classes"`
+    ReceiverID int64   `json:"receiverID"`
 }
 
 type FilterParams struct {
@@ -54,6 +55,7 @@ type FilterParams struct {
     Types       string
     TypeGroups  string
     Classes     string
+    ReceiverID  int64
 }
 
 type Settings struct {
@@ -195,6 +197,7 @@ func keyForFilter(p FilterParams) string {
         Types:      p.Types,
         TypeGroups: p.TypeGroups,
         Classes:    p.Classes,
+        ReceiverID: p.ReceiverID,
     }
     raw, _ := json.Marshal(k)
     h := fnv.New64a()
@@ -251,6 +254,7 @@ func getSummaryJSON(p FilterParams, ttl int) ([]byte, error) {
     summary, err := getSummaryResults(
         p.Latitude, p.Longitude, p.Radius,
         p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types, p.TypeGroups, p.Classes,
+        p.ReceiverID,
     )
     if err != nil {
         return nil, err
@@ -301,6 +305,7 @@ func getSummaryWithRedisCache(p FilterParams, ttl int) (map[string]interface{}, 
     summary, err := getSummaryResults(
         p.Latitude, p.Longitude, p.Radius,
         p.MaxResults, p.MaxAge, p.MinSpeed, p.UserID, p.Types, p.TypeGroups, p.Classes,
+        p.ReceiverID,
     )
     if err != nil {
         return nil, err
@@ -560,7 +565,7 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
     return results, nil
 }
 
-func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64, types string, typeGroups string, classes string) (map[string]interface{}, error) {
+func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64, types string, typeGroups string, classes string, receiverID int64) (map[string]interface{}, error) {
    query := `
        SELECT user_id
             , packet
@@ -577,6 +582,16 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
     if userid > 0 {
         query += fmt.Sprintf(" WHERE user_id = %d", userid)
         whereAdded = true
+    }
+    
+    // If ReceiverID is provided, filter by receiver_id
+    if receiverID > 0 {
+        if whereAdded {
+            query += fmt.Sprintf(" AND receiver_id = %d", receiverID)
+        } else {
+            query += fmt.Sprintf(" WHERE receiver_id = %d", receiverID)
+            whereAdded = true
+        }
     }
 
     // If lat, lon, and radius are specified, filter by distance
@@ -1386,6 +1401,17 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
         }
     }
     
+    // Extract 'receiver' query parameter for filtering (optional)
+    receiverStr := r.URL.Query().Get("receiver")
+    var receiverID int64
+    if receiverStr != "" {
+        receiverID, err = strconv.ParseInt(receiverStr, 10, 64)
+        if err != nil || receiverID <= 0 {
+            http.Error(w, "Invalid receiver value", http.StatusBadRequest)
+            return
+        }
+    }
+    
     // Extract 'types' query parameter for filtering (optional)
     types := r.URL.Query().Get("types")
     
@@ -1427,6 +1453,7 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
        Types: types,
        TypeGroups: typeGroups,
        Classes: classes,
+       ReceiverID: receiverID,
     }
     blob, err := getSummaryJSON(p, conf.CacheTime)
     if err != nil {
@@ -1726,6 +1753,12 @@ func handleSummaryRequest(client *serverSocket.Socket, data map[string]interface
     minSpeed, _ := data["minSpeed"].(float64)
     userid, _ := data["UserID"].(int64)
     
+    // Extract receiver parameter
+    var receiverID int64
+    if receiverVal, ok := data["receiver"].(float64); ok {
+        receiverID = int64(receiverVal)
+    }
+    
     // Extract types parameter (comma-delimited string)
     var types string
     if typesVal, ok := data["types"].(string); ok {
@@ -1745,11 +1778,11 @@ func handleSummaryRequest(client *serverSocket.Socket, data map[string]interface
     }
 
     // Log the parameters for debugging
-    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s, typeGroups=%s, classes=%s",
-        client.Id(), lat, lon, radius, limit, maxAge, minSpeed, userid, types, typeGroups, classes)
+    log.Printf("Client %s requested summary with params: latitude=%.6f, longitude=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, receiver=%d, types=%s, typeGroups=%s, classes=%s",
+        client.Id(), lat, lon, radius, limit, maxAge, minSpeed, userid, receiverID, types, typeGroups, classes)
 
     // Now call the function that generates the summary
-    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid, types, typeGroups, classes)
+    summarizedResults, err := getSummaryResults(lat, lon, radius, limit, maxAge, minSpeed, userid, types, typeGroups, classes, receiverID)
     if err != nil {
         log.Printf("Error fetching summary: %v", err)
         return
@@ -2433,6 +2466,12 @@ func setupServer(settings *Settings) {
 	    // log.Printf("[requestSummary] Client %s requested with params: lat=%.6f, lon=%.6f, radius=%.2f, maxResults=%d, maxAge=%d, minSpeed=%.2f, UserID=%d, types=%s, typeGroups=%s, classes=%s",
 	    //     client.Id(), lat, lon, radius, maxResults, maxAge, minSpeed, userID, types, typeGroups, classes)
 
+	    // Extract receiver parameter
+	    var receiverID int64
+	    if receiverVal, ok := data["receiver"].(float64); ok {
+	        receiverID = int64(receiverVal)
+	    }
+
 	    // 3) Build FilterParams (LastUpdated will gate the next tick)
 	    p := FilterParams{
 	        Latitude:     lat,
@@ -2447,6 +2486,7 @@ func setupServer(settings *Settings) {
 	        Types:        types,
 	        TypeGroups:   typeGroups,
 	        Classes:      classes,
+	        ReceiverID:   receiverID,
 	    }
 	
 	    // 4) Stash for the ticker
