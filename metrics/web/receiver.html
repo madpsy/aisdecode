@@ -351,7 +351,7 @@
     // Map & overlay state
     let map, overlayDiv, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
     let loadedWithReceiver = false; // Flag to track if page was loaded with receiver parameter
-    let loadedWithIpAddress = false; // Flag to track if page was loaded with ipaddress parameter
+    let loadedWithIpAddress = false; // Flag to track if page was loaded with ip_address parameter
     const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
 
     const navigationalStatusMapping = {
@@ -550,8 +550,8 @@ function updateURLWithReceiverId(receiverId) {
   const url = new URL(window.location);
   console.log('Updating URL with receiver ID:', receiverId);
   
-  // Remove ipaddress if it's in the URL, since we're using receiver ID now
-  url.searchParams.delete('ipaddress');
+  // Remove ip_address if it's in the URL, since we're using receiver ID now
+  url.searchParams.delete('ip_address');
   url.searchParams.set('receiver', receiverId);  // Set receiver id as query parameter
   
   console.log('Updated URL:', url.toString());
@@ -562,7 +562,7 @@ function updateURLWithIp(ip) {
   const url = new URL(window.location);
   console.log('Updating URL with IP:', ip);
   url.searchParams.delete('receiver');  // Remove receiver if IP address is used
-  url.searchParams.set('ipaddress', ip);  // Set ipaddress query parameter
+  url.searchParams.set('ip_address', ip);  // Set ip_address query parameter
   console.log('Updated URL:', url.toString());
   history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
@@ -629,8 +629,8 @@ function fetchUserIP(applyAsOverride = false) {
         
         // Check if we're using an override IP from the URL
         const params = new URLSearchParams(location.search);
-        if (params.has('ipaddress')) {
-          console.log('ipaddress parameter is present, will add override indicator later');
+        if (params.has('ip_address')) {
+          console.log('ip_address parameter is present, will add override indicator later');
           // Don't add the override indicator here, it will be added later
         } else if (applyAsOverride) {
           // Reset message count before applying override with user's IP
@@ -658,13 +658,13 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const p = new URLSearchParams(location.search);
   
-  // Check if page was loaded with ipaddress parameter
-  if (p.has('ipaddress')) {
+  // Check if page was loaded with ip_address parameter
+  if (p.has('ip_address')) {
     // We'll handle this in the map initialization code
-    console.log("Page loaded with ipaddress parameter, will handle after map initialization");
-    // Set flag to ensure autoFit works for vessel markers with ipaddress parameter
+    console.log("Page loaded with ip_address parameter, will handle after map initialization");
+    // Set flag to ensure autoFit works for vessel markers with ip_address parameter
     loadedWithIpAddress = true;
-    console.log("Page loaded with ipaddress parameter, setting loadedWithIpAddress =", loadedWithIpAddress);
+    console.log("Page loaded with ip_address parameter, setting loadedWithIpAddress =", loadedWithIpAddress);
   }
   
   // Set flag if page was loaded with receiver parameter
@@ -690,13 +690,13 @@ window.addEventListener('DOMContentLoaded', () => {
       initMap();
       
       // After map is initialized, handle the query parameters
-      if (p.has('ipaddress')) {
+      if (p.has('ip_address')) {
         // Get the IP address from the URL
-        const ip = p.get('ipaddress');
+        const ip = p.get('ip_address');
         
         // Reset message count before applying override
         currentMessageCount = 0;
-        console.log("Reset currentMessageCount to 0 for ipaddress parameter");
+        console.log("Reset currentMessageCount to 0 for ip_address parameter");
         
         // Set the override IP
         overrideIp = ip;
@@ -751,7 +751,7 @@ window.addEventListener('DOMContentLoaded', () => {
         // Apply the override
         applyOverride(ip);
         
-        // Set flag to ensure autoFit works for vessel markers with ipaddress parameter
+        // Set flag to ensure autoFit works for vessel markers with ip_address parameter
         loadedWithIpAddress = true;
         console.log("Setting loadedWithIpAddress=true after applying override from URL parameter");
       } else if (p.has('receiver')) {
@@ -1152,7 +1152,7 @@ function updateMap() {
   const boundsArr = [], newMarkers = {};
   let vesselsUpdated = false;
 
-  // Force autoFit to be true if page was loaded with receiver parameter or ipaddress parameter
+  // Force autoFit to be true if page was loaded with receiver parameter or ip_address parameter
   // Only reset the flags if we actually have vessel markers to display
   if (loadedWithReceiver || loadedWithIpAddress) {
     console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=", loadedWithReceiver, "or loadedWithIpAddress=", loadedWithIpAddress);
@@ -1399,8 +1399,8 @@ socket.on("metrics/bysource", function(data) {
   // Extract parameters from the URL
   const params = new URLSearchParams(location.search);
 
-  // Only update the URL with the IP address if 'receiver' is not in the URL and 'ipaddress' is not in the URL
-  if (!params.has('receiver') && !params.has('ipaddress')) {
+  // Only update the URL with the IP address if 'receiver' is not in the URL and 'ip_address' is not in the URL
+  if (!params.has('receiver') && !params.has('ip_address')) {
     updateURLWithIp(currentIp);
   }
 
@@ -1486,7 +1486,7 @@ function fetchMetrics() {
   } else if (overrideIp) {
     // Use IP only if no receiver ID in the URL or overrideReceiverId
     if (!params.has('receiver')) {
-      payload = { ipaddress: overrideIp };
+      payload = { ip_address: overrideIp };
       
       // Ensure loadedWithIpAddress flag is set if we're using an IP address
       if (!loadedWithIpAddress) {
@@ -1570,8 +1570,8 @@ function updateURLWithReceiverId(receiverId) {
   const url = new URL(window.location);
   console.log('Updating URL with receiver ID:', receiverId);
   
-  // Remove ipaddress if it's in the URL, since we're using receiver ID now
-  url.searchParams.delete('ipaddress');
+  // Remove ip_address if it's in the URL, since we're using receiver ID now
+  url.searchParams.delete('ip_address');
   url.searchParams.set('receiver', receiverId);  // Set receiver id as query parameter
   
   console.log('Updated URL:', url.toString());
@@ -1582,7 +1582,7 @@ function updateURLWithIp(ip) {
   const url = new URL(window.location);
   console.log('Updating URL with IP:', ip);
   url.searchParams.delete('receiver');  // Remove receiver if IP address is used
-  url.searchParams.set('ipaddress', ip);  // Set ipaddress query parameter
+  url.searchParams.set('ip_address', ip);  // Set ip_address query parameter
   history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
 
@@ -1985,9 +1985,9 @@ async function fetchReceivers(ip) {
       overrideIp = '';
       overrideReceiverId = '';  // Reset receiver id
       
-      // Update the URL to remove the ipaddress parameter
+      // Update the URL to remove the ip_address parameter
       const url = new URL(window.location);
-      url.searchParams.delete('ipaddress');
+      url.searchParams.delete('ip_address');
       history.replaceState(null, '', url.toString());
       
       // Reset message count
