@@ -73,6 +73,7 @@ function renderList(list) {
         }
       </td>
       <td>${r.ip_address}</td>
+      <td>${r.udp_port !== undefined ? r.udp_port : '—'}</td>
       <td>${r.password !== undefined ? r.password : '—'}</td>
       <td>${r.messages !== undefined && r.messages !== null ? r.messages : 'No messages'}</td>
       <td><button class="cron-btn" data-id="${r.id}" data-password="${r.password}">Cron</button></td>
@@ -115,6 +116,7 @@ function startEdit(id) {
       document.getElementById('field-longitude').value   = r.longitude;
       document.getElementById('field-url').value         = r.url ?? '';
       document.getElementById('field-ip-address').value  = r.ip_address ?? '';
+      document.getElementById('field-udp-port').value    = r.udp_port !== undefined ? r.udp_port : '';
       document.getElementById('field-password').value    = r.password !== undefined ? r.password : '';
       
       // Show regenerate button when editing
@@ -133,6 +135,7 @@ cancelBtn.onclick = () => {
   formTitle.textContent = 'Add New Receiver';
   form.reset();
   document.getElementById('field-ip-address').value = '';
+  document.getElementById('field-udp-port').value = '';
   document.getElementById('field-password').value = '';
   // Hide regenerate button for new receivers (will be auto-generated)
   document.getElementById('regenerate-password').style.display = 'none';
@@ -223,6 +226,7 @@ form.onsubmit = async e => {
   editId = null;
   formTitle.textContent = 'Add New Receiver';
   document.getElementById('field-ip-address').value = '';
+  document.getElementById('field-udp-port').value = '';
   document.getElementById('field-password').value = '';
   document.getElementById('regenerate-password').style.display = 'none';
   loadReceivers();

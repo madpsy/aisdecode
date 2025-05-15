@@ -151,14 +151,15 @@ th[data-key="id"], td:nth-child(1) { width: 50px; }
 th[data-key="lastupdated"], td:nth-child(2) { width: 180px; white-space: normal; } /* Allow wrapping for last updated */
 th[data-key="name"], td:nth-child(3) { width: 120px; }
 th[data-key="ip_address"], td:nth-child(8) { width: 120px; }
-th[data-key="messages"], td:nth-child(10) { width: 100px; }
+th[data-key="udp_port"], td:nth-child(9) { width: 80px; }
+th[data-key="messages"], td:nth-child(11) { width: 100px; }
 
 /* Adjust Cron and Actions columns to be closer together */
-th:nth-child(11), td:nth-child(11) { /* Cron column */
+th:nth-child(12), td:nth-child(12) { /* Cron column */
   width: 80px;
   padding-right: 5px;
 }
-th:nth-child(12), td:nth-child(12) { /* Actions column */
+th:nth-child(13), td:nth-child(13) { /* Actions column */
   width: 120px;
   padding-left: 5px;
 }
@@ -168,7 +169,7 @@ th[data-key="description"], td:nth-child(4),
 th[data-key="latitude"], td:nth-child(5),
 th[data-key="longitude"], td:nth-child(6),
 th[data-key="url"], td:nth-child(7),
-th[data-key="password"], td:nth-child(9) {
+th[data-key="password"], td:nth-child(10) {
   display: none;
 }
 
@@ -219,7 +220,7 @@ a.action:hover, button.delete-btn:hover {
   gap: 0.5rem;
 }
 
-#field-password {
+#field-password, #field-udp-port {
   flex: 1;
   font-family: monospace;
   background-color: #f5f5f5;
