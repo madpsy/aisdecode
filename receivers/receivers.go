@@ -360,8 +360,8 @@ func getMessagesByPort(udpPort *int) (int, map[string]PortMetric) {
 		// Check if we have metrics for this UDP port
 		if metric, ok := portMap[*udpPort]; ok {
 			totalMessages += metric.MessageCount
-			key := fmt.Sprintf("%s:%d", ipAddress, metric.UDPPort)
-			messageStats[key] = metric
+			// Use just the IP address as the key since the port is already in the metric
+			messageStats[ipAddress] = metric
 		}
 	}
 
