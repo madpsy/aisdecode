@@ -437,8 +437,7 @@ func main() {
     // Public endpoint to edit a receiver
     http.HandleFunc("/editreceiver", handleEditReceiver)
     
-    // Public endpoint to update receiver IP address
-    http.HandleFunc("/receiverip", handleReceiverIP)
+    // Public endpoint to update receiver IP address - removed
 
     http.HandleFunc("/admin/getip", adminGetIPHandler)
 
@@ -1469,100 +1468,7 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
     })
 }
 
-// handleReceiverIP handles POST /receiverip
-// This endpoint updates the IP address of a receiver
-// It requires id and password, with optional ip_address
-// If ip_address is not provided, it uses the client's IP
-func handleReceiverIP(w http.ResponseWriter, r *http.Request) {
-    // Only allow POST method
-    if r.Method != http.MethodPost {
-        w.WriteHeader(http.StatusMethodNotAllowed)
-        return
-    }
-
-    // Parse JSON request body
-    var input struct {
-        ID        int     `json:"id"`
-        Password  string  `json:"password"`
-        IPAddress *string `json:"ip_address,omitempty"`
-    }
-
-    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    // Validate required fields
-    if input.ID <= 0 {
-        http.Error(w, "id is required and must be positive", http.StatusBadRequest)
-        return
-    }
-    if input.Password == "" {
-        http.Error(w, "password is required", http.StatusBadRequest)
-        return
-    }
-
-    // Ensure database connection
-    if err := ensureConnection(); err != nil {
-        http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // Verify the receiver exists and password is correct
-    var storedPassword string
-    err := db.QueryRow(`SELECT password FROM receivers WHERE id = $1`, input.ID).Scan(&storedPassword)
-    if err == sql.ErrNoRows {
-        http.Error(w, "Receiver not found", http.StatusNotFound)
-        return
-    } else if err != nil {
-        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // Check if password matches
-    if input.Password != storedPassword {
-        http.Error(w, "Invalid password", http.StatusUnauthorized)
-        return
-    }
-
-    // Determine the IP address to use
-    var ipAddress string
-    if input.IPAddress != nil && *input.IPAddress != "" {
-        // Use provided IP address
-        ipAddress = *input.IPAddress
-        
-        // Validate IP address format
-        if net.ParseIP(ipAddress) == nil {
-            http.Error(w, "Invalid IP address format", http.StatusBadRequest)
-            return
-        }
-    } else {
-        // Use client's IP address
-        ipAddress = getClientIP(r)
-    }
-
-    // Update the receiver's IP address
-    var lastUpdated time.Time
-    err = db.QueryRow(`
-        UPDATE receivers
-        SET ip_address = $1, lastupdated = NOW()
-        WHERE id = $2
-        RETURNING lastupdated
-    `, ipAddress, input.ID).Scan(&lastUpdated)
-
-    if err != nil {
-        http.Error(w, "Failed to update IP address: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // Return success response
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]interface{}{
-        "id": input.ID,
-        "ip_address": ipAddress,
-        "updated_at": lastUpdated,
-    })
-}
+// handleReceiverIP endpoint removed - no longer needed with automatic collector tracking
 
 // handleEditReceiver handles POST /editreceiver
 // This is a public endpoint that allows editing an existing receiver

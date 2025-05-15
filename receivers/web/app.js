@@ -44,10 +44,31 @@ function applySortAndFilter() {
   // Filter
   const term = searchInput.value.trim().toLowerCase();
   const list = term
-    ? receiversData.filter(r =>
-        r.description.toLowerCase().includes(term) ||
-        r.name.toLowerCase().includes(term)
-      )
+    ? receiversData.filter(r => {
+        // Check description and name
+        if (r.description.toLowerCase().includes(term) ||
+            r.name.toLowerCase().includes(term)) {
+          return true;
+        }
+        
+        // Check IP address - both in ip_address field and message_stats
+        if (r.ip_address && r.ip_address.toLowerCase().includes(term)) {
+          return true;
+        }
+        
+        // Check in message_stats for IP addresses
+        if (r.message_stats && Object.keys(r.message_stats).some(ip =>
+          ip.toLowerCase().includes(term))) {
+          return true;
+        }
+        
+        // Check UDP port
+        if (r.udp_port !== undefined && r.udp_port.toString().includes(term)) {
+          return true;
+        }
+        
+        return false;
+      })
     : receiversData;
 
   renderList(list);
@@ -83,7 +104,6 @@ function renderList(list) {
       <td>${r.udp_port !== undefined ? r.udp_port : '—'}</td>
       <td>${r.password !== undefined ? r.password : '—'}</td>
       <td>${r.messages !== undefined && r.messages !== null ? r.messages : 'No messages'}</td>
-      <td><button class="cron-btn" data-id="${r.id}" data-password="${r.password}">Cron</button></td>
       <td>
         <a class="action" data-id="${r.id}">Edit</a>
         &nbsp;|&nbsp;
@@ -263,56 +283,6 @@ window.addEventListener('load', () => {
   loadReceivers();
   // Hide regenerate button initially (for new receivers)
   document.getElementById('regenerate-password').style.display = 'none';
-  // Ensure cron overlay is hidden on initial load
-  document.getElementById('cron-overlay').classList.add('hidden');
+  // Cron overlay removed
 });
-// Cron functionality
-// Handle cron button clicks
-document.body.addEventListener('click', function(e) {
-  if (e.target.matches('.cron-btn')) {
-    const id = e.target.dataset.id;
-    const pwd = e.target.dataset.password;
-    const offset = Math.floor(Math.random() * 10);
-    const baseUrl = window.location.origin;
-    const entry = `${offset}-59/${10} * * * * curl -X POST ${baseUrl}/receiverip -H "Content-Type: application/json" -d '{"id": ${id}, "password": "${pwd}"}'`;
-    document.getElementById('cron-entry').textContent = entry;
-    document.getElementById('cron-overlay').classList.remove('hidden');
-  }
-});
-
-// Handle copy and close in overlay
-document.getElementById('copy-cron').addEventListener('click', function() {
-  const text = document.getElementById('cron-entry').textContent;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      this.textContent = 'Copied!';
-      setTimeout(() => { this.textContent = 'Copy to clipboard'; }, 2000);
-    }, () => {
-      this.textContent = 'Failed to copy';
-      setTimeout(() => { this.textContent = 'Copy to clipboard'; }, 2000);
-    });
-  } else {
-    // Fallback for browsers without navigator.clipboard
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.top = '0';
-    textarea.style.left = '0';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    try {
-      document.execCommand('copy');
-      this.textContent = 'Copied!';
-    } catch (err) {
-      this.textContent = 'Failed to copy';
-    }
-    setTimeout(() => { this.textContent = 'Copy to clipboard'; }, 2000);
-    document.body.removeChild(textarea);
-  }
-});
-
-document.getElementById('close-cron').addEventListener('click', function() {
-  document.getElementById('cron-overlay').classList.add('hidden');
-});
+// Cron functionality removed - no longer needed with automatic collector tracking

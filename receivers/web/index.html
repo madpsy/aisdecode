@@ -60,7 +60,7 @@
       <input
         type="text"
         id="search-input"
-        placeholder="🔍 Search by description or name…"
+        placeholder="🔍 Search by description, name, IP address or UDP port…"
         autocomplete="off"
       >
     </section>
@@ -80,7 +80,6 @@
             <th class="sortable" data-key="udp_port">UDP Port</th>
             <th class="sortable" data-key="password">Password</th>
             <th class="sortable" data-key="messages">Messages</th>
-            <th>Cron</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -90,17 +89,7 @@
       </table>
     </section>
   </main>
-  <!-- Cron overlay -->
-<div id="cron-overlay" class="hidden">
-  <div class="overlay-content">
-    <h3>Cron Entry</h3>
-    <pre id="cron-entry" style="background: #f5f5f5; padding: 6px; overflow-x: auto; white-space: pre-wrap; font-size: 0.9em;"></pre>
-    <div style="margin-top: 8px; display: flex; gap: 8px; justify-content: flex-end;">
-      <button id="copy-cron" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Copy to clipboard</button>
-      <button id="close-cron" style="background-color: #aaa; color: white; border: none; padding: 4px 8px; cursor: pointer;">Close</button>
-    </div>
-  </div>
-</div>
+  <!-- Cron overlay removed -->
   <script src="app.js"></script>
 </body>
 </html>
