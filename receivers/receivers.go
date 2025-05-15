@@ -1647,8 +1647,14 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     }
 
     // Create receiver object
-    // Get the client's IP address for verification, but don't store it in the receiver
+    // Get the client's IP address for verification
     clientIP := getClientIP(r)
+    
+    // Check if an IP address was provided in the input for validation purposes
+    ipToCheck := clientIP
+    if input.IPAddress != nil && *input.IPAddress != "" {
+        ipToCheck = *input.IPAddress
+    }
     
     rec := Receiver{
         Description: input.Description,
@@ -1682,12 +1688,12 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     // The primary UDP port is the UDP listen port from the ingester settings
     primaryUDPPort := ingestSettings.UDPListenPort
     
-    // Check if the client's IP address is sending data to the primary UDP port and not to any non-primary port
+    // Check if the IP address is sending data to the primary UDP port and not to any non-primary port
     portMetricsMutex.RLock()
     sendingToPrimaryPort := false
     sendingToNonPrimaryPort := false
     
-    if portMap, ok := portMetricsMap[clientIP]; ok {
+    if portMap, ok := portMetricsMap[ipToCheck]; ok {
         for port, metric := range portMap {
             // Skip ports with no messages
             if metric.MessageCount <= 0 {
@@ -1703,15 +1709,15 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     }
     portMetricsMutex.RUnlock()
     
-    // Check if the client's IP address is sending data to the primary UDP port
+    // Check if the IP address is sending data to the primary UDP port
     if !sendingToPrimaryPort {
-        http.Error(w, fmt.Sprintf("Your IP address '%s' is not sending data to the primary UDP port (%d)", clientIP, primaryUDPPort), http.StatusBadRequest)
+        http.Error(w, fmt.Sprintf("The IP address '%s' is not sending data to the primary UDP port (%d)", ipToCheck, primaryUDPPort), http.StatusBadRequest)
         return
     }
     
-    // Check if the client's IP address is sending data to any non-primary port
+    // Check if the IP address is sending data to any non-primary port
     if sendingToNonPrimaryPort {
-        http.Error(w, fmt.Sprintf("Your IP address '%s' is already sending data to a non-primary port", clientIP), http.StatusBadRequest)
+        http.Error(w, fmt.Sprintf("The IP address '%s' is already sending data to a non-primary port", ipToCheck), http.StatusBadRequest)
         return
     }
 
