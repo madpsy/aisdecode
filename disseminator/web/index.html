@@ -824,6 +824,13 @@
 
 
 map.on('click', () => {
+  // Clear selected receiver when clicking on the map
+  if (selectedReceiverId && receiverMarkers[selectedReceiverId]) {
+    receiverMarkers[selectedReceiverId].setIcon(createReceiverIcon());
+    selectedReceiverId = null;
+    sendSummaryRequest();
+  }
+  
   if (focusedVessel) {
     document.getElementById('show-paths').checked = false;
     const vessel = vesselData[focusedVessel];
@@ -876,6 +883,11 @@ function sendSummaryRequest() {
       UserID: parseInt(focusedVessel, 10),
       classes: getSelectedClasses()
     };
+    
+    // Add receiver filter if a receiver is selected
+    if (selectedReceiverId) {
+      filterParams.receiver = parseInt(selectedReceiverId, 10);
+    }
     console.log(`sendSummaryRequest: onlyTracked for vessel ${focusedVessel}`);
     socket.emit("requestSummary", JSON.stringify(filterParams));
     updateOverlay();
@@ -907,6 +919,11 @@ function sendSummaryRequest() {
     updatePeriod: updatePeriod,
     classes:      getSelectedClasses()
   };
+  
+  // Add receiver filter if a receiver is selected
+  if (selectedReceiverId) {
+    filterParams.receiver = parseInt(selectedReceiverId, 10);
+  }
 
   if (!document.getElementById('stationary').checked) {
     filterParams.minSpeed = 1;
@@ -1237,6 +1254,8 @@ function hashStringToIndex(description, modulo) {
 
 // Change receiverMarkers from an array to an object.
 let receiverMarkers = {};
+// Track the currently selected receiver
+let selectedReceiverId = null;
 
 function refreshReceivers() {
   fetch('/receivers')
@@ -1351,6 +1370,62 @@ function refreshReceivers() {
               className: 'receiver-tooltip'
             }).openTooltip();
 
+            // Add click event handler for receiver markers
+            marker.on('click', function(e) {
+              // Stop propagation to prevent map click from firing
+              L.DomEvent.stopPropagation(e);
+              
+              // Toggle selection state
+              if (selectedReceiverId === id) {
+                // Deselect if already selected
+                selectedReceiverId = null;
+                marker.setIcon(createReceiverIcon()); // Reset to default icon
+                
+                // Show a notification that filter is removed
+                const notification = document.createElement('div');
+                notification.textContent = `Receiver filter removed`;
+                notification.style.position = 'absolute';
+                notification.style.top = '100px';
+                notification.style.left = '50%';
+                notification.style.transform = 'translateX(-50%)';
+                notification.style.background = 'rgba(255,255,255,0.8)';
+                notification.style.padding = '10px';
+                notification.style.borderRadius = '5px';
+                notification.style.zIndex = '1000';
+                document.body.appendChild(notification);
+                setTimeout(() => document.body.removeChild(notification), 2000);
+              } else {
+                // Deselect previous receiver if any
+                if (selectedReceiverId && receiverMarkers[selectedReceiverId]) {
+                  receiverMarkers[selectedReceiverId].setIcon(createReceiverIcon());
+                }
+                
+                // Select this receiver
+                selectedReceiverId = id;
+                
+                // Use a different icon to show it's selected
+                const selectedIcon = createReceiverIcon('blue');
+                marker.setIcon(selectedIcon);
+                
+                // Show a notification that filter is applied
+                const notification = document.createElement('div');
+                notification.textContent = `Filtering by receiver: ${receiver.name}`;
+                notification.style.position = 'absolute';
+                notification.style.top = '100px';
+                notification.style.left = '50%';
+                notification.style.transform = 'translateX(-50%)';
+                notification.style.background = 'rgba(255,255,255,0.8)';
+                notification.style.padding = '10px';
+                notification.style.borderRadius = '5px';
+                notification.style.zIndex = '1000';
+                document.body.appendChild(notification);
+                setTimeout(() => document.body.removeChild(notification), 2000);
+              }
+              
+              // Request updated data with or without the receiver filter
+              sendSummaryRequest();
+            });
+            
             receiverMarkers[id] = marker;
           }
 
@@ -1382,6 +1457,7 @@ function refreshReceivers() {
       console.error('Error fetching receivers:', error);
     });
 }
+
 
 function getColorForVesselTypeConsistent(type) {
   if (!type) return "blue";
@@ -1816,10 +1892,10 @@ function updateFocusedVesselTrack(UserID) {
   }
 }
 
-function createReceiverIcon() {
+function createReceiverIcon(color = 'red') {
   const svgHtml = `
     <svg style="pointer-events: none;" width="20" height="20" viewBox="0 0 20 20">
-      <circle cx="10" cy="10" r="10" fill="red" />
+      <circle cx="10" cy="10" r="10" fill="${color}" />
     </svg>
   `;
   return L.divIcon({
@@ -4268,6 +4344,11 @@ document.getElementById('legend-filter-button').addEventListener('click', functi
         classes: getSelectedClasses()
       };
       
+      // Add receiver filter if a receiver is selected
+      if (selectedReceiverId) {
+        filterParams.receiver = parseInt(selectedReceiverId, 10);
+      }
+      
       // Send the request directly WITHOUT stringifying
       console.log("Sending filter request with typeGroups:", filterParams);
       socket.emit("requestSummary", filterParams);
@@ -4301,6 +4382,11 @@ document.getElementById('legend-filter-button').addEventListener('click', functi
         classes: getSelectedClasses()
       };
       
+      // Add receiver filter if a receiver is selected
+      if (selectedReceiverId) {
+        filterParams.receiver = parseInt(selectedReceiverId, 10);
+      }
+      
       // Send the request directly WITHOUT stringifying
       console.log("Sending filter request with typeGroups:", filterParams);
       socket.emit("requestSummary", filterParams);
@@ -4324,6 +4410,16 @@ document.getElementById('legend-filter-button').addEventListener('click', functi
       classes: getSelectedClasses()
       // No typeGroups parameter - this will show all vessels
     };
+    
+    // Add receiver filter if a receiver is selected
+    if (selectedReceiverId) {
+      filterParams.receiver = parseInt(selectedReceiverId, 10);
+    }
+    
+    // Add receiver filter if a receiver is selected
+    if (selectedReceiverId) {
+      filterParams.receiver = parseInt(selectedReceiverId, 10);
+    }
     
     // Send the request directly WITHOUT stringifying
     console.log("Sending filter request without type filtering:", filterParams);
