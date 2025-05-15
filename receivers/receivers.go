@@ -1770,18 +1770,28 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Insert the new receiver into the database within the transaction
+    // First, explicitly get a new ID from the sequence to avoid race conditions
+    var newID int
+    err = tx.QueryRow(`SELECT nextval('receivers_id_seq')`).Scan(&newID)
+    if err != nil {
+        tx.Rollback()
+        http.Error(w, "Failed to generate ID: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // Insert the new receiver with the explicit ID
     err = tx.QueryRow(`
         INSERT INTO receivers (
+            id,
             description,
             latitude,
             longitude,
             name,
             url,
             password
-        ) VALUES ($1,$2,$3,$4,$5,$6)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
         RETURNING id, lastupdated`,
-        rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password).
+        newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password).
         Scan(&rec.ID, &rec.LastUpdated)
     
     if err != nil {
