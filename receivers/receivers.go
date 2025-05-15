@@ -320,22 +320,9 @@ func startCollectorTracking() {
 								portMetricsMap[metric.IPAddress] = make(map[int]PortMetric)
 							}
 
-							// Update or add port metric
-							existingMetric, exists := portMetricsMap[metric.IPAddress][metric.UDPPort]
-							if exists {
-								// Update existing metric
-								existingMetric.MessageCount += metric.MessageCount
-								if metric.FirstSeen.Before(existingMetric.FirstSeen) {
-									existingMetric.FirstSeen = metric.FirstSeen
-								}
-								if metric.LastSeen.After(existingMetric.LastSeen) {
-									existingMetric.LastSeen = metric.LastSeen
-								}
-								portMetricsMap[metric.IPAddress][metric.UDPPort] = existingMetric
-							} else {
-								// Add new metric
-								portMetricsMap[metric.IPAddress][metric.UDPPort] = metric
-							}
+							// Always use the latest metric data from the collector
+							// This replaces the previous implementation that accumulated message counts
+							portMetricsMap[metric.IPAddress][metric.UDPPort] = metric
 						}
 						portMetricsMutex.Unlock()
 					}(collector)
