@@ -14,12 +14,13 @@ LAT_LONG=""
 CALLSIGN=""
 DESCRIPTION=""
 URL=""
+IP_ADDRESS=""
 URL_SPECIFIED=false
 AUTO_YES=false
 
 print_usage() {
   cat <<EOF
-Usage: $(basename "$0") -u base_url [-y] [-l lat,long] [-c callsign] [-d description] [-U url]
+Usage: $(basename "$0") -u base_url [-y] [-l lat,long] [-c callsign] [-d description] [-U url] [-i ip_address]
 Options:
   -u base_url      Base URL of server (required)
   -y               Automatically proceed without confirmation prompt
@@ -27,12 +28,13 @@ Options:
   -c callsign      Specify callsign or name (max 15 characters)
   -d description   Specify description (max 30 characters)
   -U url           Specify optional URL (must be a valid http(s) URL)
+  -i ip_address    Specify optional IP address
   -h               Show this help message
 EOF
 }
 
 # Parse optional flags
-while getopts "u:hyl:c:d:U:" opt; do
+while getopts "u:hyl:c:d:U:i:" opt; do
   case $opt in
     u) BASE_URL="$OPTARG" ;;
     h) print_usage; exit 0 ;;
@@ -41,6 +43,7 @@ while getopts "u:hyl:c:d:U:" opt; do
     c) CALLSIGN="$OPTARG" ;;
     d) DESCRIPTION="$OPTARG" ;;
     U) URL="$OPTARG"; URL_SPECIFIED=true ;;
+    i) IP_ADDRESS="$OPTARG" ;;
     *) print_usage; exit 1 ;;
   esac
 done
@@ -169,6 +172,24 @@ else
   fi
 fi
 
+# Validate IP address if provided
+if [[ -n "$IP_ADDRESS" ]]; then
+  # Simple IPv4 validation
+  if ! [[ "$IP_ADDRESS" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    echo "Invalid IP address format."
+    exit 1
+  fi
+  
+  # Validate each octet is between 0-255
+  IFS='.' read -r -a octets <<< "$IP_ADDRESS"
+  for octet in "${octets[@]}"; do
+    if (( octet < 0 || octet > 255 )); then
+      echo "Invalid IP address: each octet must be between 0-255."
+      exit 1
+    fi
+  done
+fi
+
 # Display entered values for confirmation
 echo
 echo "Please confirm the following values:"
@@ -177,6 +198,7 @@ echo "Description: $DESCRIPTION"
 echo "Latitude: $LATITUDE"
 echo "Longitude: $LONGITUDE"
 echo "URL: ${URL:-<none>}"
+echo "IP Address: ${IP_ADDRESS:-<none>}"
 if [[ "$AUTO_YES" == true ]]; then
   # Skip confirmation if -y flag is set
   echo "Proceeding automatically..."
@@ -189,22 +211,35 @@ else
 fi
 
 # Build JSON payload using jq
+PAYLOAD_ARGS=(
+  --arg name "$NAME"
+  --arg description "$DESCRIPTION"
+  --argjson latitude "$LATITUDE"
+  --argjson longitude "$LONGITUDE"
+)
+
+# Add optional fields if provided
 if [[ -n "${URL-}" ]]; then
-  PAYLOAD=$(jq -n \
-    --arg name "$NAME" \
-    --arg description "$DESCRIPTION" \
-    --argjson latitude "$LATITUDE" \
-    --argjson longitude "$LONGITUDE" \
-    --arg url "$URL" \
-    '{name:$name,description:$description,latitude:$latitude,longitude:$longitude,url:$url}')
-else
-  PAYLOAD=$(jq -n \
-    --arg name "$NAME" \
-    --arg description "$DESCRIPTION" \
-    --argjson latitude "$LATITUDE" \
-    --argjson longitude "$LONGITUDE" \
-    '{name:$name,description:$description,latitude:$latitude,longitude:$longitude}')
+  PAYLOAD_ARGS+=(--arg url "$URL")
 fi
+
+if [[ -n "${IP_ADDRESS-}" ]]; then
+  PAYLOAD_ARGS+=(--arg ip_address "$IP_ADDRESS")
+fi
+
+# Construct the JSON object with conditional fields
+PAYLOAD_EXPR='{name:$name,description:$description,latitude:$latitude,longitude:$longitude}'
+
+if [[ -n "${URL-}" ]]; then
+  PAYLOAD_EXPR=$(echo "$PAYLOAD_EXPR" | sed 's/}$/,url:$url}/')
+fi
+
+if [[ -n "${IP_ADDRESS-}" ]]; then
+  PAYLOAD_EXPR=$(echo "$PAYLOAD_EXPR" | sed 's/}$/,ip_address:$ip_address}/')
+fi
+
+# Generate the final payload
+PAYLOAD=$(jq -n "${PAYLOAD_ARGS[@]}" "$PAYLOAD_EXPR")
 
 # Send POST request
 HTTP_RESPONSE=$(curl -s -w "HTTP_CODE:%{http_code}" -X POST "$BASE_URL/addreceiver" \
