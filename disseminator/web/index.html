@@ -4055,7 +4055,7 @@ window.addEventListener('load', () => {
       .then(ipData => {
         if (ipData && ipData.ip) {
           // Now query for receivers with this IP
-          return fetch(`/receivers?ipaddress=${ipData.ip}`);
+          return fetch(`/receivers?ip_address=${ipData.ip}`);
         } else {
           throw new Error('No IP address returned');
         }
