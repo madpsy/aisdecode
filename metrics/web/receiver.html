@@ -478,22 +478,32 @@
         // Calculate position for the label (east of the center)
         const labelLatLng = calculateLabelPosition(selectedReceiverLatLng, radiusKm);
         
-        // Create label
-        const label = L.tooltip({
-          permanent: true,
-          direction: 'center',
-          className: 'distance-tooltip'
-        })
-        .setLatLng(labelLatLng)
-        .setContent(`${radiusNM} NM`)
-        .addTo(map);
-        
-        radiusLabels.push(label);
+        // Only create label if we have valid coordinates
+        if (labelLatLng) {
+          // Create label
+          const label = L.tooltip({
+            permanent: true,
+            direction: 'center',
+            className: 'distance-tooltip'
+          })
+          .setLatLng(labelLatLng)
+          .setContent(`${radiusNM} NM`)
+          .addTo(map);
+          
+          radiusLabels.push(label);
+        }
       }
     }
     
     // Calculate position for radius label (east of center)
     function calculateLabelPosition(center, radiusKm) {
+      // Validate center coordinates
+      if (!center || typeof center.lat !== 'number' || typeof center.lng !== 'number' ||
+          isNaN(center.lat) || isNaN(center.lng)) {
+        console.warn('Invalid center coordinates for label position');
+        return null;
+      }
+      
       // Convert radius from km to degrees longitude (approximate)
       // This is a simplified calculation that works for small distances
       const radiusLng = radiusKm / (111.32 * Math.cos(center.lat * Math.PI / 180));
@@ -855,7 +865,8 @@ function updateOverlay(latlng) {
 
   if (!overlayDiv) return;
 
-  if (latlng) {
+  if (latlng && typeof latlng.lat === 'number' && typeof latlng.lng === 'number' &&
+      !isNaN(latlng.lat) && !isNaN(latlng.lng)) {
     // Display overlay if not already displayed
     if (!overlayDisplayed) {
       overlayDiv.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
@@ -954,6 +965,13 @@ function loadReceivers() {
       // Populate the receiversList with fetched data
       let boundsArr = [];
       receivers.forEach(r => {
+        // Skip receivers with invalid coordinates
+        if (typeof r.latitude !== 'number' || typeof r.longitude !== 'number' ||
+            isNaN(r.latitude) || isNaN(r.longitude)) {
+          console.warn('Skipping receiver with invalid coordinates:', r);
+          return;
+        }
+        
         // Create a diamond-shaped marker for the receiver
         // Calculate diamond points (8px from center in each cardinal direction)
         // Create a red diamond marker for the receiver using SVG
@@ -1670,11 +1688,20 @@ function fetchReceiversById(receiverId) {
       const receiver = Array.isArray(data) ? data[0] : data;
 
       // Set the selectedReceiverLatLng for map operations
-      selectedReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+      // Validate coordinates before creating LatLng object
+      if (typeof receiver.latitude === 'number' && typeof receiver.longitude === 'number' &&
+          !isNaN(receiver.latitude) && !isNaN(receiver.longitude)) {
+        selectedReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+      } else {
+        console.warn('Invalid coordinates for receiver:', receiver);
+        selectedReceiverLatLng = null;
+      }
       console.log("Set selectedReceiverLatLng from fetchReceiversById:", selectedReceiverLatLng);
       
-      // Update the overlay to show the receiver's position
-      updateOverlay(selectedReceiverLatLng);
+      // Update the overlay to show the receiver's position if coordinates are valid
+      if (selectedReceiverLatLng) {
+        updateOverlay(selectedReceiverLatLng);
+      }
       updateSummaryTable();
       
       // Draw radius circles around the selected receiver
@@ -1719,14 +1746,22 @@ function fetchReceiversById(receiverId) {
 
       // Initialize the map for the receiver's location
       const mapDiv = document.getElementById('receiver-map');
-      const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(rxMap);
-      L.marker([receiver.latitude, receiver.longitude])
-        .addTo(rxMap)
-        .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
-        .openPopup();
+      
+      // Validate coordinates before initializing the map
+      if (typeof receiver.latitude === 'number' && typeof receiver.longitude === 'number' &&
+          !isNaN(receiver.latitude) && !isNaN(receiver.longitude)) {
+        const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(rxMap);
+        L.marker([receiver.latitude, receiver.longitude])
+          .addTo(rxMap)
+          .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
+          .openPopup();
+      } else {
+        console.warn('Cannot initialize receiver map: Invalid coordinates', receiver);
+        mapDiv.innerHTML = '<div style="padding: 10px; color: #d9534f;">Cannot display map: Invalid coordinates</div>';
+      }
     })
     .catch(err => {
       console.error('Error fetching receiver by id:', err);
@@ -1908,22 +1943,38 @@ async function fetchReceivers(ip) {
     // Initialize the map for the receiver pin only after the DOM is ready
     const receiverMapDiv = document.getElementById('receiver-map');
     if (receiverMapDiv) {
-      // Initialize the map for the receiver pin
-      const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(receiverMap);
+      // Validate coordinates before initializing the map
+      if (typeof receiver.latitude === 'number' && typeof receiver.longitude === 'number' &&
+          !isNaN(receiver.latitude) && !isNaN(receiver.longitude)) {
+        // Initialize the map for the receiver pin
+        const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(receiverMap);
 
-      L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
-        .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
+        L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
+          .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
+      } else {
+        console.warn('Cannot initialize receiver map: Invalid coordinates', receiver);
+        receiverMapDiv.innerHTML = '<div style="padding: 10px; color: #d9534f;">Cannot display map: Invalid coordinates</div>';
+      }
     } else {
       console.error("Receiver map container not found");
     }
 
-    const firstReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
-    selectedReceiverLatLng = firstReceiverLatLng;
-    // Update the overlay to show the first receiver's position
-    updateOverlay(firstReceiverLatLng);
+    // Validate coordinates before creating LatLng object
+    if (typeof receiver.latitude === 'number' && typeof receiver.longitude === 'number' &&
+        !isNaN(receiver.latitude) && !isNaN(receiver.longitude)) {
+      const firstReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+      selectedReceiverLatLng = firstReceiverLatLng;
+    } else {
+      console.warn('Invalid coordinates for receiver:', receiver);
+      selectedReceiverLatLng = null;
+    }
+    // Update the overlay to show the first receiver's position if coordinates are valid
+    if (selectedReceiverLatLng) {
+      updateOverlay(selectedReceiverLatLng);
+    }
     updateSummaryTable();
     
     // Draw radius circles around the selected receiver
