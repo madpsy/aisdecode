@@ -1508,6 +1508,26 @@ socket.on("metrics/bysource", function(data) {
       c.data.datasets[0].data = [];
       c.update();
     });
+    
+    // Clear the doughnut chart
+    if (typeDoughnut) {
+      typeDoughnut.data.labels = [];
+      typeDoughnut.data.datasets[0].data = [];
+      typeDoughnut.options.plugins.centerText.text = '0';
+      typeDoughnut.update();
+    }
+    
+    // Clear the vessel markers and table
+    seenUserIds.clear();
+    Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
+    vesselMarkers = {};
+    Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
+    Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
+    Object.keys(seenCount).forEach(k => delete seenCount[k]);
+    document.getElementById('summaryBody').innerHTML = '';
+    
+    // Don't process any more data for this update
+    return;
   } else {
     // Normal update for metrics
     // Update card metrics

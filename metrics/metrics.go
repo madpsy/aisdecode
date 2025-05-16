@@ -435,6 +435,8 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
                         // The receiver exists if we got a valid response
                         receiverExists = true
                         filterIP = out.IP
+                        // Only consider it as having no IP if the IP is actually empty
+                        // Don't treat 127.0.0.1 as an empty IP
                         if filterIP == "" {
                             receiverHasEmptyIP = true
                         } else {
