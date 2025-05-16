@@ -1426,12 +1426,21 @@ socket.on("metrics/bysource", function(data) {
         // Find the receiver info content div and update just that part
         const infoContent = receiverBox.querySelector('.receiver-info-content');
         if (infoContent) {
-          // Add a warning to the top of the info content
-          const warningDiv = document.createElement('div');
-          warningDiv.innerHTML = message;
-          warningDiv.style.marginBottom = '10px';
-          infoContent.insertBefore(warningDiv, infoContent.firstChild);
-          console.log("Added warning to existing receiver info box");
+          // Check if warning already exists
+          const existingWarning = document.getElementById('receiver-no-data-warning');
+          if (existingWarning) {
+            // Update existing warning
+            existingWarning.innerHTML = message;
+            console.log("Updated existing warning in receiver info box");
+          } else {
+            // Add a new warning to the top of the info content
+            const warningDiv = document.createElement('div');
+            warningDiv.id = 'receiver-no-data-warning';
+            warningDiv.innerHTML = message;
+            warningDiv.style.marginBottom = '10px';
+            infoContent.insertBefore(warningDiv, infoContent.firstChild);
+            console.log("Added warning to existing receiver info box");
+          }
         } else {
           console.log("Could not find receiver-info-content to add warning");
         }
