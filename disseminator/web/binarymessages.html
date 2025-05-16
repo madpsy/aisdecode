@@ -118,6 +118,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+  <script src="fix-download-button.js"></script>
 </head>
 <body>
 
@@ -307,6 +308,7 @@
     ).map(o => o.value);
     block.range = block.dom.rangeSelect.value;
     block.idx = 0;
+    block.hasPlotted = true; // Set flag when user plots data
     fetchAndRender(block);
   };
 
@@ -319,6 +321,7 @@
     block.aggregateFields = [];
     block.range = '';
     block.idx = 0;
+    block.hasPlotted = false; // Reset flag when user resets
     block.dom.startInput.value = '';
     block.dom.endInput.value = '';
     block.dom.fieldsSelect.selectedIndex = -1;
@@ -535,8 +538,8 @@
       const msg = history[idx];
       const isAgg = aggregateFields.length > 0;
       
-      // Show download row if we have data to download
-      if (history.length > 0 && (isAgg || history[0].Packet?.DecodedBinary)) {
+      // Show download row only if user has plotted data AND we have data to download
+      if (block.hasPlotted && history.length > 0 && (isAgg || history[0].Packet?.DecodedBinary)) {
         dom.downloadRow.style.display = '';
       } else {
         dom.downloadRow.style.display = 'none';
