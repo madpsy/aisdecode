@@ -415,9 +415,6 @@
     const coordsErrorEl = document.getElementById('coords-error');
     const maidenheadErrorEl = document.getElementById('maidenhead-error');
     
-    // Flag to control whether to snap to grid center
-    let snapToGrid = false;
-    
     // Track marker movement for progressive zooming
     let markerMoveCount = 0;
     const MAX_ZOOM_LEVEL = 18;
@@ -497,18 +494,6 @@
       maidenheadInput.value = latLngToMaidenhead(lat, lng);
     }
     
-    // Add a small offset to the marker position to ensure it's in the correct grid square
-    function snapToGridCenter(position) {
-      // Get the current locator
-      const locator = latLngToMaidenhead(position.lat, position.lng);
-      
-      // Convert back to lat/lng to get the center of the grid square
-      const gridCenter = maidenheadToLatLng(locator);
-      
-      // Return the center position
-      return gridCenter;
-    }
-
     // Update marker when coordinate fields change
     function handleCoordinateInput() {
       const latVal = parseFloat(latInput.value);
@@ -584,17 +569,8 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
     // Update marker position on drag end
     marker.on('dragend', () => {
       const pos = marker.getLatLng();
-      
-      if (snapToGrid) {
-        // Snap to grid center
-        const gridCenter = snapToGridCenter(pos);
-        lat = gridCenter.lat;
-        lng = gridCenter.lng;
-        marker.setLatLng([lat, lng]);
-      } else {
-        lat = pos.lat;
-        lng = pos.lng;
-      }
+      lat = pos.lat;
+      lng = pos.lng;
       
       updateCoordinateFields();
       updateCommand();
@@ -611,17 +587,9 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
     
     // Allow clicking on map to move marker
     map.on('click', (e) => {
-      if (snapToGrid) {
-        // Snap to grid center
-        const gridCenter = snapToGridCenter(e.latlng);
-        lat = gridCenter.lat;
-        lng = gridCenter.lng;
-        marker.setLatLng([lat, lng]);
-      } else {
-        lat = e.latlng.lat;
-        lng = e.latlng.lng;
-        marker.setLatLng([lat, lng]);
-      }
+      lat = e.latlng.lat;
+      lng = e.latlng.lng;
+      marker.setLatLng([lat, lng]);
       
       updateCoordinateFields();
       updateCommand();
@@ -635,37 +603,6 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
       // Zoom to marker with progressive zoom level
       map.setView(marker.getLatLng(), zoomLevel);
     });
-    
-    // Add a checkbox to toggle snap to grid
-    const controlDiv = L.DomUtil.create('div', 'leaflet-control-snap');
-    controlDiv.style.backgroundColor = 'white';
-    controlDiv.style.padding = '5px';
-    controlDiv.style.borderRadius = '4px';
-    controlDiv.style.boxShadow = '0 1px 5px rgba(0,0,0,0.4)';
-    
-    const checkbox = L.DomUtil.create('input', '', controlDiv);
-    checkbox.type = 'checkbox';
-    checkbox.id = 'snap-checkbox';
-    
-    const label = L.DomUtil.create('label', '', controlDiv);
-    label.htmlFor = 'snap-checkbox';
-    label.style.marginLeft = '5px';
-    label.innerHTML = 'Snap to grid';
-    
-    checkbox.addEventListener('change', function() {
-      snapToGrid = this.checked;
-    });
-    
-    const control = L.Control.extend({
-      options: {
-        position: 'topright'
-      },
-      onAdd: function() {
-        return controlDiv;
-      }
-    });
-    
-    map.addControl(new control());
     
     // Add reset button to reset zoom level
     const resetDiv = L.DomUtil.create('div', 'leaflet-control-reset');
