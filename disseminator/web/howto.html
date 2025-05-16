@@ -261,6 +261,10 @@
       lng = pos.lng;
       updateCoordinateFields();
       updateCommand();
+      
+      // Create bounds and fit map to marker
+      const bounds = L.latLngBounds([pos]);
+      map.fitBounds(bounds, { maxZoom: 13, padding: [50, 50] });
     });
     
     // Allow clicking on map to move marker
@@ -270,6 +274,10 @@
       marker.setLatLng([lat, lng]);
       updateCoordinateFields();
       updateCommand();
+      
+      // Create bounds and fit map to marker
+      const bounds = L.latLngBounds([e.latlng]);
+      map.fitBounds(bounds, { maxZoom: 13, padding: [50, 50] });
     });
 
 // Image modal handler
