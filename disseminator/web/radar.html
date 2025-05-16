@@ -347,6 +347,13 @@ function drawBackground() {
   const drawOriginX = canvasSize / 2 - offsetTileX * tileDrawScale;
   const drawOriginY = canvasSize / 2 - offsetTileY * tileDrawScale;
 
+  // Calculate how many tiles we need to cover the radar circle
+  // The radar radius in pixels is radarRadiusPx
+  // Each tile is tileCanvasWidth pixels wide at the current scale
+  // We need to cover from the center to the edge of the radar circle in each direction
+  // Add 1 to ensure we have enough tiles to cover the entire circle with rotation
+  const tilesNeeded = Math.ceil(radarRadiusPx / tileCanvasWidth) + 1;
+
   // --------------------
   // 1. Draw the OpenStreetMap Base Layer
   // --------------------
@@ -356,9 +363,9 @@ function drawBackground() {
   ctx.rotate(-currentRotation * Math.PI / 180);
   ctx.translate(-canvasSize / 2, -canvasSize / 2);
   ctx.globalAlpha = 0.5;
-  // Draw a grid of OSM tiles (3x3) around the center tile
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
+  // Draw a grid of OSM tiles around the center tile based on calculated tilesNeeded
+  for (let dx = -tilesNeeded; dx <= tilesNeeded; dx++) {
+    for (let dy = -tilesNeeded; dy <= tilesNeeded; dy++) {
       const tileX = centerTileX + dx;
       const tileY = centerTileY + dy;
       const tileImg = getOSMTileImage(tileX, tileY, zoom);
@@ -383,8 +390,9 @@ function drawBackground() {
     ctx.translate(canvasSize / 2, canvasSize / 2);
     ctx.rotate(-currentRotation * Math.PI / 180);
     ctx.translate(-canvasSize / 2, -canvasSize / 2);
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
+    // Use the same tilesNeeded calculation for the overlay
+    for (let dx = -tilesNeeded; dx <= tilesNeeded; dx++) {
+      for (let dy = -tilesNeeded; dy <= tilesNeeded; dy++) {
         const tileX = centerTileX + dx;
         const tileY = centerTileY + dy;
         const tileImg = getTileImage(tileX, tileY, zoom);
@@ -402,7 +410,6 @@ function drawBackground() {
     ctx.restore();
   }
 }
-
 
     // ------------------------------
     // Draw the Radar Gauge (Overlaying the background)
