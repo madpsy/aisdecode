@@ -1003,11 +1003,8 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
 
     // For each receiver in the list, fetch messages based on the ip_address
     for i, rec := range list {
-        // Fetch messages count and message stats for each receiver based on ip_address and udp_port
-        if rec.IPAddress == "" {
-            log.Printf("Error: IP Address is empty for Receiver ID: %d", rec.ID)
-        }
-
+        // Fetch messages count and message stats for each receiver based on udp_port
+        // Note: We don't need the IP address for this since getMessagesByPort only uses UDP port
         msgs, messageStats := getMessagesByPort(rec.UDPPort)
 
         // Set the messages field and message stats
