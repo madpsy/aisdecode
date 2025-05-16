@@ -48,6 +48,7 @@ type Receiver struct {
 	Messages    int        `json:"messages"`
 	UDPPort     *int       `json:"udp_port,omitempty"`
 	MessageStats map[string]MessageStat `json:"message_stats"` // Added for admin endpoints
+	LastSeen    *time.Time `json:"lastseen,omitempty"`
 }
 
 // PublicReceiver is used for public API responses without sensitive fields
@@ -60,6 +61,7 @@ type PublicReceiver struct {
 	Name        string     `json:"name"`
 	URL         *string    `json:"url,omitempty"`
 	Messages    int        `json:"messages"`
+	LastSeen    *time.Time `json:"lastseen,omitempty"`
 	// UDPPort is intentionally not exposed in the public API
 	UDPPort     *int       `json:"-"`
 }
@@ -703,7 +705,7 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
             port := int(udpPort.Int64)
             rec.UDPPort = &port
             
-            // Use port metrics to determine the IP address
+            // Use port metrics to determine the IP address and last seen time
             portMetricsMutex.RLock()
             var lastSeenIP string
             var lastSeenTime time.Time
@@ -721,6 +723,12 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
             
             // Use the IP from port metrics if available
             rec.IPAddress = lastSeenIP
+            
+            // Set the LastSeen field if we have a valid timestamp
+            if !lastSeenTime.IsZero() {
+                lastSeen := lastSeenTime
+                rec.LastSeen = &lastSeen
+            }
         }
 
         list = append(list, rec)
@@ -955,7 +963,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             port := int(udpPort.Int64)
             rec.UDPPort = &port
             
-            // Use port metrics to determine the IP address
+            // Use port metrics to determine the IP address and last seen time
             portMetricsMutex.RLock()
             var lastSeenIP string
             var lastSeenTime time.Time
@@ -993,6 +1001,12 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             URL:         rec.URL,
             Messages:    msgs,
             UDPPort:     rec.UDPPort, // Store UDPPort for filtering but don't expose in JSON
+        }
+        
+        // Add the LastSeen field if we have port metrics for this receiver
+        if rec.UDPPort != nil && !lastSeenTime.IsZero() {
+            lastSeen := lastSeenTime
+            publicRec.LastSeen = &lastSeen
         }
 
         // If we're filtering by IP address, store this receiver by its port
@@ -1033,9 +1047,14 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
                 }
                 
                 // If we have a receiver for this port
-                if _, ok := receiversByPort[port]; ok {
+                if receiver, ok := receiversByPort[port]; ok {
                     // Store the last_seen time for this port
                     lastSeenByPort[port] = metric.LastSeen
+                    
+                    // Update the receiver with the LastSeen time
+                    lastSeen := metric.LastSeen
+                    receiver.LastSeen = &lastSeen
+                    receiversByPort[port] = receiver
                 }
             }
         }
@@ -1065,10 +1084,41 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     if idParam == "" {
         // Add dummy entry for receiver ID 0 (anonymous)
         // Create a map with only the specified fields
+        // For the anonymous receiver, get the last seen time from the primary UDP port
+        var lastSeen *time.Time
+        
+        // Fetch the primary UDP port from the ingester settings
+        ingestSettings, err := fetchIngestSettings()
+        if err == nil {
+            primaryUDPPort := ingestSettings.UDPListenPort
+            
+            // Get the most recent last seen time for the primary port
+            portMetricsMutex.RLock()
+            var mostRecentTime time.Time
+            for _, portMap := range portMetricsMap {
+                if metric, ok := portMap[primaryUDPPort]; ok {
+                    if mostRecentTime.IsZero() || metric.LastSeen.After(mostRecentTime) {
+                        mostRecentTime = metric.LastSeen
+                    }
+                }
+            }
+            portMetricsMutex.RUnlock()
+            
+            // Set lastSeen if we found a valid timestamp
+            if !mostRecentTime.IsZero() {
+                lastSeen = &mostRecentTime
+            }
+        }
+        
         anonymousReceiver := map[string]interface{}{
             "id":          0,
             "name":        "Anonymous",
             "description": "Anonymous",
+        }
+        
+        // Add the lastseen field if we have a valid timestamp
+        if lastSeen != nil {
+            anonymousReceiver["lastseen"] = lastSeen
         }
         
         // Add the anonymous receiver first
@@ -1151,6 +1201,24 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
     msgs, messageStats := getMessagesByPort(&udpListenPort)
     dummyReceiver.Messages = msgs
     dummyReceiver.MessageStats = messageStats
+    
+    // Get the most recent last seen time for the primary port
+    portMetricsMutex.RLock()
+    var mostRecentTime time.Time
+    for _, portMap := range portMetricsMap {
+        if metric, ok := portMap[udpListenPort]; ok {
+            if mostRecentTime.IsZero() || metric.LastSeen.After(mostRecentTime) {
+                mostRecentTime = metric.LastSeen
+            }
+        }
+    }
+    portMetricsMutex.RUnlock()
+    
+    // Set LastSeen if we found a valid timestamp
+    if !mostRecentTime.IsZero() {
+        lastSeen := mostRecentTime
+        dummyReceiver.LastSeen = &lastSeen
+    }
 
     // Add the dummy receiver to the beginning of the list
     list = append([]Receiver{dummyReceiver}, list...)
@@ -1367,7 +1435,7 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
         port := int(udpPort.Int64)
         rec.UDPPort = &port
         
-        // Use port metrics to determine the IP address
+        // Use port metrics to determine the IP address and last seen time
         portMetricsMutex.RLock()
         var lastSeenIP string
         var lastSeenTime time.Time
@@ -1385,6 +1453,12 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
         
         // Use the IP from port metrics if available
         rec.IPAddress = lastSeenIP
+        
+        // Set the LastSeen field if we have a valid timestamp
+        if !lastSeenTime.IsZero() {
+            lastSeen := lastSeenTime
+            rec.LastSeen = &lastSeen
+        }
     }
     if err == sql.ErrNoRows {
         w.WriteHeader(http.StatusNotFound)
