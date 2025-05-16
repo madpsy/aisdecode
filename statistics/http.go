@@ -562,7 +562,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
                 AND m.distance <= 500000  -- Filter out spurious values over 500km
                 AND m.timestamp >= now() - INTERVAL '%d days'
                 AND m.receiver_id = %d
-                AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE'))
+                AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
               ORDER BY m.user_id, m.receiver_id, m.distance DESC
         `, days, receiverID)
     } else {
@@ -580,7 +580,7 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
               WHERE m.distance IS NOT NULL
                 AND m.distance <= 500000  -- Filter out spurious values over 1000km
                 AND m.timestamp >= now() - INTERVAL '%d days'
-                AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE'))
+                AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
               ORDER BY m.user_id, m.receiver_id, m.distance DESC
         `, days)
     }
