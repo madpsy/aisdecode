@@ -165,40 +165,39 @@
         return null; // Invalid locator
       }
       
-      // Extract components
-      const field1 = locator.charCodeAt(0) - 65; // A=0, B=1, etc.
-      const field2 = locator.charCodeAt(1) - 65;
-      const square1 = parseInt(locator.charAt(2));
-      const square2 = parseInt(locator.charAt(3));
+      // First pair: Field (20° longitude × 10° latitude)
+      const fieldLon = locator.charCodeAt(0) - 65; // A=0, B=1, etc.
+      const fieldLat = locator.charCodeAt(1) - 65;
       
-      // Calculate base position
-      let lng = (field1 * 20) - 180;
-      let lat = (field2 * 10) - 90;
+      // Second pair: Square (2° longitude × 1° latitude)
+      const squareLon = parseInt(locator.charAt(2));
+      const squareLat = parseInt(locator.charAt(3));
       
-      // Add square precision
-      lng += square1 * 2;
-      lat += square2;
+      // Calculate base coordinates of the bottom-left corner of the square
+      let lon = (fieldLon * 20) - 180 + (squareLon * 2);
+      let lat = (fieldLat * 10) - 90 + squareLat;
       
-      // Add subsquare precision if available (6-character locator)
+      // For 6-character locators, add subsquare precision
       if (locator.length >= 6) {
-        const subsq1 = locator.charCodeAt(4) - 97; // a=0, b=1, etc.
-        const subsq2 = locator.charCodeAt(5) - 97;
+        // Third pair: Subsquare (5' longitude × 2.5' latitude)
+        // a-x represents 0-23 (24 divisions)
+        const subLon = locator.charCodeAt(4) - 97; // a=0, b=1, etc.
+        const subLat = locator.charCodeAt(5) - 97;
         
-        // Each subsquare divides a 2-degree square into 24 parts horizontally
-        // So each subsquare is 2/24 = 1/12 degrees wide
-        lng += (subsq1 / 12);
-        lat += (subsq2 / 24);
+        // Add subsquare position (each subsquare is 2°/24 = 5' longitude and 1°/24 = 2.5' latitude)
+        lon += (subLon * (2 / 24));
+        lat += (subLat * (1 / 24));
         
         // Center in the subsquare
-        lng += (1/24); // Half of 1/12
-        lat += (1/48); // Half of 1/24
+        lon += (2 / 48); // Half of 2°/24
+        lat += (1 / 48); // Half of 1°/24
       } else {
-        // Center in the square
-        lng += 1;
-        lat += 0.5;
+        // For 4-character locators, center in the square
+        lon += 1; // Half of 2°
+        lat += 0.5; // Half of 1°
       }
       
-      return { lat, lng };
+      return { lat, lng: lon };
     }
     
     function createMaidenheadGrid(map) {
