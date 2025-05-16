@@ -58,10 +58,38 @@
     .message .time-controls input {
       min-width: 100%;
     }
+    /* Button styling similar to latestmessages.html */
     .message .time-controls button {
       flex: 0 0 auto;
       margin-top: 1.2rem;
+      background: none;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 0.4rem 0.8rem;
+      font-size: 1.2rem;
+      cursor: pointer;
+      transition: background 0.2s;
     }
+    .message .time-controls button:hover { background: #f0f0f0; }
+    .message .time-controls button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
+    
+    /* Download row styling */
+    .message .download-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .message .download-row button {
+      background: none;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 0.4rem 0.8rem;
+      font-size: 1.2rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .message .download-row button:hover { background: #f0f0f0; }
     /* Stats legend styles */
     .stats-legend {
       display: flex;
@@ -185,8 +213,8 @@
       if (!block.dom) {
         createBlockDOM(block);
       } else {
-        // Make sure download button is disabled until we have data to download
-        block.dom.downloadCsvBtn.disabled = true;
+        // Make sure download row is hidden until we have data to download
+        block.dom.downloadRow.style.display = 'none';
       }
 
       if (block.dom.fieldsSelect &&
@@ -246,16 +274,26 @@
     </label>
     <button class="apply-range">Plot</button>
     <button class="reset-range">Reset</button>
-    <button class="download-csv" disabled>Download CSV</button>
   `;
   c.appendChild(controls);
+  
+  // Create a separate div for the download button
+  const downloadRow = document.createElement('div');
+  downloadRow.className = 'download-row';
+  downloadRow.style.display = 'none'; // Initially hidden
+  downloadRow.innerHTML = `
+    <button class="download-csv">Download CSV</button>
+  `;
+  c.appendChild(downloadRow);
+  
   block.dom.startInput    = controls.querySelector('.start-input');
   block.dom.endInput      = controls.querySelector('.end-input');
   block.dom.fieldsSelect  = controls.querySelector('.fields-select');
   block.dom.rangeSelect   = controls.querySelector('.range-select');
   block.dom.applyRangeBtn = controls.querySelector('.apply-range');
   block.dom.resetRangeBtn = controls.querySelector('.reset-range');
-  block.dom.downloadCsvBtn = controls.querySelector('.download-csv');
+  block.dom.downloadRow   = downloadRow;
+  block.dom.downloadCsvBtn = downloadRow.querySelector('.download-csv');
 
   block.dom.applyRangeBtn.onclick = () => {
     block.start = block.dom.startInput.value
@@ -285,7 +323,7 @@
     block.dom.endInput.value = '';
     block.dom.fieldsSelect.selectedIndex = -1;
     block.dom.rangeSelect.value = '';
-    block.dom.downloadCsvBtn.disabled = true;
+    block.dom.downloadRow.style.display = 'none';
     fetchAndRender(block);
   };
 
@@ -497,11 +535,11 @@
       const msg = history[idx];
       const isAgg = aggregateFields.length > 0;
       
-      // Enable download button if we have data to download
+      // Show download row if we have data to download
       if (history.length > 0 && (isAgg || history[0].Packet?.DecodedBinary)) {
-        dom.downloadCsvBtn.disabled = false;
+        dom.downloadRow.style.display = '';
       } else {
-        dom.downloadCsvBtn.disabled = true;
+        dom.downloadRow.style.display = 'none';
       }
 
       const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
