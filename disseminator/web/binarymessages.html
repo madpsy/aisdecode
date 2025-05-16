@@ -182,7 +182,12 @@
 
       block.history = history.length ? history : [initialMsg];
 
-      if (!block.dom) createBlockDOM(block);
+      if (!block.dom) {
+        createBlockDOM(block);
+      } else {
+        // Make sure download button is disabled until we have data to download
+        block.dom.downloadCsvBtn.disabled = true;
+      }
 
       if (block.dom.fieldsSelect &&
           !block.dom.fieldsSelect.options.length &&
@@ -365,7 +370,17 @@
     }
 
     // Create a horizontal line annotation for min/max/avg
-    function createHorizontalLine(value, label, color, dashed = true) {
+    function createHorizontalLine(value, type, label, dashed = true) {
+      // Set specific colors for each type
+      let color;
+      if (type === 'min') {
+        color = 'green';
+      } else if (type === 'max') {
+        color = 'red';
+      } else { // avg
+        color = 'blue';
+      }
+      
       return {
         type: 'line',
         borderColor: color,
@@ -395,13 +410,12 @@
       container.style.display = 'flex';
       const dataset = visibleDatasets[0];
       const stats = calculateStats(dataset.data);
-      const baseColor = dataset.borderColor;
       
       // Min stat
       const minItem = document.createElement('div');
       minItem.className = 'stat-item';
       minItem.innerHTML = `
-        <span class="color-box" style="background-color: ${baseColor}; border-style: dashed;"></span>
+        <span class="color-box" style="background-color: green; border-style: dashed;"></span>
         <span>${dataset.label} Min: <span class="stat-value">${stats.min.toFixed(2)}</span></span>
       `;
       container.appendChild(minItem);
@@ -410,7 +424,7 @@
       const maxItem = document.createElement('div');
       maxItem.className = 'stat-item';
       maxItem.innerHTML = `
-        <span class="color-box" style="background-color: ${baseColor}; border-style: dashed;"></span>
+        <span class="color-box" style="background-color: red; border-style: dashed;"></span>
         <span>${dataset.label} Max: <span class="stat-value">${stats.max.toFixed(2)}</span></span>
       `;
       container.appendChild(maxItem);
@@ -419,7 +433,7 @@
       const avgItem = document.createElement('div');
       avgItem.className = 'stat-item';
       avgItem.innerHTML = `
-        <span class="color-box" style="background-color: ${baseColor}; border-style: dashed;"></span>
+        <span class="color-box" style="background-color: blue; border-style: dashed;"></span>
         <span>${dataset.label} Avg: <span class="stat-value">${stats.avg.toFixed(2)}</span></span>
       `;
       container.appendChild(avgItem);
@@ -546,9 +560,9 @@
           const stats = calculateStats(dataset.data);
           
           // Add min, max, and avg lines as annotations
-          annotations.push(createHorizontalLine(stats.min, `${dataset.label} Min`, dataset.borderColor));
-          annotations.push(createHorizontalLine(stats.max, `${dataset.label} Max`, dataset.borderColor));
-          annotations.push(createHorizontalLine(stats.avg, `${dataset.label} Avg`, dataset.borderColor));
+          annotations.push(createHorizontalLine(stats.min, 'min', `${dataset.label} Min`));
+          annotations.push(createHorizontalLine(stats.max, 'max', `${dataset.label} Max`));
+          annotations.push(createHorizontalLine(stats.avg, 'avg', `${dataset.label} Avg`));
         }
 
         if (dom.chart) dom.chart.destroy();
@@ -628,9 +642,9 @@
           const stats = calculateStats(dataset.data);
           
           // Add min, max, and avg lines as annotations
-          annotations.push(createHorizontalLine(stats.min, `${dataset.label} Min`, dataset.borderColor));
-          annotations.push(createHorizontalLine(stats.max, `${dataset.label} Max`, dataset.borderColor));
-          annotations.push(createHorizontalLine(stats.avg, `${dataset.label} Avg`, dataset.borderColor));
+          annotations.push(createHorizontalLine(stats.min, 'min', `${dataset.label} Min`));
+          annotations.push(createHorizontalLine(stats.max, 'max', `${dataset.label} Max`));
+          annotations.push(createHorizontalLine(stats.avg, 'avg', `${dataset.label} Avg`));
         }
 
         dom.chart = new Chart(dom.canvas.getContext('2d'), {
@@ -662,9 +676,9 @@
                     if (visibleDatasets.length === 1) {
                       const dataset = visibleDatasets[0];
                       const stats = calculateStats(dataset.data);
-                      newAnnotations.push(createHorizontalLine(stats.min, `${dataset.label} Min`, dataset.borderColor));
-                      newAnnotations.push(createHorizontalLine(stats.max, `${dataset.label} Max`, dataset.borderColor));
-                      newAnnotations.push(createHorizontalLine(stats.avg, `${dataset.label} Avg`, dataset.borderColor));
+                      newAnnotations.push(createHorizontalLine(stats.min, 'min', `${dataset.label} Min`));
+                      newAnnotations.push(createHorizontalLine(stats.max, 'max', `${dataset.label} Max`));
+                      newAnnotations.push(createHorizontalLine(stats.avg, 'avg', `${dataset.label} Avg`));
                     }
                     
                     dom.chart.options.plugins.annotation.annotations = newAnnotations;
