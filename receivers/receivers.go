@@ -1850,7 +1850,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         // Check if it was updated within the configured timeout period
         timeoutDuration := time.Duration(settings.IPAddressTimeoutMinutes) * time.Minute
         if time.Since(existingLastUpdated) < timeoutDuration {
-            timeoutMessage := fmt.Sprintf("Client IP address has already added a receiver recently", settings.IPAddressTimeoutMinutes)
+            timeoutMessage := fmt.Sprintf("Client IP address has already added a receiver recently")
             http.Error(w, timeoutMessage, http.StatusBadRequest)
             return
         }
