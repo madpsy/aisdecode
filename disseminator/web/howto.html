@@ -174,6 +174,9 @@
       
       // Function to get Maidenhead locator with variable precision
       function getLocator(lat, lng, precision) {
+        // If precision is 0, return empty string (don't show locator)
+        if (precision === 0) return '';
+        
         // Get full 6-character locator
         const fullLocator = latLngToMaidenhead(lat, lng);
         
@@ -192,32 +195,32 @@
         // At higher zoom levels (more zoomed in), use smaller grid cells
         let gridSize = 2; // Default size in degrees
         let fontSize = 12; // Default font size
-        let locatorPrecision = 4; // Default to 4-character locator when zoomed out
+        let locatorPrecision = 0; // Default to no locator when zoomed out (0 means don't show)
         
         if (zoom >= 14) {
           gridSize = 0.025; // Very small grid at very high zoom levels
           fontSize = 10;
-          locatorPrecision = 6; // Use 6-character locator only when significantly zoomed in
+          locatorPrecision = 6; // Use 6-character locator when significantly zoomed in
         } else if (zoom >= 12) {
           gridSize = 0.05; // Tiny grid at high zoom levels
           fontSize = 10;
-          locatorPrecision = 6; // Use 6-character locator only when significantly zoomed in
+          locatorPrecision = 6; // Use 6-character locator when significantly zoomed in
         } else if (zoom >= 10) {
           gridSize = 0.1; // Smaller grid at high zoom levels
           fontSize = 11;
-          locatorPrecision = 4; // Use 4-character locator for better readability
+          locatorPrecision = 4; // Use 4-character locator for medium zoom levels
         } else if (zoom >= 8) {
           gridSize = 0.25; // Medium grid at medium-high zoom levels
           fontSize = 11;
-          locatorPrecision = 4; // Use 4-character locator for better readability
+          locatorPrecision = 4; // Use 4-character locator for medium zoom levels
         } else if (zoom >= 6) {
           gridSize = 0.5; // Medium-large grid at medium zoom levels
           fontSize = 12;
-          locatorPrecision = 4; // Use 4-character locator for better readability
+          locatorPrecision = 4; // Use 4-character locator for medium zoom levels
         } else {
           gridSize = 1; // Large grid at low zoom levels
           fontSize = 12;
-          locatorPrecision = 4; // Use 4-character locator when zoomed out
+          locatorPrecision = 0; // Don't show locator when zoomed out too far
         }
         
         // Calculate bounds for grid
