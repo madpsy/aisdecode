@@ -632,8 +632,8 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
 
     // Extract parameters
     idParam := filters["id"]
-    ipParam := filters["ip_address"]
-
+    // We no longer use ipParam since we filter by IP using port metrics
+    
     // Base query - note we still select ip_address from the database
     // but we'll override it with the port metrics data later
     baseQuery := `
@@ -969,7 +969,8 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         }
 
         // Fetch message count (0 on error)
-        msgs, err := getMessagesByIP(rec.IPAddress, rec.UDPPort)
+        // Note: getMessagesByIP now only uses the UDP port, not the IP address
+        msgs, err := getMessagesByIP("", rec.UDPPort) // Pass empty string for IP address
         if err != nil {
             msgs = 0
         }
