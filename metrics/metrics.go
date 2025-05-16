@@ -431,6 +431,9 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
     if filterIP == "" {
         filterIP = requestedIP
     }
+    
+    // Check if we have any data for this IP before proceeding
+    hasData := false
 
     // 4) Load latest metrics
     metricsLock.RLock()
@@ -448,30 +451,82 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 
     // 6) Build SimpleMetrics for filterIP
     rt := SimpleMetrics{}
+    
+    // Check if we have any data for this IP
     for _, m := range full.BytesReceivedBySource {
         if m.SourceIP == filterIP {
             rt.BytesReceived = m.Count
+            hasData = true
         }
     }
     for _, m := range full.MessagesBySource {
         if m.SourceIP == filterIP {
             rt.Messages = m.Count
+            hasData = true
         }
     }
     for _, m := range full.UniqueMMSIBySource {
         if m.SourceIP == filterIP {
             rt.UniqueMMSI = m.Count
+            hasData = true
         }
     }
     for _, m := range full.FailuresBySource {
         if m.SourceIP == filterIP {
             rt.Failures = m.Count
+            hasData = true
         }
     }
-    rt.Deduplicated     = full.PerDeduplicatedSource[filterIP]
-    rt.WindowBytes      = full.WindowBytesBySource[filterIP]
-    rt.WindowMessages   = full.WindowMessagesBySource[filterIP]
-    rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[filterIP]
+    
+    // Check for data in maps
+    if _, exists := full.PerDeduplicatedSource[filterIP]; exists {
+        rt.Deduplicated = full.PerDeduplicatedSource[filterIP]
+        hasData = true
+    }
+    if _, exists := full.WindowBytesBySource[filterIP]; exists {
+        rt.WindowBytes = full.WindowBytesBySource[filterIP]
+        hasData = true
+    }
+    if _, exists := full.WindowMessagesBySource[filterIP]; exists {
+        rt.WindowMessages = full.WindowMessagesBySource[filterIP]
+        hasData = true
+    }
+    if _, exists := full.WindowUniqueUIDsBySource[filterIP]; exists {
+        rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[filterIP]
+        hasData = true
+    }
+    
+    // If we have no data for the requested IP from a receiver ID lookup,
+    // fall back to the requestor's IP
+    if !hasData && filterIP != requestorIP && r.URL.Query().Get("id") != "" {
+        filterIP = requestorIP
+        
+        // Recalculate metrics for the fallback IP
+        for _, m := range full.BytesReceivedBySource {
+            if m.SourceIP == filterIP {
+                rt.BytesReceived = m.Count
+            }
+        }
+        for _, m := range full.MessagesBySource {
+            if m.SourceIP == filterIP {
+                rt.Messages = m.Count
+            }
+        }
+        for _, m := range full.UniqueMMSIBySource {
+            if m.SourceIP == filterIP {
+                rt.UniqueMMSI = m.Count
+            }
+        }
+        for _, m := range full.FailuresBySource {
+            if m.SourceIP == filterIP {
+                rt.Failures = m.Count
+            }
+        }
+        rt.Deduplicated     = full.PerDeduplicatedSource[filterIP]
+        rt.WindowBytes      = full.WindowBytesBySource[filterIP]
+        rt.WindowMessages   = full.WindowMessagesBySource[filterIP]
+        rt.WindowUniqueUIDs = full.WindowUniqueUIDsBySource[filterIP]
+    }
 
     // 7) Load or compute Aggregated (cached)
     aggKey := fmt.Sprintf("agg:%s", filterIP)
