@@ -1475,7 +1475,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
         // ── Build & send StreamMessage ────────────────────────────────────────
         parts := strings.Split(rawStr, ",")
         channel := "Unknown"
-        if len(parts) > 5 {
+        if len(parts) > 4 && len(parts[4]) > 0 {
             channel = string(parts[4][0])
         }
 

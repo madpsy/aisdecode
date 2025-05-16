@@ -1141,9 +1141,62 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 5) INSERT including ip_address and password
-    err := db.QueryRow(`
+    // 5) Start a transaction to ensure atomicity
+    tx, err := db.Begin()
+    if err != nil {
+        http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // Lock the receivers table to prevent concurrent inserts
+    _, err = tx.Exec(`LOCK TABLE receivers IN EXCLUSIVE MODE`)
+    if err != nil {
+        tx.Rollback()
+        http.Error(w, "Failed to lock table: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // Get the current value of the sequence
+    var currSeqVal int
+    err = tx.QueryRow(`SELECT last_value FROM receivers_id_seq`).Scan(&currSeqVal)
+    if err != nil {
+        tx.Rollback()
+        http.Error(w, "Failed to get sequence value: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // Find the maximum ID ever used (including deleted receivers)
+    var maxID int
+    err = tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM receivers`).Scan(&maxID)
+    if err != nil {
+        tx.Rollback()
+        http.Error(w, "Failed to get max ID: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // If the max ID is greater than the current sequence value, update the sequence
+    if maxID >= currSeqVal {
+        _, err = tx.Exec(`SELECT setval('receivers_id_seq', $1)`, maxID+1)
+        if err != nil {
+            tx.Rollback()
+            http.Error(w, "Failed to update sequence: "+err.Error(), http.StatusInternalServerError)
+            return
+        }
+    }
+    
+    // Get a new ID from the sequence (which is now guaranteed to be higher than any ID ever used)
+    var newID int
+    err = tx.QueryRow(`SELECT nextval('receivers_id_seq')`).Scan(&newID)
+    if err != nil {
+        tx.Rollback()
+        http.Error(w, "Failed to get new ID: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // INSERT including ip_address and password with explicit ID
+    err = tx.QueryRow(`
         INSERT INTO receivers (
+            id,
             description,
             latitude,
             longitude,
@@ -1151,18 +1204,21 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
             url,
             ip_address,
             password
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         RETURNING id, lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password).
+    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password).
         Scan(&rec.ID, &rec.LastUpdated)
     if err != nil {
+        tx.Rollback()
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
 
-    // 6) Allocate a UDP port for this receiver
-    udpPort, err := allocatePort(rec.ID)
+    // 6) Allocate a UDP port for this receiver within the transaction
+    udpPort, err := allocatePortTx(tx, rec.ID)
     if err != nil {
+        tx.Rollback() // Rollback the transaction on error
+        
         if err.Error() == "no available ports" {
             log.Printf("ERROR: No available UDP ports found for receiver ID %d", rec.ID)
             http.Error(w, "Failed to create receiver: No available UDP ports", http.StatusServiceUnavailable)
@@ -1171,12 +1227,14 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
             http.Error(w, fmt.Sprintf("Failed to create receiver: UDP port allocation error: %v", err), http.StatusInternalServerError)
         }
         
-        // Clean up the created receiver since we couldn't allocate a port
-        _, cleanupErr := db.Exec(`DELETE FROM receivers WHERE id = $1`, rec.ID)
-        if cleanupErr != nil {
-            log.Printf("ERROR: Failed to clean up receiver %d after port allocation failure: %v", rec.ID, cleanupErr)
-        }
-        
+        return
+    }
+    
+    // Commit the transaction
+    if err := tx.Commit(); err != nil {
+        tx.Rollback()
+        log.Printf("ERROR: Failed to commit transaction for receiver ID %d: %v", rec.ID, err)
+        http.Error(w, "Failed to create receiver: Transaction commit error", http.StatusInternalServerError)
         return
     }
     
