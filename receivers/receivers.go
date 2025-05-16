@@ -1136,6 +1136,9 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         Password:    password,
         IPAddress:   ipAddress,
     }
+    
+    // Get the client's IP address for request tracking
+    clientIP := getClientIP(r)
     if err := validateReceiver(rec); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
@@ -1193,7 +1196,7 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // INSERT including ip_address and password with explicit ID
+    // INSERT including ip_address, password, and request_ip_address with explicit ID
     err = tx.QueryRow(`
         INSERT INTO receivers (
             id,
@@ -1203,10 +1206,11 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
             name,
             url,
             ip_address,
-            password
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            password,
+            request_ip_address
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         RETURNING id, lastupdated
-    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password).
+    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password, clientIP).
         Scan(&rec.ID, &rec.LastUpdated)
     if err != nil {
         tx.Rollback()
