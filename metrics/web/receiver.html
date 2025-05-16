@@ -954,13 +954,27 @@ function loadReceivers() {
       // Populate the receiversList with fetched data
       let boundsArr = [];
       receivers.forEach(r => {
-        const dot = L.circleMarker([r.latitude, r.longitude], {
-          radius: 8,
-          color: 'red',
-          fillColor: 'red',
-          fillOpacity: 1,
-          weight: 1
+        // Create a diamond-shaped marker for the receiver
+        // Calculate diamond points (8px from center in each cardinal direction)
+        // Create a red diamond marker for the receiver using SVG
+        const dot = L.marker([r.latitude, r.longitude], {
+          icon: createReceiverIcon()
         }).addTo(map);
+        
+        // Helper function to create a diamond-shaped icon
+        function createReceiverIcon(color = 'red') {
+          const svgHtml = `
+            <svg style="pointer-events: none;" width="20" height="20" viewBox="0 0 20 20">
+              <polygon points="10,0 20,10 10,20 0,10" fill="${color}" />
+            </svg>
+          `;
+          return L.divIcon({
+            html: svgHtml,
+            className: '',
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+          });
+        }
 
         // Tooltip with the RX name
         dot.bindTooltip(`${r.name} (RX)`, {
