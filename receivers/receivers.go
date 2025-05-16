@@ -93,6 +93,10 @@ var (
 	collectors        []Collector
 	portMetricsMutex  sync.RWMutex
 	portMetricsMap    map[string]map[int]PortMetric // Map of IP address to map of UDP port to PortMetric
+	
+	// New map to track the most recent last seen time for each port
+	portLastSeenMutex sync.RWMutex
+	portLastSeenMap   map[int]time.Time // Map of UDP port to last seen time
 )
 
 // New types for collector tracking
@@ -114,6 +118,12 @@ type PortMetric struct {
 	FirstSeen    time.Time `json:"first_seen"`
 	LastSeen     time.Time `json:"last_seen"`
 	MessageCount int       `json:"message_count"`
+}
+
+// PortMetricsResponse represents the new JSON format returned by the collector
+type PortMetricsResponse struct {
+	Metrics  []PortMetric         `json:"metrics"`
+	LastSeen map[string]time.Time `json:"lastseen"` // Port number as string -> last seen time
 }
 
 // MessageStat is a simplified version of PortMetric without redundant fields
@@ -297,7 +307,7 @@ func fetchCollectors() ([]Collector, error) {
 }
 
 // fetchPortMetrics fetches port metrics from a collector
-func fetchPortMetrics(collector Collector) ([]PortMetric, error) {
+func fetchPortMetrics(collector Collector) ([]PortMetric, map[int]time.Time, error) {
 	baseURL := fmt.Sprintf("http://%s:%d/portmetrics", collector.IP, collector.Port)
 	
 	// Add the time query parameter using the PortMetricsHours setting
@@ -305,26 +315,41 @@ func fetchPortMetrics(collector Collector) ([]PortMetric, error) {
 	
 	resp, err := http.Get(urlWithParams)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch port metrics from collector %s:%d: %v", collector.IP, collector.Port, err)
+		return nil, nil, fmt.Errorf("failed to fetch port metrics from collector %s:%d: %v", collector.IP, collector.Port, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("received non-OK response from collector %s:%d: %v", collector.IP, collector.Port, resp.Status)
+		return nil, nil, fmt.Errorf("received non-OK response from collector %s:%d: %v", collector.IP, collector.Port, resp.Status)
 	}
 
-	var portMetrics []PortMetric
-	if err := json.NewDecoder(resp.Body).Decode(&portMetrics); err != nil {
-		return nil, fmt.Errorf("error decoding port metrics from collector %s:%d: %v", collector.IP, collector.Port, err)
+	// Parse the new JSON format
+	var portMetricsResponse PortMetricsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&portMetricsResponse); err != nil {
+		return nil, nil, fmt.Errorf("error decoding port metrics from collector %s:%d: %v", collector.IP, collector.Port, err)
+	}
+	
+	// Convert the string port keys to integers
+	portLastSeen := make(map[int]time.Time)
+	for portStr, lastSeen := range portMetricsResponse.LastSeen {
+		portNum, err := strconv.Atoi(portStr)
+		if err != nil {
+			log.Printf("Warning: Invalid port number in lastseen map: %s", portStr)
+			continue
+		}
+		portLastSeen[portNum] = lastSeen
 	}
 
-	return portMetrics, nil
+	return portMetricsResponse.Metrics, portLastSeen, nil
 }
 
 // startCollectorTracking starts the background goroutine to track collectors
 func startCollectorTracking() {
 	// Initialize the port metrics map
 	portMetricsMap = make(map[string]map[int]PortMetric)
+	
+	// Initialize the port last seen map
+	portLastSeenMap = make(map[int]time.Time)
 
 	// Start the collector tracking goroutine
 	go func() {
@@ -342,7 +367,7 @@ func startCollectorTracking() {
 				// For each collector, fetch port metrics
 				for _, collector := range newCollectors {
 					go func(c Collector) {
-						portMetrics, err := fetchPortMetrics(c)
+						portMetrics, portLastSeen, err := fetchPortMetrics(c)
 						if err != nil {
 							log.Printf("Error fetching port metrics from collector %s:%d: %v", c.IP, c.Port, err)
 							return
@@ -361,6 +386,18 @@ func startCollectorTracking() {
 							portMetricsMap[metric.IPAddress][metric.UDPPort] = metric
 						}
 						portMetricsMutex.Unlock()
+						
+						// Update port last seen map with the most recent last seen time
+						if portLastSeen != nil {
+							portLastSeenMutex.Lock()
+							for port, lastSeen := range portLastSeen {
+								// Only update if this is more recent than what we already have
+								if existing, ok := portLastSeenMap[port]; !ok || lastSeen.After(existing) {
+									portLastSeenMap[port] = lastSeen
+								}
+							}
+							portLastSeenMutex.Unlock()
+						}
 					}(collector)
 				}
 			}
@@ -982,17 +1019,41 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             msgs = 0
         }
 
+        // Get the last seen time for this port from the portLastSeenMap
+        var lastSeen *time.Time
+        if rec.UDPPort != nil {
+        	portLastSeenMutex.RLock()
+        	if ls, ok := portLastSeenMap[*rec.UDPPort]; ok {
+        		lastSeen = &ls
+        	}
+        	portLastSeenMutex.RUnlock()
+        }
+        
         // Convert to PublicReceiver (which doesn't include password or IP address)
         publicRec := PublicReceiver{
-            ID:          rec.ID,
-            LastUpdated: rec.LastUpdated,
-            Description: rec.Description,
-            Latitude:    rec.Latitude,
-            Longitude:   rec.Longitude,
-            Name:        rec.Name,
-            URL:         rec.URL,
-            Messages:    msgs,
-            UDPPort:     rec.UDPPort, // Store UDPPort for filtering but don't expose in JSON
+        	ID:          rec.ID,
+        	LastUpdated: rec.LastUpdated,
+        	Description: rec.Description,
+        	Latitude:    rec.Latitude,
+        	Longitude:   rec.Longitude,
+        	Name:        rec.Name,
+        	URL:         rec.URL,
+        	Messages:    msgs,
+        	UDPPort:     rec.UDPPort, // Store UDPPort for filtering but don't expose in JSON
+        }
+        
+        // Add LastSeen field to the response if available
+        if lastSeen != nil {
+        	// Use reflection to add the LastSeen field to the response
+        	// This avoids modifying the PublicReceiver struct which would be a bigger change
+        	publicRecMap := make(map[string]interface{})
+        	publicRecBytes, _ := json.Marshal(publicRec)
+        	json.Unmarshal(publicRecBytes, &publicRecMap)
+        	publicRecMap["lastseen"] = lastSeen
+        	
+        	// Convert back to PublicReceiver
+        	updatedBytes, _ := json.Marshal(publicRecMap)
+        	json.Unmarshal(updatedBytes, &publicRec)
         }
 
         // If we're filtering by IP address, store this receiver by its port
@@ -1063,13 +1124,29 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     
     // Only add the anonymous receiver if no specific ID was requested
     if idParam == "" {
-        // Add dummy entry for receiver ID 0 (anonymous)
-        // Create a map with only the specified fields
+        // Fetch the UDP listen port from the ingester settings
+        ingestSettings, err := fetchIngestSettings()
+        var udpListenPort int
+        if err != nil {
+            log.Printf("Error fetching ingester settings: %v", err)
+            udpListenPort = 0 // Default to 0 if we can't fetch the settings
+        } else {
+            udpListenPort = ingestSettings.UDPListenPort
+        }
+        
+        // Create a map for the anonymous receiver
         anonymousReceiver := map[string]interface{}{
             "id":          0,
             "name":        "Anonymous",
             "description": "Anonymous",
         }
+        
+        // Add the lastseen field if available
+        portLastSeenMutex.RLock()
+        if lastSeen, ok := portLastSeenMap[udpListenPort]; ok {
+            anonymousReceiver["lastseen"] = lastSeen
+        }
+        portLastSeenMutex.RUnlock()
         
         // Add the anonymous receiver first
         response = append(response, anonymousReceiver)
@@ -1116,6 +1193,23 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         // Set the messages field and message stats
         list[i].Messages = msgs
         list[i].MessageStats = messageStats
+        
+        // Add the last seen time for this port from the portLastSeenMap
+        if rec.UDPPort != nil {
+            portLastSeenMutex.RLock()
+            if lastSeen, ok := portLastSeenMap[*rec.UDPPort]; ok {
+                // Convert the receiver to a map to add the lastseen field
+                receiverMap := make(map[string]interface{})
+                receiverBytes, _ := json.Marshal(list[i])
+                json.Unmarshal(receiverBytes, &receiverMap)
+                receiverMap["lastseen"] = lastSeen
+                
+                // Convert back to Receiver
+                updatedBytes, _ := json.Marshal(receiverMap)
+                json.Unmarshal(updatedBytes, &list[i])
+            }
+            portLastSeenMutex.RUnlock()
+        }
     }
 
     // Add dummy entry for receiver ID 0
@@ -1151,6 +1245,21 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
     msgs, messageStats := getMessagesByPort(&udpListenPort)
     dummyReceiver.Messages = msgs
     dummyReceiver.MessageStats = messageStats
+    
+    // Add the last seen time for the dummy receiver from the portLastSeenMap
+    portLastSeenMutex.RLock()
+    if lastSeen, ok := portLastSeenMap[udpListenPort]; ok {
+        // Convert the receiver to a map to add the lastseen field
+        receiverMap := make(map[string]interface{})
+        receiverBytes, _ := json.Marshal(dummyReceiver)
+        json.Unmarshal(receiverBytes, &receiverMap)
+        receiverMap["lastseen"] = lastSeen
+        
+        // Convert back to Receiver
+        updatedBytes, _ := json.Marshal(receiverMap)
+        json.Unmarshal(updatedBytes, &dummyReceiver)
+    }
+    portLastSeenMutex.RUnlock()
 
     // Add the dummy receiver to the beginning of the list
     list = append([]Receiver{dummyReceiver}, list...)
