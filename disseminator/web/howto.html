@@ -108,11 +108,11 @@
       <input id="url" type="url" placeholder="https://my-web-site.com" />
       <span id="url-error" style="color: red; font-size: 0.9rem; display: none;">Invalid URL</span>
       <div style="display: flex; gap: 10px;">
-        <div style="flex: 1;">
+        <div style="flex: 1; display: flex; flex-direction: column;">
           <label for="latitude">Latitude:</label>
           <input id="latitude" type="number" step="0.000001" placeholder="51.5074" />
         </div>
-        <div style="flex: 1;">
+        <div style="flex: 1; display: flex; flex-direction: column;">
           <label for="longitude">Longitude:</label>
           <input id="longitude" type="number" step="0.000001" placeholder="-0.1278" />
         </div>
@@ -224,20 +224,24 @@
       const latVal = parseFloat(latInput.value);
       const lngVal = parseFloat(lngInput.value);
       
-      // Validate coordinates
-      if (isNaN(latVal) || isNaN(lngVal) ||
-          latVal < -90 || latVal > 90 ||
-          lngVal < -180 || lngVal > 180) {
-        coordsErrorEl.style.display = 'block';
-        return;
+      // Only validate if both fields have values
+      if (!isNaN(latVal) && !isNaN(lngVal)) {
+        // Validate coordinates
+        if (latVal < -90 || latVal > 90 || lngVal < -180 || lngVal > 180) {
+          coordsErrorEl.style.display = 'block';
+          return;
+        }
+        
+        coordsErrorEl.style.display = 'none';
+        lat = latVal;
+        lng = lngVal;
+        marker.setLatLng([lat, lng]);
+        map.panTo([lat, lng]);
+        updateCommand();
+      } else {
+        // If either field is empty or invalid, hide the error
+        coordsErrorEl.style.display = 'none';
       }
-      
-      coordsErrorEl.style.display = 'none';
-      lat = latVal;
-      lng = lngVal;
-      marker.setLatLng([lat, lng]);
-      map.panTo([lat, lng]);
-      updateCommand();
     }
 
     latInput.addEventListener('input', handleCoordinateInput);
@@ -249,10 +253,21 @@
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
     const marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+    
+    // Update marker position on drag end
     marker.on('dragend', () => {
       const pos = marker.getLatLng();
       lat = pos.lat;
       lng = pos.lng;
+      updateCoordinateFields();
+      updateCommand();
+    });
+    
+    // Allow clicking on map to move marker
+    map.on('click', (e) => {
+      lat = e.latlng.lat;
+      lng = e.latlng.lng;
+      marker.setLatLng([lat, lng]);
       updateCoordinateFields();
       updateCommand();
     });
