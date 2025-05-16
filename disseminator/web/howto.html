@@ -132,31 +132,41 @@
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
     // Maidenhead grid functions
+    // Convert lat/lng to Maidenhead locator - completely rewritten implementation
     function latLngToMaidenhead(lat, lng) {
       // Ensure longitude is in the range -180 to 180
       while (lng < -180) lng += 360;
       while (lng > 180) lng -= 360;
       
       // Adjust latitude and longitude for calculations
-      lng += 180;
-      lat += 90;
+      const adjustedLng = lng + 180;
+      const adjustedLat = lat + 90;
       
-      // Calculate grid square
-      const field1 = String.fromCharCode(65 + Math.floor(lng / 20));
-      const field2 = String.fromCharCode(65 + Math.floor(lat / 10));
+      // Calculate field (first pair of letters)
+      // 20° × 10° grid
+      const fieldLon = Math.floor(adjustedLng / 20);
+      const fieldLat = Math.floor(adjustedLat / 10);
+      const field1 = String.fromCharCode(65 + fieldLon);
+      const field2 = String.fromCharCode(65 + fieldLat);
       
-      // Calculate square
-      const square1 = Math.floor((lng % 20) / 2);
-      const square2 = Math.floor((lat % 10) / 1);
+      // Calculate square (second pair of digits)
+      // 2° × 1° grid
+      const squareLon = Math.floor((adjustedLng % 20) / 2);
+      const squareLat = Math.floor((adjustedLat % 10));
       
-      // Calculate subsquare
-      const subsq1 = String.fromCharCode(97 + Math.floor((lng % 2) * 12));
-      const subsq2 = String.fromCharCode(97 + Math.floor((lat % 1) * 24));
+      // Calculate subsquare (third pair of letters)
+      // 5' × 2.5' grid (24 divisions per grid square)
+      const subsqLon = Math.floor((adjustedLng % 2) * 12);
+      const subsqLat = Math.floor((adjustedLat % 1) * 24);
+      const subsq1 = String.fromCharCode(97 + subsqLon);
+      const subsq2 = String.fromCharCode(97 + subsqLat);
+      
+      return field1 + field2 + squareLon + squareLat + subsq1 + subsq2;
       
       return field1 + field2 + square1 + square2 + subsq1 + subsq2;
     }
     
-    // Convert Maidenhead locator to lat/lng - exactly reversing the latLngToMaidenhead function
+    // Convert Maidenhead locator to lat/lng - completely rewritten implementation
     function maidenheadToLatLng(locator) {
       // Validate locator format (should be 4 or 6 characters)
       locator = locator.trim().toUpperCase();
@@ -165,41 +175,46 @@
         return null; // Invalid locator
       }
       
-      // Extract field characters (first pair)
-      const field1 = locator.charCodeAt(0) - 65; // A=0, B=1, etc.
-      const field2 = locator.charCodeAt(1) - 65;
+      // First pair: Field (20° × 10°)
+      // A-R (18 characters) for longitude from -180 to +180
+      // A-R (18 characters) for latitude from -90 to +90
+      const fieldLon = locator.charCodeAt(0) - 65; // A=0, B=1, etc.
+      const fieldLat = locator.charCodeAt(1) - 65;
       
-      // Extract square numbers (second pair)
-      const square1 = parseInt(locator.charAt(2));
-      const square2 = parseInt(locator.charAt(3));
+      // Second pair: Square (2° × 1°)
+      // 0-9 (10 digits) for longitude
+      // 0-9 (10 digits) for latitude
+      const squareLon = parseInt(locator.charAt(2));
+      const squareLat = parseInt(locator.charAt(3));
       
-      // Start with the field and square components
-      let lng = (field1 * 20) + (square1 * 2);
-      let lat = (field2 * 10) + square2;
+      // Calculate base position
+      let lon = (fieldLon * 20) - 180;
+      let lat = (fieldLat * 10) - 90;
+      
+      // Add square position
+      lon += squareLon * 2;
+      lat += squareLat;
       
       // Add subsquare precision if available (6-character locator)
       if (locator.length >= 6) {
-        const subsq1 = locator.charCodeAt(4) - 97; // a=0, b=1, etc.
-        const subsq2 = locator.charCodeAt(5) - 97;
+        // Third pair: Subsquare (5' × 2.5')
+        // a-x (24 characters) for longitude
+        // a-x (24 characters) for latitude
+        const subsqLon = locator.charCodeAt(4) - 97; // a=0, b=1, etc.
+        const subsqLat = locator.charCodeAt(5) - 97;
         
-        // Properly reverse the encoding from latLngToMaidenhead function
-        // In the encoding: subsq1 = Math.floor((lng % 2) * 12)
-        // In the encoding: subsq2 = Math.floor((lat % 1) * 24)
-        lng += (subsq1 * 2/12); // Each subsquare is 2°/12 wide
-        lat += (subsq2 * 1/24); // Each subsquare is 1°/24 tall
+        // Add subsquare position
+        lon += (subsqLon * 2 / 24);
+        lat += (subsqLat / 24);
         
         // Center in the subsquare
-        lng += (2/12/2); // Half of subsquare width
-        lat += (1/24/2); // Half of subsquare height
+        lon += (2 / 48); // Half of a subsquare width
+        lat += (1 / 48); // Half of a subsquare height
       } else {
         // Center in the square for 4-character locator
-        lng += 1;
+        lon += 1;
         lat += 0.5;
       }
-      
-      // Adjust back from grid coordinates to world coordinates
-      lng -= 180;
-      lat -= 90;
       
       return { lat, lng };
     }
