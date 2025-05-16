@@ -828,6 +828,21 @@ map.on('click', () => {
   if (selectedReceiverId && receiverMarkers[selectedReceiverId]) {
     receiverMarkers[selectedReceiverId].setIcon(createReceiverIcon());
     selectedReceiverId = null;
+    
+    // Show a notification that filter is removed
+    const notification = document.createElement('div');
+    notification.textContent = `Receiver filter removed`;
+    notification.style.position = 'absolute';
+    notification.style.top = '100px';
+    notification.style.left = '50%';
+    notification.style.transform = 'translateX(-50%)';
+    notification.style.background = 'rgba(255,255,255,0.8)';
+    notification.style.padding = '10px';
+    notification.style.borderRadius = '5px';
+    notification.style.zIndex = '1000';
+    document.body.appendChild(notification);
+    setTimeout(() => document.body.removeChild(notification), 2000);
+    
     sendSummaryRequest();
   }
   
