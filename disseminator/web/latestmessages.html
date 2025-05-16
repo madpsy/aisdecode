@@ -3,929 +3,839 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>AIS Message History Viewer</title>
+  <title>AIS Latest Messages Viewer</title>
   <style>
     body { font-family: sans-serif; margin: 2rem; }
     .error { color: red; font-weight: bold; }
+    .message { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
+    .title { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.3rem; }
+    .title-details {
+      font-weight: normal;
+      font-size: 0.9rem;
+      margin-top: 0.2rem;
+      margin-bottom: 0.5rem;
+      color: #555;
+    }
+    .ts { font-size: 0.9rem; color: #555; margin-bottom: 0.3rem; }
+    .nav { display: flex; align-items: center; margin-bottom: 0.8rem; }
+    .nav button {
+      background: none; border: none;
+      font-size: 1.2rem; margin: 0 0.3rem;
+      cursor: pointer; transition: opacity 0.2s;
+    }
+    .nav button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
+    .nav .counter { font-size: 0.9rem; color: #333; min-width: 3em; text-align: center; }
 
-    h1 { font-size: 1.6rem; margin-bottom: 0.2rem; }
-    h2 { font-size: 1rem; color: #555; margin-top: 0; margin-bottom: 0.6rem; }
+    .table-container { overflow-x: auto; margin-bottom: 1rem; }
+    table {
+      border-collapse: collapse; table-layout: auto;
+      white-space: nowrap; width: 100%;
+    }
+    th, td {
+      border: 1px solid #ccc; padding: 0.4rem 0.6rem;
+      text-align: left; vertical-align: top;
+    }
+    th { background: #f0f0f0; }
+    .no-binary { font-style: italic; color: #a00; margin: 0.5rem 0; }
 
-    .row { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.6rem; font-size:0.9rem; }
-    .row label { display: flex; flex-direction: column; flex:1 1 150px; }
-    .row select, .row input { font-size:1rem; padding:0.3rem; }
-    
-    /* Multi-select styling */
-    select[multiple] {
-      overflow-y: auto;
+    .message .chart-container {
+      position: relative; width: 100%; height: 300px; margin-top: 1rem;
+    }
+    .message .chart-container canvas {
+      width: 100% !important; height: 100% !important;
+    }
+
+    /* wrapable controls */
+    .message .time-controls {
+      display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start;
+      margin-bottom: 0.6rem; font-size: 0.9rem;
+    }
+    .message .time-controls label {
+      display: flex; flex-direction: column;
+      flex: 1 1 150px;
+    }
+    .message .time-controls select,
+    .message .time-controls input {
+      min-width: 100%;
+    }
+    /* Button styling similar to latestmessages.html */
+    .message .time-controls button {
+      flex: 0 0 auto;
+      margin-top: 1.2rem;
+      background: none;
       border: 1px solid #ccc;
       border-radius: 4px;
-      background-color: #fff;
+      padding: 0.4rem 0.8rem;
+      font-size: 1.2rem;
+      cursor: pointer;
+      transition: background 0.2s;
     }
-    select[multiple] option {
-      padding: 0.3rem 0.5rem;
-      border-bottom: 1px solid #f0f0f0;
+    .message .time-controls button:hover { background: #f0f0f0; }
+    .message .time-controls button:disabled { color: #bbb; cursor: default; opacity: 0.4; }
+    
+    /* Download row styling */
+    .message .download-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
     }
-    select[multiple] option:checked {
-      background-color: #e0f0ff;
-      color: #000;
+    .message .download-row button {
+      background: none;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 0.4rem 0.8rem;
+      font-size: 1.2rem;
+      cursor: pointer;
+      transition: background 0.2s;
     }
-    select[multiple] option:hover {
-      background-color: #f0f8ff;
+    .message .download-row button:hover { background: #f0f0f0; }
+    /* Stats legend styles */
+    .stats-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: 0.85rem;
     }
-    .button-row button {
-      background:none;border:1px solid #ccc;border-radius:4px;
-      padding:0.4rem 0.8rem;font-size:1.2rem;cursor:pointer;
-      transition:background 0.2s;
+    .stats-legend .stat-item {
+      display: flex;
+      align-items: center;
+      margin-right: 10px;
     }
-    .button-row button:hover { background:#f0f0f0; }
-    .button-row button:disabled { color:#bbb;cursor:default;opacity:0.4; }
-
-    .download-row, .pagination-row {
-      display:flex;align-items:center;gap:1rem;margin-bottom:1rem;
+    .stats-legend .color-box {
+      width: 12px;
+      height: 2px;
+      margin-right: 4px;
+      display: inline-block;
     }
-    .download-row button {
-      background:none;border:1px solid #ccc;border-radius:4px;
-      padding:0.4rem 0.8rem;font-size:1.2rem;cursor:pointer;
-      transition:background 0.2s;
+    .stats-legend .stat-value {
+      font-weight: bold;
     }
-    .download-row button:hover { background:#f0f0f0; }
-
-    .pagination-row select, .pagination-row button {
-      font-size:1rem;padding:0.3rem;cursor:pointer;
-    }
-    .pagination-row button {
-      border:1px solid #ccc;border-radius:4px;background:none;
-    }
-    .pagination-row button:disabled { color:#bbb;cursor:default;opacity:0.4; }
-
-    .nav { display:flex;align-items:center;margin-bottom:0.8rem; }
-    .nav button {
-      background:none;border:none;font-size:1.2rem;margin:0 0.3rem;
-      cursor:pointer;transition:opacity .2s;
-    }
-    .nav button:disabled { color:#bbb;cursor:default;opacity:0.4; }
-    .nav .counter { font-size:.9rem;color:#333;min-width:3em;text-align:center; }
-
-    table {
-      border-collapse:collapse;white-space:nowrap;width:100%;
-    }
-    th,td {
-      border:1px solid #ccc;padding:.4rem .6rem;
-      text-align:left;vertical-align:top;
-    }
-    th { background:#f0f0f0; }
-    th.sortable { cursor: pointer; }
-    th .arrow { margin-left:0.2em; font-size:0.8em; }
-
-    .raw-sentence {
-      margin-top:.5rem;padding:.5rem;
-      background:#f9f9f9;border:1px solid #eee;border-radius:4px;
-      font-family:monospace;white-space:pre-wrap;
-    }
-    .receiver-info {
-      margin-top:.5rem;padding:.5rem;
-      background:#f0f8ff;border:1px solid #ddf;border-radius:4px;
-      font-size:0.9rem;
-    }
-    .receiver-info a {
-      color:#0066cc;
-      text-decoration:none;
-    }
-    .receiver-info a:hover {
-      text-decoration:underline;
-    }
-    #single-raw {
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      word-break: break-all;
-      box-sizing: border-box;
-      max-width: 100%;
-    }
-
-    #chart-container { position:relative;width:100%;height:400px;margin-bottom:1rem; }
   </style>
 
-  <!-- Chart.js, date-fns adapter, and zoom plugin -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
-    integrity="sha512‑..." crossorigin=""
-  />
-  <script
-    src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"
-    integrity="sha512‑..." crossorigin=""
-  ></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
 </head>
 <body>
-  <h1 id="main-title">Loading…</h1>
-  <div id="error" class="error"></div>
 
-  <div class="row" id="type-selector" style="display:none;">
-    <label>Message Type:
-      <select id="message-type-select"></select>
-      <small style="color: #666; margin-top: 0.3rem;">Hold Ctrl/Cmd to select multiple types</small>
-    </label>
-  </div>
-
-  <div class="row" id="receiver-selector" style="display:none;">
-    <label>Receiver:
-      <select id="receiver-select">
-        <option value="">All</option>
-      </select>
-    </label>
-  </div>
-
-  <div class="row">
-    <label>From <input type="datetime-local" id="start"/></label>
-    <label>To   <input type="datetime-local" id="end"/></label>
-  </div>
-
-  <div class="row">
-    <label>Fields
-      <select multiple size="4" id="fields"></select>
-    </label>
-    <label>Results as
-      <select id="results-as">
-        <option value="table" selected>Table</option>
-        <option value="graph">Graph</option>
-      </select>
-    </label>
-  </div>
-
-  <div class="button-row">
-    <button id="apply">Search</button>
-    <button id="reset">Reset</button>
-  </div>
-
-  <div class="download-row" id="download-row" style="display:none;">
-    <button id="download-csv">Download CSV</button>
-    <label><input type="checkbox" id="include-raw"/> Include Sentences</label>
-  </div>
-
-  <div class="pagination-row" id="pagination-row" style="display:none;">
-    <span id="view-info"></span>
-    <label>Rows:
-      <select id="rows-per-page">
-        <option>10</option>
-        <option>25</option>
-        <option>50</option>
-        <option>100</option>
-      </select>
-    </label>
-    <button id="page-prev">Prev</button>
-    <button id="page-next">Next</button>
-  </div>
-
-  <div id="individual-view">
-    <div class="nav">
-      <button id="prev">◀️</button>
-      <div class="counter" id="counter">0 of 0</div>
-      <button id="next">▶️</button>
-    </div>
-    <div id="single-timestamp" style="font-size:0.9rem; color:#555; margin-bottom:0.4rem;"></div>
-
-    <div id="single-table"></div>
-    <div class="raw-sentence" id="single-raw"></div>
-    <div class="receiver-info" id="single-receiver"></div>
-  </div>
-
-  <div id="range-view" style="display:none;">
-    <div id="range-table"></div>
-    <div id="chart-container" style="display:none;">
-      <canvas id="range-chart"></canvas>
-    </div>
-    <div id="map-container" style="display:none; height:400px; margin-bottom:1rem;"></div>
-  </div>
+  <h1 id="main-title">Loading vessel…</h1>
+  <label style="display:block; margin-bottom:1rem;">
+    <input type="checkbox" id="auto-refresh-checkbox"> Auto Refresh (60s)
+  </label>
+  <div id="output">Loading messages…</div>
 
   <script>
     Chart.register(ChartZoom);
+    Chart.defaults.elements.point.radius = 1;
 
-    function qsParam(name) {
-      const v = new URLSearchParams(location.search).get(name);
-      // For MessageID, support comma-separated list of IDs
-      if (name === 'MessageID' && v) {
-        // Check if it's a comma-separated list
-        if (v.includes(',')) {
-          // Return the comma-separated string as is
-          return v;
-        }
-        // Single ID - validate it's a number
-        return /^\d+$/.test(v) ? v : null;
-      }
-      // For other parameters, keep the original behavior
+    const messageBlocks = new Map();
+    let autoRefreshIntervalId = null;
+
+    function getUserID() {
+      const v = new URLSearchParams(window.location.search).get('UserID');
       return v && /^\d+$/.test(v) ? v : null;
     }
-    function setSearch(params) {
-      const u = new URL(location);
-      u.search = params.toString();
-      location = u;
-    }
-    function flatten(obj, prefix = '', res = {}) {
-      for (const [k, v] of Object.entries(obj || {})) {
-        const key = prefix ? `${prefix}.${k}` : k;
+
+    function flattenObject(obj, parentKey = '', res = {}) {
+      for (const [k, v] of Object.entries(obj)) {
+        const nk = parentKey ? `${parentKey}.${k}` : k;
         if (v != null && typeof v === 'object' && !Array.isArray(v)) {
-          flatten(v, key, res);
+          flattenObject(v, nk, res);
         } else {
-          res[key] = v;
+          res[nk] = v;
         }
       }
       return res;
     }
-    function humanize(f) {
-      return f.replace(/[_\.]/g, ' ');
-    }
-    function makeSingleHTML(m) {
-      const flat = flatten(m.Packet);
-      let html = '<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>';
-      Object.keys(flat).sort().forEach(k => {
-        html += `<tr><td>${humanize(k)}</td><td>${flat[k]}</td></tr>`;
-      });
-      return html + '</tbody></table>';
+
+    function humanizeField(field) {
+      return field.replace(/[_\.]/g, ' ');
     }
 
-    // Updated to include sortable headers (excluding Sentences)
-    function makeRangeHTML(rows, fields) {
-      let html = '<table><thead><tr>';
-      html += '<th class="sortable" data-field="Timestamp">Timestamp <span class="arrow"></span></th>';
-      fields.forEach(f => {
-        html += `<th class="sortable" data-field="${f}">${humanize(f)} <span class="arrow"></span></th>`;
-      });
-      html += '<th>Sentences</th></tr></thead><tbody>';
-      rows.forEach((r, i) => {
-        const flat = flatten(r.Packet);
-        html += '<tr>';
-        html += `<td>${new Date(r.Timestamp).toLocaleString([], {
-          hour12:false, year:'numeric', month:'2-digit',
-          day:'2-digit', hour:'2-digit', minute:'2-digit',
-          second:'2-digit'
-        })}</td>`;
-        fields.forEach(f => {
-          html += `<td>${flat[f] != null ? flat[f] : ''}</td>`;
-        });
-        html += `<td><button class="view" data-i="${i}">View</button></td>`;
-        html += '</tr>';
-      });
-      return html + '</tbody></table>';
-    }
-    function toCSV(rows, fields, includeRaw) {
-      const header = ['Timestamp', ...fields];
-      if (includeRaw) header.push('RawSentence');
-      const lines = [ header.join(',') ];
-    
-      for (const r of rows) {
-        const flat = flatten(r.Packet);
-        const ts = new Date(r.Timestamp).toISOString();
-        const vals = fields.map(f => {
-          const v = flat[f];
-          return v != null
-            ? `"${String(v).replace(/"/g, '""')}"`
-            : '';
-        });
+    function makeTableHTML(data) {
+      const entries = Object.entries(data)
+        .sort(([a], [b]) => a.localeCompare(b));
 
-        if (includeRaw) {
-          // if RawSentence is null/undefined, use empty string
-          const rawText = r.RawSentence != null
-            ? r.RawSentence
-            : '';
-          const rawEscaped = `"${String(rawText).replace(/"/g, '""')}"`;
-          lines.push([ts, ...vals, rawEscaped].join(','));
-        } else {
-          lines.push([ts, ...vals].join(','));
-        }
-      }   
-    
-      return lines.join('\r\n');
+      return `
+        <table>
+          <thead><tr><th>Field</th><th>Value</th></tr></thead>
+          <tbody>
+            ${entries.map(([f, v]) =>
+              `<tr><td>${humanizeField(f)}</td><td>${String(v)}</td></tr>`
+            ).join('')}
+          </tbody>
+        </table>`;
     }
 
-    (async () => {
-      const userID        = qsParam('UserID'),
-            msgID         = qsParam('MessageID'),
-            receiverID    = qsParam('ReceiverID'),
-            errorEl       = document.getElementById('error'),
-            mainTitle     = document.getElementById('main-title'),
-            typeDiv       = document.getElementById('type-selector'),
-            typeSelect    = document.getElementById('message-type-select'),
-            receiverDiv   = document.getElementById('receiver-selector'),
-            receiverSelect= document.getElementById('receiver-select'),
-            startInput    = document.getElementById('start'),
-            endInput      = document.getElementById('end'),
-            fieldsSel     = document.getElementById('fields'),
-            resultsAs     = document.getElementById('results-as'),
-            applyBtn      = document.getElementById('apply'),
-            resetBtn      = document.getElementById('reset'),
-            downloadRow   = document.getElementById('download-row'),
-            downloadBtn   = document.getElementById('download-csv'),
-            includeRaw    = document.getElementById('include-raw'),
-            paginationRow = document.getElementById('pagination-row'),
-            viewInfo      = document.getElementById('view-info'),
-            rowsPerPageSel= document.getElementById('rows-per-page'),
-            pagePrev      = document.getElementById('page-prev'),
-            pageNext      = document.getElementById('page-next'),
-            indDiv        = document.getElementById('individual-view'),
-            rngDiv        = document.getElementById('range-view'),
-            singleTbl     = document.getElementById('single-table'),
-            singleRaw     = document.getElementById('single-raw'),
-            singleReceiver= document.getElementById('single-receiver'),
-            prevBtn       = document.getElementById('prev'),
-            nextBtn       = document.getElementById('next'),
-            counterDiv    = document.getElementById('counter'),
-            rangeTbl      = document.getElementById('range-table'),
-            chartCont     = document.getElementById('chart-container'),
-            chartCanvas   = document.getElementById('range-chart');
-	    const mapAllowed = new Set(['1','2','3','9','18','19']);
-
-      if (mapAllowed.has(msgID)) {
-        const mapOpt = document.createElement('option');
-        mapOpt.value = 'map';
-        mapOpt.text  = 'Map';
-        resultsAs.append(mapOpt);
-      }
-
-      if (!userID) {
-        mainTitle.textContent = 'Error';
-        errorEl.textContent = 'Missing UserID in URL.';
-        return;
-      }
-
-      try {
-        const res = await fetch(`/summary?UserID=${userID}`, { cache:'no-store' });
-        const sum = await res.json();
-        mainTitle.textContent = `Latest Messages for ${sum[userID]?.Name.trim()||userID}`;
-      } catch {
-        mainTitle.textContent = `Latest Messages for ${userID}`;
-      }
-
-      // Fetch receiver data
-      let receivers = {};
-      try {
-        const receiverResponse = await fetch('/receivers', { cache:'no-store' });
-        const receiverData = await receiverResponse.json();
-        receiverData.forEach(receiver => {
-          receivers[receiver.id] = receiver;
-        });
-        console.log('Loaded receiver data:', receivers);
-      } catch (err) {
-        console.error('Error fetching receiver data:', err);
-      }
-
-      let available = [];
-      let receiverList = [];
-      try {
-        const r = await fetch(`/state?UserID=${userID}`, { cache:'no-store' });
-        const st = await r.json();
-        available = st.MessageTypes||[];
-        
-        console.log("State data structure:", st);
-        
-        // The state data is the vessel object itself, not nested in a Vessels object
-        const uniqueReceivers = new Set();
-        
-        // Check for ReceiverIDs array directly in the state object
-        if (st.ReceiverIDs && Array.isArray(st.ReceiverIDs)) {
-          console.log("Found ReceiverIDs array:", st.ReceiverIDs);
-          st.ReceiverIDs.forEach(id => uniqueReceivers.add(id));
-        }
-        
-        // Also check for ReceiverID (singular) property
-        if (st.ReceiverID !== undefined && st.ReceiverID !== null) {
-          console.log("Found ReceiverID:", st.ReceiverID);
-          uniqueReceivers.add(st.ReceiverID);
-        }
-        
-        receiverList = Array.from(uniqueReceivers);
-        console.log("Found receiver IDs from state:", receiverList);
-      } catch (err) {
-        console.error("Error fetching state data:", err);
-      }
-
-      let typeMap = {};
-      try {
-        typeMap = await (await fetch('/message_types.json', { cache:'no-store' })).json();
-      } catch {}
-
-      // Parse msgID to handle comma-separated values
-      const selectedMsgIDs = msgID ? msgID.split(',') : [];
-      
-      // Convert typeSelect to a multi-select
-      typeSelect.multiple = true;
-      typeSelect.size = 4; // Show 4 options at once
-      
-      available.forEach(t => {
-        const o = document.createElement('option');
-        o.value = t;
-        o.textContent = `${typeMap[t]||'Msg '+t} (ID ${t})`;
-        if (selectedMsgIDs.includes(String(t))) o.selected=true;
-        typeSelect.append(o);
+    async function fetchAndRender(block) {
+      const { userID, msgID, dac, fi, asm, initialMsg, start, end, aggregateFields, range } = block;
+      const params = new URLSearchParams({
+        UserID:    userID,
+        MessageID: msgID,
+        DAC:       dac,
+        FI:        fi,
+        t:         Date.now(),
       });
-      
-      if (available.length) {
-        typeDiv.style.display='';
-        typeSelect.onchange = () => {
-          // Get all selected values
-          const selectedValues = Array.from(typeSelect.selectedOptions).map(opt => opt.value);
-          // Join them with commas
-          const messageIDParam = selectedValues.join(',');
-          setSearch(new URLSearchParams({UserID:userID, MessageID:messageIDParam}));
-        };
+      if (!aggregateFields.length) params.set('limit', 100);
+      if (start) params.set('start', start);
+      if (end)   params.set('end',   end);
+      if (range) params.set('range', range);
+      if (aggregateFields.length) {
+        params.set('aggregateFields', aggregateFields.join(','));
       }
-      
-      // Always show the receiver dropdown, even if we don't have receivers
-      receiverDiv.style.display = '';
-      console.log("Populating receiver dropdown with:", receiverList);
-      
-      // Clear any existing options except the "All" option
-      while (receiverSelect.options.length > 1) {
-        receiverSelect.remove(1);
-      }
-      
-      // Populate receiver dropdown with available receivers
-      if (receiverList.length > 0) {
-        
-        // Sort receivers by ID for consistent display
-        receiverList.sort((a, b) => a - b);
-        
-        receiverList.forEach(id => {
-          const o = document.createElement('option');
-          o.value = id;
-          
-          // Use receiver name if available, otherwise just show ID
-          const receiver = receivers[id];
-          o.textContent = receiver ? `${receiver.name}` : `Receiver ${id}`;
-          
-          if (String(id) === receiverID) o.selected = true;
-          receiverSelect.append(o);
-        });
-        
-        receiverSelect.onchange = () => {
-          // Get all selected message type values
-          const selectedValues = Array.from(typeSelect.selectedOptions).map(opt => opt.value);
-          // Join them with commas
-          const messageIDParam = selectedValues.length > 0 ? selectedValues.join(',') : msgID;
-          
-          const params = new URLSearchParams({
-            UserID: userID,
-            MessageID: messageIDParam
-          });
-          
-          if (receiverSelect.value) {
-            params.append('ReceiverID', receiverSelect.value);
-          }
-          
-          setSearch(params);
-        };
-      }
+      const url = `/latestmessages?${params.toString()}`;
 
-      let allMsgs = [];
+      let arr = [];
       try {
-        // Use msgID directly as it now supports comma-separated values
-        allMsgs = await (await fetch(`/latestmessages?UserID=${userID}&MessageID=${msgID}&limit=100`, {cache:'no-store'})).json();
-      } catch {
-        errorEl.textContent = 'Failed to load messages.';
-        return;
-      }
-      if (!allMsgs.length) {
-        errorEl.textContent = 'No messages found.';
-        return;
-      }
-      const baseFlat    = flatten(allMsgs[0].Packet);
-      const allFields   = Object.keys(baseFlat).sort();
-      const numericOnly = allFields.filter(k => typeof baseFlat[k] === 'number');
-      
-      // Now that we have allMsgs, check for ReceiverIDs in the messages
-      if (allMsgs && allMsgs.length > 0) {
-        const msgReceivers = new Set(receiverList);
-        allMsgs.forEach(msg => {
-          if (msg.ReceiverID !== null && msg.ReceiverID !== undefined) {
-            msgReceivers.add(msg.ReceiverID);
-          }
-        });
-        receiverList = Array.from(msgReceivers);
-        console.log("Receiver IDs including from messages:", receiverList);
-      }
-    
-      // Helper to build the selector options
-      function buildFieldSelector(fields) {
-        fieldsSel.innerHTML = '';
-        fields.forEach(f => {
-          const o = document.createElement('option');
-          o.value = f;
-          o.textContent = humanize(f);
-          fieldsSel.append(o);
-        });
+        const res = await fetch(url, { cache: 'no-store' });
+        if (res.ok) arr = await res.json();
+      } catch (e) {
+        console.error('[fetchAndRender] fetch error', e);
       }
 
-      // Attach handler for when Results-as changes
-resultsAs.onchange = () => {
-  let list;
-  if (resultsAs.value === 'graph') {
-    list = numericOnly;
-  } else if (resultsAs.value === 'map') {
-    // only these five; lat/lon always selected
-    list = ['Latitude','Longitude','Cog','Sog','TrueHeading'];
-  } else {
-    list = allFields;
-  }
-  buildFieldSelector(list);
-
-  // if map, force Lat/Lon selected and disable them
-  if (resultsAs.value === 'map') {
-    Array.from(fieldsSel.options).forEach(opt => {
-      if (opt.value === 'Latitude' || opt.value === 'Longitude') {
-        opt.selected = true;
-        opt.disabled = true;
+      const isAgg = aggregateFields.length > 0;
+      let history;
+      if (isAgg) {
+        history = arr;
       } else {
-        opt.disabled = false;
-        opt.selected = false;
-      }
-    });
-  } else {
-    // re‑enable everything for table/graph
-    Array.from(fieldsSel.options).forEach(opt => {
-      opt.disabled = false;
-    });
-  }
-
-  // if already in range view, switch display mode
-  if (rngDiv.style.display !== 'none') {
-    if (resultsAs.value === 'table') showTable();
-    else if (resultsAs.value === 'graph') showGraph();
-    else if (resultsAs.value === 'map') showMap();
-  }
-};
-
-      // Initial build based on current selection
-      resultsAs.onchange();
-
-      // Individual-message view
-      let idx = 0;
-      function renderInd() {
-        const m = allMsgs[idx];
-      
-        // 1) Update counter
-        counterDiv.textContent = `${idx+1} of ${allMsgs.length}`;
-      
-        // 2) NEW: Show the formatted timestamp
-        const ts = new Date(m.Timestamp).toLocaleString([], {
-          hour12: false,
-          year:   'numeric',
-          month:  '2-digit',
-          day:    '2-digit',
-          hour:   '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        });
-        document.getElementById('single-timestamp').textContent = ts;
-      
-        // 3) Render the packet table & raw sentence
-        singleTbl.innerHTML = makeSingleHTML(m);
-        singleRaw.textContent = m.RawSentence;
-        
-        // 4) Render receiver information if available
-        if (m.ReceiverID !== null && m.ReceiverID !== undefined) {
-          const receiverId = m.ReceiverID;
-          const receiver = receivers[receiverId];
-          
-          if (receiver) {
-            singleReceiver.innerHTML = `Receiver: <a href="/metrics/receiver.html?receiver=${receiverId}" target="_blank">${receiver.name}</a>`;
-          } else {
-            singleReceiver.innerHTML = `Receiver ID: <a href="/metrics/receiver.html?receiver=${receiverId}" target="_blank">${receiverId}</a>`;
-          }
-          singleReceiver.style.display = '';
-        } else {
-          singleReceiver.innerHTML = 'Receiver: Unknown';
-          singleReceiver.style.display = '';
-        }
-      
-        // 5) Enable/disable prev-next buttons
-        prevBtn.disabled = idx === 0;
-        nextBtn.disabled = idx === allMsgs.length - 1;
-      }
-
-      prevBtn.onclick = () => idx>0&&(idx--,renderInd());
-      nextBtn.onclick = () => idx<allMsgs.length-1&&(idx++ ,renderInd());
-      renderInd();
-
-      // Range view state
-      let rangeData = [], currentPage=1, rowsPerPage=parseInt(rowsPerPageSel.value,10), selectedFields=[];
-      let sortField = null, sortDir = 1;  // 1 = asc, -1 = desc
-      let chartInst = null;
-
-      function updateArrows() {
-        const ths = rangeTbl.querySelectorAll('thead th.sortable');
-        ths.forEach(th => {
-          const arrow = th.querySelector('.arrow');
-          if (th.dataset.field === sortField) {
-            arrow.textContent = sortDir === 1 ? '▲' : '▼';
-          } else {
-            arrow.textContent = '';
-          }
-        });
-      }
-      function attachSortHandlers() {
-        const ths = rangeTbl.querySelectorAll('thead th.sortable');
-        ths.forEach(th => {
-          th.onclick = () => {
-            const field = th.dataset.field;
-            if (sortField === field) {
-              sortDir = -sortDir;
-            } else {
-              sortField = field;
-              sortDir = 1;
-            }
-            rangeData.sort((a, b) => {
-              let va = field === 'Timestamp'
-                ? new Date(a.Timestamp).getTime()
-                : (flatten(a.Packet)[field] ?? 0);
-              let vb = field === 'Timestamp'
-                ? new Date(b.Timestamp).getTime()
-                : (flatten(b.Packet)[field] ?? 0);
-              return (va - vb) * sortDir;
-            });
-            renderPage();
-          };
-        });
-      }
-
-      function renderPage() {
-        const start = (currentPage-1)*rowsPerPage;
-        const end   = Math.min(rangeData.length, start+rowsPerPage);
-        const pageRows = rangeData.slice(start,end);
-        rangeTbl.innerHTML = makeRangeHTML(pageRows, selectedFields);
-        viewInfo.textContent = `Viewing ${start+1}–${end} of ${rangeData.length}`;
-        pagePrev.disabled = currentPage===1;
-        pageNext.disabled = end===rangeData.length;
-
-        // wire up the sort arrows & handlers
-        attachSortHandlers();
-        updateArrows();
-
-        // wire up raw view buttons
-        rangeTbl.querySelectorAll('button.view').forEach(btn=>{
-          const i = parseInt(btn.dataset.i,10);
-          btn.onclick = ()=>alert(rangeData[start+i].RawSentence);
-        });
-      }
-
-      // pagination controls
-      rowsPerPageSel.onchange = () => {
-        rowsPerPage = parseInt(rowsPerPageSel.value,10);
-        currentPage = 1;
-        renderPage();
-      };
-      pagePrev.onclick = () => { if(currentPage>1){ currentPage--; renderPage(); } };
-      pageNext.onclick = () => { if(currentPage*rowsPerPage<rangeData.length){ currentPage++; renderPage(); } };
-
-      // show/hide table vs. chart
-      function showTable() {
-        chartCont.style.display = 'none';
-        document.getElementById('map-container').style.display = 'none';
-        rangeTbl.style.display = '';
-        paginationRow.style.display = '';
-        renderPage();
-      }
-
-      let map, mapLayerGroup;
-      function showMap() {
-        // hide other views
-        chartCont.style.display = 'none';
-        rangeTbl.style.display = 'none';
-        paginationRow.style.display = 'none';
-        document.getElementById('map-container').style.display = '';
-      
-        // initialize Leaflet map once
-        if (!map) {
-          map = L.map('map-container').setView([0,0], 2);
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors'
-          }).addTo(map);
-          mapLayerGroup = L.layerGroup().addTo(map);
-        }
-        mapLayerGroup.clearLayers();
-      
-        // prepare points
-        const pts = rangeData.map(r => {
-          const flat = flatten(r.Packet);
-          return {
-            lat: flat.Latitude,
-            lng: flat.Longitude,
-            record: r,
-            data: flat
-          };
-        });
-        if (!pts.length) return;
-      
-        // get array of latlngs
-        const latlngs = pts.map(p => [p.lat, p.lng]);
-      
-        // draw the polyline
-        const line = L.polyline(latlngs, { color: 'blue', weight: 3 })
-          .addTo(mapLayerGroup);
-      
-        // tooltip options
-        const tooltipOpts = {
-          direction: 'top',
-          offset: [0, -6],
-          permanent: false,
-          sticky: true
-        };
-      
-        // helper to format one point’s tooltip HTML
-        function makeTooltipHTML(pt) {
-          const mandatory = ['Record Timestamp','Latitude','Longitude'];
-          const fieldsToShow = mandatory.concat(
-            selectedFields.filter(f => !['Latitude','Longitude'].includes(f))
+        history = arr
+          .filter(m => m.Packet?.DecodedBinary)
+          .sort((a, b) =>
+            new Date(b.Timestamp) - new Date(a.Timestamp)
           );
-      
-          function limitDecimals(num, max = 4) {
-            const [i, f = ''] = String(num).split('.');
-            return f.length <= max ? i + (f ? `.${f}` : '') : i + '.' + f.slice(0, max);
-          }
-      
-          return fieldsToShow.map((f, idx) => {
-            let raw;
-            if (f === 'Record Timestamp') {
-              raw = new Date(pt.record.Timestamp).toLocaleString([], {
-                hour12: false,
-                year:'numeric', month:'2-digit', day:'2-digit',
-                hour:'2-digit', minute:'2-digit', second:'2-digit'
-              });
-            } else if (f === 'Latitude') raw = pt.lat;
-            else if (f === 'Longitude') raw = pt.lng;
-            else raw = pt.data[f];
-      
-            const val = (typeof raw === 'number' ? limitDecimals(raw) : (raw ?? ''));
-            // no label on first (timestamp) line
-            return (idx === 0 && f === 'Record Timestamp')
-              ? val
-              : `<strong>${f}:</strong> ${val}`;
-          }).join('<br/>');
-        }
-
-        // bind an empty tooltip to the polyline (to be updated on hover)
-        line.bindTooltip('', tooltipOpts);
-      
-        // on polyline hover: find nearest point, update + open tooltip
-        line.on('mousemove', e => {
-          let minDist = Infinity, idx = 0;
-          latlngs.forEach((ll, i) => {
-            const d = e.latlng.distanceTo(L.latLng(ll));
-            if (d < minDist) minDist = d, idx = i;
-          });
-          const html = makeTooltipHTML(pts[idx]);
-          line.setTooltipContent(html);
-          line.openTooltip(e.latlng);
-        });
-        line.on('mouseout', () => line.closeTooltip());
-
-        // add a marker at the final point with its own tooltip
-        const last = pts[0];
-        const marker = L.marker([last.lat, last.lng]).addTo(mapLayerGroup);
-        marker.bindTooltip(makeTooltipHTML(last), tooltipOpts);
-      
-        // fit map to data
-        map.fitBounds(L.latLngBounds(latlngs).pad(0.2));
       }
 
-      function showGraph() {
-        rangeTbl.style.display = 'none';
-	document.getElementById('map-container').style.display = 'none';
-        chartCont.style.display = '';
-        paginationRow.style.display = 'none';
+      block.history = history.length ? history : [initialMsg];
 
-        const ctx = chartCanvas.getContext('2d');
-        const datasets = selectedFields.map(f => ({
-          label: humanize(f),
-          data: rangeData.map(r => ({
-            x: new Date(r.Timestamp),
-            y: flatten(r.Packet)[f]
-          })),
-          borderWidth: 1,
-          fill: false
-        }));
+      if (!block.dom) {
+        createBlockDOM(block);
+      } else {
+        // Make sure download row is hidden until we have data to download
+        block.dom.downloadRow.style.display = 'none';
+      }
 
-        if (chartInst) chartInst.destroy();
-        chartInst = new Chart(ctx, {
+      if (block.dom.fieldsSelect &&
+          !block.dom.fieldsSelect.options.length &&
+          initialMsg.Packet?.DecodedBinary) {
+        const flat = flattenObject(initialMsg.Packet.DecodedBinary);
+
+        const numericFields = Object.entries(flat)
+          .filter(([, v]) => typeof v === 'number')
+          .map(([f]) => f);
+
+        numericFields.sort((a, b) => a.localeCompare(b));
+
+        numericFields.forEach(f => {
+          const opt = document.createElement('option');
+          opt.value = `DecodedBinary.${f}`;
+          opt.textContent = humanizeField(f);
+          block.dom.fieldsSelect.appendChild(opt);
+        });
+      }
+
+      updateBlockDOM(block);
+    }
+
+    function createBlockDOM(block) {
+  const c = document.createElement('div');
+  c.className = 'message';
+  block.dom = {};
+
+  // Create the title div and append it
+  const titleDiv = document.createElement('div');
+  titleDiv.className = 'title';
+  c.appendChild(titleDiv);
+  block.dom.titleDiv = titleDiv;
+  // Create the details div for ID/DAC/FI
+  const detailsDiv = document.createElement('div');
+  detailsDiv.className = 'title-details';
+  c.appendChild(detailsDiv);
+  block.dom.detailsDiv = detailsDiv;
+  // Now create the controls (time selectors and related buttons)
+  const controls = document.createElement('div');
+  controls.className = 'time-controls';
+  controls.innerHTML = `
+    <label>From <input type="datetime-local" class="start-input"/></label>
+    <label>To   <input type="datetime-local" class="end-input"/></label>
+    <label>Fields
+      <select multiple size="4" class="fields-select"></select>
+    </label>
+    <label>Granularity
+      <select class="range-select">
+        <option value="">Auto</option>
+        <option value="day">Day</option>
+        <option value="week">Week</option>
+        <option value="month">Month</option>
+        <option value="year">Year</option>
+      </select>
+    </label>
+    <button class="apply-range">Plot</button>
+    <button class="reset-range">Reset</button>
+  `;
+  c.appendChild(controls);
+  
+  // Create a separate div for the download button
+  const downloadRow = document.createElement('div');
+  downloadRow.className = 'download-row';
+  downloadRow.style.display = 'none'; // Initially hidden
+  downloadRow.innerHTML = `
+    <button class="download-csv">Download CSV</button>
+  `;
+  c.appendChild(downloadRow);
+  
+  block.dom.startInput    = controls.querySelector('.start-input');
+  block.dom.endInput      = controls.querySelector('.end-input');
+  block.dom.fieldsSelect  = controls.querySelector('.fields-select');
+  block.dom.rangeSelect   = controls.querySelector('.range-select');
+  block.dom.applyRangeBtn = controls.querySelector('.apply-range');
+  block.dom.resetRangeBtn = controls.querySelector('.reset-range');
+  block.dom.downloadRow   = downloadRow;
+  block.dom.downloadCsvBtn = downloadRow.querySelector('.download-csv');
+
+  block.dom.applyRangeBtn.onclick = () => {
+    block.start = block.dom.startInput.value
+      ? new Date(block.dom.startInput.value).toISOString()
+      : null;
+    block.end   = block.dom.endInput.value
+      ? new Date(block.dom.endInput.value).toISOString()
+      : null;
+    block.aggregateFields = Array.from(
+      block.dom.fieldsSelect.selectedOptions
+    ).map(o => o.value);
+    block.range = block.dom.rangeSelect.value;
+    block.idx = 0;
+    block.hasPlotted = true; // Set flag when user plots data
+    fetchAndRender(block);
+  };
+
+  block.dom.downloadCsvBtn.onclick = () => {
+    downloadCSV(block);
+  };
+
+  block.dom.resetRangeBtn.onclick = () => {
+    block.start = block.end = null;
+    block.aggregateFields = [];
+    block.range = '';
+    block.idx = 0;
+    block.hasPlotted = false; // Reset flag when user resets
+    block.dom.startInput.value = '';
+    block.dom.endInput.value = '';
+    block.dom.fieldsSelect.selectedIndex = -1;
+    block.dom.rangeSelect.value = '';
+    block.dom.downloadRow.style.display = 'none';
+    fetchAndRender(block);
+  };
+
+  const tsDiv = document.createElement('div');
+  tsDiv.className = 'ts';
+  c.appendChild(tsDiv);
+  block.dom.tsDiv = tsDiv;
+
+  const nav = document.createElement('div');
+  nav.className = 'nav';
+  c.appendChild(nav);
+  block.dom.nav = nav;
+
+  const btnNewer = document.createElement('button');
+  btnNewer.textContent = '◀️';
+  nav.appendChild(btnNewer);
+  block.dom.btnNewer = btnNewer;
+
+  const counter = document.createElement('div');
+  counter.className = 'counter';
+  nav.appendChild(counter);
+  block.dom.counter = counter;
+
+  const btnOlder = document.createElement('button');
+  btnOlder.textContent = '▶️';
+  nav.appendChild(btnOlder);
+  block.dom.btnOlder = btnOlder;
+
+  btnNewer.onclick = () => {
+    if (block.idx > 0) {
+      block.idx--;
+      updateBlockDOM(block);
+    }
+  };
+  btnOlder.onclick = () => {
+    if (block.idx < block.history.length - 1) {
+      block.idx++;
+      updateBlockDOM(block);
+    }
+  };
+
+  const notice = document.createElement('div');
+  notice.className = 'no-binary';
+  c.appendChild(notice);
+  block.dom.notice = notice;
+
+  const tableContainer = document.createElement('div');
+  tableContainer.className = 'table-container';
+  c.appendChild(tableContainer);
+  block.dom.tableContainer = tableContainer;
+
+  // Create stats legend container
+  const statsLegend = document.createElement('div');
+  statsLegend.className = 'stats-legend';
+  c.appendChild(statsLegend);
+  block.dom.statsLegend = statsLegend;
+
+  const chartWrapper = document.createElement('div');
+  chartWrapper.className = 'chart-container';
+  const canvas = document.createElement('canvas');
+  chartWrapper.appendChild(canvas);
+  c.appendChild(chartWrapper);
+  block.dom.chartWrapper = chartWrapper;
+  block.dom.canvas = canvas;
+
+  document.getElementById('output').appendChild(c);
+}
+
+    // Calculate min, max, and average values for a dataset
+    function calculateStats(data) {
+      if (!data || data.length === 0) return { min: 0, max: 0, avg: 0 };
+      
+      const values = data.map(point => point.y).filter(y => y !== null && y !== undefined);
+      if (values.length === 0) return { min: 0, max: 0, avg: 0 };
+      
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const sum = values.reduce((acc, val) => acc + val, 0);
+      const avg = sum / values.length;
+      
+      return { min, max, avg };
+    }
+
+    // Create a horizontal line annotation for min/max/avg
+    function createHorizontalLine(value, type, label, dashed = true) {
+      // Set specific colors for each type
+      let color;
+      if (type === 'min') {
+        color = 'green';
+      } else if (type === 'max') {
+        color = 'red';
+      } else { // avg
+        color = 'blue';
+      }
+      
+      return {
+        type: 'line',
+        borderColor: color,
+        borderWidth: 1,
+        borderDash: dashed ? [5, 5] : [],
+        label: {
+          display: false,
+          content: label,
+          position: 'end'
+        },
+        scaleID: 'y',
+        value: value
+      };
+    }
+
+    // Update stats legend with min/max/avg values
+    function updateStatsLegend(container, datasets) {
+      container.innerHTML = '';
+      
+      // Only show stats when exactly one dataset is visible
+      const visibleDatasets = datasets.filter(d => !d.hidden);
+      if (visibleDatasets.length !== 1) {
+        container.style.display = 'none';
+        return;
+      }
+      
+      container.style.display = 'flex';
+      const dataset = visibleDatasets[0];
+      const stats = calculateStats(dataset.data);
+      
+      // Min stat
+      const minItem = document.createElement('div');
+      minItem.className = 'stat-item';
+      minItem.innerHTML = `
+        <span class="color-box" style="background-color: green; border-style: dashed;"></span>
+        <span>${dataset.label} Min: <span class="stat-value">${stats.min.toFixed(2)}</span></span>
+      `;
+      container.appendChild(minItem);
+      
+      // Max stat
+      const maxItem = document.createElement('div');
+      maxItem.className = 'stat-item';
+      maxItem.innerHTML = `
+        <span class="color-box" style="background-color: red; border-style: dashed;"></span>
+        <span>${dataset.label} Max: <span class="stat-value">${stats.max.toFixed(2)}</span></span>
+      `;
+      container.appendChild(maxItem);
+      
+      // Avg stat
+      const avgItem = document.createElement('div');
+      avgItem.className = 'stat-item';
+      avgItem.innerHTML = `
+        <span class="color-box" style="background-color: blue; border-style: dashed;"></span>
+        <span>${dataset.label} Avg: <span class="stat-value">${stats.avg.toFixed(2)}</span></span>
+      `;
+      container.appendChild(avgItem);
+    }
+
+    function downloadCSV(block) {
+      const { history, aggregateFields } = block;
+      const isAgg = aggregateFields.length > 0;
+      let csvContent = "data:text/csv;charset=utf-8,";
+      
+      if (isAgg) {
+        // For aggregated data
+        const sortedAgg = aggregateFields.slice().sort((a, b) => a.localeCompare(b));
+        const aliases = sortedAgg.map(p => p.split('.').map(s => s.toLowerCase()).join('_') + '_avg');
+        
+        // Create header row
+        csvContent += "timestamp," + aliases.map(alias => humanizeField(alias.replace(/^decodedbinary_/, ''))).join(",") + "\n";
+        
+        // Add data rows
+        history.forEach(item => {
+          const row = [new Date(item.timestamp).toISOString()];
+          aliases.forEach(alias => {
+            row.push(item[alias]);
+          });
+          csvContent += row.join(",") + "\n";
+        });
+      } else {
+        // For non-aggregated data
+        if (history.length === 0 || !history[0].Packet?.DecodedBinary) return;
+        
+        // Get all fields from the first record
+        const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
+        const fields = Object.keys(records[0] || {});
+        fields.sort((a, b) => a.localeCompare(b));
+        
+        // Create header row
+        csvContent += "timestamp," + fields.map(f => humanizeField(f)).join(",") + "\n";
+        
+        // Add data rows
+        history.forEach((item, i) => {
+          const row = [new Date(item.Timestamp).toISOString()];
+          fields.forEach(field => {
+            row.push(records[i][field]);
+          });
+          csvContent += row.join(",") + "\n";
+        });
+      }
+      
+      // Create download link and trigger download
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `ais_data_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function updateBlockDOM(block) {
+      const { dom, asm, history, idx, msgID, dac, fi, aggregateFields } = block;
+      const msg = history[idx];
+      const isAgg = aggregateFields.length > 0;
+      
+      // Show download row only if user has plotted data AND we have data to download
+      if (block.hasPlotted && history.length > 0 && (isAgg || history[0].Packet?.DecodedBinary)) {
+        dom.downloadRow.style.display = '';
+      } else {
+        dom.downloadRow.style.display = 'none';
+      }
+
+      const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
+      // main title
+      dom.titleDiv.textContent = titleText + (isAgg ? ' — Aggregated' : '');
+      // details on new line, not bold
+      dom.detailsDiv.textContent = `(ID ${msgID}, DAC ${dac}, FI ${fi})`;
+
+
+      // common time-axis config
+      const timeOpts = {
+        type: 'time',
+        time: {
+          tooltipFormat: 'yyyy-MM-dd HH:mm:ss',
+          displayFormats: {
+            millisecond: 'HH:mm:ss',
+            second: 'HH:mm:ss',
+            minute: 'HH:mm',
+            hour: 'yyyy-MM-dd HH:mm',
+            day: 'yyyy-MM-dd',
+            month: 'yyyy-MM',
+            year: 'yyyy'
+          }
+        },
+        ticks: { autoSkip: true, maxRotation: 0 }
+      };
+
+      if (isAgg) {
+        dom.notice.textContent = '';
+        dom.tsDiv.style.display = dom.nav.style.display =
+          dom.tableContainer.style.display = 'none';
+        dom.chartWrapper.style.display = '';
+        const times = history.map(m => new Date(m.timestamp));
+        const sortedAgg = aggregateFields.slice().sort((a, b) =>
+          a.localeCompare(b)
+        );
+
+        const aliases = sortedAgg.map(p =>
+          p.split('.').map(s => s.toLowerCase()).join('_') + '_avg'
+        );
+        const datasets = aliases.map((alias, index) => {
+          const label = humanizeField(alias.replace(/^decodedbinary_/, ''));
+          const color = `hsl(${index * 137.5 % 360}, 70%, 50%)`;
+          return {
+            label,
+            data: times.map((t,i) => ({ x: t, y: history[i][alias] })),
+            borderWidth: 1,
+            borderColor: color
+          };
+        });
+
+        // Only add annotations when a single dataset is selected
+        const annotations = [];
+        if (datasets.length === 1) {
+          const dataset = datasets[0];
+          const stats = calculateStats(dataset.data);
+          
+          // Add min, max, and avg lines as annotations
+          annotations.push(createHorizontalLine(stats.min, 'min', `${dataset.label} Min`));
+          annotations.push(createHorizontalLine(stats.max, 'max', `${dataset.label} Max`));
+          annotations.push(createHorizontalLine(stats.avg, 'avg', `${dataset.label} Avg`));
+        }
+
+        if (dom.chart) dom.chart.destroy();
+        dom.chart = new Chart(dom.canvas.getContext('2d'), {
           type: 'line',
           data: { datasets },
           options: {
             animation: false,
             maintainAspectRatio: false,
-            scales: {
-              x: {
-                type: 'time',
-                time: {
-                  minUnit: 'second',
-                  displayFormats: {
-                    millisecond: 'HH:mm:ss.SSS',
-                    second:      'HH:mm:ss',
-                    minute:      'HH:mm',
-                    hour:        'yyyy-MM-dd HH:mm',
-                    day:         'yyyy-MM-dd'
-                  },
-                  tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
-                },
-                ticks: {
-                  autoSkip: false,
-                  maxRotation: 0,
-                  maxTicksLimit: 10
-                }
-              },
-              y: { beginAtZero: false }
-            },
-            interaction: { mode: 'nearest', axis: 'x', intersect: false },
+            scales: { x: timeOpts, y: { beginAtZero: false } },
             plugins: {
-              tooltip: {
-                callbacks: {
-                  title: items => {
-                    const d = items[0].parsed.x;
-                    return new Date(d).toLocaleString([], {
-                      hour12: false,
-                      year:'numeric', month:'2-digit', day:'2-digit',
-                      hour:'2-digit', minute:'2-digit', second:'2-digit'
-                    });
-                  }
+              legend: {
+                position: 'bottom',
+                labels: {
+                  boxWidth: 11,
+                  boxHeight: 7,
+                  padding: 4,
+                  font: { size: 11 }
                 }
               },
               zoom: {
-                pan:    { enabled: true, mode: 'x' },
-                zoom:   { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
+                pan: { enabled: true, mode: 'x' },
+                zoom: { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
+              },
+              annotation: {
+                annotations
               }
-            }
+            },
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
           }
         });
+        
+        // Update stats legend
+        updateStatsLegend(dom.statsLegend, datasets);
 
-        chartCanvas.addEventListener('dblclick', () => {
-          if (chartInst) chartInst.resetZoom();
+      } else {
+        dom.notice.textContent = '';
+        dom.tsDiv.style.display = '';
+        dom.nav.style.display = 'flex';
+        dom.tableContainer.style.display = '';
+        dom.chartWrapper.style.display = '';
+
+        dom.tsDiv.textContent = new Date(msg.Timestamp).toLocaleString([], {
+          hour12: false,
+          year:'numeric', month:'2-digit', day:'2-digit',
+          hour:'2-digit', minute:'2-digit', second:'2-digit'
         });
-      }
+        dom.btnNewer.disabled = idx===0;
+        dom.btnOlder.disabled = idx===history.length-1;
+        dom.counter.textContent = `${idx+1} of ${history.length}`;
 
-      // apply search: fetch rangeData, show download & table/chart
-      applyBtn.onclick = async () => {
-        const s = startInput.value, e = endInput.value;
-        selectedFields = Array.from(fieldsSel.selectedOptions).map(o=>o.value);
-        if (!s || !e || !selectedFields.length) {
-          return alert('Select From, To, and at least one field.');
+        dom.tableContainer.innerHTML = makeTableHTML(
+          flattenObject(msg.Packet.DecodedBinary)
+        );
+
+        const records = history.map(m=>flattenObject(m.Packet.DecodedBinary));
+        const timesArr = history.map(m=>new Date(m.Timestamp));
+        const fields = Object.keys(records[0]||{}).filter(f=>typeof records[0][f]==='number');
+        fields.sort((a, b) => a.localeCompare(b));
+        const defaultVis = new Set(fields.slice(0,3));
+
+        if (dom.chart) dom.chart.destroy();
+        const datasets = fields.map((f, index) => ({
+          label: humanizeField(f),
+          data: timesArr.map((t,i) => ({ x:t, y:records[i][f] })),
+          borderWidth: 1,
+          borderColor: `hsl(${index * 137.5 % 360}, 70%, 50%)`,
+          hidden: !defaultVis.has(f),
+          _fieldKey: f
+        }));
+
+        // Only add annotations when a single dataset is visible
+        const visibleDatasets = datasets.filter(d => !d.hidden);
+        const annotations = [];
+        if (visibleDatasets.length === 1) {
+          const dataset = visibleDatasets[0];
+          const stats = calculateStats(dataset.data);
+          
+          // Add min, max, and avg lines as annotations
+          annotations.push(createHorizontalLine(stats.min, 'min', `${dataset.label} Min`));
+          annotations.push(createHorizontalLine(stats.max, 'max', `${dataset.label} Max`));
+          annotations.push(createHorizontalLine(stats.avg, 'avg', `${dataset.label} Avg`));
         }
-        const params = new URLSearchParams({
-          UserID: userID,
-          MessageID: msgID,
-          start: new Date(s).toISOString(),
-          end:   new Date(e).toISOString(),
-          limit: '10000'
+
+        dom.chart = new Chart(dom.canvas.getContext('2d'), {
+          type: 'line',
+          data: { datasets },
+          options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: { x: timeOpts, y: { beginAtZero: false } },
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: {
+                  boxWidth: 11,
+                  boxHeight: 7,
+                  padding: 4,
+                  font: { size: 11 }
+                },
+                onClick: function(e, legendItem, legend) {
+                  // Toggle dataset visibility
+                  Chart.defaults.plugins.legend.onClick.call(this, e, legendItem, legend);
+                  // Update stats legend and annotations after toggling visibility
+                  setTimeout(() => {
+                    const visibleDatasets = datasets.filter(d => !d.hidden);
+                    updateStatsLegend(dom.statsLegend, datasets);
+                    
+                    // Update annotations - only show for single dataset
+                    const newAnnotations = [];
+                    if (visibleDatasets.length === 1) {
+                      const dataset = visibleDatasets[0];
+                      const stats = calculateStats(dataset.data);
+                      newAnnotations.push(createHorizontalLine(stats.min, 'min', `${dataset.label} Min`));
+                      newAnnotations.push(createHorizontalLine(stats.max, 'max', `${dataset.label} Max`));
+                      newAnnotations.push(createHorizontalLine(stats.avg, 'avg', `${dataset.label} Avg`));
+                    }
+                    
+                    dom.chart.options.plugins.annotation.annotations = newAnnotations;
+                    dom.chart.update();
+                  }, 0);
+                }
+              },
+              zoom: {
+                pan: { enabled: true, mode: 'x' },
+                zoom: { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
+              },
+              annotation: {
+                annotations
+              }
+            },
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
+          }
         });
         
-        // Add ReceiverID to query if a specific receiver is selected
-        if (receiverSelect.value) {
-          params.append('ReceiverID', receiverSelect.value);
+        // Update stats legend
+        updateStatsLegend(dom.statsLegend, datasets);
+        dom.canvas.addEventListener('dblclick', () => dom.chart.resetZoom());
+      }
+    }
+
+    function runRefresh() {
+      for (const b of messageBlocks.values()) fetchAndRender(b);
+    }
+
+    const autoCB = document.getElementById('auto-refresh-checkbox');
+    if (localStorage.getItem('autoRefreshEnabled')==='true') {
+      autoCB.checked = true;
+      runRefresh();
+      autoRefreshIntervalId = setInterval(runRefresh,60000);
+    }
+    autoCB.addEventListener('change', e => {
+      localStorage.setItem('autoRefreshEnabled', e.target.checked);
+      if (e.target.checked) {
+        runRefresh();
+        autoRefreshIntervalId = setInterval(runRefresh,60000);
+      } else {
+        clearInterval(autoRefreshIntervalId);
+      }
+    });
+
+    async function main() {
+      const userID = getUserID();
+      const titleEl = document.getElementById('main-title');
+      const output  = document.getElementById('output');
+      if (!userID) {
+        titleEl.textContent='Error';
+        output.innerHTML='<div class="error">Invalid or missing numeric UserID parameter.</div>';
+        return;
+      }
+
+      let summary;
+      try {
+        const r = await fetch(`/summary?UserID=${userID}`);
+        if (!r.ok) throw '';
+        summary = await r.json();
+      } catch {
+        titleEl.textContent='Error';
+        output.innerHTML='<div class="error">Failed to load summary</div>';
+        return;
+      }
+      const info = summary[userID]||{};
+      titleEl.textContent=`Latest Messages for ${info.Name?.trim()?info.Name:userID}`;
+
+      let asm;
+      try {
+        const r = await fetch('/asm.json');
+        if (!r.ok) throw '';
+        asm = await r.json();
+      } catch {
+        output.innerHTML='<div class="error">Failed to load asm.json</div>';
+        return;
+      }
+
+      let allMsgs;
+      try {
+        const r = await fetch(`/latestmessages?UserID=${userID}`);
+        if (r.status!==200) throw '';
+        allMsgs = await r.json();
+      } catch {
+        output.innerHTML='<div class="error">Vessel Not Found</div>';
+        return;
+      }
+
+      const validMsgs = allMsgs.filter(m=>m.Packet?.ApplicationID?.Valid);
+      if (!validMsgs.length) {
+        output.innerHTML='<div>No valid message types available.</div>';
+        return;
+      }
+
+      output.innerHTML='';
+      messageBlocks.clear();
+      validMsgs.forEach(m=>{
+        const dab = m.Packet.ApplicationID;
+        const key = `${m.MessageID}|${dab.DesignatedAreaCode}|${dab.FunctionIdentifier}`;
+        if (!messageBlocks.has(key)) {
+          messageBlocks.set(key,{
+            userID, msgID:m.MessageID,
+            dac:dab.DesignatedAreaCode,
+            fi:dab.FunctionIdentifier,
+            asm, initialMsg:m,
+            history:[], idx:0,
+            dom:null, chart:null,
+            start:null, end:null,
+            aggregateFields:[], range:'',
+            hasPlotted: false // Flag to track if user has plotted data
+          });
         }
-        try {
-          rangeData = await (await fetch(`/latestmessages?${params}`, {cache:'no-store'})).json();
-        } catch {
-          return alert('Failed to fetch range.');
-        }
+      });
 
-	  downloadBtn.onclick = () => {
-	    if (!rangeData || !rangeData.length) {
-	      return alert('No data to download—run a search first.');
-	    }
-	    const csv = toCSV(rangeData, selectedFields, includeRaw.checked);
-	    const blob = new Blob([csv], { type: 'text/csv' });
-	    const url = URL.createObjectURL(blob);
-	    const a = document.createElement('a');
-	    a.href = url;
-	    a.download = `messages_${userID}_${msgID}.csv`;
-	    a.click();
-	    URL.revokeObjectURL(url);
-	  };
-
-        downloadRow.style.display = '';
-        indDiv.style.display = 'none';
-        rngDiv.style.display = '';
-        if (resultsAs.value === 'table') {
-	  showTable();
-	} else if (resultsAs.value === 'graph') {
-	  showGraph();
-	} else if (resultsAs.value === 'map') {
-	  showMap();
-	}
-      };
-
-      // reset view back to individual mode
-      resetBtn.onclick = () => {
-        startInput.value = '';
-        endInput.value = '';
-        fieldsSel.selectedIndex = -1;
-        receiverSelect.value = ''; // Reset receiver selection to "All"
-        downloadRow.style.display = 'none';
-        paginationRow.style.display = 'none';
-        rngDiv.style.display = 'none';
-        indDiv.style.display = '';
-      };
-    })();
+      await Promise.all(Array.from(messageBlocks.values()).map(b=>fetchAndRender(b)));
+    }
+    main();
   </script>
 </body>
 </html>
