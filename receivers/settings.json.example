@@ -11,6 +11,5 @@
   "public_add_receiver_enabled": true,
   "ip_address_timeout_minutes": 60,
   "port_metrics_hours": 1,
-  "store_anonymous_messages": true,
   "debug": false
 }
