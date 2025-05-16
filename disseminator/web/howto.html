@@ -156,7 +156,7 @@
       return field1 + field2 + square1 + square2 + subsq1 + subsq2;
     }
     
-    // Convert Maidenhead locator to lat/lng
+    // Convert Maidenhead locator to lat/lng - exactly reversing the latLngToMaidenhead function
     function maidenheadToLatLng(locator) {
       // Validate locator format (should be 4 or 6 characters)
       locator = locator.trim().toUpperCase();
@@ -165,39 +165,41 @@
         return null; // Invalid locator
       }
       
-      // First pair: Field (20° longitude × 10° latitude)
-      const fieldLon = locator.charCodeAt(0) - 65; // A=0, B=1, etc.
-      const fieldLat = locator.charCodeAt(1) - 65;
+      // Extract field characters (first pair)
+      const field1 = locator.charCodeAt(0) - 65; // A=0, B=1, etc.
+      const field2 = locator.charCodeAt(1) - 65;
       
-      // Second pair: Square (2° longitude × 1° latitude)
-      const squareLon = parseInt(locator.charAt(2));
-      const squareLat = parseInt(locator.charAt(3));
+      // Extract square numbers (second pair)
+      const square1 = parseInt(locator.charAt(2));
+      const square2 = parseInt(locator.charAt(3));
       
-      // Calculate base coordinates of the bottom-left corner of the square
-      let lon = (fieldLon * 20) - 180 + (squareLon * 2);
-      let lat = (fieldLat * 10) - 90 + squareLat;
+      // Start with the field and square components
+      let lng = (field1 * 20) + (square1 * 2);
+      let lat = (field2 * 10) + square2;
       
-      // For 6-character locators, add subsquare precision
+      // Add subsquare precision if available (6-character locator)
       if (locator.length >= 6) {
-        // Third pair: Subsquare (5' longitude × 2.5' latitude)
-        // a-x represents 0-23 (24 divisions)
-        const subLon = locator.charCodeAt(4) - 97; // a=0, b=1, etc.
-        const subLat = locator.charCodeAt(5) - 97;
+        const subsq1 = locator.charCodeAt(4) - 97; // a=0, b=1, etc.
+        const subsq2 = locator.charCodeAt(5) - 97;
         
-        // Add subsquare position (each subsquare is 2°/24 = 5' longitude and 1°/24 = 2.5' latitude)
-        lon += (subLon * (2 / 24));
-        lat += (subLat * (1 / 24));
+        // Add subsquare component - exactly matching the encoding in latLngToMaidenhead
+        lng += (subsq1 / 12);
+        lat += (subsq2 / 24);
         
         // Center in the subsquare
-        lon += (2 / 48); // Half of 2°/24
-        lat += (1 / 48); // Half of 1°/24
+        lng += (1 / 24);
+        lat += (1 / 48);
       } else {
-        // For 4-character locators, center in the square
-        lon += 1; // Half of 2°
-        lat += 0.5; // Half of 1°
+        // Center in the square for 4-character locator
+        lng += 1;
+        lat += 0.5;
       }
       
-      return { lat, lng: lon };
+      // Adjust back from grid coordinates to world coordinates
+      lng -= 180;
+      lat -= 90;
+      
+      return { lat, lng };
     }
     
     function createMaidenheadGrid(map) {
