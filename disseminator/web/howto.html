@@ -127,6 +127,154 @@
   </div>
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
+    // Maidenhead grid functions
+    function latLngToMaidenhead(lat, lng) {
+      // Ensure longitude is in the range -180 to 180
+      while (lng < -180) lng += 360;
+      while (lng > 180) lng -= 360;
+      
+      // Adjust latitude and longitude for calculations
+      lng += 180;
+      lat += 90;
+      
+      // Calculate grid square
+      const field1 = String.fromCharCode(65 + Math.floor(lng / 20));
+      const field2 = String.fromCharCode(65 + Math.floor(lat / 10));
+      
+      // Calculate square
+      const square1 = Math.floor((lng % 20) / 2);
+      const square2 = Math.floor((lat % 10) / 1);
+      
+      // Calculate subsquare
+      const subsq1 = String.fromCharCode(97 + Math.floor((lng % 2) * 12));
+      const subsq2 = String.fromCharCode(97 + Math.floor((lat % 1) * 24));
+      
+      return field1 + field2 + square1 + square2 + subsq1 + subsq2;
+    }
+    
+    function createMaidenheadGrid(map) {
+      const gridLayer = L.layerGroup().addTo(map);
+      
+      // Add a debug label to show current zoom level
+      const debugLabel = L.control({position: 'bottomleft'});
+      debugLabel.onAdd = function() {
+        const div = L.DomUtil.create('div', 'debug-info');
+        div.innerHTML = 'Zoom: ' + map.getZoom();
+        div.style.backgroundColor = 'white';
+        div.style.padding = '5px';
+        div.style.border = '1px solid #ccc';
+        return div;
+      };
+      debugLabel.addTo(map);
+      
+      // Update debug label when zoom changes
+      map.on('zoomend', function() {
+        document.querySelector('.debug-info').innerHTML = 'Zoom: ' + map.getZoom();
+      });
+      
+      // Function to get Maidenhead locator with variable precision
+      function getLocator(lat, lng, precision) {
+        // Get full 6-character locator
+        const fullLocator = latLngToMaidenhead(lat, lng);
+        
+        // Return the requested precision (4 or 6 characters)
+        return precision === 4 ? fullLocator.substring(0, 4) : fullLocator;
+      }
+      
+      function updateGrid() {
+        gridLayer.clearLayers();
+        
+        const bounds = map.getBounds();
+        const zoom = map.getZoom();
+        
+        // Calculate grid size based on zoom level
+        // Adjust grid size to be appropriate for the current zoom level
+        // At higher zoom levels (more zoomed in), use smaller grid cells
+        let gridSize = 2; // Default size in degrees
+        let fontSize = 12; // Default font size
+        let locatorPrecision = 4; // Default to 4-character locator when zoomed out
+        
+        if (zoom >= 18) {
+          gridSize = 0.005; // Extremely small grid at extremely high zoom levels
+          fontSize = 9;
+          locatorPrecision = 6;
+        } else if (zoom >= 16) {
+          gridSize = 0.01; // Very very small grid at very high zoom levels
+          fontSize = 9;
+          locatorPrecision = 6;
+        } else if (zoom >= 14) {
+          gridSize = 0.025; // Very small grid at very high zoom levels
+          fontSize = 10;
+          locatorPrecision = 6;
+        } else if (zoom >= 12) {
+          gridSize = 0.05; // Tiny grid at high zoom levels
+          fontSize = 10;
+          locatorPrecision = 6;
+        } else if (zoom >= 10) {
+          gridSize = 0.1; // Smaller grid at high zoom levels
+          fontSize = 11;
+          locatorPrecision = 6;
+        } else if (zoom >= 8) {
+          gridSize = 0.25; // Medium grid at medium-high zoom levels
+          fontSize = 11;
+          locatorPrecision = 6;
+        } else if (zoom >= 6) {
+          gridSize = 0.5; // Medium-large grid at medium zoom levels
+          fontSize = 12;
+          locatorPrecision = 6;
+        } else {
+          gridSize = 1; // Large grid at low zoom levels
+          fontSize = 12;
+          locatorPrecision = 4; // Use 4-character locator when zoomed out
+        }
+        
+        // Calculate bounds for grid
+        const south = Math.floor(bounds.getSouth() / gridSize) * gridSize;
+        const north = Math.ceil(bounds.getNorth() / gridSize) * gridSize;
+        const west = Math.floor(bounds.getWest() / gridSize) * gridSize;
+        const east = Math.ceil(bounds.getEast() / gridSize) * gridSize;
+        
+        // Create grid cells
+        for (let lat = south; lat < north; lat += gridSize) {
+          for (let lng = west; lng < east; lng += gridSize) {
+            // Calculate center of grid cell
+            const cellCenter = [lat + gridSize/2, lng + gridSize/2];
+            
+            // Get Maidenhead locator for this cell with appropriate precision
+            const locator = getLocator(cellCenter[0], cellCenter[1], locatorPrecision);
+            
+            // Create rectangle for grid cell
+            const bounds = [[lat, lng], [lat + gridSize, lng + gridSize]];
+            const rect = L.rectangle(bounds, {
+              color: "#888",
+              weight: 1,
+              fillOpacity: 0,
+              opacity: 0.3,
+              interactive: false
+            }).addTo(gridLayer);
+            
+            // Add label in the center
+            const label = L.divIcon({
+              className: 'maidenhead-label',
+              html: `<div style="color: #666; font-size: ${fontSize}px; font-weight: bold; text-align: center; width: 100%; text-shadow: 1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white;">${locator}</div>`,
+              iconSize: [80, 20],
+              iconAnchor: [40, 10]
+            });
+            
+            L.marker(cellCenter, {
+              icon: label,
+              interactive: false
+            }).addTo(gridLayer);
+          }
+        }
+      }
+      
+      // Update grid when map moves
+      map.on('moveend', updateGrid);
+      updateGrid();
+      
+      return gridLayer;
+    }
     const origin = window.location.origin;
     const host = window.location.host;
     const ingestCodeEl = document.getElementById('ingest-code');
@@ -253,6 +401,9 @@
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
     const marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+    
+    // Add Maidenhead grid overlay
+    const maidenheadGrid = createMaidenheadGrid(map);
     
     // Update marker position on drag end
     marker.on('dragend', () => {
