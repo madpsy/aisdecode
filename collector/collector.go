@@ -15,6 +15,7 @@ import (
     "net/http"
     "os"
     "strconv"
+    "strings"
     "sync"
     "time"
     "math"
@@ -52,6 +53,7 @@ type Settings struct {
     ReceiversBaseURL      string   `json:"receivers_base_url"`      // URL for fetching receiver data
     RedisHost             string   `json:"redis_host"`              // Redis server host
     RedisPort             int      `json:"redis_port"`              // Redis server port
+    StoreAnonymousMessages bool     `json:"store_anonymous_messages"` // Whether to store messages from the main UDP port
 }
 
 var settings *Settings
@@ -132,6 +134,13 @@ func readSettings(path string) (*Settings, error) {
     if err := json.Unmarshal(data, &s); err != nil {
         return nil, err
     }
+    
+    // Set default value for StoreAnonymousMessages if not specified
+    if !strings.Contains(string(data), "store_anonymous_messages") {
+        s.StoreAnonymousMessages = true
+        log.Println("StoreAnonymousMessages not specified in settings.json, defaulting to true")
+    }
+    
     return &s, nil
 }
 
@@ -715,15 +724,10 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
     var receiverID interface{} = nil
     receiverMapMutex.RLock()
     
-    // Special case: if the UDP port is the main ingest port, use IP as primary lookup method
+    // Special case: if the UDP port is the main ingest port, always set receiver_id to 0
     if msg.UDPPort == settings.IngestUDPListenPort {
-        // For the main UDP port, use IP address as primary lookup
-        if id, exists := receiverIPToIDMap[msg.SourceIP]; exists {
-            receiverID = id
-        } else {
-            // When no IP address match is found on the primary UDP port, set receiverID to 0
-            receiverID = 0
-        }
+        // For the main UDP port, always use receiver_id 0
+        receiverID = 0
     } else if id, exists := receiverPortToIDMap[msg.UDPPort]; exists && msg.UDPPort > 0 {
         // For dedicated ports, use port as primary lookup method
         receiverID = id
@@ -1094,13 +1098,8 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
     receiverMapMutex.RLock()
     
     if message.UDPPort == settings.IngestUDPListenPort {
-        // For the main UDP port, use IP address as primary lookup
-        if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
-            receiverID = id
-        } else {
-            // When no IP address match is found on the primary UDP port, set receiverID to 0
-            receiverID = 0
-        }
+        // For the main UDP port, always use receiver_id 0
+        receiverID = 0
     } else if id, exists := receiverPortToIDMap[message.UDPPort]; exists && message.UDPPort > 0 {
         // For dedicated ports, use port as primary lookup method
         receiverID = id
@@ -1129,15 +1128,9 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
         var portMatched, receiverFound bool
         
         if message.UDPPort == settings.IngestUDPListenPort {
-            // For the main UDP port, use IP address as primary lookup
+            // For the main UDP port, always use receiver_id 0
             portMatched = true
-            if id, exists := receiverIPToIDMap[message.SourceIP]; exists {
-                receiverID = id
-                receiverFound = true
-            } else {
-                // When no IP address match is found on the primary UDP port, set receiverID to 0
-                receiverID = 0
-            }
+            receiverID = 0
         } else if id, exists := receiverPortToIDMap[message.UDPPort]; exists && message.UDPPort > 0 {
             // For dedicated ports, use port as primary lookup method
             receiverID = id
@@ -1148,9 +1141,9 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
         receiverMapMutex.RUnlock()
 
         // Only insert the message if:
-        // 1. The UDP port matches the ingester's port, OR
+        // 1. The UDP port matches the ingester's port AND StoreAnonymousMessages is true, OR
         // 2. There's a matching port for a receiver
-        if portMatched || receiverFound {
+        if (portMatched && settings.StoreAnonymousMessages) || receiverFound {
             if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, receiverID, message.UDPPort, settings); err != nil {
                 log.Printf("Error storing message: %v", err)
             }
