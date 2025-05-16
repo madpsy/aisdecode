@@ -1059,15 +1059,33 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     }
 
     // Add dummy entry for receiver ID 0 (anonymous)
-    // Create dummy receiver with only id, name, and description as requested
-    dummyPublicReceiver := PublicReceiver{
+    // Create a custom struct that will only marshal the specified fields
+    type AnonymousReceiver struct {
+        ID          int    `json:"id"`
+        Name        string `json:"name"`
+        Description string `json:"description"`
+    }
+    
+    // Create the anonymous receiver
+    anonymousReceiver := AnonymousReceiver{
         ID:          0,
         Name:        "Anonymous",
         Description: "Anonymous",
     }
-
-    // Add the dummy receiver to the beginning of the list
-    list = append([]PublicReceiver{dummyPublicReceiver}, list...)
+    
+    // Convert the list to a generic slice for JSON marshaling
+    var fullList []interface{}
+    
+    // Add the anonymous receiver first
+    fullList = append(fullList, anonymousReceiver)
+    
+    // Add the rest of the receivers
+    for _, rec := range list {
+        fullList = append(fullList, rec)
+    }
+    
+    // Replace the original list with the new one
+    list = nil
 
     // If no receivers are found (which shouldn't happen now since we added the dummy), return an empty array instead of null
     if len(list) == 0 {
@@ -1078,7 +1096,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
 
     // Return the list of receivers in JSON format
     w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(list)
+    json.NewEncoder(w).Encode(fullList)
 }
 
 // Admin list: same as public but includes ip_address (computed from port metrics) and password
