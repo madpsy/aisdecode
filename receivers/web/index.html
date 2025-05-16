@@ -1,92 +1,2343 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Receivers Manager</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=devsice-width, initial-scale=1" />
+  <title>Receiver Dashboard</title>
+
+  <!-- Chart.js -->
+  <script src="/aton_types.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Leaflet CSS/JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  .controls { margin-bottom: 20px; }
+
+  /* CARDS: use CSS Grid so they fill in two+ columns on narrow screens */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .card {
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 16px;
+    /* min-width no longer needed */
+    text-align: center;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 1em; color: #333; }
+  .card p  { margin: 0; font-size: 1.5em; font-weight: bold; }
+
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .chart-container { width: 100%; height: 300px; }
+
+  /* DOUGHNUT + MAP WRAPPER */
+  .doughnut-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    justify-content: center;
+  }
+
+  .doughnut-container {
+    flex: 1 1 200px;       /* shrink no smaller than 200px */
+    max-width: 300px;      /* optional cap on large screens */
+    aspect-ratio: 1 / 1;   /* always square */
+    position: relative;
+  }
+  .doughnut-container canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  #map {
+    flex: 1 1 300px;
+    min-width: 300px;
+    height: 300px;
+    position: relative;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    text-align: left;
+  }
+  th {
+    background: #f0f0f0;
+    cursor: pointer;
+    user-select: none;
+  }
+  th .arrow { margin-left: 4px; font-size: 0.8em; }
+  td a { color: #0066cc; text-decoration: none; }
+  td a:hover { text-decoration: underline; }
+  td img { display: block; }
+
+  #pagination {
+    margin: 10px 0;
+    text-align: center;
+  }
+  #pagination button {
+    margin: 0 2px;
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    background: #fff;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  #pagination button.active {
+    background: #0066cc;
+    color: #fff;
+    border-color: #0066cc;
+  }
+  #pagination button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .leaflet-popup-content-wrapper {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 5px !important;
+  }
+  .leaflet-popup-content-wrapper img {
+    width: 120px;
+    height: auto;
+    flex-shrink: 0;
+  }
+  .leaflet-popup-content {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .flag-img {
+    width: 30px;
+    height: auto;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    display: block;
+  }
+
+  /* Receiver tooltip styling */
+  .receiver-tooltip {
+    background: white;
+    border: 1px solid #ccc;
+    padding: 2px 6px;
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    font-size: 0.9em;
+  }
+
+  /* Lat/Lng overlay centered at top of map */
+  .latlng-overlay {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.8);
+    padding: 4px 8px;
+    font-weight: bold;
+    border-radius: 4px;
+    pointer-events: none;
+    user-select: none;
+    white-space: nowrap;
+    display: none;
+    z-index: 1000;
+  }
+
+  /* Distance label */
+  .distance-tooltip {
+    background-color: rgba(255,255,255,0.9);
+    border: 1px solid #333;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-weight: bold;
+  }
+
+  /* Hide distance column until a receiver is selected */
+  .distance-col { display: none; }
+
+  /* Top-centered RX selection flash message */
+  .rx-overlay {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,123,255,0.9);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 1em;
+    z-index: 2000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .rx-overlay.show { opacity: 1; }
+
+  /* highlight selected table row */
+  #summaryBody tr.selected {
+    background-color: #d0e8ff;
+  }
+
+  .receiver-name, .receiver-description, .receiver-url {
+    font-size: 0.8em; /* Reduce the font size */
+    font-weight: normal;
+  }
+
+  #receiver-box {
+    position: relative; /* Set as relative to position the map inside it */
+    padding: 16px;
+    border: 1px solid #ddd;
+    margin-top: 20px;
+    background-color: #f9f9f9;
+    width: 100%;  /* Ensure it has 100% width of the container */
+    box-sizing: border-box; /* Ensure padding doesn't affect width calculation */
+    min-height: 250px; /* Ensure enough height for the map */
+  }
+
+  /* Container for receiver info text content */
+  .receiver-info-content {
+    width: calc(100% - 300px); /* Leave space for the map on wider screens */
+  }
+
+  /* Default styles for wider screens */
+  #receiver-map {
+    position: absolute;  /* Position the map inside the receiver box */
+    top: 16px;           /* Space from the top */
+    right: 16px;         /* Space from the right */
+    width: 280px;        /* Adjust width to fit within the box */
+    height: 220px;       /* Adjust height to fit within the box */
+    overflow: hidden;    /* Prevent content from overflowing */
+  }
+  
+  /* Responsive styles for narrow screens */
+  @media (max-width: 768px) {
+    /* Make the info content full width */
+    .receiver-info-content {
+      width: 100%;
+    }
+    
+    /* Position the map at the bottom */
+    #receiver-map {
+      position: relative; /* Change to relative positioning */
+      top: auto;          /* Reset top positioning */
+      right: auto;        /* Reset right positioning */
+      width: 100%;        /* Full width */
+      margin-top: 16px;   /* Add space between text and map */
+      height: 200px;      /* Fixed height */
+    }
+  }
+</style>
+
+  <!-- Socket.IO for real-time communication -->
+  <script src="/socket.io.min.js"></script>
 </head>
 <body>
-  <header><h1>Receivers</h1></header>
-  <main>
-    <section id="form-section">
-      <h2 id="form-title">Add New Receiver</h2>
-      <form id="receiver-form">
-        <input type="hidden" id="field-id">
-        <label>
-          Name
-          <input type="text" id="field-name" maxlength="15" required>
-        </label>
-        <label>
-          Description
-          <input type="text" id="field-description" maxlength="30" required>
-        </label>
-        <label>
-          Latitude
-          <input type="number" id="field-latitude" step="any" min="-90" max="90" required>
-        </label>
-        <label>
-          Longitude
-          <input type="number" id="field-longitude" step="any" min="-180" max="180" required>
-        </label>
-        <label>
-          URL
-          <input type="url" id="field-url">
-        </label>
-        <!-- IP Address field removed - automatically tracked by collector system -->
-        <label>
-          UDP Port
-          <input type="text" id="field-udp-port" readonly>
-        </label>
-        <div class="password-container">
-          <label>
-            Password
-            <div class="password-field">
-              <input type="text" id="field-password" readonly>
-              <button type="button" id="regenerate-password" class="password-button">Regenerate</button>
+  <div class="controls">
+    <label for="ipInput">Override IP Address:</label>
+    <input type="text" id="ipInput" placeholder="e.g. 44.31.231.4" />
+    <button id="applyBtn" disabled>Apply</button>
+    <button id="clearBtn">Clear</button>
+  </div>
+
+  <h2>Your IP: <span id="ip-address"></span></h2>
+
+  <div class="cards" id="cards"></div>
+  <div class="charts" id="charts"></div>
+
+  <div class="doughnut-wrapper">
+    <div class="doughnut-container">
+      <canvas id="typeDoughnut" class="doughnut-chart"></canvas>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <!-- **Filter box** -->
+  <div style="margin: 12px 0;">
+    <input
+      type="text"
+      id="filterInput"
+      placeholder="Filter by MMSI or Name"
+      style="padding:6px; width:250px;"
+    />
+  </div>
+
+  <table id="summaryTable">
+    <thead>
+      <tr>
+        <th data-field="id">MMSI<span class="arrow"></span></th>
+        <th data-field="name">Name<span class="arrow"></span></th>
+        <th data-field="typeName">Type<span class="arrow"></span></th>
+        <th data-field="status">Status<span class="arrow"></span></th>
+        <th data-field="className">Class<span class="arrow"></span></th>
+        <th data-field="flag">Flag<span class="arrow"></span></th>
+        <th data-field="distance" class="distance-col">Distance<span class="arrow"></span></th>
+        <th data-field="lastSeen">Last Seen<span class="arrow"></span></th>
+        <th data-field="count">Packets<span class="arrow"></span></th>
+      </tr>
+    </thead>
+    <tbody id="summaryBody"></tbody>
+  </table>
+  <div id="pagination"></div>
+
+  <script>
+    // Chart.js center-text plugin
+    Chart.register({
+      id: 'centerText',
+      beforeDraw(chart) {
+        const c = chart.config.options.plugins.centerText;
+        if (!c?.display) return;
+        const { ctx, chartArea: { left, right, top, bottom } } = chart;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `${(bottom - top) / 10}px sans-serif`;
+        ctx.fillText(c.text, (left + right)/2, (top + bottom)/2);
+        ctx.restore();
+      }
+    });
+
+    // Metrics definitions
+    const allMetrics   = ['bytes_received','messages','failures','deduplicated','window_bytes','window_messages','window_unique_uids'];
+    const cardMetrics  = allMetrics.filter(m => !m.startsWith('window_'));
+    const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
+    const maxPoints    = 60;
+    let focusedUid = null;
+    let overrideIp = '';
+    let currentMessageCount = 0; // Track message count from socket updates
+    
+    // Initialize Socket.IO connection
+    const socket = io();  // Creates a Socket.IO connection
+    let overlayDisplayed = false;
+    let polylineAdded = false;
+    let tooltipAdded = false;
+    const charts = {}, baselines = {};
+    const cardsContainer = document.getElementById('cards');
+    const chartsContainer = document.getElementById('charts');
+
+    let receivedReceivers = false;
+
+    const seenUserIds = new Set(), summaryCache = {}, lastSeenTs = {}, seenCount = {};
+    let sortField = 'lastSeen', sortAsc = false;
+    let typesConfig = null, typeDoughnut = null;
+
+    // Pagination
+    let currentPage = 1;
+    const rowsPerPage = 10;
+
+    // MIDs → country map
+    let midMap = {};
+
+    // Map & overlay state
+    let map, overlayDiv, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
+    let loadedWithReceiver = false; // Flag to track if page was loaded with receiver parameter
+    let loadedWithIpAddress = false; // Flag to track if page was loaded with ip_address parameter
+    const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
+
+    const navigationalStatusMapping = {
+      0:"Using Engine",1:"At Anchor",2:"Not Under Command",
+      3:"Restricted Manoeuvrability",4:"Constrained by Draft",
+      5:"Moored",6:"Aground",7:"Engaged in Fishing",
+      8:"Under Way Sailing",15:"Unknown"
+    };
+
+    // ——— NEW GLOBALS ———
+    let selectedReceiverLatLng = null,
+        distancePolyline = null,
+        distanceLabel = null,
+        overrideReceiverId = '',
+        receiversList = [],
+        // Radius circles variables
+        radiusCircles = [],
+        radiusLabels = [];
+
+    // **Filter term & row‐highlight helpers**
+    let filterTerm = '';
+    function clearSelectedRow() {
+      const prev = document.querySelector('#summaryBody tr.selected');
+      if (prev) prev.classList.remove('selected');
+    }
+    function highlightRow(uid) {
+      const row = document.getElementById('row-' + uid);
+      if (row) row.classList.add('selected');
+    }
+
+    // Haversine distance in km
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+      function toRad(x){return x*Math.PI/180;}
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2)**2 +
+                Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*
+                Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+    
+    // Convert kilometers to nautical miles
+    function kmToNM(km) {
+      return km * 0.539957;
+    }
+
+    // Remove existing line + label
+    function clearDistanceLine(){
+      if(distancePolyline){ map.removeLayer(distancePolyline); distancePolyline = null; }
+      if(distanceLabel){ map.removeLayer(distanceLabel); distanceLabel = null; }
+      clearRadiusCircles();
+    }
+    
+    // Remove existing radius circles and labels
+    function clearRadiusCircles() {
+      radiusCircles.forEach(circle => {
+        if(circle) map.removeLayer(circle);
+      });
+      radiusCircles = [];
+      
+      radiusLabels.forEach(label => {
+        if(label) map.removeLayer(label);
+      });
+      radiusLabels = [];
+    }
+    
+    // Calculate maximum distance from receiver to any vessel
+    function calculateMaxDistance() {
+      if (!selectedReceiverLatLng) return 0;
+      
+      let maxDistance = 0;
+      seenUserIds.forEach(uid => {
+        if (uid.length !== 9) return;
+        const info = summaryCache[uid];
+        if (!info) return;
+        const { Latitude: lat, Longitude: lon } = info;
+        if (typeof lat !== 'number' || typeof lon !== 'number') return;
+        
+        const distance = haversineDistance(
+          selectedReceiverLatLng.lat,
+          selectedReceiverLatLng.lng,
+          lat, lon
+        );
+        
+        if (distance > maxDistance) {
+          maxDistance = distance;
+        }
+      });
+      
+      return maxDistance;
+    }
+    
+    // Draw radius circles around the receiver
+    function drawRadiusCircles() {
+      if (!selectedReceiverLatLng || !map) return;
+      
+      // Clear existing circles and labels
+      clearRadiusCircles();
+      
+      // Calculate maximum distance from receiver to any vessel
+      const maxDistanceKm = calculateMaxDistance();
+      if (maxDistanceKm <= 0) return;
+      
+      // Create 3 evenly spaced circles
+      for (let i = 1; i <= 3; i++) {
+        const radiusKm = maxDistanceKm * i / 3;
+        const radiusMeters = radiusKm * 1000; // Leaflet uses meters for circle radius
+        
+        // Create circle
+        const circle = L.circle(selectedReceiverLatLng, {
+          radius: radiusMeters,
+          color: 'grey',
+          fillColor: 'transparent',
+          weight: 1.5,
+          opacity: 0.7,
+          dashArray: '5, 5'  // Makes the line dashed
+        }).addTo(map);
+        
+        radiusCircles.push(circle);
+        
+        // Convert to nautical miles for the label
+        const radiusNM = kmToNM(radiusKm).toFixed(1);
+        
+        // Calculate position for the label (east of the center)
+        const labelLatLng = calculateLabelPosition(selectedReceiverLatLng, radiusKm);
+        
+        // Create label
+        const label = L.tooltip({
+          permanent: true,
+          direction: 'center',
+          className: 'distance-tooltip'
+        })
+        .setLatLng(labelLatLng)
+        .setContent(`${radiusNM} NM`)
+        .addTo(map);
+        
+        radiusLabels.push(label);
+      }
+    }
+    
+    // Calculate position for radius label (east of center)
+    function calculateLabelPosition(center, radiusKm) {
+      // Convert radius from km to degrees longitude (approximate)
+      // This is a simplified calculation that works for small distances
+      const radiusLng = radiusKm / (111.32 * Math.cos(center.lat * Math.PI / 180));
+      
+      // Position the label to the east of the center
+      return L.latLng(center.lat, center.lng + radiusLng);
+    }
+
+    // Helpers
+    function formatNumber(v){
+      if(v>=1e6) return +(v/1e6).toFixed(v%1e6===0?0:2)+'M';
+      if(v>=1e3) return +(v/1e3).toFixed(v%1e3===0?0:2)+'K';
+      return v;
+    }
+    function formatAgo(ts){
+      const sec = Math.floor((Date.now() - ts.getTime())/1000),
+            h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+      return (h? h+'h ':'') + (m? m+'m ':'') + s+'s';
+    }
+
+    // Build cards
+    cardMetrics.forEach(m => {
+      const c = document.createElement('div');
+      c.className = 'card'; c.id = `card-${m}`;
+      c.innerHTML = `<h3>${m.replace(/_/g,' ')}</h3><p>0</p>`;
+      cardsContainer.appendChild(c);
+    });
+
+    // Build line charts
+    chartMetrics.forEach((m,i) => {
+      const lbl = m.replace(/^window_/,'').replace(/_/g,' ');
+      const cont = document.createElement('div');
+      cont.className = 'chart-container';
+      const canvas = document.createElement('canvas');
+      canvas.id = `chart-${m}`;
+      cont.appendChild(canvas);
+      chartsContainer.appendChild(cont);
+      const ctx = canvas.getContext('2d');
+      charts[m] = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: lbl, data: [], borderColor: colors[i%colors.length], fill: false }] },
+        options: {
+          animation: false,
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: 'Time' } },
+            y: {}
+          }
+        }
+      });
+    });
+
+
+function updateURLWithReceiverId(receiverId) {
+  const url = new URL(window.location);
+  console.log('Updating URL with receiver ID:', receiverId);
+  
+  // Remove ip_address if it's in the URL, since we're using receiver ID now
+  url.searchParams.delete('ip_address');
+  url.searchParams.set('receiver', receiverId);  // Set receiver id as query parameter
+  
+  console.log('Updated URL:', url.toString());
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
+}
+
+function updateURLWithIp(ip) {
+  const url = new URL(window.location);
+  console.log('Updating URL with IP:', ip);
+  url.searchParams.delete('receiver');  // Remove receiver if IP address is used
+  url.searchParams.set('ip_address', ip);  // Set ip_address query parameter
+  console.log('Updated URL:', url.toString());
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
+}
+
+function applyOverride(ip) {
+  console.log("applyOverride function called with IP:", ip);
+  ip = (ip || '').trim();
+  if (!ip) return;
+  overrideIp = ip;
+  overrideReceiverId = '';  // Reset receiver id to force fetching from IP
+  currentMessageCount = 0;  // Reset message count for the new IP
+  console.log("Reset currentMessageCount to 0 in applyOverride");
+
+  // Update the IP address display to include the override indicator
+  // Wait a short time to ensure the IP address has been set from /myip
+  setTimeout(() => {
+    const ipAddress = document.getElementById('ip-address');
+    if (ipAddress) {
+      // Remove any existing override indicators
+      let currentIp = ipAddress.textContent;
+      if (currentIp.includes("(Using IP:")) {
+        currentIp = currentIp.split("(Using IP:")[0].trim();
+      }
+      console.log("Current IP in display (after removing any existing indicators):", currentIp);
+      console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
+      ipAddress.innerHTML = currentIp + " (Using IP: " + ip + ")";
+    } else {
+      console.error("IP address element not found");
+    }
+  }, 100); // Short delay to ensure IP address is set
+
+  // Update the URL with the new IP address (remove receiver if it's there)
+  updateURLWithIp(ip);  // Update URL to reflect IP
+  
+  // **Reset all components when applying override**
+  resetCardsAndCharts();  // Reset all cards and charts
+  resetMapAndTable(true); // Reset the map and table, with autoFit=true since receiver changed
+  resetFilters();         // Reset filters
+
+  // Fetch metrics and update data after IP override
+  console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
+  fetchMetrics();
+
+  // Fetch receivers with the new IP immediately after applying override
+  fetchReceivers(ip);  // Fetch receivers by IP address
+  
+  // Set flag to ensure autoFit works for vessel markers with manual IP override
+  loadedWithIpAddress = true;
+  console.log("Setting loadedWithIpAddress=true after manual IP override");
+}
+
+
+// Function to fetch user's IP address from /myip endpoint
+function fetchUserIP(applyAsOverride = false) {
+  console.log('Fetching user IP from /myip endpoint');
+  fetch('/myip')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(data => {
+      if (data && data.ip) {
+        console.log('User IP fetched:', data.ip);
+        
+        // Always set the IP address display to the user's actual IP
+        document.getElementById('ip-address').textContent = data.ip;
+        
+        // Check if we're using an override IP from the URL
+        const params = new URLSearchParams(location.search);
+        if (params.has('ip_address')) {
+          console.log('ip_address parameter is present, will add override indicator later');
+          // Don't add the override indicator here, it will be added later
+        } else if (applyAsOverride) {
+          // Reset message count before applying override with user's IP
+          currentMessageCount = 0;
+          console.log("Reset currentMessageCount to 0 in fetchUserIP");
+          applyOverride(data.ip);
+        } else {
+          // Clear the override indicator
+          overrideIp = '';
+        }
+      } else {
+        console.error('Invalid response from /myip endpoint');
+      }
+    })
+    .catch(e => console.error('Error fetching user IP:', e));
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  // Always fetch the user's IP for display
+  fetchUserIP(false);
+
+  // Ensure autoFit is true when page loads
+  autoFit = true;
+  console.log("Page loaded, setting autoFit =", autoFit);
+
+  const p = new URLSearchParams(location.search);
+  
+  // Check if page was loaded with ip_address parameter
+  if (p.has('ip_address')) {
+    // We'll handle this in the map initialization code
+    console.log("Page loaded with ip_address parameter, will handle after map initialization");
+    // Set flag to ensure autoFit works for vessel markers with ip_address parameter
+    loadedWithIpAddress = true;
+    console.log("Page loaded with ip_address parameter, setting loadedWithIpAddress =", loadedWithIpAddress);
+  }
+  
+  // Set flag if page was loaded with receiver parameter
+  if (p.has('receiver')) {
+    loadedWithReceiver = true;
+    console.log("Page loaded with receiver parameter, setting loadedWithReceiver =", loadedWithReceiver);
+    
+    // Reset map and table state to ensure proper fitBounds behavior
+    resetCardsAndCharts();
+    resetMapAndTable(true); // Pass true to indicate this is a receiver change
+    resetFilters();
+    
+    // Set the receiverId to the URL's receiver value
+    overrideReceiverId = p.get('receiver');
+  }
+
+  // Initialize charts and map
+  fetch('/types.json')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(json => {
+      typesConfig = json;
+      initDoughnut();
+      initMap();
+      
+      // After map is initialized, handle the query parameters
+      if (p.has('ip_address')) {
+        // Get the IP address from the URL
+        const ip = p.get('ip_address');
+        
+        // Reset message count before applying override
+        currentMessageCount = 0;
+        console.log("Reset currentMessageCount to 0 for ip_address parameter");
+        
+        // Set the override IP
+        overrideIp = ip;
+        console.log("Setting overrideIp from URL parameter:", overrideIp);
+        
+        // Wait a short time to ensure the IP address has been set from /myip
+        setTimeout(() => {
+          // Update the IP address display to include the override indicator
+          const ipAddressEl1 = document.getElementById('ip-address');
+          if (ipAddressEl1) {
+            // Remove any existing override indicators
+            let currentIp = ipAddressEl1.textContent;
+            if (currentIp.includes("(Using IP:")) {
+              currentIp = currentIp.split("(Using IP:")[0].trim();
+            }
+            console.log("Current IP in display (map init, after removing any existing indicators):", currentIp);
+            console.log("Setting IP display to include override (map init):", currentIp + " (Using IP: " + ip + ")");
+            ipAddressEl1.innerHTML = currentIp + " (Using IP: " + ip + ")";
+          } else {
+            console.error("IP address element not found (map init)");
+          }
+        }, 100); // Short delay to ensure IP address is set
+        
+        // Update the input field with the override IP
+        const ipInput = document.getElementById('ipInput');
+        if (ipInput) {
+          ipInput.value = ip;
+          
+          // Enable the Apply button
+          const applyBtn = document.getElementById('applyBtn');
+          if (applyBtn) {
+            applyBtn.disabled = false;
+          }
+        }
+        
+        // Update the IP address display with the override indicator before applying override
+        // Wait a short time to ensure the IP address has been set from /myip
+        setTimeout(() => {
+          const ipAddressEl2 = document.getElementById('ip-address');
+          if (ipAddressEl2) {
+            // Remove any existing override indicators
+            let currentIp = ipAddressEl2.textContent;
+            if (currentIp.includes("(Using IP:")) {
+              currentIp = currentIp.split("(Using IP:")[0].trim();
+            }
+            console.log("Current IP before applying override (after removing any existing indicators):", currentIp);
+            console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
+            ipAddressEl2.innerHTML = currentIp + " (Using IP: " + ip + ")";
+          }
+        }, 100); // Short delay to ensure IP address is set
+        
+        // Apply the override
+        applyOverride(ip);
+        
+        // Set flag to ensure autoFit works for vessel markers with ip_address parameter
+        loadedWithIpAddress = true;
+        console.log("Setting loadedWithIpAddress=true after applying override from URL parameter");
+      } else if (p.has('receiver')) {
+        // Reset message count for new receiver
+        currentMessageCount = 0;
+        console.log("Reset currentMessageCount to 0 for receiver parameter");
+        // Now that map is initialized, fetch receiver info first
+        console.log('Map initialized, now fetching receiver info with ID:', overrideReceiverId);
+        // Only fetch metrics after confirming the receiver exists
+        fetchReceiversById(overrideReceiverId);
+      } else {
+        // No query parameters - fetch user's IP and use it
+        currentMessageCount = 0;
+        console.log("Reset currentMessageCount to 0 for default case");
+        fetchUserIP(true);
+      }
+    })
+    .catch(e => console.error('types.json error', e));
+
+  fetch('/mids.json')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(json => { midMap = json; })
+    .catch(e => console.error('mids.json error', e));
+// No need to fetch metrics every second - the server sends updates automatically
+});
+
+
+
+    // sorting
+    document.querySelectorAll('#summaryTable th').forEach(th=>{
+      th.onclick = ()=>{
+        const f = th.dataset.field;
+        if(!f) return;
+        if(sortField === f) sortAsc = !sortAsc;
+        else { sortField = f; sortAsc = true; }
+        document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
+        th.querySelector('.arrow').textContent = sortAsc ? '▲' : '▼';
+        currentPage = 1;
+        updateSummaryTable();
+      };
+    });
+
+    // **filter handler**
+    document.getElementById('filterInput').addEventListener('input', e=>{
+      filterTerm = e.target.value.trim().toLowerCase();
+      currentPage = 1;
+      updateSummaryTable();
+    });
+
+    // Initialize map, overlay, and receivers
+    function initMap(){
+      map = L.map('map').setView([0,0],2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+   setTimeout(() => map.invalidateSize(), 0);
+   window.addEventListener('resize', () => map.invalidateSize());
+
+map.on('click', e => {
+  const tgt = e.originalEvent.target;
+
+  // if the click came from a marker icon, popup, or tooltip, ignore it
+  if (
+    tgt.classList.contains('leaflet-marker-icon') ||
+    tgt.classList.contains('leaflet-interactive') ||  // SVG marker
+    tgt.closest('.leaflet-popup') ||
+    tgt.closest('.distance-tooltip')
+  ) {
+    return;  // Don't reset anything when clicking on a marker or its popup
+  }
+
+  // otherwise clear any selection, but do not reset charts/cards
+  updateOverlay(null);  // Hide the overlay
+  clearDistanceLine();  // Clear any distance line
+  clearSelectedRow();   // Clear any selected row
+  focusedUid = null;
+});
+
+      // create and append overlay
+      overlayDiv = document.createElement('div');
+      overlayDiv.className = 'latlng-overlay';
+      map.getContainer().appendChild(overlayDiv);
+      updateOverlay(null);
+
+      loadReceivers();
+
+      // When user interacts with the map (zoom or move), disable autoFit
+      // This prevents annoying automatic bounds adjustments after user interaction
+      map.on('movestart zoomstart', (e)=>{
+        if(!programmaticFit) {
+          console.log("User interacted with map, disabling autoFit");
+          autoFit = false;
+          console.log("autoFit is now:", autoFit);
+        }
+      });
+    }
+
+function updateOverlay(latlng) {
+
+  if (!overlayDiv) return;
+
+  if (latlng) {
+    // Display overlay if not already displayed
+    if (!overlayDisplayed) {
+      overlayDiv.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
+      overlayDiv.style.display = 'block';
+      overlayDisplayed = true;
+    }
+  } else {
+    // Hide the overlay only if it was previously displayed
+    if (overlayDisplayed) {
+      overlayDiv.style.display = 'none';
+      overlayDisplayed = false;
+    }
+  }
+}
+
+// Function to reset cards and charts
+function resetCardsAndCharts() {
+  // Reset cards' displayed values to '0'
+  cardMetrics.forEach(m => {
+    document.querySelector(`#card-${m} p`).textContent = '0';
+  });
+
+  // Reset the underlying stored values (baselines, chart data, etc.)
+  Object.keys(baselines).forEach(key => {
+    delete baselines[key];  // Clear all baselines data
+  });
+
+  // Reset charts
+  chartMetrics.forEach(m => {
+    const c = charts[m];
+    c.data.labels = [];  // Clear the chart labels
+    c.data.datasets[0].data = [];  // Clear the chart data
+    c.update();  // Update the chart with the cleared data
+  });
+
+  // Clear the doughnut chart data
+  if (typeDoughnut) {
+    typeDoughnut.data.labels = [];
+    typeDoughnut.data.datasets[0].data = [];
+    typeDoughnut.options.plugins.centerText.text = '';
+    typeDoughnut.update();
+  }
+}
+
+// Function to reset map and table
+// isReceiverChange: true when called due to receiver change, false otherwise
+function resetMapAndTable(isReceiverChange = false) {
+  // Clear vessels & summary
+  seenUserIds.clear();
+  Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
+  vesselMarkers = {};
+  Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
+  Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
+  Object.keys(seenCount).forEach(k => delete seenCount[k]);
+  document.getElementById('summaryBody').innerHTML = '';
+  currentPage = 1;
+  clearDistanceLine(); // This now also clears radius circles
+
+  // Reset sorting & pagination
+  // Only reset autoFit if this is a receiver change
+  if (isReceiverChange) {
+    console.log("Receiver changed, enabling autoFit");
+    autoFit = true;
+  }
+  sortField = 'lastSeen';
+  sortAsc = false;
+  document.querySelectorAll('#summaryTable th .arrow').forEach(a => a.textContent = '');
+  document.getElementById('pagination').innerHTML = '';
+}
+
+// Function to reset filters
+function resetFilters() {
+  // Clear filter
+  filterTerm = '';
+  document.getElementById('filterInput').value = '';
+}
+
+    // Fetch & draw receiver markers
+// Fetch & draw receiver markers
+function loadReceivers() {
+  // Clear any previous receivers
+  receiversList = [];
+
+  fetch('/receivers')
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(receivers => {
+      // Ensure that we have valid data before continuing
+      if (!Array.isArray(receivers) || receivers.length === 0) {
+        console.warn('No receivers found');
+        return;
+      }
+
+      // Populate the receiversList with fetched data
+      let boundsArr = [];
+      receivers.forEach(r => {
+        const dot = L.circleMarker([r.latitude, r.longitude], {
+          radius: 8,
+          color: 'red',
+          fillColor: 'red',
+          fillOpacity: 1,
+          weight: 1
+        }).addTo(map);
+
+        // Tooltip with the RX name
+        dot.bindTooltip(`${r.name} (RX)`, {
+          permanent: true,
+          direction: 'top',
+          className: 'receiver-tooltip'
+        });
+
+        // Click handler: select this receiver
+        dot.on('click', e => {
+          L.DomEvent.stopPropagation(e);  // Prevent event propagation to map click
+          selectedReceiverLatLng = e.latlng;  // Store the receiver's lat/lng
+          console.log("Receiver selected at:", selectedReceiverLatLng);
+          clearDistanceLine();  // Clear any existing distance line and radius circles
+          updateOverlay(e.latlng);  // Update the overlay with receiver's coordinates
+          updateSummaryTable();
+          drawRadiusCircles(); // Draw radius circles around the selected receiver
+          
+          // Reset message count for the new receiver
+          currentMessageCount = 0;
+          console.log("Reset currentMessageCount to 0 in receiver marker click handler");
+          
+          // Clear the override IP since we're now using a specific receiver
+          overrideIp = '';
+          // Clear the override indicator by updating the IP address display
+          const ipAddress = document.getElementById('ip-address');
+          if (ipAddress) {
+            // Just show the IP address without the override indicator
+            ipAddress.textContent = ipAddress.textContent.split(' ')[0];
+          }
+
+          // Fetch this receiver's details via ?id=<id>
+          fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
+            .then(res => {
+              if (!res.ok) throw new Error(res.status);
+              return res.json();
+            })
+            .then(data => {
+              const receiver = Array.isArray(data) ? data[0] : data;
+
+              // Remove existing info box if present
+              const oldBox = document.getElementById('receiver-box');
+              if (oldBox) oldBox.remove();
+
+              // Build and insert new info box with receiver details
+              const box = document.createElement('div');
+              box.id = 'receiver-box';
+              box.innerHTML = `
+                <div class="receiver-info-content">
+                  <h3>Receiver Information</h3>
+                  <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
+                  <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+                  <p class="receiver-url"><strong>URL:</strong>
+                    ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+                  </p>
+                  <div style="margin-bottom: 10px;">
+                    <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
+                    <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
+                    <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
+                  </div>
+                </div>
+                <div id="receiver-map"></div> <!-- Receiver map will go here -->
+              `;
+              
+              // Add event listener to the edit button
+              setTimeout(() => {
+                const editButton = document.getElementById('edit-receiver-btn');
+                if (editButton) {
+                  editButton.addEventListener('click', () => showEditReceiverForm(receiver.id));
+                }
+              }, 0);
+              document.getElementById('ip-address').insertAdjacentElement('afterend', box);
+
+              // Initialize the map inside the info box
+              const mapDiv = document.getElementById('receiver-map');
+              const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
+              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+              }).addTo(rxMap);
+              L.marker([receiver.latitude, receiver.longitude])
+                .addTo(rxMap)
+                .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
+                .openPopup();
+            })
+            .catch(err => console.error('Error fetching single receiver:', err));
+
+          // **Reset all components when selecting a receiver's dot**
+          resetCardsAndCharts();  // Reset all cards and charts with new receiver's data
+          resetMapAndTable(true); // Reset the map and table, with autoFit=true since receiver changed
+          resetFilters();         // Reset any applied filters or selections
+
+          // Update the URL with the receiver's ID (and remove IP)
+          overrideReceiverId = r.id;
+          console.log('Receiver ID fetched:', r.id);
+          updateURLWithReceiverId(r.id);  // This ensures the URL is updated with only the receiver ID
+          
+          // Send a WebSocket request with the new receiver ID
+          console.log('Sending WebSocket request for receiver ID:', r.id);
+          fetchMetrics();
+        });
+
+        // Store for nearest/override lookup
+        receiversList.push({
+          id: r.id,
+          name: r.name,
+          marker: dot,
+          latlng: L.latLng(r.latitude, r.longitude)
+        });
+
+        // Add the receiver's lat/lng to bounds array for fitBounds
+        boundsArr.push([r.latitude, r.longitude]);
+      });
+
+      // Check if no vessels exist (or any other items to focus on)
+      if (Object.keys(vesselMarkers).length === 0) {
+        // No vessels, fit map to receiver markers
+        map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+      }
+
+    })
+    .catch(err => {
+      console.error('Failed to load receivers:', err);
+    });
+}
+
+    // Vessel icon creation
+    function makeIcon(info, color){
+      if(info.Sog > 0.5){
+        const angle = info.Cog || 0;
+        return L.divIcon({
+          html: `<div style="transform: rotate(${angle}deg) scaleY(1.5); font-size: 20px; color: ${color};">&#9650;</div>`,
+          className: '', iconSize: [20,30]
+        });
+      } else {
+        return L.divIcon({
+          html: `<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,
+          className: '', iconSize: [12,12]
+        });
+      }
+    }
+
+    // Focus vessel from table
+function focusVessel(uid){
+  focusedUid = uid;
+  Object.values(vesselMarkers).forEach(m => m.closePopup());
+  clearSelectedRow();
+  highlightRow(uid);
+
+  const marker = vesselMarkers[uid];
+  if(!marker) return;
+
+  updateOverlay(marker.getLatLng());
+
+  // if a receiver is selected: fit to both points
+  if (selectedReceiverLatLng) {
+    const vesselLatLng   = marker.getLatLng();
+    const bounds         = L.latLngBounds([ selectedReceiverLatLng, vesselLatLng ]);
+    // Don't set autoFit = false here, as this is not user interaction
+    programmaticFit        = true;
+    map.once('moveend zoomend', () => programmaticFit = false);
+    map.fitBounds(bounds, { padding: [30,30] });
+
+    // draw the distance line as before
+    clearDistanceLine();
+    const dist = haversineDistance(
+      selectedReceiverLatLng.lat, selectedReceiverLatLng.lng,
+      vesselLatLng.lat,            vesselLatLng.lng
+    ).toFixed(2);
+    distancePolyline = L.polyline([ selectedReceiverLatLng, vesselLatLng ], { color:'blue' }).addTo(map);
+    const mid = [(selectedReceiverLatLng.lat+vesselLatLng.lat)/2, (selectedReceiverLatLng.lng+vesselLatLng.lng)/2];
+    distanceLabel = L.tooltip({ permanent:true, direction:'center', className:'distance-tooltip' })
+                     .setLatLng(mid)
+                     .setContent(`${dist} km`)
+                     .addTo(map);
+
+  } else {
+    // fallback to just centering on vessel
+    // Don't set autoFit = false here, as this is not user interaction
+    programmaticFit = true;
+    map.once('moveend zoomend', () => programmaticFit = false);
+    map.flyTo(marker.getLatLng(), 11);
+  }
+
+  marker.fire('mouseover');
+  document.getElementById('map').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function updateMap() {
+  const oldVesselCount = Object.keys(vesselMarkers).length;
+  const boundsArr = [], newMarkers = {};
+  let vesselsUpdated = false;
+
+  // Force autoFit to be true if page was loaded with receiver parameter or ip_address parameter
+  // Only reset the flags if we actually have vessel markers to display
+  if (loadedWithReceiver || loadedWithIpAddress) {
+    console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=", loadedWithReceiver, "or loadedWithIpAddress=", loadedWithIpAddress);
+    autoFit = true;
+    
+    // Only reset the flags if we have vessel markers to display
+    if (Object.keys(vesselMarkers).length > 0 || seenUserIds.size > 0) {
+      console.log("Resetting loadedWithReceiver/loadedWithIpAddress flags because we have vessel data");
+      loadedWithReceiver = false;
+      loadedWithIpAddress = false;
+    } else {
+      console.log("Keeping loadedWithReceiver/loadedWithIpAddress flags because we don't have vessel data yet");
+    }
+  }
+
+  // Loop over all user IDs to process each vessel
+  seenUserIds.forEach(uid => {
+    if (uid.length !== 9) return;
+    const info = summaryCache[uid];
+    if (!info) return;
+    const { Latitude: lat, Longitude: lon } = info;
+    if (typeof lat !== 'number' || typeof lon !== 'number') return;
+
+    boundsArr.push([lat, lon]);  // Collecting the bounds for all vessels
+    const typeDisp = typeNameFor(info);
+    const color = typeColorsMap[typeDisp] || '#000';
+    const icon = makeIcon(info, color);
+
+    // Update existing marker if it exists, or create a new one
+    if (vesselMarkers[uid]) {
+      vesselMarkers[uid].setLatLng([lat, lon]).setIcon(icon);
+      newMarkers[uid] = vesselMarkers[uid];
+    } else {
+      const m = L.marker([lat, lon], { icon });
+
+      // Click handler for the vessel marker
+      m.on('click', function (e) {
+        // Reset line-drawing state
+        polylineAdded = false;
+        tooltipAdded = false;
+
+        L.DomEvent.stopPropagation(e);
+        updateOverlay(e.latlng);
+
+        // Close other popups
+        Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
+
+        // Open the clicked marker popup
+        m.openPopup();
+
+        focusedUid = uid;
+        clearSelectedRow();
+        highlightRow(uid);
+
+        // If a receiver is selected, draw distance line and adjust map bounds
+        if (selectedReceiverLatLng) {
+          clearDistanceLine();
+          const vesselLatLng = m.getLatLng();
+          const dist = haversineDistance(
+            selectedReceiverLatLng.lat,
+            selectedReceiverLatLng.lng,
+            vesselLatLng.lat,
+            vesselLatLng.lng
+          ).toFixed(2);
+
+          distancePolyline = L.polyline(
+            [selectedReceiverLatLng, vesselLatLng],
+            { color: 'blue', weight: 3, opacity: 0.7, zIndex: 1000 }
+          ).addTo(map);
+
+          const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
+          const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
+          distanceLabel = L.tooltip({
+            permanent: true,
+            direction: 'center',
+            className: 'distance-tooltip',
+            zIndex: 1001
+          })
+            .setLatLng([midLat, midLng])
+            .setContent(`${dist} km`)
+            .addTo(map);
+
+          const bounds = L.latLngBounds([selectedReceiverLatLng, vesselLatLng]);
+          map.fitBounds(bounds, { padding: [30, 30] });
+        }
+      });
+
+      // Mouseover handler for the vessel marker
+      m.on('mouseover', () => {
+        const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
+        const detailsHtml = `
+          <div style="line-height:1.2;">
+            <b>MMSI:</b> ${uid}<br/>
+            <b>Name:</b> ${info.Name || ''}<br/>
+            <b>Speed:</b> ${info.Sog} kn<br/>
+            <b>Type:</b> ${typeDisp}<br/>
+            <b>Status:</b> ${status}<br/>
+            <b>Class:</b> ${info.AISClass || ''}
+          </div>
+        `;
+        m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
+
+        // Fetch additional vessel state data if available
+        fetch(`/state?UserID=${encodeURIComponent(uid)}`)
+          .then(res => res.ok ? res.json() : Promise.reject(res.status))
+          .then(state => {
+            if (state.ImageURL) {
+              const flexHtml = `
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <img src="${state.ImageURL}" style="max-width:120px;max-height:80px;flex-shrink:0;" alt="State image"/>
+                  <div style="line-height:1.2;">
+                    <b>MMSI:</b> ${uid}<br/>
+                    <b>Name:</b> ${info.Name || ''}<br/>
+                    <b>Speed:</b> ${info.Sog} kn<br/>
+                    <b>Type:</b> ${typeDisp}<br/>
+                    <b>Status:</b> ${status}<br/>
+                    <b>Class:</b> ${info.AISClass || ''}
+                  </div>
+                </div>
+              `;
+              m.getPopup().setContent(flexHtml).update();
+              m.openPopup();
+            }
+          })
+          .catch(e => console.error(`Failed to load state for ${uid}`, e));
+      });
+
+      m.on('mouseout', () => m.closePopup());
+
+      // Add the new marker to the map
+      m.addTo(map);
+      vesselMarkers[uid] = m;
+      newMarkers[uid] = m;
+    }
+  });
+
+  // Remove markers that are no longer needed
+  Object.keys(vesselMarkers).forEach(uid => {
+    if (!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
+  });
+
+  vesselMarkers = newMarkers;
+  
+  // If vessels were updated and a receiver is selected, update the radius circles
+  if (selectedReceiverLatLng) {
+    drawRadiusCircles();
+  }
+
+  // After all markers are updated, adjust the map bounds to fit all markers if the data is available
+  console.log("updateMap: autoFit =", autoFit, "boundsArr.length =", boundsArr.length, "loadedWithReceiver =", loadedWithReceiver, "loadedWithIpAddress =", loadedWithIpAddress);
+  if (autoFit && map) {
+    if (boundsArr.length) {
+      console.log("updateMap: Fitting bounds to", boundsArr.length, "markers");
+      programmaticFit = true;
+      map.once('moveend zoomend', () => {
+        programmaticFit = false;
+        console.log("Programmatic fit complete");
+      });
+      map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+    } else if (selectedReceiverLatLng && (loadedWithReceiver || loadedWithIpAddress)) {
+      // If we have a selected receiver but no vessels yet, center on the receiver
+      console.log("updateMap: No vessels yet, centering on selected receiver");
+      programmaticFit = true;
+      map.once('moveend zoomend', () => {
+        programmaticFit = false;
+        console.log("Programmatic fit complete");
+      });
+      map.setView(selectedReceiverLatLng, 10);
+    }
+  } else if (!map) {
+    console.error("updateMap: Map not initialized yet!");
+  } else if (!autoFit) {
+    console.log("updateMap: Skipping fitBounds because autoFit is false");
+  }
+}
+
+// **Trigger the fitBounds function after data load when the `id` query parameter is used**
+
+window.addEventListener('DOMContentLoaded', () => {
+  const p = new URLSearchParams(location.search);
+
+  // When `id` parameter is set, we delay the fitting of bounds until the markers are rendered
+  if (p.has('id')) {
+    // Assuming that fetch functions for vessels/receivers will trigger data updates
+    fetchMetrics();  // Fetch metrics after page load
+    setTimeout(() => {
+      // After data has loaded, call fitBounds to ensure the map adjusts
+      if (vesselMarkers.length) {
+        const boundsArr = Object.values(vesselMarkers).map(m => m.getLatLng());
+        if (boundsArr.length) {
+          map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+        }
+      }
+    }, 500);  // Add a slight delay to ensure data has been fetched and markers are available
+  }
+});
+
+
+    // Fetch metrics, update cards/charts/table
+let receiversFetched = false; // Flag to ensure receivers are only fetched once
+
+// Listen for incoming metrics data from the server
+socket.on("metrics/bysource", function(data) {
+  console.log("Received metrics data via WebSocket, autoFit =", autoFit);
+  
+  // Extract parameters from the URL
+  const params = new URLSearchParams(location.search);
+  
+  // Only use the requested_ip_address if we're not already using a receiver ID
+  let currentIp = null;
+  if (!overrideReceiverId && !params.has('receiver')) {
+    currentIp = data.requested_ip_address; // Use IP from the API response if available
+    console.log("Using requested_ip_address from server:", currentIp);
+  } else {
+    console.log("Already using a receiver ID, ignoring requested_ip_address");
+  }
+
+  // Update our message count tracker
+  // Use the same data source as the cards (simple_metrics.messages)
+  currentMessageCount = data.simple_metrics?.messages || 0;
+  console.log("Updated currentMessageCount:", currentMessageCount, "from simple_metrics.messages");
+  
+  // Update the receiver box message if it exists and no receiver is found
+  const receiverBox = document.getElementById('receiver-box');
+  if (receiverBox) {
+    console.log("Found receiver box, checking if it's a no-receiver box");
+    
+    // Check if this is a "no receiver" box (has the no-receiver-box class)
+    if (receiverBox.classList.contains('no-receiver-box')) {
+      console.log("This is a 'no receiver' box, updating message based on message count:", currentMessageCount);
+      
+      // Don't update if the form is currently being displayed
+      if (document.getElementById('receiver-form')) {
+        console.log("Receiver form is active, not updating the box");
+      } else if (currentMessageCount > 0) {
+        console.log("Message count > 0, updating to show 'AIS data is flowing'");
+        // Check if we're using an override IP
+        if (overrideIp) {
+          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for IP ${overrideIp}. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+        } else {
+          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for your IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+        }
+      } else {
+        console.log("Message count = 0, updating to show 'No receiver found'");
+        receiverBox.innerHTML = '<p>No receiver found at this IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>';
+      }
+    } else {
+      console.log("This is a receiver info box, not updating");
+    }
+  } else {
+    console.log("No receiver box found");
+  }
+  
+  // Only update the URL with the IP address if 'receiver' is not in the URL and 'ip_address' is not in the URL
+  if (currentIp && !params.has('receiver') && !params.has('ip_address')) {
+    updateURLWithIp(currentIp);
+  }
+
+  // ** Fetch receivers only once and only if we have an IP to use **
+  if (!receivedReceivers && currentIp) {
+    fetchReceivers(currentIp); // Fetch receivers using current IP
+    receivedReceivers = true;  // Set the flag to true after fetching
+  }
+  
+  // Debug log to track autoFit state after processing data
+  console.log("After processing metrics data, autoFit =", autoFit);
+
+  const lbl = new Date().toLocaleTimeString();
+
+  // Update card metrics
+  cardMetrics.forEach(m => {
+    if (baselines[m] === undefined) baselines[m] = data.simple_metrics[m];
+    document.querySelector(`#card-${m} p`).textContent = formatNumber(data.simple_metrics[m] - baselines[m]);
+  });
+
+  // Update chart metrics
+  chartMetrics.forEach(m => {
+    const c = charts[m];
+    c.data.labels.push(lbl);
+    c.data.datasets[0].data.push(data.simple_metrics[m]);
+    if (c.data.labels.length > maxPoints) {
+      c.data.labels.shift();
+      c.data.datasets[0].data.shift();
+    }
+    c.update();
+  });
+
+  // ** Handle messages and fetch receivers if necessary **
+  if (data.messages > 0 && !receivedReceivers && currentIp) {
+    receivedReceivers = true;
+    fetchReceivers(currentIp); // Use IP to fetch receivers, but only if we have an IP
+  }
+  
+  // Debug log to track autoFit state after processing data
+  console.log("After processing metrics data, autoFit =", autoFit);
+  
+  // Debug log to track autoFit state after processing data
+  console.log("After processing metrics data, autoFit =", autoFit);
+
+  // Update the summary table with new data
+  if (Array.isArray(data.window_user_ids)) {
+    data.window_user_ids.forEach(uid => {
+      lastSeenTs[uid] = new Date();
+      seenCount[uid] = (seenCount[uid] || 0) + 1;
+      if (!seenUserIds.has(uid)) {
+        seenUserIds.add(uid);
+        fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
+          .then(r => r.ok ? r.json() : Promise.reject(r.status))
+          .then(json => { summaryCache[uid] = json[uid] || {}; updateSummaryTable(); })
+          .catch(e => console.error(`summary ${uid} error`, e));
+      }
+    });
+    updateSummaryTable();
+  }
+});
+
+// Function to request metrics by source (IP address or ID)
+function fetchMetrics() {
+  console.log("Requesting metrics via WebSocket");
+  
+  // Extract parameters from the URL
+  const params = new URLSearchParams(location.search);
+  
+  let payload = {};
+  
+  if (overrideReceiverId) {
+    // Use receiver ID from override if present
+    payload = { id: Number(overrideReceiverId) };
+  } else if (params.has('receiver')) {
+    // Use receiver ID from URL if present
+    payload = { id: Number(params.get('receiver')) };
+    
+    // Ensure loadedWithReceiver flag is set if we're using a receiver ID from the URL
+    if (!loadedWithReceiver) {
+      console.log("Setting loadedWithReceiver=true in fetchMetrics because receiver parameter is present");
+      loadedWithReceiver = true;
+    }
+  } else if (overrideIp) {
+    // Use IP only if no receiver ID in the URL or overrideReceiverId
+    if (!params.has('receiver')) {
+      payload = { ip_address: overrideIp };
+      
+      // Ensure loadedWithIpAddress flag is set if we're using an IP address
+      if (!loadedWithIpAddress) {
+        console.log("Setting loadedWithIpAddress=true in fetchMetrics because we're using an IP address");
+        loadedWithIpAddress = true;
+      }
+    }
+  }
+  
+  console.log("Sending WebSocket request with payload:", payload);
+  
+  // Emit the request to the server with the identifier (IP or ID)
+  socket.emit("metrics/bysource", payload);
+}
+
+function fetchReceiversById(receiverId) {
+  fetch(`/receivers?id=${encodeURIComponent(receiverId)}`)
+    .then(res => res.ok ? res.json() : Promise.reject(res.status))
+    .then(data => {
+      // Handle the case where no receivers are found
+      if (!Array.isArray(data) || data.length === 0) {
+        console.warn('No receivers found with ID:', receiverId);
+        
+        // Reset all data to prevent showing data from other receivers
+        resetCardsAndCharts();  // Reset all cards and charts
+        resetMapAndTable(true); // Reset the map and table
+        resetFilters();         // Reset filters
+        
+        // Reset message count to avoid showing "data is flowing" message
+        currentMessageCount = 0;
+        
+        // Clear previous receiver info
+        const ipHeading = document.getElementById('ip-address');
+        const existingReceiverBox = document.getElementById('receiver-box');
+        if (existingReceiverBox) existingReceiverBox.remove();
+
+        // Create a new box for "No receiver found"
+        const receiverBox = document.createElement('div');
+        receiverBox.id = 'receiver-box';
+        receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
+        
+        receiverBox.innerHTML = `<p>No receiver found with ID ${receiverId}. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+
+        ipHeading.insertAdjacentElement('afterend', receiverBox);
+        
+        // Clear the socket connection to prevent receiving data from other sources
+        socket.off("metrics/bysource");
+        
+        return;
+      }
+
+      const receiver = Array.isArray(data) ? data[0] : data;
+
+      // Set the selectedReceiverLatLng for map operations
+      selectedReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+      console.log("Set selectedReceiverLatLng from fetchReceiversById:", selectedReceiverLatLng);
+      
+      // Update the overlay to show the receiver's position
+      updateOverlay(selectedReceiverLatLng);
+      updateSummaryTable();
+      
+      // Draw radius circles around the selected receiver
+      drawRadiusCircles();
+      
+      // Now that we've confirmed the receiver exists, fetch metrics for it
+      console.log('Receiver found, now fetching metrics for ID:', receiver.id);
+      fetchMetrics();
+
+      // Remove existing info box if present
+      const oldBox = document.getElementById('receiver-box');
+      if (oldBox) oldBox.remove();
+
+      // Build and insert new info box with receiver details
+      const box = document.createElement('div');
+      box.id = 'receiver-box';
+      box.innerHTML = `
+        <div class="receiver-info-content">
+          <h3>Receiver Information</h3>
+          <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
+          <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+          <p class="receiver-url"><strong>URL:</strong>
+            ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+          </p>
+          <div style="margin-bottom: 10px;">
+            <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
+            <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
+            <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
+          </div>
+        </div>
+        <div id="receiver-map"></div> <!-- Receiver map will go here -->
+      `;
+      
+      // Add event listener to the edit button
+      setTimeout(() => {
+        const editButton = document.getElementById('edit-receiver-btn');
+        if (editButton) {
+          editButton.addEventListener('click', () => showEditReceiverForm(receiver.id));
+        }
+      }, 0);
+      document.getElementById('ip-address').insertAdjacentElement('afterend', box);
+
+      // Initialize the map for the receiver's location
+      const mapDiv = document.getElementById('receiver-map');
+      const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(rxMap);
+      L.marker([receiver.latitude, receiver.longitude])
+        .addTo(rxMap)
+        .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
+        .openPopup();
+    })
+    .catch(err => {
+      console.error('Error fetching receiver by id:', err);
+      
+      // Reset all data to prevent showing data from other receivers
+      resetCardsAndCharts();  // Reset all cards and charts
+      resetMapAndTable(true); // Reset the map and table
+      resetFilters();         // Reset filters
+      
+      // Reset message count to avoid showing "data is flowing" message
+      currentMessageCount = 0;
+      
+      // Handle error in case of failure to get receiver information
+      const ipHeading = document.getElementById('ip-address');
+      const existingReceiverBox = document.getElementById('receiver-box');
+      if (existingReceiverBox) existingReceiverBox.remove();
+
+      // Create a new box for "No receiver found"
+      const receiverBox = document.createElement('div');
+      receiverBox.id = 'receiver-box';
+      receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
+      
+      // Show error message
+      receiverBox.innerHTML = `<p>Error loading receiver with ID ${receiverId}.</p>`;
+
+      ipHeading.insertAdjacentElement('afterend', receiverBox);
+      
+      // Clear the socket connection to prevent receiving data from other sources
+      socket.off("metrics/bysource");
+    });
+}
+
+function updateURLWithReceiverId(receiverId) {
+  const url = new URL(window.location);
+  console.log('Updating URL with receiver ID:', receiverId);
+  
+  // Remove ip_address if it's in the URL, since we're using receiver ID now
+  url.searchParams.delete('ip_address');
+  url.searchParams.set('receiver', receiverId);  // Set receiver id as query parameter
+  
+  console.log('Updated URL:', url.toString());
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
+}
+
+function updateURLWithIp(ip) {
+  const url = new URL(window.location);
+  console.log('Updating URL with IP:', ip);
+  url.searchParams.delete('receiver');  // Remove receiver if IP address is used
+  url.searchParams.set('ip_address', ip);  // Set ip_address query parameter
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
+}
+
+async function fetchReceivers(ip) {
+  try {
+    const params = new URLSearchParams(location.search);
+    let url = '/receivers';
+
+    // Make sure overrideIp is set if we're using an IP address
+    if (ip) {
+      overrideIp = ip;
+      console.log("Setting overrideIp in fetchReceivers:", overrideIp);
+      
+      // Update the input field with the override IP
+      const ipInput = document.getElementById('ipInput');
+      if (ipInput) {
+        ipInput.value = ip;
+        
+        // Enable the Apply button
+        const applyBtn = document.getElementById('applyBtn');
+        if (applyBtn) {
+          applyBtn.disabled = false;
+        }
+      }
+    }
+
+    // Use receiver ID from the URL if it's present
+    if (params.has('receiver')) {
+      url += `?id=${encodeURIComponent(params.get('receiver'))}`;
+    } else if (ip) {
+      // Use IP address if no receiver ID in the URL
+      url += `?ip_address=${encodeURIComponent(ip)}`;
+    }
+
+    // Fetch receivers from the API
+    const res = await fetch(url);
+    if (!res.ok) throw res.status;
+
+    const receivers = await res.json();
+
+    // Handle the case where no receivers are found
+    if (!Array.isArray(receivers) || receivers.length === 0) {
+      console.warn('No receivers found');
+      console.log('Current message count when creating receiver box:', currentMessageCount);
+      
+      // Clear previous receiver info
+      const ipHeading = document.getElementById('ip-address');
+      const existingReceiverBox = document.getElementById('receiver-box');
+      if (existingReceiverBox) existingReceiverBox.remove();
+
+      // Create a new box for "No receiver found"
+      const receiverBox = document.createElement('div');
+      receiverBox.id = 'receiver-box';
+      receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
+      
+      // Check if we have messages but no receiver using our tracked message count
+      if (currentMessageCount > 0) {
+        // Show link to howto page
+        console.log('Setting up howto link');
+        
+        receiverBox.innerHTML = `
+          <p>No receiver found but AIS data is flowing for ${overrideIp ? `IP ${overrideIp}` : 'your IP'}.
+          <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
+        `;
+        
+        // No map initialization here - it will be done in showReceiverForm
+          
+      } else {
+        // No receiver found and no messages
+        console.log('Setting message to "No receiver found"');
+        receiverBox.innerHTML = '<p>No receiver found at this IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>';
+      }
+
+      ipHeading.insertAdjacentElement('afterend', receiverBox);
+      return;
+    }
+
+    // Handle the first receiver in the list
+    const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
+    overrideReceiverId = receiver.id;  // Store the receiver ID for later use
+    console.log('Receiver ID fetched:', overrideReceiverId);
+
+    // Update the URL with the receiver's ID
+    updateURLWithReceiverId(receiver.id); // Update URL with receiver ID instead of IP
+
+    // Now fetch metrics using the receiver's ID
+    fetchMetrics();
+
+    // Continue with normal receiver handling...
+
+    const ipHeading = document.getElementById('ip-address');
+    
+    // Clear previous receiver info
+    const existingReceiverBox = document.getElementById('receiver-box');
+    if (existingReceiverBox) existingReceiverBox.remove();
+    
+    // Create a new box to hold receiver info
+    const receiverBox = document.createElement('div');
+    receiverBox.id = 'receiver-box';
+    
+    // Display receiver information
+    receiverBox.innerHTML = `
+      <h3>Receiver Information</h3>
+      <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
+      <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+      <p class="receiver-url"><strong>URL:</strong>
+        ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+      </p>
+      <div style="margin-bottom: 10px;">
+        <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
+        <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
+        <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
+      </div>
+      <div id="receiver-map"></div> <!-- Receiver map will go here -->
+    `;
+    
+    // Add event listener to the edit button
+    setTimeout(() => {
+      const editButton = document.getElementById('edit-receiver-btn');
+      if (editButton) {
+        editButton.addEventListener('click', () => showEditReceiverForm(receiver.id));
+      }
+    }, 0);
+    
+    // Insert the receiver box below the IP address heading
+    ipHeading.insertAdjacentElement('afterend', receiverBox);
+
+    // Initialize the map for the receiver pin only after the DOM is ready
+    const receiverMapDiv = document.getElementById('receiver-map');
+    if (receiverMapDiv) {
+      // Initialize the map for the receiver pin
+      const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(receiverMap);
+
+      L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
+        .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
+    } else {
+      console.error("Receiver map container not found");
+    }
+
+    const firstReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+    selectedReceiverLatLng = firstReceiverLatLng;
+    // Update the overlay to show the first receiver's position
+    updateOverlay(firstReceiverLatLng);
+    updateSummaryTable();
+    
+    // Draw radius circles around the selected receiver
+    drawRadiusCircles();
+
+    // Optionally flash the selection overlay
+    const ov = document.createElement('div');
+    ov.className = 'rx-overlay';
+    ov.textContent = `Selected RX ${receiver.name}`;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('show'));
+    setTimeout(() => {
+      ov.classList.remove('show');
+      ov.addEventListener('transitionend', () => ov.remove(), { once: true });
+    }, 2000);
+  } catch (e) {
+    console.error('Failed to fetch receivers:', e);
+    console.log('Current message count in error handler:', currentMessageCount);
+
+    // Handle error in case of failure to get receiver information
+    const ipHeading = document.getElementById('ip-address');
+    const existingReceiverBox = document.getElementById('receiver-box');
+    if (existingReceiverBox) existingReceiverBox.remove();
+
+    // Create a new box for "No receiver found"
+    const receiverBox = document.createElement('div');
+    receiverBox.id = 'receiver-box';
+    receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
+    
+    // Check if we have messages but no receiver using our tracked message count
+    if (currentMessageCount > 0) {
+      // Show link to howto page (error handler)
+      console.log('Setting up howto link (error handler)');
+      
+      receiverBox.innerHTML = `
+        <p>No receiver found but AIS data is flowing for ${overrideIp ? `IP ${overrideIp}` : 'your IP'}.
+        <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
+      `;
+    } else {
+      // No receiver found and no messages
+      console.log('Setting message to "No receiver found" (error handler)');
+      receiverBox.innerHTML = '<p>No receiver found</p>';
+    }
+
+    ipHeading.insertAdjacentElement('afterend', receiverBox);
+  }
+}
+
+    function typeNameFor(info) {
+      if (info.AISClass === 'AtoN') {
+        return staticAtoNTypeMapping[info.Type]
+          || `Unknown AtoN (${info.Type})`;
+      }
+      if (!typesConfig) return info.Type;
+      const catId = typesConfig.valueLookup[info.Type];
+      const cat   = typesConfig.categories.find(c=>c.id === catId);
+      return cat ? cat.name : info.Type;
+    }
+
+    function initDoughnut(){
+      const ctx = document.getElementById('typeDoughnut').getContext('2d');
+      typeDoughnut = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
+        options: {
+          responsive: true,
+	  maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'right', labels: { boxWidth:12 } },
+            centerText: { display: true, text: '' }
+          }
+        }
+      });
+    }
+
+    function updateDoughnut(){
+      if(!typeDoughnut) return;
+      const counts = {};
+      Array.from(seenUserIds)
+       .filter(uid=>uid.length===9)
+       .forEach(uid=>{
+         // ✅ pass the full info object
+         const info = summaryCache[uid] || {};
+         const name = typeNameFor(info);
+         counts[name] = (counts[name]||0) + 1;
+      });
+      const entries = Object.entries(counts);
+      typeColorsMap = {};
+      const bg = entries.map((_,i)=>colors[i%colors.length]);
+      entries.forEach(([name],i)=> typeColorsMap[name]=bg[i]);
+      typeDoughnut.data.labels = entries.map(e=>`${e[0]} (${e[1]})`);
+      typeDoughnut.data.datasets[0].data = entries.map(e=>e[1]);
+      typeDoughnut.data.datasets[0].backgroundColor = bg;
+      typeDoughnut.options.plugins.centerText.text = entries.reduce((sum,[,c])=>sum+c,0);
+      typeDoughnut.update();
+      updateMap();
+    }
+
+    function renderPagination(totalPages){
+      const container = document.getElementById('pagination');
+      container.innerHTML = '';
+      const prev = document.createElement('button');
+      prev.textContent = '« Prev';
+      prev.disabled = currentPage===1;
+      prev.onclick = ()=>{ currentPage--; updateSummaryTable(); };
+      container.appendChild(prev);
+      for(let p=1; p<=totalPages; p++){
+        const btn = document.createElement('button');
+        btn.textContent = p;
+        if(p===currentPage) btn.classList.add('active');
+        btn.onclick = ()=>{ currentPage=p; updateSummaryTable(); };
+        container.appendChild(btn);
+      }
+      const next = document.createElement('button');
+      next.textContent = 'Next »';
+      next.disabled = currentPage===totalPages;
+      next.onclick = ()=>{ currentPage++; updateSummaryTable(); };
+      container.appendChild(next);
+    }
+
+    function updateSummaryTable(){ 
+      // Show/hide distance column
+      const showDist = !!selectedReceiverLatLng;
+      document.querySelectorAll('.distance-col').forEach(el=>{
+        el.style.display = showDist ? '' : 'none';
+      });
+
+      let allRows = Array.from(seenUserIds)
+        .filter(uid=>uid.length===9)
+        .map(uid=>({
+          id: uid,
+          info: summaryCache[uid]||{},
+          lastTs: lastSeenTs[uid]||new Date(0),
+          count: seenCount[uid]||0
+        }));
+
+      // **filter**
+      if(filterTerm){
+        allRows = allRows.filter(item=>
+          item.id.includes(filterTerm) ||
+          (item.info.Name||'').toLowerCase().includes(filterTerm)
+        );
+      }
+
+      allRows.sort((a,b)=>{
+        let cmp;
+        if(sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
+        else if(sortField==='name') cmp = (a.info.Name||'').localeCompare(b.info.Name||'');
+        else if(sortField==='typeName') cmp = typeNameFor(a.info).localeCompare(typeNameFor(b.info));
+        else if(sortField==='status'){
+          const sa = navigationalStatusMapping[a.info.NavigationalStatus]||'Unknown';
+          const sb = navigationalStatusMapping[b.info.NavigationalStatus]||'Unknown';
+          cmp = sa.localeCompare(sb);
+        }
+        else if (sortField==='className') {
+          const ca = a.info.AISClass||'';
+          const cb = b.info.AISClass||'';
+          cmp = ca.localeCompare(cb);
+        }
+        else if(sortField==='count') cmp = a.count - b.count;
+	else if (sortField === 'distance' && selectedReceiverLatLng) {
+	  const getDist = item => {
+	    const { Latitude: lat, Longitude: lon } = item.info;
+	    return (typeof lat === 'number' && typeof lon === 'number')
+	      ? haversineDistance(
+	          selectedReceiverLatLng.lat,
+	          selectedReceiverLatLng.lng,
+	          lat, lon
+	        )
+	      : Infinity;
+	  };
+	  const dA = getDist(a);
+	  const dB = getDist(b);
+	  cmp = dA - dB;
+	}
+	else if (sortField === 'flag') {
+	    const midA = a.id.slice(0,3), midB = b.id.slice(0,3);
+	    const entryA = midMap[midA] || [], entryB = midMap[midB] || [];
+	    const nameA = entryA[0] || '';
+	    const nameB = entryB[0] || '';
+	    cmp = nameA.localeCompare(nameB);
+	}
+        else cmp = a.id.localeCompare(b.id);
+        return sortAsc ? cmp : -cmp;
+      });
+
+      const totalPages = Math.max(1, Math.ceil(allRows.length/rowsPerPage));
+      if(currentPage>totalPages) currentPage = totalPages;
+      const start = (currentPage-1)*rowsPerPage;
+      const pageRows = allRows.slice(start, start+rowsPerPage);
+
+      const tbody = document.getElementById('summaryBody');
+      tbody.innerHTML = '';
+      pageRows.forEach(item=>{
+        const ago = formatAgo(item.lastTs);
+        const mid = item.id.slice(0,3);
+        const entry = midMap[mid]||[];
+        const countryCode = entry[0]||'';
+        const countryName = entry[3]||'';
+        const flagCell = countryCode
+          ? `<td><img class="flag-img" src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}"/></td>`
+          : '<td></td>';
+
+        let distanceCell = '<td class="distance-col"></td>';
+        if(selectedReceiverLatLng && typeof item.info.Latitude==='number' && typeof item.info.Longitude==='number'){
+          const d = haversineDistance(
+            selectedReceiverLatLng.lat,
+            selectedReceiverLatLng.lng,
+            item.info.Latitude,
+            item.info.Longitude
+          ).toFixed(2);
+          distanceCell = `<td class="distance-col">${d} km</td>`;
+        }
+
+        const status = navigationalStatusMapping[item.info.NavigationalStatus]||'Unknown';
+        const tr = document.createElement('tr');
+        tr.id = 'row-' + item.id;              // give each row an id
+        tr.innerHTML = `
+          <td><a href="#" onclick="focusVessel('${item.id}'); return false;">${item.id}</a></td>
+          <td>${item.info.Name||''}</td>
+          <td title="Type: ${typeNameFor(item.info)}\nStatus: ${status}">${typeNameFor(item.info)}</td>
+          <td>${status}</td>
+          <td>${item.info.AISClass||''}</td>
+          ${flagCell}
+          ${distanceCell}
+          <td>${ago}</td>
+          <td>${item.count}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Toggle distance column now that rows are in the DOM
+      document.querySelectorAll('.distance-col').forEach(el=>{
+        el.style.display = showDist ? 'table-cell' : 'none';
+      });
+      if (focusedUid) {
+        const stillThere = document.getElementById('row-' + focusedUid);
+        if (stillThere) stillThere.classList.add('selected');
+      }
+      renderPagination(totalPages);
+      updateDoughnut();
+    }
+
+    const ipInput = document.getElementById('ipInput');
+    const applyBtn = document.getElementById('applyBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    // Function to clear IP override and reset to user's real IP
+    function clearIpOverride() {
+      // Clear the input field
+      ipInput.value = '';
+      
+      // Reset the override IP
+      overrideIp = '';
+      overrideReceiverId = '';  // Reset receiver id
+      
+      // Update the URL to remove the ip_address parameter
+      const url = new URL(window.location);
+      url.searchParams.delete('ip_address');
+      history.replaceState(null, '', url.toString());
+      
+      // Reset message count
+      currentMessageCount = 0;
+      
+      // Update the IP address display to show only the user's real IP
+      fetchUserIP(false);
+      
+      // Reset all components
+      resetCardsAndCharts();
+      resetMapAndTable(true);
+      resetFilters();
+      
+      // Fetch metrics and receivers with the user's real IP
+      fetchMetrics();
+      fetchReceivers();
+      
+      // Disable the Apply button
+      applyBtn.disabled = true;
+    }
+
+    // 1. Toggle disabled state as the user types:
+    ipInput.addEventListener('input', () => {
+      // trim so spaces don't count
+      applyBtn.disabled = ipInput.value.trim() === '';
+    });
+
+    // 2. (Extra safety) In your handler, bail out if empty:
+    applyBtn.addEventListener('click', () => {
+      const ip = ipInput.value.trim();
+      if (!ip) return;          // nothing to do
+      applyOverride(ip);
+    });
+
+    // 3. Add event listener for the Clear button:
+    clearBtn.addEventListener('click', clearIpOverride);
+
+    // 4. Also handle Enter-key the same way:
+    ipInput.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      const ip = ipInput.value.trim();
+      if (!ip) {
+        e.preventDefault();   // stop any default form‑submit behavior
+        return;
+      }
+      applyOverride(ip);
+    });
+
+
+  // Function to show the edit receiver form
+  function showEditReceiverForm(receiverId) {
+    // Fetch the receiver details first
+    fetch(`/receivers?id=${encodeURIComponent(receiverId)}`)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        const receiver = Array.isArray(data) ? data[0] : data;
+        
+        // Get the receiver box
+        const receiverBox = document.getElementById('receiver-box');
+        
+        // Replace the content with the edit form
+        receiverBox.innerHTML = `
+          <h3>Edit Receiver</h3>
+          
+          <form id="edit-receiver-form" style="font-size: 0.8em;">
+            <input type="hidden" id="edit-receiver-id" value="${receiver.id}">
+            
+            <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-password">Current Password (required):</label>
+              <input type="password" id="edit-receiver-password" required style="width: 100%; padding: 4px; margin-top: 2px;">
             </div>
-          </label>
-        </div>
-        <div class="buttons">
-          <button type="submit">Save</button>
-          <button type="button" id="cancel-edit">Cancel</button>
-        </div>
-      </form>
-    </section>
+            
+            <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-name">Callsign/Name:</label>
+              <input type="text" id="edit-receiver-name" value="${receiver.name}" required style="width: 100%; padding: 4px; margin-top: 2px;">
+            </div>
+            
+            <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-description">Description:</label>
+              <textarea id="edit-receiver-description" style="width: 100%; padding: 4px; margin-top: 2px; height: 40px;">${receiver.description}</textarea>
+            </div>
+            
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+              <div style="flex: 1;">
+                <label for="edit-receiver-latitude">Latitude:</label>
+                <input type="number" id="edit-receiver-latitude" step="any" value="${receiver.latitude}" required style="width: 100%; padding: 4px; margin-top: 2px;">
+              </div>
+              <div style="flex: 1;">
+                <label for="edit-receiver-longitude">Longitude:</label>
+                <input type="number" id="edit-receiver-longitude" step="any" value="${receiver.longitude}" required style="width: 100%; padding: 4px; margin-top: 2px;">
+              </div>
+            </div>
+            
+            <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-url">URL (optional):</label>
+              <input type="url" id="edit-receiver-url" value="${receiver.url || ''}" style="width: 100%; padding: 4px; margin-top: 2px;">
+            </div>
+            
+            
+            <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-new-password">New Password (optional):</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="password" id="edit-receiver-new-password" style="flex: 1; padding: 4px; margin-top: 2px;">
+                <button type="button" id="generate-password-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-top: 2px;">Generate</button>
+              </div>
+              <small style="color: #666;">Leave blank to keep current password</small>
+            </div>
+            
+            <div id="edit-location-map" style="height: 200px; margin-bottom: 8px;"></div>
+            <p style="font-size: 0.8em; margin: 0 0 8px 0;">Drag the marker to update your receiver's location</p>
+            
+            <div id="edit-form-error" style="color: red; margin-bottom: 8px; display: none;"></div>
+            
+            <div style="display: flex; gap: 8px;">
+              <button type="submit" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Save Changes</button>
+              <button type="button" id="cancel-edit-form" style="background-color: #f0f0f0; border: 1px solid #ccc; padding: 4px 8px; cursor: pointer;">Cancel</button>
+            </div>
+          </form>
+        `;
+        
+        // Add event listener to the cancel button
+        document.getElementById('cancel-edit-form').addEventListener('click', function() {
+          // Reload the receiver details to restore the view
+          fetchReceiversById(receiverId);
+        });
+        
+        // Initialize the map after the form is added to the DOM
+        setTimeout(() => {
+          const locationMap = L.map('edit-location-map').setView([receiver.latitude, receiver.longitude], 13);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+          }).addTo(locationMap);
+          
+          // Add a draggable marker
+          const marker = L.marker([receiver.latitude, receiver.longitude], { draggable: true }).addTo(locationMap);
+          
+          // Update form fields when marker is moved
+          marker.on('dragend', function(e) {
+            const position = marker.getLatLng();
+            document.getElementById('edit-receiver-latitude').value = position.lat.toFixed(6);
+            document.getElementById('edit-receiver-longitude').value = position.lng.toFixed(6);
+          });
+          
+          // Update marker when lat/lng fields change
+          document.getElementById('edit-receiver-latitude').addEventListener('change', updateMarkerFromFields);
+          document.getElementById('edit-receiver-longitude').addEventListener('change', updateMarkerFromFields);
+          
+          function updateMarkerFromFields() {
+            const lat = parseFloat(document.getElementById('edit-receiver-latitude').value);
+            const lng = parseFloat(document.getElementById('edit-receiver-longitude').value);
+            
+            if (!isNaN(lat) && !isNaN(lng)) {
+              marker.setLatLng([lat, lng]);
+              locationMap.setView([lat, lng], locationMap.getZoom());
+            }
+          }
+          
+          
+          // Add event listener to the "Generate Password" button
+          document.getElementById('generate-password-btn').addEventListener('click', function() {
+            // Generate a random 8-character alphanumeric password
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let password = '';
+            for (let i = 0; i < 8; i++) {
+              password += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            
+            // Get the password field
+            const passwordField = document.getElementById('edit-receiver-new-password');
+            
+            // Change the input type to "text" to make the password visible
+            passwordField.type = "text";
+            
+            // Populate the password field with the generated password
+            passwordField.value = password;
+            
+            // Copy the password to clipboard
+            navigator.clipboard.writeText(password).then(
+              () => {
+                // Success feedback - change button text temporarily
+                const generateBtn = document.getElementById('generate-password-btn');
+                const originalText = generateBtn.textContent;
+                generateBtn.textContent = "Copied!";
+                
+                // Restore button text after 2 seconds
+                setTimeout(() => {
+                  generateBtn.textContent = originalText;
+                }, 2000);
+              },
+              () => {
+                // Error handling if clipboard copy fails
+                console.error('Failed to copy password to clipboard');
+                alert('Could not copy to clipboard. Your password has been generated but you\'ll need to copy it manually.');
+              }
+            );
+          });
+          
+          
+          // Handle form submission
+          document.getElementById('edit-receiver-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Clear previous errors
+            const errorElement = document.getElementById('edit-form-error');
+            errorElement.style.display = 'none';
+            errorElement.textContent = '';
+            
+            
+            const formData = {
+              id: parseInt(document.getElementById('edit-receiver-id').value),
+              password: document.getElementById('edit-receiver-password').value,
+              name: document.getElementById('edit-receiver-name').value,
+              description: document.getElementById('edit-receiver-description').value,
+              latitude: parseFloat(document.getElementById('edit-receiver-latitude').value),
+              longitude: parseFloat(document.getElementById('edit-receiver-longitude').value),
+              url: document.getElementById('edit-receiver-url').value || undefined
+            };
+            
+            
+            // Add new password only if provided
+            const newPassword = document.getElementById('edit-receiver-new-password').value;
+            if (newPassword) {
+              formData.new_password = newPassword;
+            }
+            
+            // Submit the form to the editreceiver endpoint
+            fetch('/editreceiver', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(formData)
+            })
+            .then(response => {
+              if (!response.ok) {
+                return response.text().then(text => {
+                  throw new Error(text || `HTTP error! Status: ${response.status}`);
+                });
+              }
+              return response.json();
+            })
+            .then(data => {
+              // Handle successful response
+              if (data.id) {
+                // Show a success notification
+                const notification = document.createElement('div');
+                notification.style.cssText = 'position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background-color: #4CAF50; color: white; padding: 16px; border-radius: 4px; z-index: 9999; text-align: center;';
+                notification.textContent = 'Receiver updated successfully!';
+                document.body.appendChild(notification);
+                
+                // Remove the notification after 3 seconds
+                setTimeout(() => {
+                  notification.style.opacity = '0';
+                  notification.style.transition = 'opacity 1s';
+                  setTimeout(() => notification.remove(), 1000);
+                }, 3000);
+                
+                // Reload the receiver details
+                fetchReceiversById(data.id);
+              }
+            })
+            .catch(error => {
+              // Display error message
+              errorElement.textContent = `Error: ${error.message}`;
+              errorElement.style.display = 'block';
+            });
+          });
+        }, 100);
+      })
+      .catch(error => {
+        console.error('Error fetching receiver details:', error);
+        alert('Failed to load receiver details. Please try again.');
+      });
+  }
 
-    <section id="search-section">
-      <input
-        type="text"
-        id="search-input"
-        placeholder="🔍 Search by description, name, IP address or UDP port…"
-        autocomplete="off"
-      >
-    </section>
-
-    <section id="list-section">
-      <table>
-        <thead>
-          <tr>
-            <th class="sortable" data-key="id">ID</th>
-            <th class="sortable" data-key="lastupdated">Last Updated</th>
-            <th class="sortable" data-key="name">Name</th>
-            <th class="sortable" data-key="description">Description</th>
-            <th class="sortable" data-key="latitude">Lat</th>
-            <th class="sortable" data-key="longitude">Long</th>
-            <th class="sortable" data-key="url">URL</th>
-            <th class="sortable" data-key="ip_address">IP Address</th>
-            <th class="sortable" data-key="udp_port">UDP Port</th>
-            <th class="sortable" data-key="password">Password</th>
-            <th class="sortable" data-key="messages">Messages</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="receivers-tbody">
-          <!-- rows filled by JS -->
-        </tbody>
-      </table>
-    </section>
-  </main>
-  <!-- Cron overlay removed -->
-  <script src="app.js"></script>
+  </script>
 </body>
 </html>

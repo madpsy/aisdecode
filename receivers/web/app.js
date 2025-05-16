@@ -78,7 +78,7 @@ function applySortAndFilter() {
 function renderList(list) {
   tbody.innerHTML = '';
   list.forEach(r => {
-    console.log('Rendering receiver:', r.id, 'Password:', r.password); // Debug: Log each receiver's password
+    //console.log('Rendering receiver:', r.id, 'Password:', r.password); // Debug: Log each receiver's password
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${r.id}</td>
