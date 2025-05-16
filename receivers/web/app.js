@@ -16,7 +16,6 @@ let sortDir       = 1; // 1 = ascending, -1 = descending
 async function loadReceivers() {
   const res = await fetch('/admin/receivers');
   receiversData = await res.json();
-  console.log('Receivers data:', receiversData); // Debug: Log the receivers data
   applySortAndFilter();
 }
 
@@ -88,7 +87,6 @@ function renderList(list) {
   const columnKeys = Array.from(headers).map(th => th.getAttribute('data-key'));
   
   list.forEach(r => {
-    console.log('Rendering receiver:', r.id, 'Name:', r.name, 'URL:', r.url, 'UDP Port:', r.udp_port, 'Password:', r.password); // Debug: Log each receiver's data
     const tr = document.createElement('tr');
     
     // Create cells with appropriate classes based on column keys
@@ -117,7 +115,6 @@ function renderList(list) {
     ];
     
     tr.innerHTML = cells.join('');
-    console.log('Generated HTML for row:', tr.innerHTML); // Debug: Log the generated HTML
     tbody.appendChild(tr);
   });
 
@@ -141,7 +138,6 @@ function startEdit(id) {
   fetch(`/admin/receivers/${id}`)
     .then(r => r.json())
     .then(r => {
-      console.log('Editing receiver:', r.id, 'Password:', r.password); // Debug: Log the password when editing
       editId = r.id;
       formTitle.textContent = 'Edit Receiver #' + r.id;
       document.getElementById('field-id').value          = r.id;
