@@ -167,8 +167,8 @@
     // Convert Maidenhead locator to lat/lng - completely rewritten implementation
     function maidenheadToLatLng(locator) {
       // Validate locator format (should be 4 or 6 characters)
-      locator = locator.trim().toUpperCase();
-      const validLocator = /^[A-R]{2}[0-9]{2}([a-x]{2})?$/i.test(locator);
+      locator = locator.trim();
+      const validLocator = /^[A-Ra-r]{2}[0-9]{2}([a-x]{2})?$/i.test(locator);
       if (!validLocator) {
         return null; // Invalid locator
       }
