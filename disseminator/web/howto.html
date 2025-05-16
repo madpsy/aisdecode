@@ -184,12 +184,14 @@
         const subsq1 = locator.charCodeAt(4) - 97; // a=0, b=1, etc.
         const subsq2 = locator.charCodeAt(5) - 97;
         
-        lng += (subsq1 / 12) * 2;
+        // Each subsquare divides a 2-degree square into 24 parts horizontally
+        // So each subsquare is 2/24 = 1/12 degrees wide
+        lng += (subsq1 / 12);
         lat += (subsq2 / 24);
         
         // Center in the subsquare
-        lng += (1/24);
-        lat += (1/48);
+        lng += (1/24); // Half of 1/12
+        lat += (1/48); // Half of 1/24
       } else {
         // Center in the square
         lng += 1;
