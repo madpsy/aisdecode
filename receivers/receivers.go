@@ -1058,7 +1058,18 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // If no receivers are found, return an empty array instead of null
+    // Add dummy entry for receiver ID 0 (anonymous)
+    // Create dummy receiver with only id, name, and description as requested
+    dummyPublicReceiver := PublicReceiver{
+        ID:          0,
+        Name:        "Anonymous",
+        Description: "Anonymous",
+    }
+
+    // Add the dummy receiver to the beginning of the list
+    list = append([]PublicReceiver{dummyPublicReceiver}, list...)
+
+    // If no receivers are found (which shouldn't happen now since we added the dummy), return an empty array instead of null
     if len(list) == 0 {
         w.Header().Set("Content-Type", "application/json")
         w.Write([]byte("[]")) // Send empty array explicitly
