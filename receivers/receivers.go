@@ -778,11 +778,8 @@ func adminGetIPHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     if !exists {
-        // Receiver doesn't exist
-        w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(map[string]string{
-            "ip_address": "",
-        })
+        // Receiver doesn't exist - return 404 Not Found
+        http.Error(w, "Receiver not found", http.StatusNotFound)
         return
     }
 

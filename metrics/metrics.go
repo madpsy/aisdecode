@@ -414,13 +414,14 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
     
     if receiverID != "" {
         if _, err := strconv.Atoi(receiverID); err == nil {
-            // First check if the receiver exists at all
-            receiverExists = true // Assume it exists if we have an ID
+            // We'll determine if the receiver exists when we query the API
+            // Don't assume it exists just because we have an ID
             
             // Try to get the IP for this receiver
             cacheKey := "receiver:" + receiverID
             if cached, err := redisClient.Get(ctx, cacheKey).Result(); err == nil {
-                // We found a cached IP
+                // We found a cached IP, which means the receiver exists
+                receiverExists = true
                 filterIP = cached
                 log.Printf("Found cached IP for receiver %s: '%s'", receiverID, filterIP)
                 
@@ -432,25 +433,45 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
                 resp, err := http.Get(url)
                 if err == nil {
                     defer resp.Body.Close()
-                    body, _ := io.ReadAll(resp.Body)
-                    var out struct{ IP string `json:"ip_address"` }
-                    if json.Unmarshal(body, &out) == nil {
-                        filterIP = out.IP
-                        log.Printf("Got IP from API for receiver %s: '%s'", receiverID, filterIP)
-                        
-                        // Only consider it as having no IP if the IP is actually empty
-                        receiverHasEmptyIP = (filterIP == "")
-                        
-                        if filterIP != "" {
-                            // Cache the IP for future requests
-                            redisClient.Set(ctx, cacheKey, filterIP, 60*time.Second)
+                    
+                    // Check the status code
+                    if resp.StatusCode == http.StatusNotFound {
+                        // Receiver doesn't exist
+                        receiverExists = false
+                        log.Printf("Receiver %s not found", receiverID)
+                    } else if resp.StatusCode == http.StatusOK {
+                        // Receiver exists
+                        receiverExists = true
+                        body, _ := io.ReadAll(resp.Body)
+                        var out struct{ IP string `json:"ip_address"` }
+                        if json.Unmarshal(body, &out) == nil {
+                            filterIP = out.IP
+                            log.Printf("Got IP from API for receiver %s: '%s'", receiverID, filterIP)
+                            
+                            // Only consider it as having no IP if the IP is actually empty
+                            receiverHasEmptyIP = (filterIP == "")
+                            
+                            if filterIP != "" {
+                                // Cache the IP for future requests
+                                redisClient.Set(ctx, cacheKey, filterIP, 60*time.Second)
+                            }
                         }
+                    } else {
+                        // Some other error
+                        log.Printf("Error getting IP for receiver %s: %s", receiverID, resp.Status)
                     }
                 }
             }
             
             log.Printf("Receiver %s: exists=%v, hasNoIP=%v, filterIP='%s'",
                        receiverID, receiverExists, receiverHasEmptyIP, filterIP)
+            
+            // If the receiver doesn't exist, make sure we're not using any IP
+            if !receiverExists {
+                filterIP = ""
+                receiverHasEmptyIP = false
+                log.Printf("Receiver %s does not exist, clearing filterIP", receiverID)
+            }
         }
     }
     
