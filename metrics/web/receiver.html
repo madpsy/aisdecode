@@ -964,20 +964,20 @@ function loadReceivers() {
         // Helper function to create a diamond-shaped icon
         function createReceiverIcon(color = 'red') {
           const svgHtml = `
-            <svg style="pointer-events: none;" width="20" height="20" viewBox="0 0 20 20">
+            <svg style="pointer-events: none;" width="16" height="16" viewBox="0 0 20 20">
               <polygon points="10,0 20,10 10,20 0,10" fill="${color}" />
             </svg>
           `;
           return L.divIcon({
             html: svgHtml,
             className: '',
-            iconSize: [20, 20],
-            iconAnchor: [10, 10]
+            iconSize: [16, 16],
+            iconAnchor: [8, 8]
           });
         }
 
         // Tooltip with the RX name
-        dot.bindTooltip(`${r.name}`, {
+        dot.bindTooltip(`${r.name} (RX)`, {
           permanent: true,
           direction: 'top',
           className: 'receiver-tooltip'
