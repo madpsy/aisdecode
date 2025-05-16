@@ -394,6 +394,9 @@
     const callsignErrorEl = document.getElementById('callsign-error');
     const coordsErrorEl = document.getElementById('coords-error');
     const maidenheadErrorEl = document.getElementById('maidenhead-error');
+    
+    // Flag to control whether to snap to grid center
+    let snapToGrid = false;
     // Fetch existing receivers for duplicate name validation
     let receiversData = [];
     fetch('/receivers')
@@ -467,6 +470,18 @@
       
       // Update Maidenhead locator field
       maidenheadInput.value = latLngToMaidenhead(lat, lng);
+    }
+    
+    // Add a small offset to the marker position to ensure it's in the correct grid square
+    function snapToGridCenter(position) {
+      // Get the current locator
+      const locator = latLngToMaidenhead(position.lat, position.lng);
+      
+      // Convert back to lat/lng to get the center of the grid square
+      const gridCenter = maidenheadToLatLng(locator);
+      
+      // Return the center position
+      return gridCenter;
     }
 
     // Update marker when coordinate fields change
@@ -544,28 +559,78 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
     // Update marker position on drag end
     marker.on('dragend', () => {
       const pos = marker.getLatLng();
-      lat = pos.lat;
-      lng = pos.lng;
+      
+      if (snapToGrid) {
+        // Snap to grid center
+        const gridCenter = snapToGridCenter(pos);
+        lat = gridCenter.lat;
+        lng = gridCenter.lng;
+        marker.setLatLng([lat, lng]);
+      } else {
+        lat = pos.lat;
+        lng = pos.lng;
+      }
+      
       updateCoordinateFields();
       updateCommand();
       
       // Create bounds and fit map to marker
-      const bounds = L.latLngBounds([pos]);
+      const bounds = L.latLngBounds([marker.getLatLng()]);
       map.fitBounds(bounds, { maxZoom: 13, padding: [50, 50] });
     });
     
     // Allow clicking on map to move marker
     map.on('click', (e) => {
-      lat = e.latlng.lat;
-      lng = e.latlng.lng;
-      marker.setLatLng([lat, lng]);
+      if (snapToGrid) {
+        // Snap to grid center
+        const gridCenter = snapToGridCenter(e.latlng);
+        lat = gridCenter.lat;
+        lng = gridCenter.lng;
+        marker.setLatLng([lat, lng]);
+      } else {
+        lat = e.latlng.lat;
+        lng = e.latlng.lng;
+        marker.setLatLng([lat, lng]);
+      }
+      
       updateCoordinateFields();
       updateCommand();
       
       // Create bounds and fit map to marker
-      const bounds = L.latLngBounds([e.latlng]);
+      const bounds = L.latLngBounds([marker.getLatLng()]);
       map.fitBounds(bounds, { maxZoom: 13, padding: [50, 50] });
     });
+    
+    // Add a checkbox to toggle snap to grid
+    const controlDiv = L.DomUtil.create('div', 'leaflet-control-snap');
+    controlDiv.style.backgroundColor = 'white';
+    controlDiv.style.padding = '5px';
+    controlDiv.style.borderRadius = '4px';
+    controlDiv.style.boxShadow = '0 1px 5px rgba(0,0,0,0.4)';
+    
+    const checkbox = L.DomUtil.create('input', '', controlDiv);
+    checkbox.type = 'checkbox';
+    checkbox.id = 'snap-checkbox';
+    
+    const label = L.DomUtil.create('label', '', controlDiv);
+    label.htmlFor = 'snap-checkbox';
+    label.style.marginLeft = '5px';
+    label.innerHTML = 'Snap to grid';
+    
+    checkbox.addEventListener('change', function() {
+      snapToGrid = this.checked;
+    });
+    
+    const control = L.Control.extend({
+      options: {
+        position: 'topright'
+      },
+      onAdd: function() {
+        return controlDiv;
+      }
+    });
+    
+    map.addControl(new control());
 
 // Image modal handler
     const imgEl = document.getElementById('aiscatcher-img');
