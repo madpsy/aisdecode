@@ -1058,27 +1058,38 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // Add dummy entry for receiver ID 0 (anonymous)
-    // Create dummy receiver with only id, name, and description as requested
-    dummyPublicReceiver := PublicReceiver{
-        ID:          0,
-        Name:        "Anonymous",
-        Description: "Anonymous",
+    // Create a response that will include receivers
+    var response []interface{}
+    
+    // Only add the anonymous receiver if no specific ID was requested
+    if idParam == "" {
+        // Add dummy entry for receiver ID 0 (anonymous)
+        // Create a map with only the specified fields
+        anonymousReceiver := map[string]interface{}{
+            "id":          0,
+            "name":        "Anonymous",
+            "description": "Anonymous",
+        }
+        
+        // Add the anonymous receiver first
+        response = append(response, anonymousReceiver)
+    }
+    
+    // Add all the regular receivers
+    for _, rec := range list {
+        response = append(response, rec)
     }
 
-    // Add the dummy receiver to the beginning of the list
-    list = append([]PublicReceiver{dummyPublicReceiver}, list...)
-
-    // If no receivers are found (which shouldn't happen now since we added the dummy), return an empty array instead of null
-    if len(list) == 0 {
+    // If no receivers are found, return an empty array instead of null
+    if len(response) == 0 {
         w.Header().Set("Content-Type", "application/json")
         w.Write([]byte("[]")) // Send empty array explicitly
         return
     }
 
-    // Return the list of receivers in JSON format
+    // Return the combined list in JSON format
     w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(list)
+    json.NewEncoder(w).Encode(response)
 }
 
 // Admin list: same as public but includes ip_address (computed from port metrics) and password
