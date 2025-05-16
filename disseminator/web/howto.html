@@ -579,10 +579,19 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
       markerMoveCount = Math.min(markerMoveCount + 1, 8);
       
       // Calculate zoom level based on move count
-      const zoomLevel = Math.min(BASE_ZOOM_LEVEL + markerMoveCount, MAX_ZOOM_LEVEL);
+      const progressiveZoom = Math.min(BASE_ZOOM_LEVEL + markerMoveCount, MAX_ZOOM_LEVEL);
       
-      // Zoom to marker with progressive zoom level
-      map.setView(marker.getLatLng(), zoomLevel);
+      // Only zoom in, never zoom out - respect user's manual zoom level
+      const currentZoom = map.getZoom();
+      const newZoom = Math.max(currentZoom, progressiveZoom);
+      
+      // Pan to marker without changing zoom if user has zoomed in further
+      if (currentZoom >= progressiveZoom) {
+        map.panTo(marker.getLatLng());
+      } else {
+        // Otherwise use progressive zoom
+        map.setView(marker.getLatLng(), newZoom);
+      }
     });
     
     // Allow clicking on map to move marker
@@ -598,10 +607,19 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
       markerMoveCount = Math.min(markerMoveCount + 1, 8);
       
       // Calculate zoom level based on move count
-      const zoomLevel = Math.min(BASE_ZOOM_LEVEL + markerMoveCount, MAX_ZOOM_LEVEL);
+      const progressiveZoom = Math.min(BASE_ZOOM_LEVEL + markerMoveCount, MAX_ZOOM_LEVEL);
       
-      // Zoom to marker with progressive zoom level
-      map.setView(marker.getLatLng(), zoomLevel);
+      // Only zoom in, never zoom out - respect user's manual zoom level
+      const currentZoom = map.getZoom();
+      const newZoom = Math.max(currentZoom, progressiveZoom);
+      
+      // Pan to marker without changing zoom if user has zoomed in further
+      if (currentZoom >= progressiveZoom) {
+        map.panTo(marker.getLatLng());
+      } else {
+        // Otherwise use progressive zoom
+        map.setView(marker.getLatLng(), newZoom);
+      }
     });
     
     // Add reset button to reset zoom level
