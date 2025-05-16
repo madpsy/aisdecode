@@ -20,16 +20,17 @@ import (
 )
 
 type Settings struct {
-    DbHost         string `json:"db_host"`
-    DbPort         int    `json:"db_port"`
-    DbUser         string `json:"db_user"`
-    DbPass         string `json:"db_pass"`
-    DbName         string `json:"db_name"`
-    ListenPort     int    `json:"listen_port"`
-    Debug          bool   `json:"debug"`
-    MetricsBaseURL string `json:"metrics_base_url"`
-    IngestHost     string `json:"ingest_host"`
-    IngestHTTPPort int    `json:"ingest_http_port"`
+    DbHost                  string `json:"db_host"`
+    DbPort                  int    `json:"db_port"`
+    DbUser                  string `json:"db_user"`
+    DbPass                  string `json:"db_pass"`
+    DbName                  string `json:"db_name"`
+    ListenPort              int    `json:"listen_port"`
+    Debug                   bool   `json:"debug"`
+    MetricsBaseURL          string `json:"metrics_base_url"`
+    IngestHost              string `json:"ingest_host"`
+    IngestHTTPPort          int    `json:"ingest_http_port"`
+    PublicAddReceiverEnabled bool   `json:"public_add_receiver_enabled"`
 }
 
 type Receiver struct {
@@ -407,6 +408,13 @@ func main() {
     }
     if err := json.Unmarshal(data, &settings); err != nil {
         log.Fatalf("Error parsing settings.json: %v", err)
+    }
+    
+    // Set default value for PublicAddReceiverEnabled if not specified
+    // This maintains backward compatibility with existing settings files
+    if settings.PublicAddReceiverEnabled == false && !strings.Contains(string(data), "public_add_receiver_enabled") {
+        settings.PublicAddReceiverEnabled = true
+        log.Printf("PublicAddReceiverEnabled not specified in settings.json, defaulting to true")
     }
 
     // Connect to Postgres
@@ -1769,6 +1777,12 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     // Only allow POST method
     if r.Method != http.MethodPost {
         w.WriteHeader(http.StatusMethodNotAllowed)
+        return
+    }
+    
+    // Check if public registration is enabled
+    if !settings.PublicAddReceiverEnabled {
+        http.Error(w, "Public registration disabled", http.StatusForbidden)
         return
     }
     
