@@ -1,2142 +1,2520 @@
-package main
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=devsice-width, initial-scale=1" />
+  <title>Receiver Dashboard</title>
 
-import (
-    "crypto/rand"
-    "database/sql"
-    "encoding/json"
-    "fmt"
-    "io/ioutil"
-    "log"
-    "math/big"
-    "net"
-    "net/http"
-    "net/url"
-    "strconv"
-    "strings"
-    "sync"
-    "time"
+  <!-- Chart.js -->
+  <script src="/aton_types.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Leaflet CSS/JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-    _ "github.com/lib/pq"
-)
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  .controls { margin-bottom: 20px; }
 
-type Settings struct {
-    DbHost                  string `json:"db_host"`
-    DbPort                  int    `json:"db_port"`
-    DbUser                  string `json:"db_user"`
-    DbPass                  string `json:"db_pass"`
-    DbName                  string `json:"db_name"`
-    ListenPort              int    `json:"listen_port"`
-    Debug                   bool   `json:"debug"`
-    MetricsBaseURL          string `json:"metrics_base_url"`
-    IngestHost              string `json:"ingest_host"`
-    IngestHTTPPort          int    `json:"ingest_http_port"`
-    PublicAddReceiverEnabled bool   `json:"public_add_receiver_enabled"`
-    IPAddressTimeoutMinutes int    `json:"ip_address_timeout_minutes"`
-    PortMetricsHours        int    `json:"port_metrics_hours"`
-}
+  /* CARDS: use CSS Grid so they fill in two+ columns on narrow screens */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .card {
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 16px;
+    /* min-width no longer needed */
+    text-align: center;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 1em; color: #333; }
+  .card p  { margin: 0; font-size: 1.5em; font-weight: bold; }
 
-type Receiver struct {
-	ID          int        `json:"id"`
-	LastUpdated time.Time  `json:"lastupdated"`
-	Description string     `json:"description"`
-	Latitude    float64    `json:"latitude"`
-	Longitude   float64    `json:"longitude"`
-	Name        string     `json:"name"`
-	URL         *string    `json:"url,omitempty"`
-	IPAddress   string     `json:"ip_address,omitempty"` // Computed from port metrics
-	Password    string     `json:"password"`
-	Messages    int        `json:"messages"`
-	UDPPort     *int       `json:"udp_port,omitempty"`
-	MessageStats map[string]MessageStat `json:"message_stats"` // Added for admin endpoints
-}
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .chart-container { width: 100%; height: 300px; }
 
-// PublicReceiver is used for public API responses without sensitive fields
-type PublicReceiver struct {
-	ID          int        `json:"id"`
-	LastUpdated time.Time  `json:"lastupdated"`
-	Description string     `json:"description"`
-	Latitude    float64    `json:"latitude"`
-	Longitude   float64    `json:"longitude"`
-	Name        string     `json:"name"`
-	URL         *string    `json:"url,omitempty"`
-	Messages    int        `json:"messages"`
-	// UDPPort is intentionally not exposed in the public API
-	UDPPort     *int       `json:"-"`
-}
+  /* DOUGHNUT + MAP WRAPPER */
+  .doughnut-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    justify-content: center;
+  }
 
-type ReceiverInput struct {
-    Description string   `json:"description"`
-    Latitude    float64  `json:"latitude"`
-    Longitude   float64  `json:"longitude"`
-    Name        string   `json:"name"`
-    URL         *string  `json:"url,omitempty"`
-    Password    *string  `json:"password,omitempty"`
-}
+  .doughnut-container {
+    flex: 1 1 200px;       /* shrink no smaller than 200px */
+    max-width: 300px;      /* optional cap on large screens */
+    aspect-ratio: 1 / 1;   /* always square */
+    position: relative;
+  }
+  .doughnut-container canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+  }
 
-type ReceiverPatch struct {
-    Description *string   `json:"description,omitempty"`
-    Latitude    *float64  `json:"latitude,omitempty"`
-    Longitude   *float64  `json:"longitude,omitempty"`
-    Name        *string   `json:"name,omitempty"`
-    URL         *string   `json:"url,omitempty"`
-    Password    *string   `json:"password,omitempty"`
-}
+  #map {
+    flex: 1 1 300px;
+    min-width: 300px;
+    height: 300px;
+    position: relative;
+  }
 
-var (
-	db                *sql.DB
-	settings          Settings
-	udpDedicatedPorts string
-	availablePorts    []int
-	
-	// New variables for collector tracking
-	collectorsMutex   sync.RWMutex
-	collectors        []Collector
-	portMetricsMutex  sync.RWMutex
-	portMetricsMap    map[string]map[int]PortMetric // Map of IP address to map of UDP port to PortMetric
-)
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    text-align: left;
+  }
+  th {
+    background: #f0f0f0;
+    cursor: pointer;
+    user-select: none;
+  }
+  th .arrow { margin-left: 4px; font-size: 0.8em; }
+  td a { color: #0066cc; text-decoration: none; }
+  td a:hover { text-decoration: underline; }
+  td img { display: block; }
 
-// New types for collector tracking
-type Collector struct {
-	Description string `json:"description"`
-	IP          string `json:"ip"`
-	Port        int    `json:"port"`
-	Shards      []int  `json:"shards"`
-}
+  #pagination {
+    margin: 10px 0;
+    text-align: center;
+  }
+  #pagination button {
+    margin: 0 2px;
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    background: #fff;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  #pagination button.active {
+    background: #0066cc;
+    color: #fff;
+    border-color: #0066cc;
+  }
+  #pagination button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
 
-type CollectorsResponse struct {
-	Clients          []Collector `json:"clients"`
-	ConfiguredShards int         `json:"configured_shards"`
-}
+  .leaflet-popup-content-wrapper {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 5px !important;
+  }
+  .leaflet-popup-content-wrapper img {
+    width: 120px;
+    height: auto;
+    flex-shrink: 0;
+  }
+  .leaflet-popup-content {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
 
-type PortMetric struct {
-	IPAddress    string    `json:"ip_address"`
-	UDPPort      int       `json:"udp_port"`
-	FirstSeen    time.Time `json:"first_seen"`
-	LastSeen     time.Time `json:"last_seen"`
-	MessageCount int       `json:"message_count"`
-}
+  .flag-img {
+    width: 30px;
+    height: auto;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    display: block;
+  }
 
-// MessageStat is a simplified version of PortMetric without redundant fields
-type MessageStat struct {
-	FirstSeen    time.Time `json:"first_seen"`
-	LastSeen     time.Time `json:"last_seen"`
-	MessageCount int       `json:"message_count"`
-}
+  /* Receiver tooltip styling */
+  .receiver-tooltip {
+    background: white;
+    border: 1px solid #ccc;
+    padding: 2px 6px;
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    font-size: 0.9em;
+  }
 
-// IngestSettings represents the settings returned by the ingester
-type IngestSettings struct {
-    UDPListenPort        int      `json:"udp_listen_port"`
-    UDPDedicatedPorts    string   `json:"udp_dedicated_ports"`
-    UDPDestinations      []interface{} `json:"udp_destinations"`
-    MetricWindowSize     int      `json:"metric_window_size"`
-    HTTPPort             int      `json:"http_port"`
-    NumWorkers           int      `json:"num_workers"`
-    DownsampleWindow     int      `json:"downsample_window"`
-    DeduplicationWindow  int      `json:"deduplication_window_ms"`
-    WebPath              string   `json:"web_path"`
-    Debug                bool     `json:"debug"`
-    IncludeSource        bool     `json:"include_source"`
-    StreamPort           int      `json:"stream_port"`
-    StreamShards         int      `json:"stream_shards"`
-    MQTTServer           string   `json:"mqtt_server"`
-    MQTTTLS              bool     `json:"mqtt_tls"`
-    MQTTAuth             string   `json:"mqtt_auth"`
-    MQTTTopic            string   `json:"mqtt_topic"`
-    DownsampleMessageTypes []string `json:"downsample_message_types"`
-    BlockedIPs           []string `json:"blocked_ips"`
-    FailedDecodeLog      string   `json:"failed_decode_log"`
-}
+  /* Lat/Lng overlay centered at top of map */
+  .latlng-overlay {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.8);
+    padding: 4px 8px;
+    font-weight: bold;
+    border-radius: 4px;
+    pointer-events: none;
+    user-select: none;
+    white-space: nowrap;
+    display: none;
+    z-index: 1000;
+  }
 
-func getClientIP(r *http.Request) string {
-    if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-        // take only the first IP in the list
-        parts := strings.Split(xff, ",")
-        return strings.TrimSpace(parts[0])
-    }
-    // fall back to RemoteAddr
-    if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-        return host
-    }
-    return r.RemoteAddr
-}
+  /* Distance label */
+  .distance-tooltip {
+    background-color: rgba(255,255,255,0.6);
+    border: none;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-weight: bold;
+  }
 
-// fetchIngestSettings fetches settings from the ingester
-func fetchIngestSettings() (*IngestSettings, error) {
-    url := fmt.Sprintf("http://%s:%d/settings", settings.IngestHost, settings.IngestHTTPPort)
-    resp, err := http.Get(url)
-    if err != nil {
-        return nil, fmt.Errorf("failed to fetch settings from ingester: %v", err)
-    }
-    defer resp.Body.Close()
+  /* Hide distance column until a receiver is selected */
+  .distance-col { display: none; }
 
-    if resp.StatusCode != http.StatusOK {
-        return nil, fmt.Errorf("received non-OK response from ingester: %v", resp.Status)
-    }
+  /* Top-centered RX selection flash message */
+  .rx-overlay {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,123,255,0.9);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 1em;
+    z-index: 2000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .rx-overlay.show { opacity: 1; }
 
-    var ingestSettings IngestSettings
-    if err := json.NewDecoder(resp.Body).Decode(&ingestSettings); err != nil {
-        return nil, fmt.Errorf("error decoding ingester settings: %v", err)
-    }
+  /* highlight selected table row */
+  #summaryBody tr.selected {
+    background-color: #d0e8ff;
+  }
 
-    return &ingestSettings, nil
-}
+  .receiver-name, .receiver-description, .receiver-url {
+    font-size: 0.8em; /* Reduce the font size */
+    font-weight: normal;
+  }
 
-// parsePortRange parses a port range string like "9000-9999" into a slice of integers
-func parsePortRange(portRange string) ([]int, error) {
-    parts := strings.Split(portRange, "-")
-    if len(parts) != 2 {
-        return nil, fmt.Errorf("invalid port range format: %s", portRange)
-    }
+  #receiver-box {
+    position: relative; /* Set as relative to position the map inside it */
+    padding: 16px;
+    border: 1px solid #ddd;
+    margin-top: 20px;
+    background-color: #f9f9f9;
+    width: 100%;  /* Ensure it has 100% width of the container */
+    box-sizing: border-box; /* Ensure padding doesn't affect width calculation */
+    min-height: 250px; /* Ensure enough height for the map */
+  }
 
-    start, err := strconv.Atoi(parts[0])
-    if err != nil {
-        return nil, fmt.Errorf("invalid start port: %v", err)
-    }
+  /* Container for receiver info text content */
+  .receiver-info-content {
+    width: calc(100% - 300px); /* Leave space for the map on wider screens */
+  }
 
-    end, err := strconv.Atoi(parts[1])
-    if err != nil {
-        return nil, fmt.Errorf("invalid end port: %v", err)
-    }
-
-    if start > end {
-        return nil, fmt.Errorf("start port cannot be greater than end port")
-    }
-
-    var ports []int
-    for i := start; i <= end; i++ {
-        ports = append(ports, i)
-    }
-
-    return ports, nil
-}
-
-// allocatePort allocates a random unused port from the available ports
-func allocatePort(receiverID int) (int, error) {
-    // Ensure database connection
-    if err := ensureConnection(); err != nil {
-        return 0, err
-    }
-
-    // Get an available port that's not already allocated
-    var selectedPort int
-    err := db.QueryRow(`
-        SELECT udp_port FROM receiver_ports
-        WHERE receiver_id IS NULL
-        ORDER BY RANDOM()
-        LIMIT 1
-    `).Scan(&selectedPort)
-    
-    if err == sql.ErrNoRows {
-        return 0, fmt.Errorf("no available ports")
-    } else if err != nil {
-        return 0, fmt.Errorf("failed to query available port: %v", err)
-    }
-
-    // Update the receiver_ports table
-    _, err = db.Exec(`
-        UPDATE receiver_ports
-        SET receiver_id = $1, last_updated = NOW()
-        WHERE udp_port = $2
-    `, receiverID, selectedPort)
-    if err != nil {
-        return 0, fmt.Errorf("failed to update receiver_ports: %v", err)
-    }
-
-    return selectedPort, nil
-}
-
-// allocatePortTx allocates a random unused port from the available ports within a transaction
-func allocatePortTx(tx *sql.Tx, receiverID int) (int, error) {
-    // Get an available port that's not already allocated
-    var selectedPort int
-    err := tx.QueryRow(`
-        SELECT udp_port FROM receiver_ports
-        WHERE receiver_id IS NULL
-        ORDER BY RANDOM()
-        LIMIT 1
-    `).Scan(&selectedPort)
-    
-    if err == sql.ErrNoRows {
-        return 0, fmt.Errorf("no available ports")
-    } else if err != nil {
-        return 0, fmt.Errorf("failed to query available port: %v", err)
-    }
-
-    // Update the receiver_ports table within the transaction
-    _, err = tx.Exec(`
-        UPDATE receiver_ports
-        SET receiver_id = $1, last_updated = NOW()
-        WHERE udp_port = $2
-    `, receiverID, selectedPort)
-    if err != nil {
-        return 0, fmt.Errorf("failed to update receiver_ports: %v", err)
-    }
-
-    return selectedPort, nil
-}
-
-// fetchCollectors fetches the list of collectors from the ingester
-func fetchCollectors() ([]Collector, error) {
-	url := fmt.Sprintf("http://%s:%d/clients", settings.IngestHost, settings.IngestHTTPPort)
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch collectors from ingester: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("received non-OK response from ingester: %v", resp.Status)
-	}
-
-	var collectorsResponse CollectorsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&collectorsResponse); err != nil {
-		return nil, fmt.Errorf("error decoding collectors response: %v", err)
-	}
-
-	return collectorsResponse.Clients, nil
-}
-
-// fetchPortMetrics fetches port metrics from a collector
-func fetchPortMetrics(collector Collector) ([]PortMetric, error) {
-	baseURL := fmt.Sprintf("http://%s:%d/portmetrics", collector.IP, collector.Port)
-	
-	// Add the time query parameter using the PortMetricsHours setting
-	urlWithParams := fmt.Sprintf("%s?time=%d", baseURL, settings.PortMetricsHours)
-	
-	resp, err := http.Get(urlWithParams)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch port metrics from collector %s:%d: %v", collector.IP, collector.Port, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("received non-OK response from collector %s:%d: %v", collector.IP, collector.Port, resp.Status)
-	}
-
-	var portMetrics []PortMetric
-	if err := json.NewDecoder(resp.Body).Decode(&portMetrics); err != nil {
-		return nil, fmt.Errorf("error decoding port metrics from collector %s:%d: %v", collector.IP, collector.Port, err)
-	}
-
-	return portMetrics, nil
-}
-
-// startCollectorTracking starts the background goroutine to track collectors
-func startCollectorTracking() {
-	// Initialize the port metrics map
-	portMetricsMap = make(map[string]map[int]PortMetric)
-
-	// Start the collector tracking goroutine
-	go func() {
-		for {
-			// Fetch collectors
-			newCollectors, err := fetchCollectors()
-			if err != nil {
-				log.Printf("Error fetching collectors: %v", err)
-			} else {
-				// Update collectors list
-				collectorsMutex.Lock()
-				collectors = newCollectors
-				collectorsMutex.Unlock()
-
-				// For each collector, fetch port metrics
-				for _, collector := range newCollectors {
-					go func(c Collector) {
-						portMetrics, err := fetchPortMetrics(c)
-						if err != nil {
-							log.Printf("Error fetching port metrics from collector %s:%d: %v", c.IP, c.Port, err)
-							return
-						}
-
-						// Update port metrics map
-						portMetricsMutex.Lock()
-						for _, metric := range portMetrics {
-							// Create map for IP address if it doesn't exist
-							if _, ok := portMetricsMap[metric.IPAddress]; !ok {
-								portMetricsMap[metric.IPAddress] = make(map[int]PortMetric)
-							}
-
-							// Always use the latest metric data from the collector
-							// This replaces the previous implementation that accumulated message counts
-							portMetricsMap[metric.IPAddress][metric.UDPPort] = metric
-						}
-						portMetricsMutex.Unlock()
-					}(collector)
-				}
-			}
-
-			// Sleep for 5 seconds
-			time.Sleep(5 * time.Second)
-		}
-	}()
-}
-
-// getMessagesByPort gets the message count for a specific UDP port from the port metrics map
-// This ignores the receiver's IP address and only filters by UDP port
-func getMessagesByPort(udpPort *int) (int, map[string]MessageStat) {
-	portMetricsMutex.RLock()
-	defer portMetricsMutex.RUnlock()
-
-	totalMessages := 0
-	messageStats := make(map[string]MessageStat)
-
-	// If no UDP port is specified, return 0 and empty map
-	if udpPort == nil {
-		return 0, messageStats
-	}
-
-	// Iterate through all IP addresses and find metrics for the specified UDP port
-	for ipAddress, portMap := range portMetricsMap {
-		// Check if we have metrics for this UDP port
-		if metric, ok := portMap[*udpPort]; ok {
-			totalMessages += metric.MessageCount
-			// Convert PortMetric to MessageStat to remove redundant fields
-			messageStat := MessageStat{
-				FirstSeen:    metric.FirstSeen,
-				LastSeen:     metric.LastSeen,
-				MessageCount: metric.MessageCount,
-			}
-			// Use just the IP address as the key
-			messageStats[ipAddress] = messageStat
-		}
-	}
-
-	return totalMessages, messageStats
-}
-
-func main() {
-    // Load settings.json
-    data, err := ioutil.ReadFile("settings.json")
-    if err != nil {
-        log.Fatalf("Error reading settings.json: %v", err)
-    }
-    if err := json.Unmarshal(data, &settings); err != nil {
-        log.Fatalf("Error parsing settings.json: %v", err)
+  /* Default styles for wider screens */
+  #receiver-map {
+    position: absolute;  /* Position the map inside the receiver box */
+    top: 16px;           /* Space from the top */
+    right: 16px;         /* Space from the right */
+    width: 280px;        /* Adjust width to fit within the box */
+    height: 220px;       /* Adjust height to fit within the box */
+    overflow: hidden;    /* Prevent content from overflowing */
+  }
+  
+  /* Responsive styles for narrow screens */
+  @media (max-width: 768px) {
+    /* Make the info content full width */
+    .receiver-info-content {
+      width: 100%;
     }
     
-    // Set default values for settings if not specified
-    // This maintains backward compatibility with existing settings files
-    if settings.PublicAddReceiverEnabled == false && !strings.Contains(string(data), "public_add_receiver_enabled") {
-        settings.PublicAddReceiverEnabled = true
-        log.Printf("PublicAddReceiverEnabled not specified in settings.json, defaulting to true")
+    /* Position the map at the bottom */
+    #receiver-map {
+      position: relative; /* Change to relative positioning */
+      top: auto;          /* Reset top positioning */
+      right: auto;        /* Reset right positioning */
+      width: 100%;        /* Full width */
+      margin-top: 16px;   /* Add space between text and map */
+      height: 200px;      /* Fixed height */
+    }
+  }
+</style>
+
+  <!-- Socket.IO for real-time communication -->
+  <script src="/socket.io.min.js"></script>
+</head>
+<body>
+  <div class="controls">
+    <label for="ipInput">Override IP Address:</label>
+    <input type="text" id="ipInput" placeholder="e.g. 44.31.231.4" />
+    <button id="applyBtn" disabled>Apply</button>
+    <button id="clearBtn">Clear</button>
+  </div>
+
+  <h2>Your IP: <span id="ip-address"></span></h2>
+
+  <div class="cards" id="cards"></div>
+  <div class="charts" id="charts"></div>
+
+  <div class="doughnut-wrapper">
+    <div class="doughnut-container">
+      <canvas id="typeDoughnut" class="doughnut-chart"></canvas>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <!-- **Filter box** -->
+  <div style="margin: 12px 0;">
+    <input
+      type="text"
+      id="filterInput"
+      placeholder="Filter by MMSI or Name"
+      style="padding:6px; width:250px;"
+    />
+  </div>
+
+  <table id="summaryTable">
+    <thead>
+      <tr>
+        <th data-field="id">MMSI<span class="arrow"></span></th>
+        <th data-field="name">Name<span class="arrow"></span></th>
+        <th data-field="typeName">Type<span class="arrow"></span></th>
+        <th data-field="status">Status<span class="arrow"></span></th>
+        <th data-field="className">Class<span class="arrow"></span></th>
+        <th data-field="flag">Flag<span class="arrow"></span></th>
+        <th data-field="distance" class="distance-col">Distance<span class="arrow"></span></th>
+        <th data-field="lastSeen">Last Seen<span class="arrow"></span></th>
+        <th data-field="count">Packets<span class="arrow"></span></th>
+      </tr>
+    </thead>
+    <tbody id="summaryBody"></tbody>
+  </table>
+  <div id="pagination"></div>
+
+  <script>
+    // Chart.js center-text plugin
+    Chart.register({
+      id: 'centerText',
+      beforeDraw(chart) {
+        const c = chart.config.options.plugins.centerText;
+        if (!c?.display) return;
+        const { ctx, chartArea: { left, right, top, bottom } } = chart;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `${(bottom - top) / 10}px sans-serif`;
+        ctx.fillText(c.text, (left + right)/2, (top + bottom)/2);
+        ctx.restore();
+      }
+    });
+
+    // Metrics definitions
+    const allMetrics   = ['bytes_received','messages','failures','deduplicated','window_bytes','window_messages','window_unique_uids'];
+    const cardMetrics  = allMetrics.filter(m => !m.startsWith('window_'));
+    const chartMetrics = allMetrics.filter(m => m.startsWith('window_'));
+    const maxPoints    = 60;
+    let focusedUid = null;
+    let overrideIp = '';
+    let currentMessageCount = 0; // Track message count from socket updates
+    
+    // Initialize Socket.IO connection
+    const socket = io();  // Creates a Socket.IO connection
+    let overlayDisplayed = false;
+    let polylineAdded = false;
+    let tooltipAdded = false;
+    const charts = {}, baselines = {};
+    const cardsContainer = document.getElementById('cards');
+    const chartsContainer = document.getElementById('charts');
+
+    let receivedReceivers = false;
+
+    const seenUserIds = new Set(), summaryCache = {}, lastSeenTs = {}, seenCount = {};
+    let sortField = 'lastSeen', sortAsc = false;
+    let typesConfig = null, typeDoughnut = null;
+
+    // Pagination
+    let currentPage = 1;
+    const rowsPerPage = 10;
+
+    // MIDs → country map
+    let midMap = {};
+
+    // Map & overlay state
+    let map, overlayDiv, autoFit = true, programmaticFit = false, vesselMarkers = {}, typeColorsMap = {};
+    let loadedWithReceiver = false; // Flag to track if page was loaded with receiver parameter
+    let loadedWithIpAddress = false; // Flag to track if page was loaded with ip_address parameter
+    const colors = ['rgba(255,99,132,1)','rgba(54,162,235,1)','rgba(255,206,86,1)','rgba(75,192,192,1)','rgba(153,102,255,1)','rgba(255,159,64,1)','rgba(199,199,199,1)','rgba(83,102,255,1)'];
+
+    const navigationalStatusMapping = {
+      0:"Using Engine",1:"At Anchor",2:"Not Under Command",
+      3:"Restricted Manoeuvrability",4:"Constrained by Draft",
+      5:"Moored",6:"Aground",7:"Engaged in Fishing",
+      8:"Under Way Sailing",15:"Unknown"
+    };
+
+    // ——— NEW GLOBALS ———
+    let selectedReceiverLatLng = null,
+        distancePolyline = null,
+        distanceLabel = null,
+        overrideReceiverId = '',
+        receiversList = [],
+        // Radius circles variables
+        radiusCircles = [],
+        radiusLabels = [];
+
+    // **Filter term & row‐highlight helpers**
+    let filterTerm = '';
+    function clearSelectedRow() {
+      const prev = document.querySelector('#summaryBody tr.selected');
+      if (prev) prev.classList.remove('selected');
+    }
+    function highlightRow(uid) {
+      const row = document.getElementById('row-' + uid);
+      if (row) row.classList.add('selected');
+    }
+
+    // Haversine distance in km
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+      function toRad(x){return x*Math.PI/180;}
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2)**2 +
+                Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*
+                Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
     
-    // Default IP address timeout to 60 minutes (1 hour) if not specified
-    if settings.IPAddressTimeoutMinutes == 0 && !strings.Contains(string(data), "ip_address_timeout_minutes") {
-        settings.IPAddressTimeoutMinutes = 60
-        log.Printf("IPAddressTimeoutMinutes not specified in settings.json, defaulting to 60 minutes (1 hour)")
+    // Convert kilometers to nautical miles
+    function kmToNM(km) {
+      return km * 0.539957;
+    }
+
+    // Remove existing line + label
+    function clearDistanceLine(){
+      if(distancePolyline){ map.removeLayer(distancePolyline); distancePolyline = null; }
+      if(distanceLabel){ map.removeLayer(distanceLabel); distanceLabel = null; }
+      clearRadiusCircles();
     }
     
-    // Default port metrics hours to 1 if not specified
-    if settings.PortMetricsHours == 0 && !strings.Contains(string(data), "port_metrics_hours") {
-        settings.PortMetricsHours = 1
-        log.Printf("PortMetricsHours not specified in settings.json, defaulting to 1 hour")
+    // Remove existing radius circles and labels
+    function clearRadiusCircles() {
+      radiusCircles.forEach(circle => {
+        if(circle) map.removeLayer(circle);
+      });
+      radiusCircles = [];
+      
+      radiusLabels.forEach(label => {
+        if(label) map.removeLayer(label);
+      });
+      radiusLabels = [];
     }
-
-    // Connect to Postgres
-    connStr := fmt.Sprintf(
-        "host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-        settings.DbHost, settings.DbPort, settings.DbUser, settings.DbPass, settings.DbName,
-    )
-    db, err = sql.Open("postgres", connStr)
-    if err != nil {
-        log.Fatalf("Failed to open database: %v", err)
-    }
-    defer db.Close()
-
-    // Ensure connection is alive initially
-    if err = ensureConnection(); err != nil {
-        log.Fatalf("Unable to connect to database: %v", err)
-    }
-
-    // Fetch settings from ingester with retry
-    var ingestSettings *IngestSettings
-    for {
-        ingestSettings, err = fetchIngestSettings()
-        if err == nil {
-            break
-        }
-        log.Printf("Failed to fetch settings from ingester: %v. Retrying in 5 seconds...", err)
-        time.Sleep(5 * time.Second)
-    }
-
-    // Parse UDP dedicated ports
-    udpDedicatedPorts = ingestSettings.UDPDedicatedPorts
-    log.Printf("UDP dedicated ports: %s", udpDedicatedPorts)
-
-    // Verify it's a range of ports
-    var err2 error
-    availablePorts, err2 = parsePortRange(udpDedicatedPorts)
-    if err2 != nil {
-        log.Fatalf("Invalid UDP dedicated ports format: %v", err2)
-    }
-
-    createSchema()
-
-    // Start collector tracking
-    startCollectorTracking()
-
-    // Public API: GET /receivers and POST /addreceiver
-    http.HandleFunc("/receivers", func(w http.ResponseWriter, r *http.Request) {
-        if r.Method != http.MethodGet {
-            w.WriteHeader(http.StatusMethodNotAllowed)
-            return
-        }
-        // public list: no IP
-        handleListReceiversPublic(w, r)
-    })
     
-    // Public endpoint to add a new receiver
-    http.HandleFunc("/addreceiver", handleAddReceiver)
-    
-    // Public endpoint to edit a receiver
-    http.HandleFunc("/editreceiver", handleEditReceiver)
-    
-    // Public endpoint to update receiver IP address - removed
-
-    http.HandleFunc("/admin/getip", adminGetIPHandler)
-
-    // Admin API: full CRUD under /admin/receivers
-    http.HandleFunc("/admin/receivers", adminReceiversHandler)
-    http.HandleFunc("/admin/receivers/", adminReceiverHandler)
-    http.HandleFunc("/admin/receivers/regenerate-password/", adminRegeneratePasswordHandler)
-
-    // Serve static files at /admin/
-    http.Handle(
-        "/admin/",
-        http.StripPrefix("/admin/", http.FileServer(http.Dir("web"))),
-    )
-
-    addr := fmt.Sprintf(":%d", settings.ListenPort)
-    log.Printf("Server listening on %s", addr)
-    log.Fatal(http.ListenAndServe(addr, nil))
-}
-
-func createSchema() {
-    _, err := db.Exec(`
-        CREATE TABLE IF NOT EXISTS receivers (
-            id SERIAL PRIMARY KEY,
-            lastupdated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            description VARCHAR(30) NOT NULL,
-            latitude DOUBLE PRECISION NOT NULL,
-            longitude DOUBLE PRECISION NOT NULL,
-            name VARCHAR(15) NOT NULL UNIQUE,
-            url TEXT,
-            password VARCHAR(20) NOT NULL DEFAULT '',
-            request_ip_address TEXT NOT NULL DEFAULT ''
+    // Calculate maximum distance from receiver to any vessel
+    function calculateMaxDistance() {
+      if (!selectedReceiverLatLng) return 0;
+      
+      let maxDistance = 0;
+      seenUserIds.forEach(uid => {
+        if (uid.length !== 9) return;
+        const info = summaryCache[uid];
+        if (!info) return;
+        const { Latitude: lat, Longitude: lon } = info;
+        if (typeof lat !== 'number' || typeof lon !== 'number') return;
+        
+        const distance = haversineDistance(
+          selectedReceiverLatLng.lat,
+          selectedReceiverLatLng.lng,
+          lat, lon
         );
-    `)
-    if err != nil {
-        log.Fatalf("Error creating receivers table: %v", err)
-    }
-    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_receivers_id ON receivers(id);`)
-    if err != nil {
-        log.Fatalf("Error creating index: %v", err)
-    }
-    // Create a unique index on the name column if it doesn't exist
-    _, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_receivers_name ON receivers(name);`)
-    if err != nil {
-        log.Fatalf("Error creating unique index on name: %v", err)
-    }
-    // Sync the SERIAL sequence to start at 1 to ensure the first receiver has ID 1
-    _, err = db.Exec(`
-        SELECT setval(
-          pg_get_serial_sequence('receivers','id'),
-          1,
-          false
-        );
-    `)
-    if err != nil {
-        log.Fatalf("Error syncing receivers_id_seq: %v", err)
-    }
-
-    // Create receiver_ports table
-    _, err = db.Exec(`
-        CREATE TABLE IF NOT EXISTS receiver_ports (
-            udp_port INT PRIMARY KEY,
-            receiver_id INT REFERENCES receivers(id) ON DELETE SET NULL,
-            last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-    `)
-    if err != nil {
-        log.Fatalf("Error creating receiver_ports table: %v", err)
-    }
-
-    // Create index on receiver_id
-    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_receiver_ports_receiver_id ON receiver_ports(receiver_id);`)
-    if err != nil {
-        log.Fatalf("Error creating index on receiver_id: %v", err)
-    }
-
-    // Populate receiver_ports table with available ports
-    if len(availablePorts) > 0 {
-        // First, check which ports already exist in the table
-        rows, err := db.Query(`SELECT udp_port FROM receiver_ports`)
-        if err != nil {
-            log.Fatalf("Error querying receiver_ports: %v", err)
+        
+        if (distance > maxDistance) {
+          maxDistance = distance;
         }
-        defer rows.Close()
-
-        existingPorts := make(map[int]bool)
-        for rows.Next() {
-            var port int
-            if err := rows.Scan(&port); err != nil {
-                log.Fatalf("Error scanning port: %v", err)
-            }
-            existingPorts[port] = true
-        }
-
-        // Insert any ports that don't already exist
-        for _, port := range availablePorts {
-            if !existingPorts[port] {
-                _, err := db.Exec(`
-                    INSERT INTO receiver_ports (udp_port)
-                    VALUES ($1)
-                `, port)
-                if err != nil {
-                    log.Fatalf("Error inserting port %d: %v", port, err)
-                }
-            }
-        }
+      });
+      
+      return maxDistance;
     }
-}
-
-// Ensure connection is alive, attempt to reconnect if needed
-func ensureConnection() error {
-    if err := db.Ping(); err != nil {
-        log.Println("Database connection lost, attempting to reconnect...")
-        db, err = sql.Open("postgres", fmt.Sprintf(
-            "host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-            settings.DbHost, settings.DbPort, settings.DbUser, settings.DbPass, settings.DbName,
-        ))
-        if err != nil {
-            return fmt.Errorf("failed to reconnect to database: %v", err)
-        }
-        if err := db.Ping(); err != nil {
-            return fmt.Errorf("unable to verify reconnected database: %v", err)
-        }
-        log.Println("Reconnected to the database successfully.")
-    }
-    return nil
-}
-
-// Helper function to build the query and fetch filtered receivers based on id and ip_address.
-func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]Receiver, error) {
-    if err := ensureConnection(); err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return []Receiver{}, nil // Return empty slice here instead of `nil`
-    }
-
-    // Extract parameters
-    idParam := filters["id"]
-    // We no longer use ipParam since we filter by IP using port metrics
     
-    // Base query
-    baseQuery := `
-        SELECT r.id,
-               r.lastupdated,
-               r.description,
-               r.latitude,
-               r.longitude,
-               r.name,
-               r.url,
-               r.password,
-               rp.udp_port
-          FROM receivers r
-          LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id`
+    // Draw radius circles around the receiver
+    function drawRadiusCircles() {
+      if (!selectedReceiverLatLng || !map) return;
+      
+      // Clear existing circles and labels
+      clearRadiusCircles();
+      
+      // Calculate maximum distance from receiver to any vessel
+      const maxDistanceKm = calculateMaxDistance();
+      if (maxDistanceKm <= 0) return;
+      
+      // Create 3 evenly spaced circles
+      for (let i = 1; i <= 3; i++) {
+        const radiusKm = maxDistanceKm * i / 3;
+        const radiusMeters = radiusKm * 1000; // Leaflet uses meters for circle radius
+        
+        // Create circle
+        const circle = L.circle(selectedReceiverLatLng, {
+          radius: radiusMeters,
+          color: 'grey',
+          fillColor: 'transparent',
+          weight: 1.5,
+          opacity: 0.7,
+          dashArray: '5, 5'  // Makes the line dashed
+        }).addTo(map);
+        
+        radiusCircles.push(circle);
+        
+        // Convert to nautical miles for the label
+        const radiusNM = kmToNM(radiusKm).toFixed(1);
+        
+        // Calculate position for the label (east of the center)
+        const labelLatLng = calculateLabelPosition(selectedReceiverLatLng, radiusKm);
+        
+        // Only create label if we have valid coordinates
+        if (labelLatLng) {
+          // Create label
+          const label = L.tooltip({
+            permanent: true,
+            direction: 'center',
+            className: 'distance-tooltip'
+          })
+          .setLatLng(labelLatLng)
+          .setContent(`${radiusNM} NM`)
+          .addTo(map);
+          
+          radiusLabels.push(label);
+        }
+      }
+    }
     
-    var (
-        conditions []string
-        args       []interface{}
-    )
-    idx := 1
-    if idParam != "" {
-        // Validate and add id filter
-        idVal, err := strconv.Atoi(idParam)
-        if err != nil {
-            return nil, fmt.Errorf("invalid id parameter")
+    // Calculate position for radius label (east of center)
+    function calculateLabelPosition(center, radiusKm) {
+      // Validate center coordinates
+      if (!center || typeof center.lat !== 'number' || typeof center.lng !== 'number' ||
+          isNaN(center.lat) || isNaN(center.lng)) {
+        console.warn('Invalid center coordinates for label position');
+        return null;
+      }
+      
+      // Convert radius from km to degrees longitude (approximate)
+      // This is a simplified calculation that works for small distances
+      const radiusLng = radiusKm / (111.32 * Math.cos(center.lat * Math.PI / 180));
+      
+      // Position the label to the east of the center
+      return L.latLng(center.lat, center.lng + radiusLng);
+    }
+
+    // Helpers
+    function formatNumber(v){
+      if(v>=1e6) return +(v/1e6).toFixed(v%1e6===0?0:2)+'M';
+      if(v>=1e3) return +(v/1e3).toFixed(v%1e3===0?0:2)+'K';
+      return v;
+    }
+    function formatAgo(ts){
+      const sec = Math.floor((Date.now() - ts.getTime())/1000),
+            h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+      return (h? h+'h ':'') + (m? m+'m ':'') + s+'s';
+    }
+
+    // Build cards
+    cardMetrics.forEach(m => {
+      const c = document.createElement('div');
+      c.className = 'card'; c.id = `card-${m}`;
+      c.innerHTML = `<h3>${m.replace(/_/g,' ')}</h3><p>0</p>`;
+      cardsContainer.appendChild(c);
+    });
+
+    // Build line charts
+    chartMetrics.forEach((m,i) => {
+      const lbl = m.replace(/^window_/,'').replace(/_/g,' ');
+      const cont = document.createElement('div');
+      cont.className = 'chart-container';
+      const canvas = document.createElement('canvas');
+      canvas.id = `chart-${m}`;
+      cont.appendChild(canvas);
+      chartsContainer.appendChild(cont);
+      const ctx = canvas.getContext('2d');
+      charts[m] = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: lbl, data: [], borderColor: colors[i%colors.length], fill: false }] },
+        options: {
+          animation: false,
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: 'Time' } },
+            y: {}
+          }
         }
-        conditions = append(conditions, fmt.Sprintf("id = $%d", idx))
-        args = append(args, idVal)
-        idx++
-    }
-    // We no longer filter by ip_address in the SQL query
-    // Instead, we'll filter by IP address using port metrics after fetching the receivers
-    // This comment is kept to document the change
+      });
+    });
 
-    // Add WHERE clause if filters are provided
-    if len(conditions) > 0 {
-        baseQuery += " WHERE " + strings.Join(conditions, " AND ")
-    }
-    baseQuery += " ORDER BY id"
 
-    // Execute query
-    rows, err := db.Query(baseQuery, args...)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
-
-    // Scan results
-    var list []Receiver
-    for rows.Next() {
-        var rec Receiver
-        // Create a nullable int for UDP port
-        var udpPort sql.NullInt64
-        
-        if err := rows.Scan(
-            &rec.ID,
-            &rec.LastUpdated,
-            &rec.Description,
-            &rec.Latitude,
-            &rec.Longitude,
-            &rec.Name,
-            &rec.URL,
-            &rec.Password,   // Add password field
-            &udpPort,        // Scan into nullable int
-        ); err != nil {
-            return nil, err
-        }
-        
-        // Only set UDPPort if it's not null
-        if udpPort.Valid {
-            port := int(udpPort.Int64)
-            rec.UDPPort = &port
-            
-            // Use port metrics to determine the IP address
-            portMetricsMutex.RLock()
-            var lastSeenIP string
-            var lastSeenTime time.Time
-            
-            // Find the most recent IP address that sent messages to this port
-            for ipAddress, portMap := range portMetricsMap {
-                if metric, ok := portMap[port]; ok {
-                    if lastSeenIP == "" || metric.LastSeen.After(lastSeenTime) {
-                        lastSeenIP = ipAddress
-                        lastSeenTime = metric.LastSeen
-                    }
-                }
-            }
-            portMetricsMutex.RUnlock()
-            
-            // Use the IP from port metrics if available
-            rec.IPAddress = lastSeenIP
-        }
-
-        list = append(list, rec)
-    }
-
-    // Return empty list if no receivers are found
-    if len(list) == 0 {
-        return []Receiver{}, nil // Return empty slice explicitly
-    }
-
-    return list, nil
+function updateURLWithReceiverId(receiverId) {
+  const url = new URL(window.location);
+  console.log('Updating URL with receiver ID:', receiverId);
+  
+  // Remove ip_address if it's in the URL, since we're using receiver ID now
+  url.searchParams.delete('ip_address');
+  url.searchParams.set('receiver', receiverId);  // Set receiver id as query parameter
+  
+  console.log('Updated URL:', url.toString());
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
 
-// adminGetIPHandler handles GET /admin/getip?id=<id>
-func adminGetIPHandler(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodGet {
-        w.WriteHeader(http.StatusMethodNotAllowed)
-        return
-    }
-
-    // 1) Parse and validate 'id' query parameter
-    idStr := r.URL.Query().Get("id")
-    if idStr == "" {
-        http.Error(w, "`id` query parameter is required", http.StatusBadRequest)
-        return
-    }
-    id, err := strconv.Atoi(idStr)
-    if err != nil || id < 1 {
-        http.Error(w, "`id` must be a positive integer", http.StatusBadRequest)
-        return
-    }
-
-    // 2) Ensure DB connection
-    if err := ensureConnection(); err != nil {
-        http.Error(w, "database error", http.StatusInternalServerError)
-        return
-    }
-
-    // 3) First check if the receiver exists
-    var exists bool
-    err = db.QueryRow(`SELECT EXISTS(SELECT 1 FROM receivers WHERE id = $1)`, id).Scan(&exists)
-    if err != nil {
-        http.Error(w, "database error", http.StatusInternalServerError)
-        return
-    }
-
-    if !exists {
-        // Receiver doesn't exist - return 404 Not Found
-        http.Error(w, "Receiver not found", http.StatusNotFound)
-        return
-    }
-
-    // 4) Get the UDP port for this receiver
-    var udpPort sql.NullInt64
-    err = db.QueryRow(`SELECT udp_port FROM receiver_ports WHERE receiver_id = $1`, id).Scan(&udpPort)
-    if err != nil && err != sql.ErrNoRows {
-        http.Error(w, "database error", http.StatusInternalServerError)
-        return
-    }
-
-    // 5) If we have a UDP port, look for the most recent IP in port metrics
-    var addr string
-    if udpPort.Valid {
-        port := int(udpPort.Int64)
-        
-        // Lock the port metrics map to safely read from it
-        portMetricsMutex.RLock()
-        
-        var lastSeenIP string
-        var lastSeenTime time.Time
-        
-        // Find the most recent IP address that sent messages to this port
-        for ipAddress, portMap := range portMetricsMap {
-            if metric, ok := portMap[port]; ok {
-                if lastSeenIP == "" || metric.LastSeen.After(lastSeenTime) {
-                    lastSeenIP = ipAddress
-                    lastSeenTime = metric.LastSeen
-                }
-            }
-        }
-        
-        portMetricsMutex.RUnlock()
-        
-        addr = lastSeenIP
-    }
-
-    // 6) Write response
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{
-        "ip_address": addr,
-    })
+function updateURLWithIp(ip) {
+  const url = new URL(window.location);
+  console.log('Updating URL with IP:', ip);
+  url.searchParams.delete('receiver');  // Remove receiver if IP address is used
+  url.searchParams.set('ip_address', ip);  // Set ip_address query parameter
+  console.log('Updated URL:', url.toString());
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
 }
 
-// Function to get the message count for a given IP address from the metrics API.
-type SimpleMetrics struct {
-    Messages int `json:"messages"` // Messages field inside simple_metrics
+function applyOverride(ip) {
+  console.log("applyOverride function called with IP:", ip);
+  ip = (ip || '').trim();
+  if (!ip) return;
+  overrideIp = ip;
+  overrideReceiverId = '';  // Reset receiver id to force fetching from IP
+  currentMessageCount = 0;  // Reset message count for the new IP
+  console.log("Reset currentMessageCount to 0 in applyOverride");
+
+  // Update the IP address display to include the override indicator
+  // Wait a short time to ensure the IP address has been set from /myip
+  setTimeout(() => {
+    const ipAddress = document.getElementById('ip-address');
+    if (ipAddress) {
+      // Remove any existing override indicators
+      let currentIp = ipAddress.textContent;
+      if (currentIp.includes("(Using IP:")) {
+        currentIp = currentIp.split("(Using IP:")[0].trim();
+      }
+      console.log("Current IP in display (after removing any existing indicators):", currentIp);
+      console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
+      ipAddress.innerHTML = currentIp + " (Using IP: " + ip + ")";
+    } else {
+      console.error("IP address element not found");
+    }
+  }, 100); // Short delay to ensure IP address is set
+
+  // Update the URL with the new IP address (remove receiver if it's there)
+  updateURLWithIp(ip);  // Update URL to reflect IP
+  
+  // **Reset all components when applying override**
+  resetCardsAndCharts();  // Reset all cards and charts
+  resetMapAndTable(true); // Reset the map and table, with autoFit=true since receiver changed
+  resetFilters();         // Reset filters
+
+  // Fetch metrics and update data after IP override
+  console.log('About to fetchMetrics; overrideReceiverId=', overrideReceiverId);
+  fetchMetrics();
+
+  // Fetch receivers with the new IP immediately after applying override
+  fetchReceivers(ip);  // Fetch receivers by IP address
+  
+  // Set flag to ensure autoFit works for vessel markers with manual IP override
+  loadedWithIpAddress = true;
+  console.log("Setting loadedWithIpAddress=true after manual IP override");
 }
 
-type MetricsResponse struct {
-    SimpleMetrics SimpleMetrics `json:"simple_metrics"` // This is where the simple_metrics field is mapped
-}
 
-func getMessagesByIP(ipAddress string, udpPort *int) (int, error) {
-    // Use the new port metrics tracking system instead of the metrics API
-    // We only care about the UDP port, not the IP address
-    messages, _ := getMessagesByPort(udpPort)
-    return messages, nil
-}
-
-// --- Public listing only ---
-func handleListReceivers(w http.ResponseWriter, r *http.Request) {
-    // Ensure the connection is alive before performing the query
-    if err := ensureConnection(); err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    rows, err := db.Query(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url
-        FROM receivers ORDER BY id
-    `)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    defer rows.Close()
-
-    var list []Receiver
-    for rows.Next() {
-        var rec Receiver
-        if err := rows.Scan(
-            &rec.ID, &rec.LastUpdated, &rec.Description,
-            &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL,
-        ); err != nil {
-            http.Error(w, err.Error(), http.StatusInternalServerError)
-            return
-        }
-        list = append(list, rec)
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(list)
-}
-
-// --- Admin handlers (full CRUD) ---
-func adminReceiversHandler(w http.ResponseWriter, r *http.Request) {
-    switch r.Method {
-    case http.MethodGet:
-        handleListReceiversAdmin(w, r)
-    case http.MethodPost:
-        handleCreateReceiver(w, r)
-    default:
-        w.WriteHeader(http.StatusMethodNotAllowed)
-    }
-}
-
-// Public list: excludes ip_address and password
-func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
-    // Ensure the connection is alive before performing the query
-    if err := ensureConnection(); err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // Extract query parameters
-    idParam := r.URL.Query().Get("id")
-    ipParam := r.URL.Query().Get("ip_address")
-
-    // Build the query based on filters - only filter by ID, not by IP address
-    baseQuery := `
-        SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, rp.udp_port
-        FROM receivers r
-        LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
-        WHERE 1=1
-    `
-
-    var conditions []string
-    var args []interface{}
-    idx := 1
-
-    if idParam != "" {
-        // Validate and add id filter
-        idVal, err := strconv.Atoi(idParam)
-        if err != nil {
-            http.Error(w, "Invalid id parameter", http.StatusBadRequest)
-            return
-        }
-        conditions = append(conditions, fmt.Sprintf("id = $%d", idx))
-        args = append(args, idVal)
-        idx++
-    }
-
-    if len(conditions) > 0 {
-        baseQuery += " AND " + strings.Join(conditions, " AND ")
-    }
-
-    baseQuery += " ORDER BY id"
-
-    // Execute the query with the parameters
-    rows, err := db.Query(baseQuery, args...)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    defer rows.Close()
-
-    // If we're filtering by IP address, we'll need to use the portMetricsMap
-    var ipAddressFilter string
-    if ipParam != "" {
-        ipAddressFilter = ipParam
-    }
-
-    // Map to track receivers by port for IP address filtering
-    receiversByPort := make(map[int]PublicReceiver)
-    // Map to track last_seen time for each port
-    lastSeenByPort := make(map[int]time.Time)
-
-    var list []PublicReceiver
-    for rows.Next() {
-        var rec Receiver
-        var udpPort sql.NullInt64
-        if err := rows.Scan(
-            &rec.ID, &rec.LastUpdated, &rec.Description,
-            &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &udpPort,
-        ); err != nil {
-            http.Error(w, err.Error(), http.StatusInternalServerError)
-            return
-        }
+// Function to fetch user's IP address from /myip endpoint
+function fetchUserIP(applyAsOverride = false) {
+  console.log('Fetching user IP from /myip endpoint');
+  fetch('/myip')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(data => {
+      if (data && data.ip) {
+        console.log('User IP fetched:', data.ip);
         
-        // Only set UDPPort if it's not null
-        if udpPort.Valid {
-            port := int(udpPort.Int64)
-            rec.UDPPort = &port
-            
-            // Use port metrics to determine the IP address
-            portMetricsMutex.RLock()
-            var lastSeenIP string
-            var lastSeenTime time.Time
-            
-            // Find the most recent IP address that sent messages to this port
-            for ipAddress, portMap := range portMetricsMap {
-                if metric, ok := portMap[port]; ok {
-                    if lastSeenIP == "" || metric.LastSeen.After(lastSeenTime) {
-                        lastSeenIP = ipAddress
-                        lastSeenTime = metric.LastSeen
-                    }
-                }
-            }
-            portMetricsMutex.RUnlock()
-            
-            // Use the IP from port metrics if available
-            rec.IPAddress = lastSeenIP
-        }
-
-        // Fetch message count (0 on error)
-        // Note: getMessagesByIP now only uses the UDP port, not the IP address
-        msgs, err := getMessagesByIP("", rec.UDPPort) // Pass empty string for IP address
-        if err != nil {
-            msgs = 0
-        }
-
-        // Convert to PublicReceiver (which doesn't include password or IP address)
-        publicRec := PublicReceiver{
-            ID:          rec.ID,
-            LastUpdated: rec.LastUpdated,
-            Description: rec.Description,
-            Latitude:    rec.Latitude,
-            Longitude:   rec.Longitude,
-            Name:        rec.Name,
-            URL:         rec.URL,
-            Messages:    msgs,
-            UDPPort:     rec.UDPPort, // Store UDPPort for filtering but don't expose in JSON
-        }
-
-        // If we're filtering by IP address, store this receiver by its port
-        if ipAddressFilter != "" && rec.UDPPort != nil {
-            // We'll check the portMetricsMap later
-            receiversByPort[*rec.UDPPort] = publicRec
+        // Always set the IP address display to the user's actual IP
+        document.getElementById('ip-address').textContent = data.ip;
+        
+        // Check if we're using an override IP from the URL
+        const params = new URLSearchParams(location.search);
+        if (params.has('ip_address')) {
+          console.log('ip_address parameter is present, will add override indicator later');
+          // Don't add the override indicator here, it will be added later
+        } else if (applyAsOverride) {
+          // Reset message count before applying override with user's IP
+          currentMessageCount = 0;
+          console.log("Reset currentMessageCount to 0 in fetchUserIP");
+          applyOverride(data.ip);
         } else {
-            // If not filtering by IP or receiver has no port, add to the list directly
-            list = append(list, publicRec)
+          // Clear the override indicator
+          overrideIp = '';
         }
+      } else {
+        console.error('Invalid response from /myip endpoint');
+      }
+    })
+    .catch(e => console.error('Error fetching user IP:', e));
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  // Always fetch the user's IP for display
+  fetchUserIP(false);
+
+  // Ensure autoFit is true when page loads
+  autoFit = true;
+  console.log("Page loaded, setting autoFit =", autoFit);
+
+  const p = new URLSearchParams(location.search);
+  
+  // Check if page was loaded with ip_address parameter
+  if (p.has('ip_address')) {
+    // We'll handle this in the map initialization code
+    console.log("Page loaded with ip_address parameter, will handle after map initialization");
+    // Set flag to ensure autoFit works for vessel markers with ip_address parameter
+    loadedWithIpAddress = true;
+    console.log("Page loaded with ip_address parameter, setting loadedWithIpAddress =", loadedWithIpAddress);
+  }
+  
+  // Set flag if page was loaded with receiver parameter
+  if (p.has('receiver')) {
+    loadedWithReceiver = true;
+    console.log("Page loaded with receiver parameter, setting loadedWithReceiver =", loadedWithReceiver);
+    
+    // Reset map and table state to ensure proper fitBounds behavior
+    resetCardsAndCharts();
+    resetMapAndTable(true); // Pass true to indicate this is a receiver change
+    resetFilters();
+    
+    // Set the receiverId to the URL's receiver value
+    overrideReceiverId = p.get('receiver');
+  }
+
+  // Initialize charts and map
+  fetch('/types.json')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(json => {
+      typesConfig = json;
+      initDoughnut();
+      initMap();
+      
+      // After map is initialized, handle the query parameters
+      if (p.has('ip_address')) {
+        // Get the IP address from the URL
+        const ip = p.get('ip_address');
+        
+        // Reset message count before applying override
+        currentMessageCount = 0;
+        console.log("Reset currentMessageCount to 0 for ip_address parameter");
+        
+        // Set the override IP
+        overrideIp = ip;
+        console.log("Setting overrideIp from URL parameter:", overrideIp);
+        
+        // Wait a short time to ensure the IP address has been set from /myip
+        setTimeout(() => {
+          // Update the IP address display to include the override indicator
+          const ipAddressEl1 = document.getElementById('ip-address');
+          if (ipAddressEl1) {
+            // Remove any existing override indicators
+            let currentIp = ipAddressEl1.textContent;
+            if (currentIp.includes("(Using IP:")) {
+              currentIp = currentIp.split("(Using IP:")[0].trim();
+            }
+            console.log("Current IP in display (map init, after removing any existing indicators):", currentIp);
+            console.log("Setting IP display to include override (map init):", currentIp + " (Using IP: " + ip + ")");
+            ipAddressEl1.innerHTML = currentIp + " (Using IP: " + ip + ")";
+          } else {
+            console.error("IP address element not found (map init)");
+          }
+        }, 100); // Short delay to ensure IP address is set
+        
+        // Update the input field with the override IP
+        const ipInput = document.getElementById('ipInput');
+        if (ipInput) {
+          ipInput.value = ip;
+          
+          // Enable the Apply button
+          const applyBtn = document.getElementById('applyBtn');
+          if (applyBtn) {
+            applyBtn.disabled = false;
+          }
+        }
+        
+        // Update the IP address display with the override indicator before applying override
+        // Wait a short time to ensure the IP address has been set from /myip
+        setTimeout(() => {
+          const ipAddressEl2 = document.getElementById('ip-address');
+          if (ipAddressEl2) {
+            // Remove any existing override indicators
+            let currentIp = ipAddressEl2.textContent;
+            if (currentIp.includes("(Using IP:")) {
+              currentIp = currentIp.split("(Using IP:")[0].trim();
+            }
+            console.log("Current IP before applying override (after removing any existing indicators):", currentIp);
+            console.log("Setting IP display to include override:", currentIp + " (Using IP: " + ip + ")");
+            ipAddressEl2.innerHTML = currentIp + " (Using IP: " + ip + ")";
+          }
+        }, 100); // Short delay to ensure IP address is set
+        
+        // Apply the override
+        applyOverride(ip);
+        
+        // Set flag to ensure autoFit works for vessel markers with ip_address parameter
+        loadedWithIpAddress = true;
+        console.log("Setting loadedWithIpAddress=true after applying override from URL parameter");
+      } else if (p.has('receiver')) {
+        // Reset message count for new receiver
+        currentMessageCount = 0;
+        console.log("Reset currentMessageCount to 0 for receiver parameter");
+        // Now that map is initialized, fetch receiver info first
+        console.log('Map initialized, now fetching receiver info with ID:', overrideReceiverId);
+        // Only fetch metrics after confirming the receiver exists
+        fetchReceiversById(overrideReceiverId);
+      } else {
+        // No query parameters - fetch user's IP and use it
+        currentMessageCount = 0;
+        console.log("Reset currentMessageCount to 0 for default case");
+        fetchUserIP(true);
+      }
+    })
+    .catch(e => console.error('types.json error', e));
+
+  fetch('/mids.json')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(json => { midMap = json; })
+    .catch(e => console.error('mids.json error', e));
+// No need to fetch metrics every second - the server sends updates automatically
+});
+
+
+
+    // sorting
+    document.querySelectorAll('#summaryTable th').forEach(th=>{
+      th.onclick = ()=>{
+        const f = th.dataset.field;
+        if(!f) return;
+        if(sortField === f) sortAsc = !sortAsc;
+        else { sortField = f; sortAsc = true; }
+        document.querySelectorAll('#summaryTable th .arrow').forEach(a=>a.textContent='');
+        th.querySelector('.arrow').textContent = sortAsc ? '▲' : '▼';
+        currentPage = 1;
+        updateSummaryTable();
+      };
+    });
+
+    // **filter handler**
+    document.getElementById('filterInput').addEventListener('input', e=>{
+      filterTerm = e.target.value.trim().toLowerCase();
+      currentPage = 1;
+      updateSummaryTable();
+    });
+
+    // Initialize map, overlay, and receivers
+    function initMap(){
+      map = L.map('map').setView([0,0],2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+   setTimeout(() => map.invalidateSize(), 0);
+   window.addEventListener('resize', () => map.invalidateSize());
+
+map.on('click', e => {
+  const tgt = e.originalEvent.target;
+
+  // if the click came from a marker icon, popup, or tooltip, ignore it
+  if (
+    tgt.classList.contains('leaflet-marker-icon') ||
+    tgt.classList.contains('leaflet-interactive') ||  // SVG marker
+    tgt.closest('.leaflet-popup') ||
+    tgt.closest('.distance-tooltip')
+  ) {
+    return;  // Don't reset anything when clicking on a marker or its popup
+  }
+
+  // otherwise clear any selection, but do not reset charts/cards
+  updateOverlay(null);  // Hide the overlay
+  clearDistanceLine();  // Clear any distance line
+  clearSelectedRow();   // Clear any selected row
+  focusedUid = null;
+});
+
+      // create and append overlay
+      overlayDiv = document.createElement('div');
+      overlayDiv.className = 'latlng-overlay';
+      map.getContainer().appendChild(overlayDiv);
+      updateOverlay(null);
+
+      loadReceivers();
+
+      // When user interacts with the map (zoom or move), disable autoFit
+      // This prevents annoying automatic bounds adjustments after user interaction
+      map.on('movestart zoomstart', (e)=>{
+        if(!programmaticFit) {
+          console.log("User interacted with map, disabling autoFit");
+          autoFit = false;
+          console.log("autoFit is now:", autoFit);
+        }
+      });
     }
 
-    // If we're filtering by IP address, check the portMetricsMap
-    if ipAddressFilter != "" {
-        // Fetch the primary UDP port from the ingester settings
-        ingestSettings, err := fetchIngestSettings()
-        if err != nil {
-            log.Printf("Error fetching ingester settings: %v", err)
-            // Continue without filtering if we can't get the primary port
-            w.Header().Set("Content-Type", "application/json")
-            json.NewEncoder(w).Encode(list)
-            return
+function updateOverlay(latlng) {
+
+  if (!overlayDiv) return;
+
+  if (latlng && typeof latlng.lat === 'number' && typeof latlng.lng === 'number' &&
+      !isNaN(latlng.lat) && !isNaN(latlng.lng)) {
+    // Display overlay if not already displayed
+    if (!overlayDisplayed) {
+      overlayDiv.textContent = `${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
+      overlayDiv.style.display = 'block';
+      overlayDisplayed = true;
+    }
+  } else {
+    // Hide the overlay only if it was previously displayed
+    if (overlayDisplayed) {
+      overlayDiv.style.display = 'none';
+      overlayDisplayed = false;
+    }
+  }
+}
+
+// Function to reset cards and charts
+function resetCardsAndCharts() {
+  // Reset cards' displayed values to '0'
+  cardMetrics.forEach(m => {
+    document.querySelector(`#card-${m} p`).textContent = '0';
+  });
+
+  // Reset the underlying stored values (baselines, chart data, etc.)
+  Object.keys(baselines).forEach(key => {
+    delete baselines[key];  // Clear all baselines data
+  });
+
+  // Reset charts
+  chartMetrics.forEach(m => {
+    const c = charts[m];
+    c.data.labels = [];  // Clear the chart labels
+    c.data.datasets[0].data = [];  // Clear the chart data
+    c.update();  // Update the chart with the cleared data
+  });
+
+  // Clear the doughnut chart data
+  if (typeDoughnut) {
+    typeDoughnut.data.labels = [];
+    typeDoughnut.data.datasets[0].data = [];
+    typeDoughnut.options.plugins.centerText.text = '';
+    typeDoughnut.update();
+  }
+}
+
+// Function to reset map and table
+// isReceiverChange: true when called due to receiver change, false otherwise
+function resetMapAndTable(isReceiverChange = false) {
+  // Clear vessels & summary
+  seenUserIds.clear();
+  Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
+  vesselMarkers = {};
+  Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
+  Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
+  Object.keys(seenCount).forEach(k => delete seenCount[k]);
+  document.getElementById('summaryBody').innerHTML = '';
+  currentPage = 1;
+  clearDistanceLine(); // This now also clears radius circles
+
+  // Reset sorting & pagination
+  // Only reset autoFit if this is a receiver change
+  if (isReceiverChange) {
+    console.log("Receiver changed, enabling autoFit");
+    autoFit = true;
+  }
+  sortField = 'lastSeen';
+  sortAsc = false;
+  document.querySelectorAll('#summaryTable th .arrow').forEach(a => a.textContent = '');
+  document.getElementById('pagination').innerHTML = '';
+}
+
+// Function to reset filters
+function resetFilters() {
+  // Clear filter
+  filterTerm = '';
+  document.getElementById('filterInput').value = '';
+}
+
+    // Fetch & draw receiver markers
+// Fetch & draw receiver markers
+function loadReceivers() {
+  // Clear any previous receivers
+  receiversList = [];
+
+  fetch('/receivers')
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(receivers => {
+      // Ensure that we have valid data before continuing
+      if (!Array.isArray(receivers) || receivers.length === 0) {
+        console.warn('No receivers found');
+        return;
+      }
+
+      // Populate the receiversList with fetched data
+      let boundsArr = [];
+      receivers.forEach(r => {
+        // Skip receivers with invalid coordinates
+        if (typeof r.latitude !== 'number' || typeof r.longitude !== 'number' ||
+            isNaN(r.latitude) || isNaN(r.longitude)) {
+          console.warn('Skipping receiver with invalid coordinates:', r);
+          return;
         }
         
-        // The primary UDP port is the UDP listen port from the ingester settings
-        primaryUDPPort := ingestSettings.UDPListenPort
+        // Create a diamond-shaped marker for the receiver
+        // Calculate diamond points (8px from center in each cardinal direction)
+        // Create a red diamond marker for the receiver using SVG
+        const dot = L.marker([r.latitude, r.longitude], {
+          icon: createReceiverIcon()
+        }).addTo(map);
         
-        // Lock the map for reading
-        portMetricsMutex.RLock()
-        
-        // Check if we have metrics for this IP address
-        if portMap, ok := portMetricsMap[ipAddressFilter]; ok {
-            // For each port this IP has been seen on
-            for port, metric := range portMap {
-                // Skip the primary UDP port - we only want receivers on non-primary ports
-                if port == primaryUDPPort {
-                    continue
+        // Helper function to create a diamond-shaped icon
+        function createReceiverIcon(color = 'red') {
+          const svgHtml = `
+            <svg style="pointer-events: none;" width="16" height="16" viewBox="0 0 20 20">
+              <polygon points="10,0 20,10 10,20 0,10" fill="${color}" />
+            </svg>
+          `;
+          return L.divIcon({
+            html: svgHtml,
+            className: '',
+            iconSize: [16, 16],
+            iconAnchor: [8, 8]
+          });
+        }
+
+        // Tooltip with the RX name
+        dot.bindTooltip(`${r.name}`, {
+          permanent: true,
+          direction: 'top',
+          className: 'receiver-tooltip'
+        });
+
+        // Click handler: select this receiver
+        dot.on('click', e => {
+          L.DomEvent.stopPropagation(e);  // Prevent event propagation to map click
+          selectedReceiverLatLng = e.latlng;  // Store the receiver's lat/lng
+          console.log("Receiver selected at:", selectedReceiverLatLng);
+          clearDistanceLine();  // Clear any existing distance line and radius circles
+          updateOverlay(e.latlng);  // Update the overlay with receiver's coordinates
+          updateSummaryTable();
+          drawRadiusCircles(); // Draw radius circles around the selected receiver
+          
+          // Reset message count for the new receiver
+          currentMessageCount = 0;
+          console.log("Reset currentMessageCount to 0 in receiver marker click handler");
+          
+          // Clear the override IP since we're now using a specific receiver
+          overrideIp = '';
+          // Clear the override indicator by updating the IP address display
+          const ipAddress = document.getElementById('ip-address');
+          if (ipAddress) {
+            // Just show the IP address without the override indicator
+            ipAddress.textContent = ipAddress.textContent.split(' ')[0];
+          }
+
+          // Fetch this receiver's details via ?id=<id>
+          fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
+            .then(res => {
+              if (!res.ok) throw new Error(res.status);
+              return res.json();
+            })
+            .then(data => {
+              const receiver = Array.isArray(data) ? data[0] : data;
+
+              // Remove existing info box if present
+              const oldBox = document.getElementById('receiver-box');
+              if (oldBox) oldBox.remove();
+
+              // Build and insert new info box with receiver details
+              const box = document.createElement('div');
+              box.id = 'receiver-box';
+              box.innerHTML = `
+                <div class="receiver-info-content">
+                  <h3>Receiver Information</h3>
+                  <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
+                  <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+                  <p class="receiver-url"><strong>URL:</strong>
+                    ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+                  </p>
+                  <div style="margin-bottom: 10px;">
+                    <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
+                    <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
+                    <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
+                  </div>
+                </div>
+                <div id="receiver-map"></div> <!-- Receiver map will go here -->
+              `;
+              
+              // Add event listener to the edit button
+              setTimeout(() => {
+                const editButton = document.getElementById('edit-receiver-btn');
+                if (editButton) {
+                  editButton.addEventListener('click', () => showEditReceiverForm(receiver.id));
                 }
+              }, 0);
+              document.getElementById('ip-address').insertAdjacentElement('afterend', box);
+
+              // Initialize the map inside the info box
+              const mapDiv = document.getElementById('receiver-map');
+              const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
+              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+              }).addTo(rxMap);
+              L.marker([receiver.latitude, receiver.longitude])
+                .addTo(rxMap)
+                .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
+                .openPopup();
+            })
+            .catch(err => console.error('Error fetching single receiver:', err));
+
+          // **Reset all components when selecting a receiver's dot**
+          resetCardsAndCharts();  // Reset all cards and charts with new receiver's data
+          resetMapAndTable(true); // Reset the map and table, with autoFit=true since receiver changed
+          resetFilters();         // Reset any applied filters or selections
+
+          // Update the URL with the receiver's ID (and remove IP)
+          overrideReceiverId = r.id;
+          console.log('Receiver ID fetched:', r.id);
+          updateURLWithReceiverId(r.id);  // This ensures the URL is updated with only the receiver ID
+          
+          // Send a WebSocket request with the new receiver ID
+          console.log('Sending WebSocket request for receiver ID:', r.id);
+          fetchMetrics();
+        });
+
+        // Store for nearest/override lookup
+        receiversList.push({
+          id: r.id,
+          name: r.name,
+          marker: dot,
+          latlng: L.latLng(r.latitude, r.longitude)
+        });
+
+        // Add the receiver's lat/lng to bounds array for fitBounds
+        boundsArr.push([r.latitude, r.longitude]);
+      });
+
+      // Check if no vessels exist (or any other items to focus on)
+      if (Object.keys(vesselMarkers).length === 0) {
+        // No vessels, fit map to receiver markers
+        map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+      }
+
+    })
+    .catch(err => {
+      console.error('Failed to load receivers:', err);
+    });
+}
+
+    // Vessel icon creation
+    function makeIcon(info, color){
+      if(info.Sog > 0.5){
+        const angle = info.Cog || 0;
+        return L.divIcon({
+          html: `<div style="transform: rotate(${angle}deg) scaleY(1.5); font-size: 20px; color: ${color};">&#9650;</div>`,
+          className: '', iconSize: [20,30]
+        });
+      } else {
+        return L.divIcon({
+          html: `<div style="width:12px; height:12px; background:${color}; border-radius:50%;"></div>`,
+          className: '', iconSize: [12,12]
+        });
+      }
+    }
+
+    // Focus vessel from table
+function focusVessel(uid){
+  focusedUid = uid;
+  Object.values(vesselMarkers).forEach(m => m.closePopup());
+  clearSelectedRow();
+  highlightRow(uid);
+
+  const marker = vesselMarkers[uid];
+  if(!marker) return;
+
+  updateOverlay(marker.getLatLng());
+
+  // if a receiver is selected: fit to both points
+  if (selectedReceiverLatLng) {
+    const vesselLatLng   = marker.getLatLng();
+    const bounds         = L.latLngBounds([ selectedReceiverLatLng, vesselLatLng ]);
+    // Don't set autoFit = false here, as this is not user interaction
+    programmaticFit        = true;
+    map.once('moveend zoomend', () => programmaticFit = false);
+    map.fitBounds(bounds, { padding: [30,30] });
+
+    // draw the distance line as before
+    clearDistanceLine();
+    const dist = haversineDistance(
+      selectedReceiverLatLng.lat, selectedReceiverLatLng.lng,
+      vesselLatLng.lat,            vesselLatLng.lng
+    ).toFixed(2);
+    distancePolyline = L.polyline([ selectedReceiverLatLng, vesselLatLng ], { color:'blue' }).addTo(map);
+    const mid = [(selectedReceiverLatLng.lat+vesselLatLng.lat)/2, (selectedReceiverLatLng.lng+vesselLatLng.lng)/2];
+    distanceLabel = L.tooltip({ permanent:true, direction:'center', className:'distance-tooltip' })
+                     .setLatLng(mid)
+                     .setContent(`${dist} km`)
+                     .addTo(map);
+
+  } else {
+    // fallback to just centering on vessel
+    // Don't set autoFit = false here, as this is not user interaction
+    programmaticFit = true;
+    map.once('moveend zoomend', () => programmaticFit = false);
+    map.flyTo(marker.getLatLng(), 11);
+  }
+
+  marker.fire('mouseover');
+  document.getElementById('map').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function updateMap() {
+  const oldVesselCount = Object.keys(vesselMarkers).length;
+  const boundsArr = [], newMarkers = {};
+  let vesselsUpdated = false;
+
+  // Force autoFit to be true if page was loaded with receiver parameter or ip_address parameter
+  // Only reset the flags if we actually have vessel markers to display
+  if (loadedWithReceiver || loadedWithIpAddress) {
+    console.log("updateMap: Forcing autoFit=true because loadedWithReceiver=", loadedWithReceiver, "or loadedWithIpAddress=", loadedWithIpAddress);
+    autoFit = true;
+    
+    // Only reset the flags if we have vessel markers to display
+    if (Object.keys(vesselMarkers).length > 0 || seenUserIds.size > 0) {
+      console.log("Resetting loadedWithReceiver/loadedWithIpAddress flags because we have vessel data");
+      loadedWithReceiver = false;
+      loadedWithIpAddress = false;
+    } else {
+      console.log("Keeping loadedWithReceiver/loadedWithIpAddress flags because we don't have vessel data yet");
+    }
+  }
+
+  // Loop over all user IDs to process each vessel
+  seenUserIds.forEach(uid => {
+    if (uid.length !== 9) return;
+    const info = summaryCache[uid];
+    if (!info) return;
+    const { Latitude: lat, Longitude: lon } = info;
+    if (typeof lat !== 'number' || typeof lon !== 'number') return;
+
+    boundsArr.push([lat, lon]);  // Collecting the bounds for all vessels
+    const typeDisp = typeNameFor(info);
+    const color = typeColorsMap[typeDisp] || '#000';
+    const icon = makeIcon(info, color);
+
+    // Update existing marker if it exists, or create a new one
+    if (vesselMarkers[uid]) {
+      vesselMarkers[uid].setLatLng([lat, lon]).setIcon(icon);
+      newMarkers[uid] = vesselMarkers[uid];
+    } else {
+      const m = L.marker([lat, lon], { icon });
+
+      // Click handler for the vessel marker
+      m.on('click', function (e) {
+        // Reset line-drawing state
+        polylineAdded = false;
+        tooltipAdded = false;
+
+        L.DomEvent.stopPropagation(e);
+        updateOverlay(e.latlng);
+
+        // Close other popups
+        Object.values(vesselMarkers).forEach(m2 => m2.closePopup());
+
+        // Open the clicked marker popup
+        m.openPopup();
+
+        focusedUid = uid;
+        clearSelectedRow();
+        highlightRow(uid);
+
+        // If a receiver is selected, draw distance line and adjust map bounds
+        if (selectedReceiverLatLng) {
+          clearDistanceLine();
+          const vesselLatLng = m.getLatLng();
+          const dist = haversineDistance(
+            selectedReceiverLatLng.lat,
+            selectedReceiverLatLng.lng,
+            vesselLatLng.lat,
+            vesselLatLng.lng
+          ).toFixed(2);
+
+          distancePolyline = L.polyline(
+            [selectedReceiverLatLng, vesselLatLng],
+            { color: 'blue', weight: 3, opacity: 0.7, zIndex: 1000 }
+          ).addTo(map);
+
+          const midLat = (selectedReceiverLatLng.lat + vesselLatLng.lat) / 2;
+          const midLng = (selectedReceiverLatLng.lng + vesselLatLng.lng) / 2;
+          distanceLabel = L.tooltip({
+            permanent: true,
+            direction: 'center',
+            className: 'distance-tooltip',
+            zIndex: 1001
+          })
+            .setLatLng([midLat, midLng])
+            .setContent(`${dist} km`)
+            .addTo(map);
+
+          const bounds = L.latLngBounds([selectedReceiverLatLng, vesselLatLng]);
+          map.fitBounds(bounds, { padding: [30, 30] });
+        }
+      });
+
+      // Mouseover handler for the vessel marker
+      m.on('mouseover', () => {
+        const status = navigationalStatusMapping[info.NavigationalStatus] || 'Unknown';
+        const detailsHtml = `
+          <div style="line-height:1.2;">
+            <b>MMSI:</b> ${uid}<br/>
+            <b>Name:</b> ${info.Name || ''}<br/>
+            <b>Speed:</b> ${info.Sog} kn<br/>
+            <b>Type:</b> ${typeDisp}<br/>
+            <b>Status:</b> ${status}<br/>
+            <b>Class:</b> ${info.AISClass || ''}
+          </div>
+        `;
+        m.bindPopup(detailsHtml, { closeButton: false, autoClose: false }).openPopup();
+
+        // Fetch additional vessel state data if available
+        fetch(`/state?UserID=${encodeURIComponent(uid)}`)
+          .then(res => res.ok ? res.json() : Promise.reject(res.status))
+          .then(state => {
+            if (state.ImageURL) {
+              const flexHtml = `
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <img src="${state.ImageURL}" style="max-width:120px;max-height:80px;flex-shrink:0;" alt="State image"/>
+                  <div style="line-height:1.2;">
+                    <b>MMSI:</b> ${uid}<br/>
+                    <b>Name:</b> ${info.Name || ''}<br/>
+                    <b>Speed:</b> ${info.Sog} kn<br/>
+                    <b>Type:</b> ${typeDisp}<br/>
+                    <b>Status:</b> ${status}<br/>
+                    <b>Class:</b> ${info.AISClass || ''}
+                  </div>
+                </div>
+              `;
+              m.getPopup().setContent(flexHtml).update();
+              m.openPopup();
+            }
+          })
+          .catch(e => console.error(`Failed to load state for ${uid}`, e));
+      });
+
+      m.on('mouseout', () => m.closePopup());
+
+      // Add the new marker to the map
+      m.addTo(map);
+      vesselMarkers[uid] = m;
+      newMarkers[uid] = m;
+    }
+  });
+
+  // Remove markers that are no longer needed
+  Object.keys(vesselMarkers).forEach(uid => {
+    if (!newMarkers[uid]) map.removeLayer(vesselMarkers[uid]);
+  });
+
+  vesselMarkers = newMarkers;
+  
+  // If vessels were updated and a receiver is selected, update the radius circles
+  if (selectedReceiverLatLng) {
+    drawRadiusCircles();
+  }
+
+  // After all markers are updated, adjust the map bounds to fit all markers if the data is available
+  console.log("updateMap: autoFit =", autoFit, "boundsArr.length =", boundsArr.length, "loadedWithReceiver =", loadedWithReceiver, "loadedWithIpAddress =", loadedWithIpAddress);
+  if (autoFit && map) {
+    if (boundsArr.length) {
+      console.log("updateMap: Fitting bounds to", boundsArr.length, "markers");
+      programmaticFit = true;
+      map.once('moveend zoomend', () => {
+        programmaticFit = false;
+        console.log("Programmatic fit complete");
+      });
+      map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+    } else if (selectedReceiverLatLng && (loadedWithReceiver || loadedWithIpAddress)) {
+      // If we have a selected receiver but no vessels yet, center on the receiver
+      console.log("updateMap: No vessels yet, centering on selected receiver");
+      programmaticFit = true;
+      map.once('moveend zoomend', () => {
+        programmaticFit = false;
+        console.log("Programmatic fit complete");
+      });
+      map.setView(selectedReceiverLatLng, 10);
+    }
+  } else if (!map) {
+    console.error("updateMap: Map not initialized yet!");
+  } else if (!autoFit) {
+    console.log("updateMap: Skipping fitBounds because autoFit is false");
+  }
+}
+
+// **Trigger the fitBounds function after data load when the `id` query parameter is used**
+
+window.addEventListener('DOMContentLoaded', () => {
+  const p = new URLSearchParams(location.search);
+
+  // When `id` parameter is set, we delay the fitting of bounds until the markers are rendered
+  if (p.has('id')) {
+    // Assuming that fetch functions for vessels/receivers will trigger data updates
+    fetchMetrics();  // Fetch metrics after page load
+    setTimeout(() => {
+      // After data has loaded, call fitBounds to ensure the map adjusts
+      if (vesselMarkers.length) {
+        const boundsArr = Object.values(vesselMarkers).map(m => m.getLatLng());
+        if (boundsArr.length) {
+          map.fitBounds(L.latLngBounds(boundsArr), { padding: [30, 30] });
+        }
+      }
+    }, 500);  // Add a slight delay to ensure data has been fetched and markers are available
+  }
+});
+
+
+    // Fetch metrics, update cards/charts/table
+let receiversFetched = false; // Flag to ensure receivers are only fetched once
+
+// Listen for incoming metrics data from the server
+socket.on("metrics/bysource", function(data) {
+  console.log("Received metrics data via WebSocket, autoFit =", autoFit);
+  console.log("SOCKET EVENT: metrics/bysource received with data:", JSON.stringify(data));
+  
+  // Extract parameters from the URL
+  const params = new URLSearchParams(location.search);
+  
+  // Only use the requested_ip_address if we're not already using a receiver ID
+  let currentIp = null;
+  if (!overrideReceiverId && !params.has('receiver')) {
+    currentIp = data.requested_ip_address; // Use IP from the API response if available
+    console.log("Using requested_ip_address from server:", currentIp);
+  } else {
+    console.log("Already using a receiver ID, ignoring requested_ip_address");
+  }
+
+  // Check if we have any actual data in the metrics
+  const hasData = data.simple_metrics && (
+    data.simple_metrics.messages > 0 ||
+    data.simple_metrics.bytes_received > 0 ||
+    data.simple_metrics.window_messages > 0 ||
+    data.simple_metrics.window_bytes > 0
+  );
+  
+  // Check if we have a receiver that exists but has no IP
+  const receiverExists = data.receiver_exists === true;
+  const receiverHasNoIP = data.receiver_has_no_ip === true;
+  const receiverNotFound = data.receiver_not_found === true;
+  
+  // Debug the full response
+  console.log("Full metrics response:", JSON.stringify(data));
+  console.log("Receiver exists:", receiverExists, "Receiver has no IP:", receiverHasNoIP, "Receiver not found:", receiverNotFound);
+  
+  // Update our message count tracker
+  // Use the same data source as the cards (simple_metrics.messages)
+  currentMessageCount = data.simple_metrics?.messages || 0;
+  console.log("Updated currentMessageCount:", currentMessageCount, "from simple_metrics.messages");
+  console.log("Has data:", hasData);
+  
+  // Update the receiver box message if it exists
+  const receiverBox = document.getElementById('receiver-box');
+  if (receiverBox) {
+    console.log("Found receiver box");
+    
+    // Special case: If receiver exists but has no IP, always show the no data message
+    // regardless of box type
+    if (receiverExists && receiverHasNoIP) {
+      console.log("SHOWING NO DATA MESSAGE: Receiver exists but has no IP");
+      const id = params.get('receiver') || overrideReceiverId;
+      const message = `<p style="color: #d9534f; font-weight: bold;">Receiver ID ${id} exists but hasn't sent any data yet. <a href="/howto.html" target="_blank">Read the docs</a> for troubleshooting.</p>`;
+      console.log("Setting innerHTML to:", message);
+      
+      // If this is a regular receiver box, we need to preserve the map and other elements
+      if (!receiverBox.classList.contains('no-receiver-box')) {
+        // Find the receiver info content div and update just that part
+        const infoContent = receiverBox.querySelector('.receiver-info-content');
+        if (infoContent) {
+          // Check if warning already exists
+          const existingWarning = document.getElementById('receiver-no-data-warning');
+          if (existingWarning) {
+            // Update existing warning
+            existingWarning.innerHTML = message;
+            console.log("Updated existing warning in receiver info box");
+          } else {
+            // Add a new warning to the top of the info content
+            const warningDiv = document.createElement('div');
+            warningDiv.id = 'receiver-no-data-warning';
+            warningDiv.innerHTML = message;
+            warningDiv.style.marginBottom = '10px';
+            infoContent.insertBefore(warningDiv, infoContent.firstChild);
+            console.log("Added warning to existing receiver info box");
+          }
+        } else {
+          console.log("Could not find receiver-info-content to add warning");
+        }
+      } else {
+        // For no-receiver-box, just replace the entire content
+        receiverBox.innerHTML = message;
+      }
+    }
+    // Special case: If receiver doesn't exist, show a clear message
+    else if (receiverNotFound) {
+      console.log("SHOWING RECEIVER NOT FOUND MESSAGE");
+      const id = params.get('receiver') || overrideReceiverId;
+      const message = `<p style="color: #d9534f; font-weight: bold;">Receiver ID ${id} does not exist. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+      console.log("Setting innerHTML to:", message);
+      
+      // For no-receiver-box, just replace the entire content
+      receiverBox.innerHTML = message;
+    }
+    // For other cases, only update if it's a no-receiver-box
+    else if (receiverBox.classList.contains('no-receiver-box')) {
+      console.log("This is a 'no receiver' box, updating message based on receiver status");
+      console.log("receiverExists =", receiverExists, "receiverHasNoIP =", receiverHasNoIP, "receiverNotFound =", receiverNotFound);
+      
+      // Don't update if the form is currently being displayed
+      if (document.getElementById('receiver-form')) {
+        console.log("Receiver form is active, not updating the box");
+      } else if (hasData) {
+        console.log("Has data, updating to show 'AIS data is flowing'");
+        // Check if we're using an override IP
+        if (overrideIp) {
+          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for IP ${overrideIp}. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+        } else {
+          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for your IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+        }
+      } else {
+        console.log("No data, updating to show 'No receiver found'");
+        receiverBox.innerHTML = '<p>No receiver found at this IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>';
+      }
+    } else {
+      console.log("This is a receiver info box, not updating for normal cases");
+    }
+  } else {
+    console.log("No receiver box found");
+  }
+  
+  // Only update the URL with the IP address if 'receiver' is not in the URL and 'ip_address' is not in the URL
+  if (currentIp && !params.has('receiver') && !params.has('ip_address')) {
+    updateURLWithIp(currentIp);
+  }
+
+  // ** Fetch receivers only once and only if we have an IP to use **
+  if (!receivedReceivers && currentIp) {
+    fetchReceivers(currentIp); // Fetch receivers using current IP
+    receivedReceivers = true;  // Set the flag to true after fetching
+  }
+  
+  // Debug log to track autoFit state after processing data
+  console.log("After processing metrics data, autoFit =", autoFit);
+
+  const lbl = new Date().toLocaleTimeString();
+
+  // Don't update metrics if receiver exists but has no IP
+  if (receiverExists && receiverHasNoIP) {
+    console.log("Receiver exists but has no IP - not updating metrics displays");
+    
+    // Reset cards to zero
+    cardMetrics.forEach(m => {
+      document.querySelector(`#card-${m} p`).textContent = "0";
+    });
+    
+    // Clear charts
+    chartMetrics.forEach(m => {
+      const c = charts[m];
+      c.data.labels = [];
+      c.data.datasets[0].data = [];
+      c.update();
+    });
+    
+    // Clear the doughnut chart
+    if (typeDoughnut) {
+      typeDoughnut.data.labels = [];
+      typeDoughnut.data.datasets[0].data = [];
+      typeDoughnut.options.plugins.centerText.text = '0';
+      typeDoughnut.update();
+    }
+    
+    // Clear the vessel markers and table
+    seenUserIds.clear();
+    Object.values(vesselMarkers).forEach(m => map.removeLayer(m));
+    vesselMarkers = {};
+    Object.keys(summaryCache).forEach(k => delete summaryCache[k]);
+    Object.keys(lastSeenTs).forEach(k => delete lastSeenTs[k]);
+    Object.keys(seenCount).forEach(k => delete seenCount[k]);
+    document.getElementById('summaryBody').innerHTML = '';
+    
+    // Don't process any more data for this update
+    return;
+  } else {
+    // Normal update for metrics
+    // Update card metrics
+    cardMetrics.forEach(m => {
+      if (baselines[m] === undefined) baselines[m] = data.simple_metrics[m];
+      document.querySelector(`#card-${m} p`).textContent = formatNumber(data.simple_metrics[m] - baselines[m]);
+    });
+
+    // Update chart metrics
+    chartMetrics.forEach(m => {
+      const c = charts[m];
+      c.data.labels.push(lbl);
+      c.data.datasets[0].data.push(data.simple_metrics[m]);
+      if (c.data.labels.length > maxPoints) {
+        c.data.labels.shift();
+        c.data.datasets[0].data.shift();
+      }
+      c.update();
+    });
+  }
+
+  // ** Handle messages and fetch receivers if necessary **
+  if (data.messages > 0 && !receivedReceivers && currentIp) {
+    receivedReceivers = true;
+    fetchReceivers(currentIp); // Use IP to fetch receivers, but only if we have an IP
+  }
+  
+  // Debug log to track autoFit state after processing data
+  console.log("After processing metrics data, autoFit =", autoFit);
+  
+  // Debug log to track autoFit state after processing data
+  console.log("After processing metrics data, autoFit =", autoFit);
+
+  // Update the summary table with new data
+  if (Array.isArray(data.window_user_ids)) {
+    data.window_user_ids.forEach(uid => {
+      lastSeenTs[uid] = new Date();
+      seenCount[uid] = (seenCount[uid] || 0) + 1;
+      if (!seenUserIds.has(uid)) {
+        seenUserIds.add(uid);
+        fetch(`/summary?UserID=${encodeURIComponent(uid)}`)
+          .then(r => r.ok ? r.json() : Promise.reject(r.status))
+          .then(json => { summaryCache[uid] = json[uid] || {}; updateSummaryTable(); })
+          .catch(e => console.error(`summary ${uid} error`, e));
+      }
+    });
+    updateSummaryTable();
+  }
+});
+
+// Function to request metrics by source (IP address or ID)
+function fetchMetrics() {
+  console.log("Requesting metrics via WebSocket");
+  
+  // Extract parameters from the URL
+  const params = new URLSearchParams(location.search);
+  
+  let payload = {};
+  
+  if (overrideReceiverId) {
+    // Use receiver ID from override if present
+    payload = { id: Number(overrideReceiverId) };
+  } else if (params.has('receiver')) {
+    // Use receiver ID from URL if present
+    payload = { id: Number(params.get('receiver')) };
+    
+    // Ensure loadedWithReceiver flag is set if we're using a receiver ID from the URL
+    if (!loadedWithReceiver) {
+      console.log("Setting loadedWithReceiver=true in fetchMetrics because receiver parameter is present");
+      loadedWithReceiver = true;
+    }
+  } else if (overrideIp) {
+    // Use IP only if no receiver ID in the URL or overrideReceiverId
+    if (!params.has('receiver')) {
+      payload = { ip_address: overrideIp };
+      
+      // Ensure loadedWithIpAddress flag is set if we're using an IP address
+      if (!loadedWithIpAddress) {
+        console.log("Setting loadedWithIpAddress=true in fetchMetrics because we're using an IP address");
+        loadedWithIpAddress = true;
+      }
+    }
+  }
+  
+  console.log("Sending WebSocket request with payload:", payload);
+  
+  // Emit the request to the server with the identifier (IP or ID)
+  socket.emit("metrics/bysource", payload);
+}
+
+function fetchReceiversById(receiverId) {
+  fetch(`/receivers?id=${encodeURIComponent(receiverId)}`)
+    .then(res => res.ok ? res.json() : Promise.reject(res.status))
+    .then(data => {
+      // Handle the case where no receivers are found
+      if (!Array.isArray(data) || data.length === 0) {
+        console.warn('No receivers found with ID:', receiverId);
+        
+        // Reset all data to prevent showing data from other receivers
+        resetCardsAndCharts();  // Reset all cards and charts
+        resetMapAndTable(true); // Reset the map and table
+        resetFilters();         // Reset filters
+        
+        // Reset message count to avoid showing "data is flowing" message
+        currentMessageCount = 0;
+        
+        // Clear previous receiver info
+        const ipHeading = document.getElementById('ip-address');
+        const existingReceiverBox = document.getElementById('receiver-box');
+        if (existingReceiverBox) existingReceiverBox.remove();
+
+        // Create a new box for "No receiver found"
+        const receiverBox = document.createElement('div');
+        receiverBox.id = 'receiver-box';
+        receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
+        
+        receiverBox.innerHTML = `<p>No receiver found with ID ${receiverId}. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+
+        ipHeading.insertAdjacentElement('afterend', receiverBox);
+        
+        // Don't remove the socket listener, we need it to handle the metrics response
+        // with the receiver_exists and receiver_has_no_ip flags
+        // Instead, just fetch metrics to get the updated status
+        fetchMetrics();
+        
+        return;
+      }
+
+      const receiver = Array.isArray(data) ? data[0] : data;
+
+      // Set the selectedReceiverLatLng for map operations
+      // Validate coordinates before creating LatLng object
+      if (typeof receiver.latitude === 'number' && typeof receiver.longitude === 'number' &&
+          !isNaN(receiver.latitude) && !isNaN(receiver.longitude)) {
+        selectedReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+      } else {
+        console.warn('Invalid coordinates for receiver:', receiver);
+        selectedReceiverLatLng = null;
+      }
+      console.log("Set selectedReceiverLatLng from fetchReceiversById:", selectedReceiverLatLng);
+      
+      // Update the overlay to show the receiver's position if coordinates are valid
+      if (selectedReceiverLatLng) {
+        updateOverlay(selectedReceiverLatLng);
+      }
+      updateSummaryTable();
+      
+      // Draw radius circles around the selected receiver
+      drawRadiusCircles();
+      
+      // Now that we've confirmed the receiver exists, fetch metrics for it
+      console.log('Receiver found, now fetching metrics for ID:', receiver.id);
+      fetchMetrics();
+
+      // Remove existing info box if present
+      const oldBox = document.getElementById('receiver-box');
+      if (oldBox) oldBox.remove();
+
+      // Build and insert new info box with receiver details
+      const box = document.createElement('div');
+      box.id = 'receiver-box';
+      box.innerHTML = `
+        <div class="receiver-info-content">
+          <h3>Receiver Information</h3>
+          <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
+          <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+          <p class="receiver-url"><strong>URL:</strong>
+            ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+          </p>
+          <div style="margin-bottom: 10px;">
+            <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
+            <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
+            <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
+          </div>
+        </div>
+        <div id="receiver-map"></div> <!-- Receiver map will go here -->
+      `;
+      
+      // Add event listener to the edit button
+      setTimeout(() => {
+        const editButton = document.getElementById('edit-receiver-btn');
+        if (editButton) {
+          editButton.addEventListener('click', () => showEditReceiverForm(receiver.id));
+        }
+      }, 0);
+      document.getElementById('ip-address').insertAdjacentElement('afterend', box);
+
+      // Initialize the map for the receiver's location
+      const mapDiv = document.getElementById('receiver-map');
+      
+      // Validate coordinates before initializing the map
+      if (typeof receiver.latitude === 'number' && typeof receiver.longitude === 'number' &&
+          !isNaN(receiver.latitude) && !isNaN(receiver.longitude)) {
+        const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(rxMap);
+        L.marker([receiver.latitude, receiver.longitude])
+          .addTo(rxMap)
+          .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
+          .openPopup();
+      } else {
+        console.warn('Cannot initialize receiver map: Invalid coordinates', receiver);
+        mapDiv.innerHTML = '<div style="padding: 10px; color: #d9534f;">Cannot display map: Invalid coordinates</div>';
+      }
+    })
+    .catch(err => {
+      console.error('Error fetching receiver by id:', err);
+      
+      // Reset all data to prevent showing data from other receivers
+      resetCardsAndCharts();  // Reset all cards and charts
+      resetMapAndTable(true); // Reset the map and table
+      resetFilters();         // Reset filters
+      
+      // Reset message count to avoid showing "data is flowing" message
+      currentMessageCount = 0;
+      
+      // Handle error in case of failure to get receiver information
+      const ipHeading = document.getElementById('ip-address');
+      const existingReceiverBox = document.getElementById('receiver-box');
+      if (existingReceiverBox) existingReceiverBox.remove();
+
+      // Create a new box for "No receiver found"
+      const receiverBox = document.createElement('div');
+      receiverBox.id = 'receiver-box';
+      receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
+      
+      // Show error message
+      receiverBox.innerHTML = `<p>Error loading receiver with ID ${receiverId}.</p>`;
+
+      ipHeading.insertAdjacentElement('afterend', receiverBox);
+      
+      // Don't remove the socket listener, we need it to handle the metrics response
+      // with the receiver_exists and receiver_has_no_ip flags
+      // Instead, just fetch metrics to get the updated status
+      fetchMetrics();
+    });
+}
+
+function updateURLWithReceiverId(receiverId) {
+  const url = new URL(window.location);
+  console.log('Updating URL with receiver ID:', receiverId);
+  
+  // Remove ip_address if it's in the URL, since we're using receiver ID now
+  url.searchParams.delete('ip_address');
+  url.searchParams.set('receiver', receiverId);  // Set receiver id as query parameter
+  
+  console.log('Updated URL:', url.toString());
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
+}
+
+function updateURLWithIp(ip) {
+  const url = new URL(window.location);
+  console.log('Updating URL with IP:', ip);
+  url.searchParams.delete('receiver');  // Remove receiver if IP address is used
+  url.searchParams.set('ip_address', ip);  // Set ip_address query parameter
+  history.replaceState(null, '', url.toString());  // Update the URL without reloading the page
+}
+
+async function fetchReceivers(ip) {
+  try {
+    const params = new URLSearchParams(location.search);
+    let url = '/receivers';
+
+    // Make sure overrideIp is set if we're using an IP address
+    if (ip) {
+      overrideIp = ip;
+      console.log("Setting overrideIp in fetchReceivers:", overrideIp);
+      
+      // Update the input field with the override IP
+      const ipInput = document.getElementById('ipInput');
+      if (ipInput) {
+        ipInput.value = ip;
+        
+        // Enable the Apply button
+        const applyBtn = document.getElementById('applyBtn');
+        if (applyBtn) {
+          applyBtn.disabled = false;
+        }
+      }
+    }
+
+    // Use receiver ID from the URL if it's present
+    if (params.has('receiver')) {
+      url += `?id=${encodeURIComponent(params.get('receiver'))}`;
+    } else if (ip) {
+      // Use IP address if no receiver ID in the URL
+      url += `?ip_address=${encodeURIComponent(ip)}`;
+    }
+
+    // Fetch receivers from the API
+    const res = await fetch(url);
+    if (!res.ok) throw res.status;
+
+    const receivers = await res.json();
+
+    // Handle the case where no receivers are found
+    if (!Array.isArray(receivers) || receivers.length === 0) {
+      console.warn('No receivers found');
+      console.log('Current message count when creating receiver box:', currentMessageCount);
+      
+      // Clear previous receiver info
+      const ipHeading = document.getElementById('ip-address');
+      const existingReceiverBox = document.getElementById('receiver-box');
+      if (existingReceiverBox) existingReceiverBox.remove();
+
+      // Create a new box for "No receiver found"
+      const receiverBox = document.createElement('div');
+      receiverBox.id = 'receiver-box';
+      receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
+      
+      // Check if we have messages but no receiver using our tracked message count
+      if (currentMessageCount > 0) {
+        // Show link to howto page
+        console.log('Setting up howto link');
+        
+        receiverBox.innerHTML = `
+          <p>No receiver found but AIS data is flowing for ${overrideIp ? `IP ${overrideIp}` : 'your IP'}.
+          <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
+        `;
+        
+        // No map initialization here - it will be done in showReceiverForm
+          
+      } else {
+        // No receiver found and no messages
+        console.log('Setting message to "No receiver found"');
+        receiverBox.innerHTML = '<p>No receiver found at this IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>';
+      }
+
+      ipHeading.insertAdjacentElement('afterend', receiverBox);
+      return;
+    }
+
+    // Handle the first receiver in the list
+    const receiver = receivers[0];  // Assuming the first receiver is the one we're interested in
+    overrideReceiverId = receiver.id;  // Store the receiver ID for later use
+    console.log('Receiver ID fetched:', overrideReceiverId);
+
+    // Update the URL with the receiver's ID
+    updateURLWithReceiverId(receiver.id); // Update URL with receiver ID instead of IP
+
+    // Now fetch metrics using the receiver's ID
+    fetchMetrics();
+
+    // Continue with normal receiver handling...
+
+    const ipHeading = document.getElementById('ip-address');
+    
+    // Clear previous receiver info
+    const existingReceiverBox = document.getElementById('receiver-box');
+    if (existingReceiverBox) existingReceiverBox.remove();
+    
+    // Create a new box to hold receiver info
+    const receiverBox = document.createElement('div');
+    receiverBox.id = 'receiver-box';
+    
+    // Display receiver information
+    receiverBox.innerHTML = `
+      <h3>Receiver Information</h3>
+      <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
+      <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
+      <p class="receiver-url"><strong>URL:</strong>
+        ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+      </p>
+      <div style="margin-bottom: 10px;">
+        <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
+        <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
+        <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=7', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">Coverage</button>
+      </div>
+      <div id="receiver-map"></div> <!-- Receiver map will go here -->
+    `;
+    
+    // Add event listener to the edit button
+    setTimeout(() => {
+      const editButton = document.getElementById('edit-receiver-btn');
+      if (editButton) {
+        editButton.addEventListener('click', () => showEditReceiverForm(receiver.id));
+      }
+    }, 0);
+    
+    // Insert the receiver box below the IP address heading
+    ipHeading.insertAdjacentElement('afterend', receiverBox);
+
+    // Initialize the map for the receiver pin only after the DOM is ready
+    const receiverMapDiv = document.getElementById('receiver-map');
+    if (receiverMapDiv) {
+      // Validate coordinates before initializing the map
+      if (typeof receiver.latitude === 'number' && typeof receiver.longitude === 'number' &&
+          !isNaN(receiver.latitude) && !isNaN(receiver.longitude)) {
+        // Initialize the map for the receiver pin
+        const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(receiverMap);
+
+        L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
+          .bindPopup(`<b>${receiver.name}</b><br>Latitude: ${receiver.latitude}<br>Longitude: ${receiver.longitude}`);
+      } else {
+        console.warn('Cannot initialize receiver map: Invalid coordinates', receiver);
+        receiverMapDiv.innerHTML = '<div style="padding: 10px; color: #d9534f;">Cannot display map: Invalid coordinates</div>';
+      }
+    } else {
+      console.error("Receiver map container not found");
+    }
+
+    // Validate coordinates before creating LatLng object
+    if (typeof receiver.latitude === 'number' && typeof receiver.longitude === 'number' &&
+        !isNaN(receiver.latitude) && !isNaN(receiver.longitude)) {
+      const firstReceiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+      selectedReceiverLatLng = firstReceiverLatLng;
+    } else {
+      console.warn('Invalid coordinates for receiver:', receiver);
+      selectedReceiverLatLng = null;
+    }
+    // Update the overlay to show the first receiver's position if coordinates are valid
+    if (selectedReceiverLatLng) {
+      updateOverlay(selectedReceiverLatLng);
+    }
+    updateSummaryTable();
+    
+    // Draw radius circles around the selected receiver
+    drawRadiusCircles();
+
+    // Optionally flash the selection overlay
+    const ov = document.createElement('div');
+    ov.className = 'rx-overlay';
+    ov.textContent = `Selected RX ${receiver.name}`;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('show'));
+    setTimeout(() => {
+      ov.classList.remove('show');
+      ov.addEventListener('transitionend', () => ov.remove(), { once: true });
+    }, 2000);
+  } catch (e) {
+    console.error('Failed to fetch receivers:', e);
+    console.log('Current message count in error handler:', currentMessageCount);
+
+    // Handle error in case of failure to get receiver information
+    const ipHeading = document.getElementById('ip-address');
+    const existingReceiverBox = document.getElementById('receiver-box');
+    if (existingReceiverBox) existingReceiverBox.remove();
+
+    // Create a new box for "No receiver found"
+    const receiverBox = document.createElement('div');
+    receiverBox.id = 'receiver-box';
+    receiverBox.className = 'no-receiver-box'; // Add a class to identify this as a no-receiver box
+    
+    // Check if we have messages but no receiver using our tracked message count
+    if (currentMessageCount > 0) {
+      // Show link to howto page (error handler)
+      console.log('Setting up howto link (error handler)');
+      
+      receiverBox.innerHTML = `
+        <p>No receiver found but AIS data is flowing for ${overrideIp ? `IP ${overrideIp}` : 'your IP'}.
+        <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
+      `;
+    } else {
+      // No receiver found and no messages
+      console.log('Setting message to "No receiver found" (error handler)');
+      receiverBox.innerHTML = '<p>No receiver found</p>';
+    }
+
+    ipHeading.insertAdjacentElement('afterend', receiverBox);
+    
+    // Fetch metrics to get the updated status with receiver_exists and receiver_has_no_ip flags
+    fetchMetrics();
+  }
+}
+
+    function typeNameFor(info) {
+      if (info.AISClass === 'AtoN') {
+        return staticAtoNTypeMapping[info.Type]
+          || `Unknown AtoN (${info.Type})`;
+      }
+      if (!typesConfig) return info.Type;
+      const catId = typesConfig.valueLookup[info.Type];
+      const cat   = typesConfig.categories.find(c=>c.id === catId);
+      return cat ? cat.name : info.Type;
+    }
+
+    function initDoughnut(){
+      const ctx = document.getElementById('typeDoughnut').getContext('2d');
+      typeDoughnut = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
+        options: {
+          responsive: true,
+	  maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'right', labels: { boxWidth:12 } },
+            centerText: { display: true, text: '' }
+          }
+        }
+      });
+    }
+
+    function updateDoughnut(){
+      if(!typeDoughnut) return;
+      const counts = {};
+      Array.from(seenUserIds)
+       .filter(uid=>uid.length===9)
+       .forEach(uid=>{
+         // ✅ pass the full info object
+         const info = summaryCache[uid] || {};
+         const name = typeNameFor(info);
+         counts[name] = (counts[name]||0) + 1;
+      });
+      const entries = Object.entries(counts);
+      typeColorsMap = {};
+      const bg = entries.map((_,i)=>colors[i%colors.length]);
+      entries.forEach(([name],i)=> typeColorsMap[name]=bg[i]);
+      typeDoughnut.data.labels = entries.map(e=>`${e[0]} (${e[1]})`);
+      typeDoughnut.data.datasets[0].data = entries.map(e=>e[1]);
+      typeDoughnut.data.datasets[0].backgroundColor = bg;
+      typeDoughnut.options.plugins.centerText.text = entries.reduce((sum,[,c])=>sum+c,0);
+      typeDoughnut.update();
+      updateMap();
+    }
+
+    function renderPagination(totalPages){
+      const container = document.getElementById('pagination');
+      container.innerHTML = '';
+      const prev = document.createElement('button');
+      prev.textContent = '« Prev';
+      prev.disabled = currentPage===1;
+      prev.onclick = ()=>{ currentPage--; updateSummaryTable(); };
+      container.appendChild(prev);
+      for(let p=1; p<=totalPages; p++){
+        const btn = document.createElement('button');
+        btn.textContent = p;
+        if(p===currentPage) btn.classList.add('active');
+        btn.onclick = ()=>{ currentPage=p; updateSummaryTable(); };
+        container.appendChild(btn);
+      }
+      const next = document.createElement('button');
+      next.textContent = 'Next »';
+      next.disabled = currentPage===totalPages;
+      next.onclick = ()=>{ currentPage++; updateSummaryTable(); };
+      container.appendChild(next);
+    }
+
+    function updateSummaryTable(){ 
+      // Show/hide distance column
+      const showDist = !!selectedReceiverLatLng;
+      document.querySelectorAll('.distance-col').forEach(el=>{
+        el.style.display = showDist ? '' : 'none';
+      });
+
+      let allRows = Array.from(seenUserIds)
+        .filter(uid=>uid.length===9)
+        .map(uid=>({
+          id: uid,
+          info: summaryCache[uid]||{},
+          lastTs: lastSeenTs[uid]||new Date(0),
+          count: seenCount[uid]||0
+        }));
+
+      // **filter**
+      if(filterTerm){
+        allRows = allRows.filter(item=>
+          item.id.includes(filterTerm) ||
+          (item.info.Name||'').toLowerCase().includes(filterTerm)
+        );
+      }
+
+      allRows.sort((a,b)=>{
+        let cmp;
+        if(sortField==='lastSeen') cmp = a.lastTs - b.lastTs;
+        else if(sortField==='name') cmp = (a.info.Name||'').localeCompare(b.info.Name||'');
+        else if(sortField==='typeName') cmp = typeNameFor(a.info).localeCompare(typeNameFor(b.info));
+        else if(sortField==='status'){
+          const sa = navigationalStatusMapping[a.info.NavigationalStatus]||'Unknown';
+          const sb = navigationalStatusMapping[b.info.NavigationalStatus]||'Unknown';
+          cmp = sa.localeCompare(sb);
+        }
+        else if (sortField==='className') {
+          const ca = a.info.AISClass||'';
+          const cb = b.info.AISClass||'';
+          cmp = ca.localeCompare(cb);
+        }
+        else if(sortField==='count') cmp = a.count - b.count;
+	else if (sortField === 'distance' && selectedReceiverLatLng) {
+	  const getDist = item => {
+	    const { Latitude: lat, Longitude: lon } = item.info;
+	    return (typeof lat === 'number' && typeof lon === 'number')
+	      ? haversineDistance(
+	          selectedReceiverLatLng.lat,
+	          selectedReceiverLatLng.lng,
+	          lat, lon
+	        )
+	      : Infinity;
+	  };
+	  const dA = getDist(a);
+	  const dB = getDist(b);
+	  cmp = dA - dB;
+	}
+	else if (sortField === 'flag') {
+	    const midA = a.id.slice(0,3), midB = b.id.slice(0,3);
+	    const entryA = midMap[midA] || [], entryB = midMap[midB] || [];
+	    const nameA = entryA[0] || '';
+	    const nameB = entryB[0] || '';
+	    cmp = nameA.localeCompare(nameB);
+	}
+        else cmp = a.id.localeCompare(b.id);
+        return sortAsc ? cmp : -cmp;
+      });
+
+      const totalPages = Math.max(1, Math.ceil(allRows.length/rowsPerPage));
+      if(currentPage>totalPages) currentPage = totalPages;
+      const start = (currentPage-1)*rowsPerPage;
+      const pageRows = allRows.slice(start, start+rowsPerPage);
+
+      const tbody = document.getElementById('summaryBody');
+      tbody.innerHTML = '';
+      pageRows.forEach(item=>{
+        const ago = formatAgo(item.lastTs);
+        const mid = item.id.slice(0,3);
+        const entry = midMap[mid]||[];
+        const countryCode = entry[0]||'';
+        const countryName = entry[3]||'';
+        const flagCell = countryCode
+          ? `<td><img class="flag-img" src="/flags/${countryCode.toLowerCase()}.svg" alt="${countryName}" title="${countryName}"/></td>`
+          : '<td></td>';
+
+        let distanceCell = '<td class="distance-col"></td>';
+        if(selectedReceiverLatLng && typeof item.info.Latitude==='number' && typeof item.info.Longitude==='number'){
+          const d = haversineDistance(
+            selectedReceiverLatLng.lat,
+            selectedReceiverLatLng.lng,
+            item.info.Latitude,
+            item.info.Longitude
+          ).toFixed(2);
+          distanceCell = `<td class="distance-col">${d} km</td>`;
+        }
+
+        const status = navigationalStatusMapping[item.info.NavigationalStatus]||'Unknown';
+        const tr = document.createElement('tr');
+        tr.id = 'row-' + item.id;              // give each row an id
+        tr.innerHTML = `
+          <td><a href="#" onclick="focusVessel('${item.id}'); return false;">${item.id}</a></td>
+          <td>${item.info.Name||''}</td>
+          <td title="Type: ${typeNameFor(item.info)}\nStatus: ${status}">${typeNameFor(item.info)}</td>
+          <td>${status}</td>
+          <td>${item.info.AISClass||''}</td>
+          ${flagCell}
+          ${distanceCell}
+          <td>${ago}</td>
+          <td>${item.count}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Toggle distance column now that rows are in the DOM
+      document.querySelectorAll('.distance-col').forEach(el=>{
+        el.style.display = showDist ? 'table-cell' : 'none';
+      });
+      if (focusedUid) {
+        const stillThere = document.getElementById('row-' + focusedUid);
+        if (stillThere) stillThere.classList.add('selected');
+      }
+      renderPagination(totalPages);
+      updateDoughnut();
+    }
+
+    const ipInput = document.getElementById('ipInput');
+    const applyBtn = document.getElementById('applyBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    // Function to clear IP override and reset to user's real IP
+    function clearIpOverride() {
+      // Clear the input field
+      ipInput.value = '';
+      
+      // Reset the override IP
+      overrideIp = '';
+      overrideReceiverId = '';  // Reset receiver id
+      
+      // Update the URL to remove the ip_address parameter
+      const url = new URL(window.location);
+      url.searchParams.delete('ip_address');
+      history.replaceState(null, '', url.toString());
+      
+      // Reset message count
+      currentMessageCount = 0;
+      
+      // Update the IP address display to show only the user's real IP
+      fetchUserIP(false);
+      
+      // Reset all components
+      resetCardsAndCharts();
+      resetMapAndTable(true);
+      resetFilters();
+      
+      // Fetch metrics and receivers with the user's real IP
+      fetchMetrics();
+      fetchReceivers();
+      
+      // Disable the Apply button
+      applyBtn.disabled = true;
+    }
+
+    // 1. Toggle disabled state as the user types:
+    ipInput.addEventListener('input', () => {
+      // trim so spaces don't count
+      applyBtn.disabled = ipInput.value.trim() === '';
+    });
+
+    // 2. (Extra safety) In your handler, bail out if empty:
+    applyBtn.addEventListener('click', () => {
+      const ip = ipInput.value.trim();
+      if (!ip) return;          // nothing to do
+      applyOverride(ip);
+    });
+
+    // 3. Add event listener for the Clear button:
+    clearBtn.addEventListener('click', clearIpOverride);
+
+    // 4. Also handle Enter-key the same way:
+    ipInput.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      const ip = ipInput.value.trim();
+      if (!ip) {
+        e.preventDefault();   // stop any default form‑submit behavior
+        return;
+      }
+      applyOverride(ip);
+    });
+
+
+  // Function to show the edit receiver form
+  function showEditReceiverForm(receiverId) {
+    // Fetch the receiver details first
+    fetch(`/receivers?id=${encodeURIComponent(receiverId)}`)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        const receiver = Array.isArray(data) ? data[0] : data;
+        
+        // Get the receiver box
+        const receiverBox = document.getElementById('receiver-box');
+        
+        // Replace the content with the edit form
+        receiverBox.innerHTML = `
+          <h3>Edit Receiver</h3>
+          
+          <form id="edit-receiver-form" style="font-size: 0.8em;">
+            <input type="hidden" id="edit-receiver-id" value="${receiver.id}">
+            
+            <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-password">Current Password (required):</label>
+              <input type="password" id="edit-receiver-password" required style="width: 100%; padding: 4px; margin-top: 2px;">
+            </div>
+            
+            <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-name">Callsign/Name:</label>
+              <input type="text" id="edit-receiver-name" value="${receiver.name}" required style="width: 100%; padding: 4px; margin-top: 2px;">
+            </div>
+            
+            <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-description">Description:</label>
+              <textarea id="edit-receiver-description" style="width: 100%; padding: 4px; margin-top: 2px; height: 40px;">${receiver.description}</textarea>
+            </div>
+            
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+              <div style="flex: 1;">
+                <label for="edit-receiver-latitude">Latitude:</label>
+                <input type="number" id="edit-receiver-latitude" step="any" value="${receiver.latitude}" required style="width: 100%; padding: 4px; margin-top: 2px;">
+              </div>
+              <div style="flex: 1;">
+                <label for="edit-receiver-longitude">Longitude:</label>
+                <input type="number" id="edit-receiver-longitude" step="any" value="${receiver.longitude}" required style="width: 100%; padding: 4px; margin-top: 2px;">
+              </div>
+            </div>
+            
+            <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-url">URL (optional):</label>
+              <input type="url" id="edit-receiver-url" value="${receiver.url || ''}" style="width: 100%; padding: 4px; margin-top: 2px;">
+            </div>
+            
+            
+            <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-new-password">New Password (optional):</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="password" id="edit-receiver-new-password" style="flex: 1; padding: 4px; margin-top: 2px;">
+                <button type="button" id="generate-password-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-top: 2px;">Generate</button>
+              </div>
+              <small style="color: #666;">Leave blank to keep current password</small>
+            </div>
+            
+            <div id="edit-location-map" style="height: 200px; margin-bottom: 8px;"></div>
+            <p style="font-size: 0.8em; margin: 0 0 8px 0;">Drag the marker to update your receiver's location</p>
+            
+            <div id="edit-form-error" style="color: red; margin-bottom: 8px; display: none;"></div>
+            
+            <div style="display: flex; gap: 8px;">
+              <button type="submit" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Save Changes</button>
+              <button type="button" id="cancel-edit-form" style="background-color: #f0f0f0; border: 1px solid #ccc; padding: 4px 8px; cursor: pointer;">Cancel</button>
+            </div>
+          </form>
+        `;
+        
+        // Add event listener to the cancel button
+        document.getElementById('cancel-edit-form').addEventListener('click', function() {
+          // Reload the receiver details to restore the view
+          fetchReceiversById(receiverId);
+        });
+        
+        // Initialize the map after the form is added to the DOM
+        setTimeout(() => {
+          const locationMap = L.map('edit-location-map').setView([receiver.latitude, receiver.longitude], 13);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+          }).addTo(locationMap);
+          
+          // Add a draggable marker
+          const marker = L.marker([receiver.latitude, receiver.longitude], { draggable: true }).addTo(locationMap);
+          
+          // Update form fields when marker is moved
+          marker.on('dragend', function(e) {
+            const position = marker.getLatLng();
+            document.getElementById('edit-receiver-latitude').value = position.lat.toFixed(6);
+            document.getElementById('edit-receiver-longitude').value = position.lng.toFixed(6);
+          });
+          
+          // Update marker when lat/lng fields change
+          document.getElementById('edit-receiver-latitude').addEventListener('change', updateMarkerFromFields);
+          document.getElementById('edit-receiver-longitude').addEventListener('change', updateMarkerFromFields);
+          
+          function updateMarkerFromFields() {
+            const lat = parseFloat(document.getElementById('edit-receiver-latitude').value);
+            const lng = parseFloat(document.getElementById('edit-receiver-longitude').value);
+            
+            if (!isNaN(lat) && !isNaN(lng)) {
+              marker.setLatLng([lat, lng]);
+              locationMap.setView([lat, lng], locationMap.getZoom());
+            }
+          }
+          
+          
+          // Add event listener to the "Generate Password" button
+          document.getElementById('generate-password-btn').addEventListener('click', function() {
+            // Generate a random 8-character alphanumeric password
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let password = '';
+            for (let i = 0; i < 8; i++) {
+              password += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            
+            // Get the password field
+            const passwordField = document.getElementById('edit-receiver-new-password');
+            
+            // Change the input type to "text" to make the password visible
+            passwordField.type = "text";
+            
+            // Populate the password field with the generated password
+            passwordField.value = password;
+            
+            // Copy the password to clipboard
+            navigator.clipboard.writeText(password).then(
+              () => {
+                // Success feedback - change button text temporarily
+                const generateBtn = document.getElementById('generate-password-btn');
+                const originalText = generateBtn.textContent;
+                generateBtn.textContent = "Copied!";
                 
-                // If we have a receiver for this port
-                if _, ok := receiversByPort[port]; ok {
-                    // Store the last_seen time for this port
-                    lastSeenByPort[port] = metric.LastSeen
-                }
-            }
-        }
-        
-        portMetricsMutex.RUnlock()
-        
-        // Find the port with the most recent last_seen time
-        var mostRecentPort int
-        var mostRecentTime time.Time
-        for port, lastSeen := range lastSeenByPort {
-            if lastSeen.After(mostRecentTime) {
-                mostRecentPort = port
-                mostRecentTime = lastSeen
-            }
-        }
-        
-        // If we found a matching non-primary port, add its receiver to the list
-        if !mostRecentTime.IsZero() {
-            list = append(list, receiversByPort[mostRecentPort])
-        }
-    }
-
-    // Create a response that will include receivers
-    var response []interface{}
-    
-    // Only add the anonymous receiver if no specific ID was requested
-    if idParam == "" {
-        // Add dummy entry for receiver ID 0 (anonymous)
-        // Create a map with only the specified fields
-        anonymousReceiver := map[string]interface{}{
-            "id":          0,
-            "name":        "Anonymous",
-            "description": "Anonymous",
-        }
-        
-        // Add the anonymous receiver first
-        response = append(response, anonymousReceiver)
-    }
-    
-    // Add all the regular receivers
-    for _, rec := range list {
-        response = append(response, rec)
-    }
-
-    // If no receivers are found, return an empty array instead of null
-    if len(response) == 0 {
-        w.Header().Set("Content-Type", "application/json")
-        w.Write([]byte("[]")) // Send empty array explicitly
-        return
-    }
-
-    // Return the combined list in JSON format
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(response)
-}
-
-// Admin list: same as public but includes ip_address (computed from port metrics) and password
-func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
-    // Parse filters from query parameters (can be the same as public)
-    filters := map[string]string{
-        "id":        r.URL.Query().Get("id"),
-        "ip_address": r.URL.Query().Get("ip_address"),
-    }
-
-    // Call the helper function to get the filtered receivers
-    list, err := getFilteredReceivers(w, filters)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // For each receiver in the list, fetch messages based on the ip_address
-    for i, rec := range list {
-        // Fetch messages count and message stats for each receiver based on udp_port
-        // Note: We don't need the IP address for this since getMessagesByPort only uses UDP port
-        msgs, messageStats := getMessagesByPort(rec.UDPPort)
-
-        // Set the messages field and message stats
-        list[i].Messages = msgs
-        list[i].MessageStats = messageStats
-    }
-
-    // Add dummy entry for receiver ID 0
-    // Fetch the UDP listen port from the ingester settings
-    ingestSettings, err := fetchIngestSettings()
-    var udpListenPort int
-    if err != nil {
-        log.Printf("Error fetching ingester settings: %v", err)
-        udpListenPort = 0 // Default to 0 if we can't fetch the settings
-    } else {
-        udpListenPort = ingestSettings.UDPListenPort
-    }
-
-    // Create dummy receiver
-    dummyReceiver := Receiver{
-        ID:          0,
-        LastUpdated: time.Now(),
-        Description: "Anonymous",
-        Latitude:    0,
-        Longitude:   0,
-        Name:        "Anonymous",
-        URL:         nil,
-        Password:    "",
-        Messages:    0,
-        MessageStats: make(map[string]MessageStat),
-    }
-    
-    // Set the UDP port
-    dummyReceiver.UDPPort = &udpListenPort
-    
-    // Fetch message stats for the dummy receiver based on the UDP listen port
-    // This will aggregate all messages for this UDP port across all IP addresses
-    msgs, messageStats := getMessagesByPort(&udpListenPort)
-    dummyReceiver.Messages = msgs
-    dummyReceiver.MessageStats = messageStats
-
-    // Add the dummy receiver to the beginning of the list
-    list = append([]Receiver{dummyReceiver}, list...)
-
-    // Return the list of receivers in JSON format, including ip_address, messages, and message stats
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(list)
-}
-
-func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
-    parts := strings.Split(r.URL.Path, "/")
-    if len(parts) < 4 {
-        w.WriteHeader(http.StatusBadRequest)
-        return
-    }
-    id, err := strconv.Atoi(parts[3])
-    if err != nil {
-        w.WriteHeader(http.StatusBadRequest)
-        return
-    }
-    switch r.Method {
-    case http.MethodGet:
-        handleGetReceiver(w, r, id)
-    case http.MethodPut:
-        handlePutReceiver(w, r, id)
-    case http.MethodPatch:
-        handlePatchReceiver(w, r, id)
-    case http.MethodDelete:
-        handleDeleteReceiver(w, r, id)
-    default:
-        w.WriteHeader(http.StatusMethodNotAllowed)
-    }
-}
-
-// generateRandomPassword creates a random 8-character password
-func generateRandomPassword() (string, error) {
-    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    password := make([]byte, 8)
-    
-    for i := range password {
-        n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
-        if err != nil {
-            return "", err
-        }
-        password[i] = charset[n.Int64()]
-    }
-    
-    return string(password), nil
-}
-
-func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
-    // 1) decode JSON body
-    var input ReceiverInput
-    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
-    }
-
-    // 2) Generate a random password if not provided
-    password := ""
-    if input.Password != nil {
-        password = *input.Password
-    } else {
-        var err error
-        password, err = generateRandomPassword()
-        if err != nil {
-            http.Error(w, "Failed to generate password", http.StatusInternalServerError)
-            return
-        }
-    }
-
-    // 4) build Receiver and validate
-    rec := Receiver{
-        Description: input.Description,
-        Latitude:    input.Latitude,
-        Longitude:   input.Longitude,
-        Name:        strings.ToUpper(input.Name),
-        URL:         input.URL,
-        Password:    password,
-        // IPAddress is no longer used - we get IP from port metrics
-    }
-    
-    // Get the client's IP address for request tracking
-    clientIP := getClientIP(r)
-    if err := validateReceiver(rec); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    // 5) Start a transaction to ensure atomicity
-    tx, err := db.Begin()
-    if err != nil {
-        http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Lock the receivers table to prevent concurrent inserts
-    _, err = tx.Exec(`LOCK TABLE receivers IN EXCLUSIVE MODE`)
-    if err != nil {
-        tx.Rollback()
-        http.Error(w, "Failed to lock table: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Get the current value of the sequence
-    var currSeqVal int
-    err = tx.QueryRow(`SELECT last_value FROM receivers_id_seq`).Scan(&currSeqVal)
-    if err != nil {
-        tx.Rollback()
-        http.Error(w, "Failed to get sequence value: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Find the maximum ID ever used (including deleted receivers)
-    var maxID int
-    err = tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM receivers`).Scan(&maxID)
-    if err != nil {
-        tx.Rollback()
-        http.Error(w, "Failed to get max ID: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // If the max ID is greater than the current sequence value, update the sequence
-    if maxID >= currSeqVal {
-        _, err = tx.Exec(`SELECT setval('receivers_id_seq', $1)`, maxID+1)
-        if err != nil {
-            tx.Rollback()
-            http.Error(w, "Failed to update sequence: "+err.Error(), http.StatusInternalServerError)
-            return
-        }
-    }
-    
-    // Get a new ID from the sequence (which is now guaranteed to be higher than any ID ever used)
-    var newID int
-    err = tx.QueryRow(`SELECT nextval('receivers_id_seq')`).Scan(&newID)
-    if err != nil {
-        tx.Rollback()
-        http.Error(w, "Failed to get new ID: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // INSERT including password and request_ip_address with explicit ID
-    // Note: ip_address is no longer used
-    err = tx.QueryRow(`
-        INSERT INTO receivers (
-            id,
-            description,
-            latitude,
-            longitude,
-            name,
-            url,
-            password,
-            request_ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        RETURNING id, lastupdated
-    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, clientIP).
-        Scan(&rec.ID, &rec.LastUpdated)
-    if err != nil {
-        tx.Rollback()
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // 6) Allocate a UDP port for this receiver within the transaction
-    udpPort, err := allocatePortTx(tx, rec.ID)
-    if err != nil {
-        tx.Rollback() // Rollback the transaction on error
-        
-        if err.Error() == "no available ports" {
-            log.Printf("ERROR: No available UDP ports found for receiver ID %d", rec.ID)
-            http.Error(w, "Failed to create receiver: No available UDP ports", http.StatusServiceUnavailable)
-        } else {
-            log.Printf("ERROR: Failed to allocate UDP port for receiver ID %d: %v", rec.ID, err)
-            http.Error(w, fmt.Sprintf("Failed to create receiver: UDP port allocation error: %v", err), http.StatusInternalServerError)
-        }
-        
-        return
-    }
-    
-    // Commit the transaction
-    if err := tx.Commit(); err != nil {
-        tx.Rollback()
-        log.Printf("ERROR: Failed to commit transaction for receiver ID %d: %v", rec.ID, err)
-        http.Error(w, "Failed to create receiver: Transaction commit error", http.StatusInternalServerError)
-        return
-    }
-    
-    rec.UDPPort = &udpPort
-
-    // 7) send response
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(rec)
-}
-
-func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    var rec Receiver
-    // Query the receiver from the database.
-    // Create a nullable int for UDP port
-    var udpPort sql.NullInt64
-    
-    err := db.QueryRow(`
-        SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, r.password, rp.udp_port
-        FROM receivers r
-        LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
-        WHERE r.id = $1
-    `, id).Scan(
-        &rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.Password, &udpPort,
-    )
-    
-    // Only set UDPPort if it's not null
-    if udpPort.Valid {
-        port := int(udpPort.Int64)
-        rec.UDPPort = &port
-        
-        // Use port metrics to determine the IP address
-        portMetricsMutex.RLock()
-        var lastSeenIP string
-        var lastSeenTime time.Time
-        
-        // Find the most recent IP address that sent messages to this port
-        for ipAddress, portMap := range portMetricsMap {
-            if metric, ok := portMap[port]; ok {
-                if lastSeenIP == "" || metric.LastSeen.After(lastSeenTime) {
-                    lastSeenIP = ipAddress
-                    lastSeenTime = metric.LastSeen
-                }
-            }
-        }
-        portMetricsMutex.RUnlock()
-        
-        // Use the IP from port metrics if available
-        rec.IPAddress = lastSeenIP
-    }
-    if err == sql.ErrNoRows {
-        w.WriteHeader(http.StatusNotFound)
-        return
-    } else if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // Now, fetch the number of messages and message stats for the receiver's UDP port.
-    messages, messageStats := getMessagesByPort(rec.UDPPort)
-
-    // Add the messages field and message stats to the receiver struct.
-    rec.Messages = messages
-    rec.MessageStats = messageStats
-
-    // Send the full receiver response with messages count and message map.
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(rec)
-}
-
-func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    // 1) decode JSON body
-    var input ReceiverInput
-    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
-    }
-
-    // 2) Get current password and IP address if not provided in the input
-    var password string
-    
-    if input.Password != nil {
-        password = *input.Password
-    } else {
-        // Fetch the current password from the database
-        err := db.QueryRow(`SELECT password FROM receivers WHERE id = $1`, id).Scan(&password)
-        if err != nil && err != sql.ErrNoRows {
-            http.Error(w, "Failed to retrieve current password", http.StatusInternalServerError)
-            return
-        }
-    }
-    
-    // No longer update the IP address field
-
-
-    // 3) build Receiver and validate
-    rec := Receiver{
-        ID:          id,
-        Description: input.Description,
-        Latitude:    input.Latitude,
-        Longitude:   input.Longitude,
-        Name:        strings.ToUpper(input.Name),
-        URL:         input.URL,
-        Password:    password,
-    }
-    if err := validateReceiver(rec); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    // 4) UPSERT excluding ip_address
-    err := db.QueryRow(`
-        INSERT INTO receivers (
-            id,
-            description,
-            latitude,
-            longitude,
-            name,
-            url,
-            password
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
-        ON CONFLICT (id) DO UPDATE
-          SET description = EXCLUDED.description,
-              latitude    = EXCLUDED.latitude,
-              longitude   = EXCLUDED.longitude,
-              name        = EXCLUDED.name,
-              url         = EXCLUDED.url,
-              password    = EXCLUDED.password,
-              lastupdated = NOW()
-        RETURNING lastupdated
-    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password).
-        Scan(&rec.LastUpdated)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // 6) send response
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(rec)
-}
-
-func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    // 1) decode JSON body
-    var patch ReceiverPatch
-    if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
-    }
-
-    // 3) load existing record
-    var rec Receiver
-    err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, password
-        FROM receivers WHERE id = $1
-    `, id).Scan(
-        &rec.ID,
-        &rec.LastUpdated,
-        &rec.Description,
-        &rec.Latitude,
-        &rec.Longitude,
-        &rec.Name,
-        &rec.URL,
-        &rec.Password,
-    )
-    if err == sql.ErrNoRows {
-        w.WriteHeader(http.StatusNotFound)
-        return
-    } else if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // 4) apply patch
-    if patch.Description != nil {
-        rec.Description = *patch.Description
-    }
-    if patch.Latitude != nil {
-        rec.Latitude = *patch.Latitude
-    }
-    if patch.Longitude != nil {
-        rec.Longitude = *patch.Longitude
-    }
-    
-    if patch.Name != nil {
-        rec.Name = strings.ToUpper(*patch.Name)
-    }
-    if patch.URL != nil {
-        rec.URL = patch.URL
-    }
-    if patch.Password != nil {
-        rec.Password = *patch.Password
-    }
-    // No longer update the IP address field
-
-    // 5) validate updated rec
-    if err := validateReceiver(rec); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    // 6) perform UPDATE (excluding ip_address)
-    err = db.QueryRow(`
-        UPDATE receivers
-           SET description  = $1,
-               latitude     = $2,
-               longitude    = $3,
-               name         = $4,
-               url          = $5,
-               password     = $6,
-               lastupdated  = NOW()
-         WHERE id = $7
-         RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, rec.ID).
-        Scan(&rec.LastUpdated)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // 8) send response
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(rec)
-}
-
-func handleDeleteReceiver(w http.ResponseWriter, r *http.Request, id int) {
-    // Begin a transaction
-    tx, err := db.Begin()
-    if err != nil {
-        http.Error(w, fmt.Sprintf("Failed to begin transaction: %v", err), http.StatusInternalServerError)
-        return
-    }
-    defer tx.Rollback() // Rollback if not committed
-
-    // First, unallocate the UDP port by setting receiver_id to NULL
-    _, err = tx.Exec(`
-        UPDATE receiver_ports
-        SET receiver_id = NULL, last_updated = NOW()
-        WHERE receiver_id = $1
-    `, id)
-    if err != nil {
-        http.Error(w, fmt.Sprintf("Failed to unallocate UDP port: %v", err), http.StatusInternalServerError)
-        return
-    }
-
-    // Then delete the receiver
-    res, err := tx.Exec(`DELETE FROM receivers WHERE id = $1`, id)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    n, _ := res.RowsAffected()
-    if n == 0 {
-        w.WriteHeader(http.StatusNotFound)
-        return
-    }
-
-    // Commit the transaction
-    if err := tx.Commit(); err != nil {
-        http.Error(w, fmt.Sprintf("Failed to commit transaction: %v", err), http.StatusInternalServerError)
-        return
-    }
-
-    w.WriteHeader(http.StatusNoContent)
-}
-
-func validateReceiver(r Receiver) error {
-    if len(r.Description) > 30 {
-        return fmt.Errorf("description must be ≤30 characters")
-    }
-    if len(r.Name) > 15 {
-        return fmt.Errorf("name must be ≤15 characters")
-    }
-    if r.Latitude < -90 || r.Latitude > 90 {
-        return fmt.Errorf("latitude must be between -90 and 90")
-    }
-    if r.Longitude < -180 || r.Longitude > 180 {
-        return fmt.Errorf("longitude must be between -180 and 180")
-    }
-    if r.URL != nil && *r.URL != "" {
-        if _, err := url.ParseRequestURI(*r.URL); err != nil {
-            return fmt.Errorf("invalid URL")
-        }
-    }
-    
-    // Validate password length
-    if len(r.Password) < 8 {
-        return fmt.Errorf("password must be at least 8 characters")
-    }
-    if len(r.Password) > 20 {
-        return fmt.Errorf("password must be no more than 20 characters")
-    }
-    
-    // Check if the name is already in use by another receiver
-    var count int
-    query := `SELECT COUNT(*) FROM receivers WHERE name = $1`
-    args := []interface{}{r.Name}
-    
-    // If we're updating an existing receiver, exclude it from the check
-    if r.ID > 0 {
-        query += ` AND id != $2`
-        args = append(args, r.ID)
-    }
-    
-    err := db.QueryRow(query, args...).Scan(&count)
-    if err != nil {
-        return fmt.Errorf("database error while checking name uniqueness: %v", err)
-    }
-    
-    if count > 0 {
-        return fmt.Errorf("name '%s' is already in use by another receiver", r.Name)
-    }
-    
-    return nil
-}
-
-// adminRegeneratePasswordHandler handles POST /admin/receivers/regenerate-password/{id}
-func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodPost {
-        w.WriteHeader(http.StatusMethodNotAllowed)
-        return
-    }
-
-    // Extract receiver ID from URL
-    parts := strings.Split(r.URL.Path, "/")
-    if len(parts) < 5 {
-        http.Error(w, "Invalid URL format", http.StatusBadRequest)
-        return
-    }
-    
-    id, err := strconv.Atoi(parts[4])
-    if err != nil {
-        http.Error(w, "Invalid receiver ID", http.StatusBadRequest)
-        return
-    }
-
-    // Generate a new random password
-    newPassword, err := generateRandomPassword()
-    if err != nil {
-        http.Error(w, "Failed to generate password", http.StatusInternalServerError)
-        return
-    }
-    
-    // Fetch the current receiver to validate with the new password
-    var rec Receiver
-    err = db.QueryRow(`
-        SELECT id, description, latitude, longitude, name, url
-        FROM receivers WHERE id = $1
-    `, id).Scan(
-        &rec.ID,
-        &rec.Description,
-        &rec.Latitude,
-        &rec.Longitude,
-        &rec.Name,
-        &rec.URL,
-    )
-    
-    if err == sql.ErrNoRows {
-        http.Error(w, "Receiver not found", http.StatusNotFound)
-        return
-    } else if err != nil {
-        http.Error(w, "Database error", http.StatusInternalServerError)
-        return
-    }
-    
-    // Set the new password and validate
-    rec.Password = newPassword
-    if err := validateReceiver(rec); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    // Update the password in the database
-    var lastUpdated time.Time
-    err = db.QueryRow(`
-        UPDATE receivers
-        SET password = $1, lastupdated = NOW()
-        WHERE id = $2
-        RETURNING lastupdated
-    `, newPassword, id).Scan(&lastUpdated)
-
-    if err == sql.ErrNoRows {
-        http.Error(w, "Receiver not found", http.StatusNotFound)
-        return
-    } else if err != nil {
-        http.Error(w, "Database error", http.StatusInternalServerError)
-        return
-    }
-
-    // Return the new password
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{
-        "password": newPassword,
-    })
-}
-
-// handleReceiverIP endpoint removed - no longer needed with automatic collector tracking
-
-// handleEditReceiver handles POST /editreceiver
-// This is a public endpoint that allows editing an existing receiver
-// It requires id and password for authentication
-// Users can update all fields including their own password
-func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
-    // Only allow POST method
-    if r.Method != http.MethodPost {
-        w.WriteHeader(http.StatusMethodNotAllowed)
-        return
-    }
-
-    // Parse JSON request body
-    var input struct {
-        ID          int       `json:"id"`
-        Password    string    `json:"password"`
-        Description *string   `json:"description,omitempty"`
-        Latitude    *float64  `json:"latitude,omitempty"`
-        Longitude   *float64  `json:"longitude,omitempty"`
-        Name        *string   `json:"name,omitempty"`
-        URL         *string   `json:"url,omitempty"`
-        NewPassword *string   `json:"new_password,omitempty"`
-    }
-
-    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    // Validate required fields
-    if input.ID <= 0 {
-        http.Error(w, "id is required and must be positive", http.StatusBadRequest)
-        return
-    }
-    if input.Password == "" {
-        http.Error(w, "password is required", http.StatusBadRequest)
-        return
-    }
-
-    // Ensure database connection
-    if err := ensureConnection(); err != nil {
-        http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // Fetch the current receiver to verify password and get existing values
-    var rec Receiver
-    err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, password
-        FROM receivers WHERE id = $1
-    `, input.ID).Scan(
-        &rec.ID,
-        &rec.LastUpdated,
-        &rec.Description,
-        &rec.Latitude,
-        &rec.Longitude,
-        &rec.Name,
-        &rec.URL,
-        &rec.Password,
-    )
-    if err == sql.ErrNoRows {
-        http.Error(w, "Receiver not found", http.StatusNotFound)
-        return
-    } else if err != nil {
-        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // Check if password matches
-    if input.Password != rec.Password {
-        http.Error(w, "Invalid password", http.StatusUnauthorized)
-        return
-    }
-
-    // Apply updates to the receiver
-    if input.Description != nil {
-        rec.Description = *input.Description
-    }
-    if input.Latitude != nil {
-        rec.Latitude = *input.Latitude
-    }
-    if input.Longitude != nil {
-        rec.Longitude = *input.Longitude
-    }
-    if input.Name != nil {
-        rec.Name = strings.ToUpper(*input.Name)
-    }
-    if input.URL != nil {
-        rec.URL = input.URL
-    }
-    // No longer update the IP address field
-    if input.NewPassword != nil {
-        rec.Password = *input.NewPassword
-    }
-
-    // Validate the updated receiver
-    if err := validateReceiver(rec); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    // Get the client's IP address for tracking
-    clientIP := getClientIP(r)
-    
-    // Update the receiver in the database
-    err = db.QueryRow(`
-        UPDATE receivers
-        SET description      = $1,
-            latitude         = $2,
-            longitude        = $3,
-            name             = $4,
-            url              = $5,
-            password         = $6,
-            request_ip_address = $7,
-            lastupdated      = NOW()
-        WHERE id = $8
-        RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, clientIP, rec.ID).
-        Scan(&rec.LastUpdated)
-    
-    if err != nil {
-        // Check for name uniqueness violation
-        if strings.Contains(err.Error(), "unique constraint") && strings.Contains(err.Error(), "idx_receivers_name") {
-            http.Error(w, fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name), http.StatusBadRequest)
-            return
-        }
-        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // Get message count and message stats for the updated receiver
-    messages, messageStats := getMessagesByPort(rec.UDPPort)
-    rec.Messages = messages
-    rec.MessageStats = messageStats
-
-    // Return the updated receiver
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(rec)
-}
-
-// handleAddReceiver handles POST /addreceiver
-// This is a public endpoint that allows adding a new receiver
-// It requires name, description, lat, long
-// URL is optional, and password is automatically generated
-func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
-    // Only allow POST method
-    if r.Method != http.MethodPost {
-        w.WriteHeader(http.StatusMethodNotAllowed)
-        return
-    }
-    
-    // Check if public registration is enabled
-    if !settings.PublicAddReceiverEnabled {
-        http.Error(w, "Public registration disabled", http.StatusForbidden)
-        return
-    }
-    
-    // Parse JSON request body
-    var input struct {
-        Name        string   `json:"name"`
-        Description string   `json:"description"`
-        Latitude    float64  `json:"latitude"`
-        Longitude   float64  `json:"longitude"`
-        URL         *string  `json:"url,omitempty"`
-    }
-
-    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    // Validate required fields
-    if input.Name == "" {
-        http.Error(w, "name is required", http.StatusBadRequest)
-        return
-    }
-    if input.Description == "" {
-        http.Error(w, "description is required", http.StatusBadRequest)
-        return
-    }
-
-    // Generate a random password
-    password, err := generateRandomPassword()
-    if err != nil {
-        http.Error(w, "Failed to generate password: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // Create receiver object
-    // Get the client's IP address for verification and tracking
-    clientIP := getClientIP(r)
-    
-    // Use the client IP for validation purposes
-    ipToCheck := clientIP
-    
-    // Check if this client IP has already added a receiver within the last 24 hours
-    var existingID int
-    var existingLastUpdated time.Time
-    err = db.QueryRow(`
-        SELECT id, lastupdated FROM receivers
-        WHERE request_ip_address = $1
-        ORDER BY lastupdated DESC
-        LIMIT 1
-    `, clientIP).Scan(&existingID, &existingLastUpdated)
-    
-    // If we found a receiver with this client IP
-    if err == nil {
-        // Check if it was updated within the configured timeout period
-        timeoutDuration := time.Duration(settings.IPAddressTimeoutMinutes) * time.Minute
-        if time.Since(existingLastUpdated) < timeoutDuration {
-            timeoutMessage := fmt.Sprintf("Client IP address has already added a receiver recently")
-            http.Error(w, timeoutMessage, http.StatusBadRequest)
-            return
-        }
-    } else if err != sql.ErrNoRows {
-        // If there was an error other than "no rows", return it
-        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    rec := Receiver{
-        Description: input.Description,
-        Latitude:    input.Latitude,
-        Longitude:   input.Longitude,
-        Name:        strings.ToUpper(input.Name),
-        URL:         input.URL,
-        Password:    password,
-    }
-
-    // Validate the receiver
-    if err := validateReceiver(rec); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    // Ensure database connection
-    if err := ensureConnection(); err != nil {
-        http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Fetch the UDP listen port from the ingester settings
-    ingestSettings, err := fetchIngestSettings()
-    if err != nil {
-        http.Error(w, fmt.Sprintf("Failed to fetch ingester settings: %v", err), http.StatusInternalServerError)
-        return
-    }
-    
-    // The primary UDP port is the UDP listen port from the ingester settings
-    primaryUDPPort := ingestSettings.UDPListenPort
-    
-    // Check if the IP address is sending data to the primary UDP port and not to any non-primary port with a receiver
-    portMetricsMutex.RLock()
-    sendingToPrimaryPort := false
-    nonPrimaryPorts := make([]int, 0)
-    
-    if portMap, ok := portMetricsMap[ipToCheck]; ok {
-        for port, metric := range portMap {
-            // Skip ports with no messages
-            if metric.MessageCount <= 0 {
-                continue
+                // Restore button text after 2 seconds
+                setTimeout(() => {
+                  generateBtn.textContent = originalText;
+                }, 2000);
+              },
+              () => {
+                // Error handling if clipboard copy fails
+                console.error('Failed to copy password to clipboard');
+                alert('Could not copy to clipboard. Your password has been generated but you\'ll need to copy it manually.');
+              }
+            );
+          });
+          
+          
+          // Handle form submission
+          document.getElementById('edit-receiver-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Clear previous errors
+            const errorElement = document.getElementById('edit-form-error');
+            errorElement.style.display = 'none';
+            errorElement.textContent = '';
+            
+            
+            const formData = {
+              id: parseInt(document.getElementById('edit-receiver-id').value),
+              password: document.getElementById('edit-receiver-password').value,
+              name: document.getElementById('edit-receiver-name').value,
+              description: document.getElementById('edit-receiver-description').value,
+              latitude: parseFloat(document.getElementById('edit-receiver-latitude').value),
+              longitude: parseFloat(document.getElementById('edit-receiver-longitude').value),
+              url: document.getElementById('edit-receiver-url').value || undefined
+            };
+            
+            
+            // Add new password only if provided
+            const newPassword = document.getElementById('edit-receiver-new-password').value;
+            if (newPassword) {
+              formData.new_password = newPassword;
             }
             
-            if port == primaryUDPPort {
-                sendingToPrimaryPort = true
-            } else {
-                nonPrimaryPorts = append(nonPrimaryPorts, port)
-            }
-        }
-    }
-    portMetricsMutex.RUnlock()
-    
-    // Check if the IP address is sending data to the primary UDP port
-    if !sendingToPrimaryPort {
-        http.Error(w, fmt.Sprintf("The IP address '%s' is not sending data to the primary UDP port (%d)", ipToCheck, primaryUDPPort), http.StatusBadRequest)
-        return
-    }
-    
-    // Check if the IP address is sending data to any non-primary port that has a receiver assigned
-    if len(nonPrimaryPorts) > 0 {
-        // Check each non-primary port to see if it has a receiver assigned
-        for _, port := range nonPrimaryPorts {
-            var receiverID sql.NullInt64
-            err := db.QueryRow(`
-                SELECT receiver_id FROM receiver_ports
-                WHERE udp_port = $1 AND receiver_id IS NOT NULL
-            `, port).Scan(&receiverID)
-            
-            // If we found a receiver assigned to this port, block the new receiver
-            if err == nil && receiverID.Valid {
-                http.Error(w, fmt.Sprintf("The IP address '%s' is already sending data to a non-primary port with an assigned receiver", ipToCheck), http.StatusBadRequest)
-                return
-            }
-        }
-    }
+            // Submit the form to the editreceiver endpoint
+            fetch('/editreceiver', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(formData)
+            })
+            .then(response => {
+              if (!response.ok) {
+                return response.text().then(text => {
+                  throw new Error(text || `HTTP error! Status: ${response.status}`);
+                });
+              }
+              return response.json();
+            })
+            .then(data => {
+              // Handle successful response
+              if (data.id) {
+                // Show a success notification
+                const notification = document.createElement('div');
+                notification.style.cssText = 'position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background-color: #4CAF50; color: white; padding: 16px; border-radius: 4px; z-index: 9999; text-align: center;';
+                notification.textContent = 'Receiver updated successfully!';
+                document.body.appendChild(notification);
+                
+                // Remove the notification after 3 seconds
+                setTimeout(() => {
+                  notification.style.opacity = '0';
+                  notification.style.transition = 'opacity 1s';
+                  setTimeout(() => notification.remove(), 1000);
+                }, 3000);
+                
+                // Reload the receiver details
+                fetchReceiversById(data.id);
+              }
+            })
+            .catch(error => {
+              // Display error message
+              errorElement.textContent = `Error: ${error.message}`;
+              errorElement.style.display = 'block';
+            });
+          });
+        }, 100);
+      })
+      .catch(error => {
+        console.error('Error fetching receiver details:', error);
+        alert('Failed to load receiver details. Please try again.');
+      });
+  }
 
-    // Start a transaction to ensure atomicity
-    tx, err := db.Begin()
-    if err != nil {
-        http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Lock the receivers table to prevent concurrent inserts
-    _, err = tx.Exec(`LOCK TABLE receivers IN EXCLUSIVE MODE`)
-    if err != nil {
-        tx.Rollback()
-        http.Error(w, "Failed to lock table: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Get the current value of the sequence
-    var currSeqVal int
-    err = tx.QueryRow(`SELECT last_value FROM receivers_id_seq`).Scan(&currSeqVal)
-    if err != nil {
-        tx.Rollback()
-        http.Error(w, "Failed to get sequence value: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Find the maximum ID ever used (including deleted receivers)
-    var maxID int
-    err = tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM receivers`).Scan(&maxID)
-    if err != nil {
-        tx.Rollback()
-        http.Error(w, "Failed to get max ID: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // If the max ID is greater than the current sequence value, update the sequence
-    if maxID >= currSeqVal {
-        _, err = tx.Exec(`SELECT setval('receivers_id_seq', $1)`, maxID+1)
-        if err != nil {
-            tx.Rollback()
-            http.Error(w, "Failed to update sequence: "+err.Error(), http.StatusInternalServerError)
-            return
-        }
-    }
-    
-    // Get a new ID from the sequence (which is now guaranteed to be higher than any ID ever used)
-    var newID int
-    err = tx.QueryRow(`SELECT nextval('receivers_id_seq')`).Scan(&newID)
-    if err != nil {
-        tx.Rollback()
-        http.Error(w, "Failed to get new ID: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Insert the new receiver with the explicit ID and client IP
-    err = tx.QueryRow(`
-        INSERT INTO receivers (
-            id,
-            description,
-            latitude,
-            longitude,
-            name,
-            url,
-            password,
-            request_ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        RETURNING id, lastupdated`,
-        newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, clientIP).
-        Scan(&rec.ID, &rec.LastUpdated)
-    
-    if err != nil {
-        tx.Rollback() // Rollback the transaction on error
-        
-        // Check for name uniqueness violation
-        if strings.Contains(err.Error(), "unique constraint") && strings.Contains(err.Error(), "idx_receivers_name") {
-            http.Error(w, fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name), http.StatusBadRequest)
-            return
-        }
-        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    // Allocate a UDP port for this receiver within the transaction
-    udpPort, err := allocatePortTx(tx, rec.ID)
-    if err != nil {
-        tx.Rollback() // Rollback the transaction on error
-        
-        if err.Error() == "no available ports" {
-            log.Printf("ERROR: No available UDP ports found for receiver ID %d", rec.ID)
-            http.Error(w, "Failed to create receiver: No available UDP ports", http.StatusServiceUnavailable)
-        } else {
-            log.Printf("ERROR: Failed to allocate UDP port for receiver ID %d: %v", rec.ID, err)
-            http.Error(w, fmt.Sprintf("Failed to create receiver: UDP port allocation error: %v", err), http.StatusInternalServerError)
-        }
-        return
-    }
-    
-    // Commit the transaction
-    if err := tx.Commit(); err != nil {
-        tx.Rollback()
-        log.Printf("ERROR: Failed to commit transaction for receiver ID %d: %v", rec.ID, err)
-        http.Error(w, "Failed to create receiver: Transaction commit error", http.StatusInternalServerError)
-        return
-    }
-    
-    rec.UDPPort = &udpPort
-
-    // Return the complete receiver object including password and UDP port
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(rec)
-}
+  </script>
+</body>
+</html>
