@@ -1154,7 +1154,12 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     
     // Add all the regular receivers
     for _, rec := range list {
-        response = append(response, rec)
+        // Convert PublicReceiver to map to ensure all fields are included in the JSON
+        recBytes, _ := json.Marshal(rec)
+        var recMap map[string]interface{}
+        json.Unmarshal(recBytes, &recMap)
+        
+        response = append(response, recMap)
     }
 
     // If no receivers are found, return an empty array instead of null
@@ -1264,9 +1269,20 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
     // Add the dummy receiver to the beginning of the list
     list = append([]Receiver{dummyReceiver}, list...)
 
-    // Return the list of receivers in JSON format, including ip_address, messages, and message stats
+    // Convert receivers to maps to ensure all fields are included in the JSON
+    var responseList []map[string]interface{}
+    for _, rec := range list {
+        // Convert Receiver to map to ensure all fields are included in the JSON
+        recBytes, _ := json.Marshal(rec)
+        var recMap map[string]interface{}
+        json.Unmarshal(recBytes, &recMap)
+        
+        responseList = append(responseList, recMap)
+    }
+    
+    // Return the list of receivers in JSON format, including ip_address, messages, message stats, and lastseen
     w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(list)
+    json.NewEncoder(w).Encode(responseList)
 }
 
 func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
