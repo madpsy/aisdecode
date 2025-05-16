@@ -466,17 +466,40 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
             log.Printf("Receiver %s: exists=%v, hasNoIP=%v, filterIP='%s'",
                        receiverID, receiverExists, receiverHasEmptyIP, filterIP)
             
-            // If the receiver doesn't exist, make sure we're not using any IP
+            // If the receiver doesn't exist, return early with a clear message
+            // instead of falling back to the requestor's IP
             if !receiverExists {
                 filterIP = ""
                 receiverHasEmptyIP = false
                 log.Printf("Receiver %s does not exist, clearing filterIP", receiverID)
+                
+                // Create response with empty metrics and a clear flag
+                respBody := struct {
+                    RequestedIP      string         `json:"requested_ip_address"`
+                    SimpleMetrics    SimpleMetrics  `json:"simple_metrics"`
+                    Aggregated       Aggregated     `json:"aggregated"`
+                    WindowUserIDs    []string       `json:"window_user_ids"`
+                    ReceiverExists   bool           `json:"receiver_exists"`
+                    ReceiverNotFound bool           `json:"receiver_not_found"`
+                }{
+                    RequestedIP:     requestedIP,
+                    SimpleMetrics:   SimpleMetrics{},  // Empty metrics
+                    Aggregated:      Aggregated{},     // Empty aggregates
+                    WindowUserIDs:   []string{},       // No user IDs
+                    ReceiverExists:  false,
+                    ReceiverNotFound: true,            // New flag indicating receiver not found
+                }
+                
+                w.Header().Set("Content-Type", "application/json")
+                json.NewEncoder(w).Encode(respBody)
+                return  // Return early - don't proceed to metrics lookup
             }
         }
     }
     
-    // Only use requestedIP if we're not dealing with a receiver that has an empty IP
-    if filterIP == "" && !receiverHasEmptyIP {
+    // Only use requestedIP if we're not dealing with a receiver ID lookup
+    // or if the receiver exists but has no IP
+    if filterIP == "" && !receiverHasEmptyIP && receiverID == "" {
         filterIP = requestedIP
     }
     

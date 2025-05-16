@@ -1397,10 +1397,11 @@ socket.on("metrics/bysource", function(data) {
   // Check if we have a receiver that exists but has no IP
   const receiverExists = data.receiver_exists === true;
   const receiverHasNoIP = data.receiver_has_no_ip === true;
+  const receiverNotFound = data.receiver_not_found === true;
   
   // Debug the full response
   console.log("Full metrics response:", JSON.stringify(data));
-  console.log("Receiver exists:", receiverExists, "Receiver has no IP:", receiverHasNoIP);
+  console.log("Receiver exists:", receiverExists, "Receiver has no IP:", receiverHasNoIP, "Receiver not found:", receiverNotFound);
   
   // Update our message count tracker
   // Use the same data source as the cards (simple_metrics.messages)
@@ -1449,10 +1450,20 @@ socket.on("metrics/bysource", function(data) {
         receiverBox.innerHTML = message;
       }
     }
+    // Special case: If receiver doesn't exist, show a clear message
+    else if (receiverNotFound) {
+      console.log("SHOWING RECEIVER NOT FOUND MESSAGE");
+      const id = params.get('receiver') || overrideReceiverId;
+      const message = `<p style="color: #d9534f; font-weight: bold;">Receiver ID ${id} does not exist. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+      console.log("Setting innerHTML to:", message);
+      
+      // For no-receiver-box, just replace the entire content
+      receiverBox.innerHTML = message;
+    }
     // For other cases, only update if it's a no-receiver-box
     else if (receiverBox.classList.contains('no-receiver-box')) {
       console.log("This is a 'no receiver' box, updating message based on receiver status");
-      console.log("receiverExists =", receiverExists, "receiverHasNoIP =", receiverHasNoIP);
+      console.log("receiverExists =", receiverExists, "receiverHasNoIP =", receiverHasNoIP, "receiverNotFound =", receiverNotFound);
       
       // Don't update if the form is currently being displayed
       if (document.getElementById('receiver-form')) {
