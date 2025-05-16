@@ -201,13 +201,12 @@
         const subsqLon = locator.charCodeAt(4) - 97; // a=0, b=1, etc.
         const subsqLat = locator.charCodeAt(5) - 97;
         
-        // Add subsquare position
-        lon += (subsqLon * 2 / 12); // Divide square into 12 parts for longitude (5' each)
-        lat += (subsqLat / 24);     // Divide square into 24 parts for latitude (2.5' each)
-        
-        // Center in the subsquare
-        lon += (2 / 24); // Half of a subsquare width (1/12 of 2°)
-        lat += (1 / 48); // Half of a subsquare height (1/24 of 1°)
+        // Add subsquare position and center in the subsquare
+        // Each subsquare is 5' × 2.5' (longitude × latitude)
+        // For longitude: 5' = (1/12) of 1° = (1/6) of 2° (square width)
+        // For latitude: 2.5' = (1/24) of 1° (square height)
+        lon += (subsqLon / 12 + 0.5 / 12) * 2; // Position + half subsquare width
+        lat += (subsqLat / 24 + 0.5 / 24);     // Position + half subsquare height
       } else {
         // Center in the square for 4-character locator
         lon += 1;
