@@ -1295,24 +1295,24 @@ function refreshReceivers() {
             return;
           }
 
-          // Check if lastupdated exists and is not undefined
-          if (!receiver.lastupdated) {
-            return; // Skip this receiver if lastupdated is missing
+          // Check if lastseen exists and is not undefined
+          if (!receiver.lastseen) {
+            return; // Skip this receiver if lastseen is missing
           }
 
           let updatedLocalTime;
           try {
-            // Try to create a new Date object from receiver.lastupdated.
-            updatedLocalTime = new Date(receiver.lastupdated);
+            // Try to create a new Date object from receiver.lastseen.
+            updatedLocalTime = new Date(receiver.lastseen);
             
             // Check if the date is invalid (NaN)
             if (isNaN(updatedLocalTime)) {
-              console.warn("Invalid date for receiver id", id, "lastupdated:", receiver.lastupdated);
+              console.warn("Invalid date for receiver id", id, "lastseen:", receiver.lastseen);
               // Try to handle common formats if the date is invalid.
-              updatedLocalTime = new Date(receiver.lastupdated.replace(/-/g, '/'));
+              updatedLocalTime = new Date(receiver.lastseen.replace(/-/g, '/'));
               if (isNaN(updatedLocalTime)) {
                 // If it's still invalid, log the failure and set a default message
-                console.error("Failed to parse lastupdated date for receiver id", id);
+                console.error("Failed to parse lastseen date for receiver id", id);
                 updatedLocalTime = "Invalid date";
               }
             }
@@ -1345,7 +1345,7 @@ function refreshReceivers() {
             const popupContent = `
               <strong><a href="/metrics/receiver.html?receiver=${receiver.id}" target="_blank">${receiver.name}</a></strong><br>
               ${receiver.description}<br>
-              Updated: ${updatedLocalTime === "Invalid date" ? updatedLocalTime : updatedLocalTime.toLocaleString()}<br>
+              Last seen: ${updatedLocalTime === "Invalid date" ? updatedLocalTime : updatedLocalTime.toLocaleString()}<br>
               ${linksHTML}
             `;
             // Update the popup content.
@@ -1372,7 +1372,7 @@ function refreshReceivers() {
             const popupContent = `
               <strong><a href="/metrics/receiver.html?receiver=${receiver.id}" target="_blank">${receiver.name}</a></strong><br>
               ${receiver.description}<br>
-              Updated: ${updatedLocalTime === "Invalid date" ? updatedLocalTime : updatedLocalTime.toLocaleString()}<br>
+              Last seen: ${updatedLocalTime === "Invalid date" ? updatedLocalTime : updatedLocalTime.toLocaleString()}<br>
               ${linksHTML}
             `;
             marker.bindPopup(popupContent, { autoPan: true });
@@ -1447,7 +1447,7 @@ function refreshReceivers() {
           // Store receiver info with an extra flag.
           receiverData[id] = {
             Name: receiver.name,
-            LastUpdated: receiver.lastupdated,
+            LastUpdated: receiver.lastseen,
             UserID: id,
             isReceiver: true,
             // You can store other properties (url, description, etc.) if needed.
