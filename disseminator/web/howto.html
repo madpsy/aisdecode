@@ -248,18 +248,21 @@
               interactive: false
             }).addTo(gridLayer);
             
-            // Add label in the center
-            const label = L.divIcon({
-              className: 'maidenhead-label',
-              html: `<div style="color: #666; font-size: ${fontSize}px; font-weight: bold; text-align: center; width: 100%; text-shadow: 1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white;">${locator}</div>`,
-              iconSize: [80, 20],
-              iconAnchor: [40, 10]
-            });
-            
-            L.marker(cellCenter, {
-              icon: label,
-              interactive: false
-            }).addTo(gridLayer);
+            // Only add label if locator is not empty (precision > 0)
+            if (locator) {
+              // Add label in the center
+              const label = L.divIcon({
+                className: 'maidenhead-label',
+                html: `<div style="color: #666; font-size: ${fontSize}px; font-weight: bold; text-align: center; width: 100%; text-shadow: 1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white;">${locator}</div>`,
+                iconSize: [80, 20],
+                iconAnchor: [40, 10]
+              });
+              
+              L.marker(cellCenter, {
+                icon: label,
+                interactive: false
+              }).addTo(gridLayer);
+            }
           }
         }
       }
