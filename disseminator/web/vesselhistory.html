@@ -2064,18 +2064,9 @@
             // Add a marker for each receiver
             relevantReceivers.forEach(receiver => {
               if (receiver.latitude && receiver.longitude) {
-                // Create a red diamond marker for the receiver
-                // Calculate diamond points with larger offsets to match original circle size
-                const lat = receiver.latitude;
-                const lng = receiver.longitude;
-                const diamondPoints = [
-                  [lat + 0.0008, lng], // top
-                  [lat, lng + 0.0012], // right
-                  [lat - 0.0008, lng], // bottom
-                  [lat, lng - 0.0012]  // left
-                ];
-                
-                const receiverMarker = L.polygon(diamondPoints, {
+                // Create a red circle marker for the receiver
+                const receiverMarker = L.circleMarker([receiver.latitude, receiver.longitude], {
+                  radius: 6,
                   color: 'red',
                   fillColor: '#f03',
                   fillOpacity: 0.8,
