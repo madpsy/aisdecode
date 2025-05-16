@@ -48,6 +48,7 @@ type Receiver struct {
 	Messages    int        `json:"messages"`
 	UDPPort     *int       `json:"udp_port,omitempty"`
 	MessageStats map[string]MessageStat `json:"message_stats"` // Added for admin endpoints
+	lastSeenTime *time.Time `json:"-"` // Not directly exposed in JSON but used when converting to map
 }
 
 // PublicReceiver is used for public API responses without sensitive fields
@@ -62,6 +63,8 @@ type PublicReceiver struct {
 	Messages    int        `json:"messages"`
 	// UDPPort is intentionally not exposed in the public API
 	UDPPort     *int       `json:"-"`
+	// lastSeenTime is not directly exposed in JSON but used when converting to map
+	lastSeenTime *time.Time `json:"-"`
 }
 
 type ReceiverInput struct {
@@ -1042,19 +1045,8 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         	UDPPort:     rec.UDPPort, // Store UDPPort for filtering but don't expose in JSON
         }
         
-        // Add LastSeen field to the response if available
-        if lastSeen != nil {
-        	// Use reflection to add the LastSeen field to the response
-        	// This avoids modifying the PublicReceiver struct which would be a bigger change
-        	publicRecMap := make(map[string]interface{})
-        	publicRecBytes, _ := json.Marshal(publicRec)
-        	json.Unmarshal(publicRecBytes, &publicRecMap)
-        	publicRecMap["lastseen"] = lastSeen
-        	
-        	// Convert back to PublicReceiver
-        	updatedBytes, _ := json.Marshal(publicRecMap)
-        	json.Unmarshal(updatedBytes, &publicRec)
-        }
+        // Store the lastSeen value to use later when converting to map
+        publicRec.lastSeenTime = lastSeen
 
         // If we're filtering by IP address, store this receiver by its port
         if ipAddressFilter != "" && rec.UDPPort != nil {
@@ -1159,6 +1151,11 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         var recMap map[string]interface{}
         json.Unmarshal(recBytes, &recMap)
         
+        // Add the lastseen field if available
+        if rec.lastSeenTime != nil {
+            recMap["lastseen"] = rec.lastSeenTime
+        }
+        
         response = append(response, recMap)
     }
 
@@ -1199,19 +1196,12 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         list[i].Messages = msgs
         list[i].MessageStats = messageStats
         
-        // Add the last seen time for this port from the portLastSeenMap
+        // Store the last seen time for this port to use when converting to map
         if rec.UDPPort != nil {
             portLastSeenMutex.RLock()
             if lastSeen, ok := portLastSeenMap[*rec.UDPPort]; ok {
-                // Convert the receiver to a map to add the lastseen field
-                receiverMap := make(map[string]interface{})
-                receiverBytes, _ := json.Marshal(list[i])
-                json.Unmarshal(receiverBytes, &receiverMap)
-                receiverMap["lastseen"] = lastSeen
-                
-                // Convert back to Receiver
-                updatedBytes, _ := json.Marshal(receiverMap)
-                json.Unmarshal(updatedBytes, &list[i])
+                // Store the last seen time in a field that we'll access when converting to map
+                list[i].lastSeenTime = &lastSeen
             }
             portLastSeenMutex.RUnlock()
         }
@@ -1251,18 +1241,10 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
     dummyReceiver.Messages = msgs
     dummyReceiver.MessageStats = messageStats
     
-    // Add the last seen time for the dummy receiver from the portLastSeenMap
+    // Store the last seen time for the dummy receiver
     portLastSeenMutex.RLock()
     if lastSeen, ok := portLastSeenMap[udpListenPort]; ok {
-        // Convert the receiver to a map to add the lastseen field
-        receiverMap := make(map[string]interface{})
-        receiverBytes, _ := json.Marshal(dummyReceiver)
-        json.Unmarshal(receiverBytes, &receiverMap)
-        receiverMap["lastseen"] = lastSeen
-        
-        // Convert back to Receiver
-        updatedBytes, _ := json.Marshal(receiverMap)
-        json.Unmarshal(updatedBytes, &dummyReceiver)
+        dummyReceiver.lastSeenTime = &lastSeen
     }
     portLastSeenMutex.RUnlock()
 
@@ -1276,6 +1258,11 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         recBytes, _ := json.Marshal(rec)
         var recMap map[string]interface{}
         json.Unmarshal(recBytes, &recMap)
+        
+        // Add the lastseen field if available
+        if rec.lastSeenTime != nil {
+            recMap["lastseen"] = rec.lastSeenTime
+        }
         
         responseList = append(responseList, recMap)
     }
