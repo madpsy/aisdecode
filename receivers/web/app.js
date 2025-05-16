@@ -30,8 +30,13 @@ function applySortAndFilter() {
       return (av - bv) * sortDir;
     }
     
-    // For date-based sorting (e.g., 'lastupdated')
-    if (sortKey === 'lastupdated') {
+    // For date-based sorting (e.g., 'lastupdated', 'lastseen')
+    if (sortKey === 'lastupdated' || sortKey === 'lastseen') {
+      // Handle null or undefined values for lastseen
+      if (sortKey === 'lastseen') {
+        if (!av) return 1 * sortDir;  // Move null/undefined values to the end
+        if (!bv) return -1 * sortDir; // Move null/undefined values to the end
+      }
       return (new Date(av) - new Date(bv)) * sortDir;
     }
     
@@ -81,6 +86,7 @@ function renderList(list) {
     //console.log('Rendering receiver:', r.id, 'Password:', r.password); // Debug: Log each receiver's password
     const tr = document.createElement('tr');
     tr.innerHTML = `
+      <td>${r.lastseen ? new Date(r.lastseen).toLocaleString() : '—'}</td>
       <td>${r.id}</td>
       <td>${new Date(r.lastupdated).toLocaleString()}</td>
       <td>${r.name}</td>
