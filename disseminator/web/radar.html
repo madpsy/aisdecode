@@ -22,6 +22,10 @@
 </head>
 <body>
   <canvas id="radarCanvas"></canvas>
+  <div style="margin: 10px auto; width: 300px; text-align: center;">
+    <label for="radiusSlider" style="display: block; margin-bottom: 5px; font-family: Arial, sans-serif; font-size: 14px;">Radar Radius: <span id="radiusValue">1.0</span> NM</label>
+    <input type="range" id="radiusSlider" min="0.1" max="2" step="0.1" value="1" style="width: 100%;">
+  </div>
   <div id="stats" style="margin-top: 10px; font-family: Arial, sans-serif; font-size: 14px;"></div>
   <script>
     // ------------------------------
@@ -134,7 +138,7 @@
 
     const margin = 20;
     let radarRadiusPx = (canvasSize / 2) - margin;
-    const radarNM = 1; // Radar radius in Nautical Miles
+    let radarNM = 1; // Radar radius in Nautical Miles
     let scaleFactor = radarRadiusPx / radarNM;
     const textBuffer = 10;
     const labelOverlapThreshold = 20;
@@ -151,7 +155,7 @@
       // Use the current vessel position as the center for the query.
       const center = { lat: currentVesselLat, lng: currentVesselLon };
       
-      // RadarNM is set to 1 (i.e., 1 NM), so multiply by 1.2 to add a margin.
+      // Add a 20% margin to the current radar radius
       const nmRadiusWithMargin = radarNM * 1.2;
       // Convert nautical miles to meters (1 NM = 1852 m)
       const radiusMeters = nmRadiusWithMargin * 1852;
@@ -413,8 +417,8 @@ function drawRadarGauge() {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Concentric rings
-  const ringDistances = [0.33, 0.66];
+  // Concentric rings - calculate based on current radarNM
+  const ringDistances = [radarNM/3, radarNM*2/3];
   ringDistances.forEach(distanceNM => {
     const ringRadius = distanceNM * scaleFactor;
     ctx.beginPath();
@@ -788,6 +792,27 @@ socket.on("summaryData", function(data) {
       updateSubscriptions();
     }
     window.addEventListener("resize", resizeCanvas);
+    
+    // Radius slider functionality
+    const radiusSlider = document.getElementById("radiusSlider");
+    const radiusValue = document.getElementById("radiusValue");
+    
+    radiusSlider.addEventListener("input", function() {
+      radarNM = parseFloat(this.value);
+      radiusValue.textContent = radarNM.toFixed(1);
+      
+      // Update scale factor based on new radius
+      scaleFactor = radarRadiusPx / radarNM;
+      
+      // Redraw radar with new radius
+      drawRadarGauge();
+      
+      // Update vessel subscriptions based on new radius
+      updateSubscriptions();
+      
+      // Request new vessel summary with updated radius
+      sendSummaryRequest();
+    });
 
     window.addEventListener("load", () => {
       fetch(`/summary?UserID=${userID}`)
