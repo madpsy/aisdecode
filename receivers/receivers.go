@@ -32,6 +32,7 @@ type Settings struct {
     IngestHTTPPort          int    `json:"ingest_http_port"`
     PublicAddReceiverEnabled bool   `json:"public_add_receiver_enabled"`
     IPAddressTimeoutMinutes int    `json:"ip_address_timeout_minutes"`
+    PortMetricsHours        int    `json:"port_metrics_hours"`
 }
 
 type Receiver struct {
@@ -299,8 +300,12 @@ func fetchCollectors() ([]Collector, error) {
 
 // fetchPortMetrics fetches port metrics from a collector
 func fetchPortMetrics(collector Collector) ([]PortMetric, error) {
-	url := fmt.Sprintf("http://%s:%d/portmetrics", collector.IP, collector.Port)
-	resp, err := http.Get(url)
+	baseURL := fmt.Sprintf("http://%s:%d/portmetrics", collector.IP, collector.Port)
+	
+	// Add the time query parameter using the PortMetricsHours setting
+	urlWithParams := fmt.Sprintf("%s?time=%d", baseURL, settings.PortMetricsHours)
+	
+	resp, err := http.Get(urlWithParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch port metrics from collector %s:%d: %v", collector.IP, collector.Port, err)
 	}
@@ -422,6 +427,12 @@ func main() {
     if settings.IPAddressTimeoutMinutes == 0 && !strings.Contains(string(data), "ip_address_timeout_minutes") {
         settings.IPAddressTimeoutMinutes = 60
         log.Printf("IPAddressTimeoutMinutes not specified in settings.json, defaulting to 60 minutes (1 hour)")
+    }
+    
+    // Default port metrics hours to 1 if not specified
+    if settings.PortMetricsHours == 0 && !strings.Contains(string(data), "port_metrics_hours") {
+        settings.PortMetricsHours = 1
+        log.Printf("PortMetricsHours not specified in settings.json, defaulting to 1 hour")
     }
 
     // Connect to Postgres
