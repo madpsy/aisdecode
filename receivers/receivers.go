@@ -43,7 +43,7 @@ type Receiver struct {
 	Longitude   float64    `json:"longitude"`
 	Name        string     `json:"name"`
 	URL         *string    `json:"url,omitempty"`
-	IPAddress   string     `json:"ip_address,omitempty"`
+	IPAddress   string     `json:"ip_address,omitempty"` // Deprecated: Use port metrics instead
 	Password    string     `json:"password"`
 	Messages    int        `json:"messages"`
 	UDPPort     *int       `json:"udp_port,omitempty"`
@@ -71,7 +71,7 @@ type ReceiverInput struct {
     Name        string   `json:"name"`
     URL         *string  `json:"url,omitempty"`
     Password    *string  `json:"password,omitempty"`
-    IPAddress   *string  `json:"ip_address,omitempty"`
+    IPAddress   *string  `json:"ip_address,omitempty"` // Deprecated: Use port metrics instead
 }
 
 type ReceiverPatch struct {
@@ -81,7 +81,7 @@ type ReceiverPatch struct {
     Name        *string   `json:"name,omitempty"`
     URL         *string   `json:"url,omitempty"`
     Password    *string   `json:"password,omitempty"`
-    IPAddress   *string   `json:"ip_address,omitempty"`
+    IPAddress   *string   `json:"ip_address,omitempty"` // Deprecated: Use port metrics instead
 }
 
 var (
@@ -634,7 +634,8 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
     idParam := filters["id"]
     ipParam := filters["ip_address"]
 
-    // Base query
+    // Base query - note we still select ip_address from the database
+    // but we'll override it with the port metrics data later
     baseQuery := `
         SELECT r.id,
                r.lastupdated,
@@ -664,12 +665,9 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
         args = append(args, idVal)
         idx++
     }
-    if ipParam != "" {
-        // Add ip_address filter
-        conditions = append(conditions, fmt.Sprintf("ip_address = $%d", idx))
-        args = append(args, ipParam)
-        idx++
-    }
+    // We no longer filter by ip_address in the SQL query
+    // Instead, we'll filter by IP address using port metrics after fetching the receivers
+    // This comment is kept to document the change
 
     // Add WHERE clause if filters are provided
     if len(conditions) > 0 {
@@ -690,6 +688,7 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
         var rec Receiver
         // Create a nullable int for UDP port
         var udpPort sql.NullInt64
+        var dbIPAddress string // Store the database IP address temporarily
         
         if err := rows.Scan(
             &rec.ID,
@@ -699,7 +698,7 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
             &rec.Longitude,
             &rec.Name,
             &rec.URL,
-            &rec.IPAddress,  // Ensure this is correctly mapped
+            &dbIPAddress,  // Scan into temporary variable
             &rec.Password,   // Add password field
             &udpPort,        // Scan into nullable int
         ); err != nil {
@@ -710,6 +709,28 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
         if udpPort.Valid {
             port := int(udpPort.Int64)
             rec.UDPPort = &port
+            
+            // Use port metrics to determine the IP address
+            portMetricsMutex.RLock()
+            var lastSeenIP string
+            var lastSeenTime time.Time
+            
+            // Find the most recent IP address that sent messages to this port
+            for ipAddress, portMap := range portMetricsMap {
+                if metric, ok := portMap[port]; ok {
+                    if lastSeenIP == "" || metric.LastSeen.After(lastSeenTime) {
+                        lastSeenIP = ipAddress
+                        lastSeenTime = metric.LastSeen
+                    }
+                }
+            }
+            portMetricsMutex.RUnlock()
+            
+            // Use the IP from port metrics if available, otherwise use empty string
+            rec.IPAddress = lastSeenIP
+        } else {
+            // No UDP port, use empty string
+            rec.IPAddress = ""
         }
 
         list = append(list, rec)
@@ -748,28 +769,57 @@ func adminGetIPHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 3) Query the ip_address column
-    var ip sql.NullString
-    err = db.
-        QueryRow(`SELECT ip_address FROM receivers WHERE id = $1`, id).
-        Scan(&ip)
-    if err == sql.ErrNoRows {
-        // No matching receiver → return empty string
-        ip.String = ""
-    } else if err != nil {
-        // Some other DB error
+    // 3) First check if the receiver exists
+    var exists bool
+    err = db.QueryRow(`SELECT EXISTS(SELECT 1 FROM receivers WHERE id = $1)`, id).Scan(&exists)
+    if err != nil {
         http.Error(w, "database error", http.StatusInternalServerError)
         return
     }
 
-    // 4) Always return a string (never null)
-    addr := ip.String
-    if addr == "" {
-        // normalize NULL or empty column to the empty string
-        addr = ""
+    if !exists {
+        // Receiver doesn't exist
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(map[string]string{
+            "ip_address": "",
+        })
+        return
     }
 
-    // 5) Write response
+    // 4) Get the UDP port for this receiver
+    var udpPort sql.NullInt64
+    err = db.QueryRow(`SELECT udp_port FROM receiver_ports WHERE receiver_id = $1`, id).Scan(&udpPort)
+    if err != nil && err != sql.ErrNoRows {
+        http.Error(w, "database error", http.StatusInternalServerError)
+        return
+    }
+
+    // 5) If we have a UDP port, look for the most recent IP in port metrics
+    var addr string
+    if udpPort.Valid {
+        port := int(udpPort.Int64)
+        
+        // Lock the port metrics map to safely read from it
+        portMetricsMutex.RLock()
+        defer portMetricsMutex.RUnlock()
+        
+        var lastSeenIP string
+        var lastSeenTime time.Time
+        
+        // Find the most recent IP address that sent messages to this port
+        for ipAddress, portMap := range portMetricsMap {
+            if metric, ok := portMap[port]; ok {
+                if lastSeenIP == "" || metric.LastSeen.After(lastSeenTime) {
+                    lastSeenIP = ipAddress
+                    lastSeenTime = metric.LastSeen
+                }
+            }
+        }
+        
+        addr = lastSeenIP
+    }
+
+    // 6) Write response
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(map[string]string{
         "ip_address": addr,
@@ -1143,12 +1193,6 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    // 3) Use provided IP address or empty string if not provided
-    ipAddress := ""
-    if input.IPAddress != nil {
-        ipAddress = *input.IPAddress
-    }
-
     // 4) build Receiver and validate
     rec := Receiver{
         Description: input.Description,
@@ -1157,7 +1201,7 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         Name:        strings.ToUpper(input.Name),
         URL:         input.URL,
         Password:    password,
-        IPAddress:   ipAddress,
+        // IPAddress is no longer used - we get IP from port metrics
     }
     
     // Get the client's IP address for request tracking
@@ -1219,7 +1263,8 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // INSERT including ip_address, password, and request_ip_address with explicit ID
+    // INSERT including password and request_ip_address with explicit ID
+    // Note: ip_address is no longer used
     err = tx.QueryRow(`
         INSERT INTO receivers (
             id,
@@ -1228,12 +1273,11 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
             longitude,
             name,
             url,
-            ip_address,
             password,
             request_ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         RETURNING id, lastupdated
-    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.IPAddress, rec.Password, clientIP).
+    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, clientIP).
         Scan(&rec.ID, &rec.LastUpdated)
     if err != nil {
         tx.Rollback()
