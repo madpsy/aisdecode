@@ -414,15 +414,18 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
     
     if receiverID != "" {
         if _, err := strconv.Atoi(receiverID); err == nil {
+            // First check if the receiver exists at all
+            receiverExists = true // Assume it exists if we have an ID
+            
             // Try to get the IP for this receiver
             cacheKey := "receiver:" + receiverID
             if cached, err := redisClient.Get(ctx, cacheKey).Result(); err == nil {
                 // We found a cached IP
                 filterIP = cached
-                receiverExists = true
-                if filterIP == "" {
-                    receiverHasEmptyIP = true
-                }
+                log.Printf("Found cached IP for receiver %s: '%s'", receiverID, filterIP)
+                
+                // Only consider it as having no IP if the IP is actually empty
+                receiverHasEmptyIP = (filterIP == "")
             } else {
                 // No cached IP, try to get it from the API
                 url := fmt.Sprintf("%s/admin/getip?id=%s", settings.ReceiversBaseURL, receiverID)
@@ -432,20 +435,22 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
                     body, _ := io.ReadAll(resp.Body)
                     var out struct{ IP string `json:"ip_address"` }
                     if json.Unmarshal(body, &out) == nil {
-                        // The receiver exists if we got a valid response
-                        receiverExists = true
                         filterIP = out.IP
+                        log.Printf("Got IP from API for receiver %s: '%s'", receiverID, filterIP)
+                        
                         // Only consider it as having no IP if the IP is actually empty
-                        // Don't treat 127.0.0.1 as an empty IP
-                        if filterIP == "" {
-                            receiverHasEmptyIP = true
-                        } else {
+                        receiverHasEmptyIP = (filterIP == "")
+                        
+                        if filterIP != "" {
                             // Cache the IP for future requests
                             redisClient.Set(ctx, cacheKey, filterIP, 60*time.Second)
                         }
                     }
                 }
             }
+            
+            log.Printf("Receiver %s: exists=%v, hasNoIP=%v, filterIP='%s'",
+                       receiverID, receiverExists, receiverHasEmptyIP, filterIP)
         }
     }
     
