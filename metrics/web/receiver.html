@@ -954,8 +954,18 @@ function loadReceivers() {
       // Populate the receiversList with fetched data
       let boundsArr = [];
       receivers.forEach(r => {
-        const dot = L.circleMarker([r.latitude, r.longitude], {
-          radius: 8,
+        // Create a diamond-shaped marker for the receiver
+        // Calculate diamond points (8px from center in each cardinal direction)
+        const lat = r.latitude;
+        const lng = r.longitude;
+        const diamondPoints = [
+          [lat + 0.001, lng],  // top
+          [lat, lng + 0.0015], // right
+          [lat - 0.001, lng],  // bottom
+          [lat, lng - 0.0015]  // left
+        ];
+        
+        const dot = L.polygon(diamondPoints, {
           color: 'red',
           fillColor: 'red',
           fillOpacity: 1,
