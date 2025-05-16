@@ -408,27 +408,47 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
 
     // 3) Determine the filter IP: try id lookup, else requestedIP
     filterIP := ""
-    if id := r.URL.Query().Get("id"); id != "" {
-        if _, err := strconv.Atoi(id); err == nil {
-            cacheKey := "receiver:" + id
+    receiverExists := false
+    receiverHasEmptyIP := false
+    receiverID := r.URL.Query().Get("id")
+    
+    if receiverID != "" {
+        if _, err := strconv.Atoi(receiverID); err == nil {
+            // Try to get the IP for this receiver
+            cacheKey := "receiver:" + receiverID
             if cached, err := redisClient.Get(ctx, cacheKey).Result(); err == nil {
+                // We found a cached IP
                 filterIP = cached
+                receiverExists = true
+                if filterIP == "" {
+                    receiverHasEmptyIP = true
+                }
             } else {
-                url := fmt.Sprintf("%s/admin/getip?id=%s", settings.ReceiversBaseURL, id)
+                // No cached IP, try to get it from the API
+                url := fmt.Sprintf("%s/admin/getip?id=%s", settings.ReceiversBaseURL, receiverID)
                 resp, err := http.Get(url)
                 if err == nil {
                     defer resp.Body.Close()
                     body, _ := io.ReadAll(resp.Body)
                     var out struct{ IP string `json:"ip_address"` }
-                    if json.Unmarshal(body, &out) == nil && out.IP != "" {
+                    if json.Unmarshal(body, &out) == nil {
+                        // The receiver exists if we got a valid response
+                        receiverExists = true
                         filterIP = out.IP
-                        redisClient.Set(ctx, cacheKey, filterIP, 60*time.Second)
+                        if filterIP == "" {
+                            receiverHasEmptyIP = true
+                        } else {
+                            // Cache the IP for future requests
+                            redisClient.Set(ctx, cacheKey, filterIP, 60*time.Second)
+                        }
                     }
                 }
             }
         }
     }
-    if filterIP == "" {
+    
+    // Only use requestedIP if we're not dealing with a receiver that has an empty IP
+    if filterIP == "" && !receiverHasEmptyIP {
         filterIP = requestedIP
     }
     
@@ -549,11 +569,15 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
         SimpleMetrics    SimpleMetrics  `json:"simple_metrics"`
         Aggregated       Aggregated     `json:"aggregated"`
         WindowUserIDs    []string       `json:"window_user_ids"`
+        ReceiverExists   bool           `json:"receiver_exists,omitempty"`
+        ReceiverHasNoIP  bool           `json:"receiver_has_no_ip,omitempty"`
     }{
-        RequestedIP:   requestedIP,
-        SimpleMetrics: rt,
-        Aggregated:    agg,
-        WindowUserIDs: windowIDs,
+        RequestedIP:     requestedIP,
+        SimpleMetrics:   rt,
+        Aggregated:      agg,
+        WindowUserIDs:   windowIDs,
+        ReceiverExists:  receiverExists && receiverID != "",
+        ReceiverHasNoIP: receiverHasEmptyIP,
     }
 
     w.Header().Set("Content-Type", "application/json")
