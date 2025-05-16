@@ -62,11 +62,34 @@
       flex: 0 0 auto;
       margin-top: 1.2rem;
     }
+    /* Stats legend styles */
+    .stats-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: 0.85rem;
+    }
+    .stats-legend .stat-item {
+      display: flex;
+      align-items: center;
+      margin-right: 10px;
+    }
+    .stats-legend .color-box {
+      width: 12px;
+      height: 2px;
+      margin-right: 4px;
+      display: inline-block;
+    }
+    .stats-legend .stat-value {
+      font-weight: bold;
+    }
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
 </head>
 <body>
 
@@ -218,6 +241,7 @@
     </label>
     <button class="apply-range">Plot</button>
     <button class="reset-range">Reset</button>
+    <button class="download-csv" disabled>Download CSV</button>
   `;
   c.appendChild(controls);
   block.dom.startInput    = controls.querySelector('.start-input');
@@ -226,6 +250,7 @@
   block.dom.rangeSelect   = controls.querySelector('.range-select');
   block.dom.applyRangeBtn = controls.querySelector('.apply-range');
   block.dom.resetRangeBtn = controls.querySelector('.reset-range');
+  block.dom.downloadCsvBtn = controls.querySelector('.download-csv');
 
   block.dom.applyRangeBtn.onclick = () => {
     block.start = block.dom.startInput.value
@@ -242,6 +267,10 @@
     fetchAndRender(block);
   };
 
+  block.dom.downloadCsvBtn.onclick = () => {
+    downloadCSV(block);
+  };
+
   block.dom.resetRangeBtn.onclick = () => {
     block.start = block.end = null;
     block.aggregateFields = [];
@@ -251,6 +280,7 @@
     block.dom.endInput.value = '';
     block.dom.fieldsSelect.selectedIndex = -1;
     block.dom.rangeSelect.value = '';
+    block.dom.downloadCsvBtn.disabled = true;
     fetchAndRender(block);
   };
 
@@ -302,6 +332,12 @@
   c.appendChild(tableContainer);
   block.dom.tableContainer = tableContainer;
 
+  // Create stats legend container
+  const statsLegend = document.createElement('div');
+  statsLegend.className = 'stats-legend';
+  c.appendChild(statsLegend);
+  block.dom.statsLegend = statsLegend;
+
   const chartWrapper = document.createElement('div');
   chartWrapper.className = 'chart-container';
   const canvas = document.createElement('canvas');
@@ -313,10 +349,146 @@
   document.getElementById('output').appendChild(c);
 }
 
+    // Calculate min, max, and average values for a dataset
+    function calculateStats(data) {
+      if (!data || data.length === 0) return { min: 0, max: 0, avg: 0 };
+      
+      const values = data.map(point => point.y).filter(y => y !== null && y !== undefined);
+      if (values.length === 0) return { min: 0, max: 0, avg: 0 };
+      
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const sum = values.reduce((acc, val) => acc + val, 0);
+      const avg = sum / values.length;
+      
+      return { min, max, avg };
+    }
+
+    // Create a horizontal line annotation for min/max/avg
+    function createHorizontalLine(value, label, color, dashed = true) {
+      return {
+        type: 'line',
+        borderColor: color,
+        borderWidth: 1,
+        borderDash: dashed ? [5, 5] : [],
+        label: {
+          display: false,
+          content: label,
+          position: 'end'
+        },
+        scaleID: 'y',
+        value: value
+      };
+    }
+
+    // Update stats legend with min/max/avg values
+    function updateStatsLegend(container, datasets) {
+      container.innerHTML = '';
+      
+      // Only show stats when exactly one dataset is visible
+      const visibleDatasets = datasets.filter(d => !d.hidden);
+      if (visibleDatasets.length !== 1) {
+        container.style.display = 'none';
+        return;
+      }
+      
+      container.style.display = 'flex';
+      const dataset = visibleDatasets[0];
+      const stats = calculateStats(dataset.data);
+      const baseColor = dataset.borderColor;
+      
+      // Min stat
+      const minItem = document.createElement('div');
+      minItem.className = 'stat-item';
+      minItem.innerHTML = `
+        <span class="color-box" style="background-color: ${baseColor}; border-style: dashed;"></span>
+        <span>${dataset.label} Min: <span class="stat-value">${stats.min.toFixed(2)}</span></span>
+      `;
+      container.appendChild(minItem);
+      
+      // Max stat
+      const maxItem = document.createElement('div');
+      maxItem.className = 'stat-item';
+      maxItem.innerHTML = `
+        <span class="color-box" style="background-color: ${baseColor}; border-style: dashed;"></span>
+        <span>${dataset.label} Max: <span class="stat-value">${stats.max.toFixed(2)}</span></span>
+      `;
+      container.appendChild(maxItem);
+      
+      // Avg stat
+      const avgItem = document.createElement('div');
+      avgItem.className = 'stat-item';
+      avgItem.innerHTML = `
+        <span class="color-box" style="background-color: ${baseColor}; border-style: dashed;"></span>
+        <span>${dataset.label} Avg: <span class="stat-value">${stats.avg.toFixed(2)}</span></span>
+      `;
+      container.appendChild(avgItem);
+    }
+
+    function downloadCSV(block) {
+      const { history, aggregateFields } = block;
+      const isAgg = aggregateFields.length > 0;
+      let csvContent = "data:text/csv;charset=utf-8,";
+      
+      if (isAgg) {
+        // For aggregated data
+        const sortedAgg = aggregateFields.slice().sort((a, b) => a.localeCompare(b));
+        const aliases = sortedAgg.map(p => p.split('.').map(s => s.toLowerCase()).join('_') + '_avg');
+        
+        // Create header row
+        csvContent += "timestamp," + aliases.map(alias => humanizeField(alias.replace(/^decodedbinary_/, ''))).join(",") + "\n";
+        
+        // Add data rows
+        history.forEach(item => {
+          const row = [new Date(item.timestamp).toISOString()];
+          aliases.forEach(alias => {
+            row.push(item[alias]);
+          });
+          csvContent += row.join(",") + "\n";
+        });
+      } else {
+        // For non-aggregated data
+        if (history.length === 0 || !history[0].Packet?.DecodedBinary) return;
+        
+        // Get all fields from the first record
+        const records = history.map(m => flattenObject(m.Packet.DecodedBinary));
+        const fields = Object.keys(records[0] || {});
+        fields.sort((a, b) => a.localeCompare(b));
+        
+        // Create header row
+        csvContent += "timestamp," + fields.map(f => humanizeField(f)).join(",") + "\n";
+        
+        // Add data rows
+        history.forEach((item, i) => {
+          const row = [new Date(item.Timestamp).toISOString()];
+          fields.forEach(field => {
+            row.push(records[i][field]);
+          });
+          csvContent += row.join(",") + "\n";
+        });
+      }
+      
+      // Create download link and trigger download
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `ais_data_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
     function updateBlockDOM(block) {
       const { dom, asm, history, idx, msgID, dac, fi, aggregateFields } = block;
       const msg = history[idx];
       const isAgg = aggregateFields.length > 0;
+      
+      // Enable download button if we have data to download
+      if (history.length > 0 && (isAgg || history[0].Packet?.DecodedBinary)) {
+        dom.downloadCsvBtn.disabled = false;
+      } else {
+        dom.downloadCsvBtn.disabled = true;
+      }
 
       const titleText = asm[msgID]?.[dac]?.[fi]?.Title || 'Unknown message type';
       // main title
@@ -356,14 +528,28 @@
         const aliases = sortedAgg.map(p =>
           p.split('.').map(s => s.toLowerCase()).join('_') + '_avg'
         );
-        const datasets = aliases.map(alias => {
+        const datasets = aliases.map((alias, index) => {
           const label = humanizeField(alias.replace(/^decodedbinary_/, ''));
+          const color = `hsl(${index * 137.5 % 360}, 70%, 50%)`;
           return {
             label,
             data: times.map((t,i) => ({ x: t, y: history[i][alias] })),
-            borderWidth: 1
+            borderWidth: 1,
+            borderColor: color
           };
         });
+
+        // Only add annotations when a single dataset is selected
+        const annotations = [];
+        if (datasets.length === 1) {
+          const dataset = datasets[0];
+          const stats = calculateStats(dataset.data);
+          
+          // Add min, max, and avg lines as annotations
+          annotations.push(createHorizontalLine(stats.min, `${dataset.label} Min`, dataset.borderColor));
+          annotations.push(createHorizontalLine(stats.max, `${dataset.label} Max`, dataset.borderColor));
+          annotations.push(createHorizontalLine(stats.avg, `${dataset.label} Avg`, dataset.borderColor));
+        }
 
         if (dom.chart) dom.chart.destroy();
         dom.chart = new Chart(dom.canvas.getContext('2d'), {
@@ -375,22 +561,28 @@
             scales: { x: timeOpts, y: { beginAtZero: false } },
             plugins: {
               legend: {
-	    	   position: 'bottom',
-	           labels: {
-	           boxWidth: 11,         
-		   boxHeight: 7,
-	           padding: 4,         
-	           font: { size: 11 }   
-	        }
-	      },
+                position: 'bottom',
+                labels: {
+                  boxWidth: 11,
+                  boxHeight: 7,
+                  padding: 4,
+                  font: { size: 11 }
+                }
+              },
               zoom: {
                 pan: { enabled: true, mode: 'x' },
                 zoom: { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
+              },
+              annotation: {
+                annotations
               }
             },
             interaction: { mode: 'nearest', axis: 'x', intersect: false }
           }
         });
+        
+        // Update stats legend
+        updateStatsLegend(dom.statsLegend, datasets);
 
       } else {
         dom.notice.textContent = '';
@@ -419,39 +611,81 @@
         const defaultVis = new Set(fields.slice(0,3));
 
         if (dom.chart) dom.chart.destroy();
-        const datasets = fields.map(f=>({
+        const datasets = fields.map((f, index) => ({
           label: humanizeField(f),
-          data: timesArr.map((t,i)=>({ x:t, y:records[i][f] })),
-          borderWidth:1,
-          hidden:!defaultVis.has(f),
-          _fieldKey:f
+          data: timesArr.map((t,i) => ({ x:t, y:records[i][f] })),
+          borderWidth: 1,
+          borderColor: `hsl(${index * 137.5 % 360}, 70%, 50%)`,
+          hidden: !defaultVis.has(f),
+          _fieldKey: f
         }));
 
+        // Only add annotations when a single dataset is visible
+        const visibleDatasets = datasets.filter(d => !d.hidden);
+        const annotations = [];
+        if (visibleDatasets.length === 1) {
+          const dataset = visibleDatasets[0];
+          const stats = calculateStats(dataset.data);
+          
+          // Add min, max, and avg lines as annotations
+          annotations.push(createHorizontalLine(stats.min, `${dataset.label} Min`, dataset.borderColor));
+          annotations.push(createHorizontalLine(stats.max, `${dataset.label} Max`, dataset.borderColor));
+          annotations.push(createHorizontalLine(stats.avg, `${dataset.label} Avg`, dataset.borderColor));
+        }
+
         dom.chart = new Chart(dom.canvas.getContext('2d'), {
-          type:'line',
-          data:{datasets},
-          options:{
-            animation:false,
-            maintainAspectRatio:false,
-            scales:{ x: timeOpts, y:{ beginAtZero:false } },
-            plugins:{
-               legend:{
-                 position:'bottom',
-                 labels:{
-                   boxWidth:11,
-                   boxHeight:7,
-                   padding:4,
-                   font:{ size:11 }
-                 }
-               },
-              zoom:{
-                pan:{ enabled:true, mode:'x' },
-                zoom:{ wheel:{ enabled:true }, drag:{ enabled:true }, mode:'x' }
+          type: 'line',
+          data: { datasets },
+          options: {
+            animation: false,
+            maintainAspectRatio: false,
+            scales: { x: timeOpts, y: { beginAtZero: false } },
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: {
+                  boxWidth: 11,
+                  boxHeight: 7,
+                  padding: 4,
+                  font: { size: 11 }
+                },
+                onClick: function(e, legendItem, legend) {
+                  // Toggle dataset visibility
+                  Chart.defaults.plugins.legend.onClick.call(this, e, legendItem, legend);
+                  // Update stats legend and annotations after toggling visibility
+                  setTimeout(() => {
+                    const visibleDatasets = datasets.filter(d => !d.hidden);
+                    updateStatsLegend(dom.statsLegend, datasets);
+                    
+                    // Update annotations - only show for single dataset
+                    const newAnnotations = [];
+                    if (visibleDatasets.length === 1) {
+                      const dataset = visibleDatasets[0];
+                      const stats = calculateStats(dataset.data);
+                      newAnnotations.push(createHorizontalLine(stats.min, `${dataset.label} Min`, dataset.borderColor));
+                      newAnnotations.push(createHorizontalLine(stats.max, `${dataset.label} Max`, dataset.borderColor));
+                      newAnnotations.push(createHorizontalLine(stats.avg, `${dataset.label} Avg`, dataset.borderColor));
+                    }
+                    
+                    dom.chart.options.plugins.annotation.annotations = newAnnotations;
+                    dom.chart.update();
+                  }, 0);
+                }
+              },
+              zoom: {
+                pan: { enabled: true, mode: 'x' },
+                zoom: { wheel: { enabled: true }, drag: { enabled: true }, mode: 'x' }
+              },
+              annotation: {
+                annotations
               }
             },
-            interaction:{ mode:'nearest', axis:'x', intersect:false }
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
           }
         });
+        
+        // Update stats legend
+        updateStatsLegend(dom.statsLegend, datasets);
         dom.canvas.addEventListener('dblclick', () => dom.chart.resetZoom());
       }
     }
