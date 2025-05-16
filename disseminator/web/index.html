@@ -1345,7 +1345,7 @@ function refreshReceivers() {
             const popupContent = `
               <strong><a href="/metrics/receiver.html?receiver=${receiver.id}" target="_blank">${receiver.name}</a></strong><br>
               ${receiver.description}<br>
-              Last seen: ${updatedLocalTime === "Invalid date" ? updatedLocalTime : updatedLocalTime.toLocaleString()}<br>
+              Seen: ${updatedLocalTime === "Invalid date" ? updatedLocalTime : updatedLocalTime.toLocaleString()}<br>
               ${linksHTML}
             `;
             // Update the popup content.
@@ -1372,7 +1372,7 @@ function refreshReceivers() {
             const popupContent = `
               <strong><a href="/metrics/receiver.html?receiver=${receiver.id}" target="_blank">${receiver.name}</a></strong><br>
               ${receiver.description}<br>
-              Last seen: ${updatedLocalTime === "Invalid date" ? updatedLocalTime : updatedLocalTime.toLocaleString()}<br>
+              Seen: ${updatedLocalTime === "Invalid date" ? updatedLocalTime : updatedLocalTime.toLocaleString()}<br>
               ${linksHTML}
             `;
             marker.bindPopup(popupContent, { autoPan: true });
