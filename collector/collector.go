@@ -730,7 +730,19 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
     }
     
     // Update the ports_ips table to track this IP/port combination
-    updatePortsIPs(db, msg.SourceIP, msg.UDPPort)
+    // Only update if:
+    // 1. The UDP port matches the ingester's port, OR
+    // 2. There's a matching port for a receiver
+    receiverMapMutex.RLock()
+    isKnownPort := msg.UDPPort == settings.IngestUDPListenPort
+    if !isKnownPort {
+        _, isKnownPort = receiverPortToIDMap[msg.UDPPort]
+    }
+    receiverMapMutex.RUnlock()
+    
+    if isKnownPort {
+        updatePortsIPs(db, msg.SourceIP, msg.UDPPort)
+    }
 
     // 3) Unwrap the inner envelope to get at the real packet object
     var inner struct {
