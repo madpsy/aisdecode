@@ -254,59 +254,82 @@
         const bounds = map.getBounds();
         const zoom = map.getZoom();
         
-        // Set precision and font size based on zoom level
+        // Calculate grid size based on zoom level
+        // Adjust grid size to be appropriate for the current zoom level
+        // At higher zoom levels (more zoomed in), use smaller grid cells
+        let gridSize = 2; // Default size in degrees
         let fontSize = 12; // Default font size
-        let locatorPrecision = 0; // Default to no locator when zoomed out
+        let locatorPrecision = 0; // Default to no locator when zoomed out (0 means don't show)
         
-        if (zoom >= 12) {
+        if (zoom >= 14) {
+          gridSize = 0.025; // Very small grid at very high zoom levels
           fontSize = 10;
-          locatorPrecision = 6; // 6-character locator (subsquare level)
-        } else if (zoom >= 8) {
+          locatorPrecision = 6; // Use 6-character locator when significantly zoomed in
+        } else if (zoom >= 12) {
+          gridSize = 0.05; // Tiny grid at high zoom levels
+          fontSize = 10;
+          locatorPrecision = 6; // Use 6-character locator when significantly zoomed in
+        } else if (zoom >= 10) {
+          gridSize = 0.1; // Smaller grid at high zoom levels
           fontSize = 11;
-          locatorPrecision = 4; // 4-character locator (square level)
+          locatorPrecision = 4; // Use 4-character locator for high zoom levels
+        } else if (zoom >= 9) {
+          gridSize = 0.25; // Medium grid at medium-high zoom levels
+          fontSize = 11;
+          locatorPrecision = 4; // Use 4-character locator for high zoom levels
         } else {
+          // For zoom levels 8 and below
+          if (zoom >= 8) {
+            gridSize = 0.25; // Medium grid at medium-high zoom levels
+          } else if (zoom >= 6) {
+            gridSize = 0.5; // Medium-large grid at medium zoom levels
+          } else {
+            gridSize = 1; // Large grid at low zoom levels
+          }
           fontSize = 12;
           locatorPrecision = 0; // Don't show locator when zoomed out
         }
         
-        // Draw Maidenhead grid based on precision
-        if (locatorPrecision === 6) {
-          // Draw subsquare grid (5' × 2.5')
-          drawMaidenheadGrid(bounds, 5/60, 2.5/60, fontSize, locatorPrecision);
-        } else if (locatorPrecision === 4) {
-          // Draw square grid (2° × 1°)
-          drawMaidenheadGrid(bounds, 2, 1, fontSize, locatorPrecision);
-        } else {
-          // Draw field grid (20° × 10°)
-          drawMaidenheadGrid(bounds, 20, 10, fontSize, locatorPrecision);
-        }
-      }
-      
-      function drawMaidenheadGrid(bounds, lonSize, latSize, fontSize, locatorPrecision) {
-        // Calculate bounds for grid aligned to Maidenhead grid system
-        const south = Math.floor(bounds.getSouth() / latSize) * latSize;
-        const north = Math.ceil(bounds.getNorth() / latSize) * latSize;
-        const west = Math.floor(bounds.getWest() / lonSize) * lonSize;
-        const east = Math.ceil(bounds.getEast() / lonSize) * lonSize;
+        // Calculate bounds for grid
+        const south = Math.floor(bounds.getSouth() / gridSize) * gridSize;
+        const north = Math.ceil(bounds.getNorth() / gridSize) * gridSize;
+        const west = Math.floor(bounds.getWest() / gridSize) * gridSize;
+        const east = Math.ceil(bounds.getEast() / gridSize) * gridSize;
         
         // Create grid cells
-        for (let lat = south; lat < north; lat += latSize) {
-          for (let lng = west; lng < east; lng += lonSize) {
+        for (let lat = south; lat < north; lat += gridSize) {
+          for (let lng = west; lng < east; lng += gridSize) {
             // Calculate center of grid cell
-            const cellCenter = [lat + latSize/2, lng + lonSize/2];
+            const cellCenter = [lat + gridSize/2, lng + gridSize/2];
             
             // Get Maidenhead locator for this cell with appropriate precision
             const locator = getLocator(cellCenter[0], cellCenter[1], locatorPrecision);
             
             // Create rectangle for grid cell
-            const cellBounds = [[lat, lng], [lat + latSize, lng + lonSize]];
-            const rect = L.rectangle(cellBounds, {
+            const bounds = [[lat, lng], [lat + gridSize, lng + gridSize]];
+            const rect = L.rectangle(bounds, {
               color: "#888",
               weight: 1,
               fillOpacity: 0,
               opacity: 0.3,
               interactive: false
             }).addTo(gridLayer);
+            
+            // Only add label if locator is not empty (precision > 0)
+            if (locator) {
+              // Add label in the center
+              const label = L.divIcon({
+                className: 'maidenhead-label',
+                html: `<div style="color: #666; font-size: ${fontSize}px; font-weight: bold; text-align: center; width: 100%; text-shadow: 1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white;">${locator}</div>`,
+                iconSize: [80, 20],
+                iconAnchor: [40, 10]
+              });
+              
+              L.marker(cellCenter, {
+                icon: label,
+                interactive: false
+              }).addTo(gridLayer);
+            }
             
             // Only add label if locator is not empty (precision > 0)
             if (locator) {
