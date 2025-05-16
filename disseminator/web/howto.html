@@ -203,10 +203,10 @@
         
         // Add subsquare position and center in the subsquare
         // Each subsquare is 5' × 2.5' (longitude × latitude)
-        // For longitude: 5' = (1/12) of 1° = (1/6) of 2° (square width)
+        // For longitude: 5' = (1/12) of 1° (square width)
         // For latitude: 2.5' = (1/24) of 1° (square height)
-        lon += (subsqLon / 12 + 0.5 / 12) * 2; // Position + half subsquare width
-        lat += (subsqLat / 24 + 0.5 / 24);     // Position + half subsquare height
+        lon += (1.0 / 60.0) * 5 * (subsqLon + 0.5); // Position + half subsquare width
+        lat += (1.0 / 60.0) * 2.5 * (subsqLat + 0.5); // Position + half subsquare height
       } else {
         // Center in the square for 4-character locator
         lon += 1;
