@@ -86,8 +86,8 @@ function renderList(list) {
     //console.log('Rendering receiver:', r.id, 'Password:', r.password); // Debug: Log each receiver's password
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${r.lastseen ? new Date(r.lastseen).toLocaleString() : '—'}</td>
       <td>${r.id}</td>
+      <td>${r.lastseen ? new Date(r.lastseen).toLocaleString() : '—'}</td>
       <td>${new Date(r.lastupdated).toLocaleString()}</td>
       <td>${r.name}</td>
       <td>${r.description}</td>
