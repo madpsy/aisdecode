@@ -31,6 +31,7 @@ type Settings struct {
     IngestHost              string `json:"ingest_host"`
     IngestHTTPPort          int    `json:"ingest_http_port"`
     PublicAddReceiverEnabled bool   `json:"public_add_receiver_enabled"`
+    IPAddressTimeoutMinutes int    `json:"ip_address_timeout_minutes"`
 }
 
 type Receiver struct {
@@ -410,11 +411,17 @@ func main() {
         log.Fatalf("Error parsing settings.json: %v", err)
     }
     
-    // Set default value for PublicAddReceiverEnabled if not specified
+    // Set default values for settings if not specified
     // This maintains backward compatibility with existing settings files
     if settings.PublicAddReceiverEnabled == false && !strings.Contains(string(data), "public_add_receiver_enabled") {
         settings.PublicAddReceiverEnabled = true
         log.Printf("PublicAddReceiverEnabled not specified in settings.json, defaulting to true")
+    }
+    
+    // Default IP address timeout to 60 minutes (1 hour) if not specified
+    if settings.IPAddressTimeoutMinutes == 0 && !strings.Contains(string(data), "ip_address_timeout_minutes") {
+        settings.IPAddressTimeoutMinutes = 60
+        log.Printf("IPAddressTimeoutMinutes not specified in settings.json, defaulting to 60 minutes (1 hour)")
     }
 
     // Connect to Postgres
@@ -1840,9 +1847,11 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     
     // If we found a receiver with this client IP
     if err == nil {
-        // Check if it was updated within the last 24 hours
-        if time.Since(existingLastUpdated) < 24*time.Hour {
-            http.Error(w, "Client IP address has already added a receiver recently", http.StatusBadRequest)
+        // Check if it was updated within the configured timeout period
+        timeoutDuration := time.Duration(settings.IPAddressTimeoutMinutes) * time.Minute
+        if time.Since(existingLastUpdated) < timeoutDuration {
+            timeoutMessage := fmt.Sprintf("Client IP address has already added a receiver recently (timeout: %d minutes)", settings.IPAddressTimeoutMinutes)
+            http.Error(w, timeoutMessage, http.StatusBadRequest)
             return
         }
     } else if err != sql.ErrNoRows {
