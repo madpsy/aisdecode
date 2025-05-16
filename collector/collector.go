@@ -480,7 +480,7 @@ func startHTTPServer() {
             return
         }
         
-        // Return the results as JSON
+        // Return the results as JSON, adding the lastseen field for each port
         _ = json.NewEncoder(w).Encode(portMetrics)
     })
     
@@ -499,11 +499,11 @@ type PortMetric struct {
 }
 
 // getPortMetrics retrieves port metrics from the database within the specified time window
-func getPortMetrics(timeHours float64) ([]PortMetric, error) {
+func getPortMetrics(timeHours float64) (map[string]interface{}, error) {
     // Calculate the cutoff time
     cutoffTime := time.Now().UTC().Add(-time.Duration(timeHours) * time.Hour)
     
-    // Query the database
+    // Query the database for metrics filtered by time
     rows, err := db.Query(`
         SELECT ip_address, udp_port, first_seen, last_seen, message_count
         FROM ports_ips
@@ -546,7 +546,49 @@ func getPortMetrics(timeHours float64) ([]PortMetric, error) {
         return nil, err
     }
     
-    return metrics, nil
+    // Query for the last seen time for each port (regardless of time parameter)
+    lastSeenRows, err := db.Query(`
+        SELECT udp_port, MAX(last_seen) as last_seen
+        FROM ports_ips
+        GROUP BY udp_port
+        ORDER BY udp_port
+    `)
+    
+    if err != nil {
+        return nil, err
+    }
+    defer lastSeenRows.Close()
+    
+    // Process the last seen results
+    portLastSeen := make(map[int]time.Time)
+    for lastSeenRows.Next() {
+        var port int
+        var lastSeenStr string
+        
+        if err := lastSeenRows.Scan(&port, &lastSeenStr); err != nil {
+            return nil, err
+        }
+        
+        // Parse the timestamp
+        lastSeen, err := time.Parse(time.RFC3339, lastSeenStr)
+        if err != nil {
+            return nil, fmt.Errorf("error parsing last_seen timestamp: %v", err)
+        }
+        
+        portLastSeen[port] = lastSeen
+    }
+    
+    if err := lastSeenRows.Err(); err != nil {
+        return nil, err
+    }
+    
+    // Create the response with both metrics and lastseen
+    response := map[string]interface{}{
+        "metrics": metrics,
+        "lastseen": portLastSeen,
+    }
+    
+    return response, nil
 }
 
 // ── SOCKET.IO SERVER ─────────────────────────────────────────────────────────
