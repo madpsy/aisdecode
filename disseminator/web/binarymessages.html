@@ -118,7 +118,6 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
-  <script src="fix-download-button.js"></script>
 </head>
 <body>
 
@@ -828,7 +827,8 @@
             history:[], idx:0,
             dom:null, chart:null,
             start:null, end:null,
-            aggregateFields:[], range:''
+            aggregateFields:[], range:'',
+            hasPlotted: false // Flag to track if user has plotted data
           });
         }
       });
