@@ -336,7 +336,7 @@ function drawBackground() {
 
   // Determine map resolution and scale
   const resolution = (Math.cos(currentVesselLat * Math.PI / 180) * 2 * Math.PI * 6378137) / (256 * Math.pow(2, zoom));
-  const canvasScale = radarRadiusPx / 1852; // 1 NM = 1852 meters
+  const canvasScale = radarRadiusPx / (1852 * radarNM); // Scale based on current radius
   const tileCanvasWidth = 256 * resolution * canvasScale;
   const tileDrawScale = tileCanvasWidth / 256;
 
