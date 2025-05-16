@@ -117,7 +117,6 @@ function renderList(list) {
     ];
     
     tr.innerHTML = cells.join('');
-    `;
     console.log('Generated HTML for row:', tr.innerHTML); // Debug: Log the generated HTML
     tbody.appendChild(tr);
   });
