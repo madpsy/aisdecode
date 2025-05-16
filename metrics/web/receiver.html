@@ -1372,6 +1372,7 @@ let receiversFetched = false; // Flag to ensure receivers are only fetched once
 // Listen for incoming metrics data from the server
 socket.on("metrics/bysource", function(data) {
   console.log("Received metrics data via WebSocket, autoFit =", autoFit);
+  console.log("SOCKET EVENT: metrics/bysource received with data:", JSON.stringify(data));
   
   // Extract parameters from the URL
   const params = new URLSearchParams(location.search);
@@ -1397,6 +1398,8 @@ socket.on("metrics/bysource", function(data) {
   const receiverExists = data.receiver_exists === true;
   const receiverHasNoIP = data.receiver_has_no_ip === true;
   
+  // Debug the full response
+  console.log("Full metrics response:", JSON.stringify(data));
   console.log("Receiver exists:", receiverExists, "Receiver has no IP:", receiverHasNoIP);
   
   // Update our message count tracker
@@ -1413,15 +1416,18 @@ socket.on("metrics/bysource", function(data) {
     // Check if this is a "no receiver" box (has the no-receiver-box class)
     if (receiverBox.classList.contains('no-receiver-box')) {
       console.log("This is a 'no receiver' box, updating message based on receiver status");
+      console.log("receiverExists =", receiverExists, "receiverHasNoIP =", receiverHasNoIP);
       
       // Don't update if the form is currently being displayed
       if (document.getElementById('receiver-form')) {
         console.log("Receiver form is active, not updating the box");
       } else if (receiverExists && receiverHasNoIP) {
         // This is the key case we're fixing - receiver exists but has no IP
-        console.log("Receiver exists but has no IP");
+        console.log("SHOWING NO DATA MESSAGE: Receiver exists but has no IP");
         const id = params.get('receiver') || overrideReceiverId;
-        receiverBox.innerHTML = `<p>Receiver ID ${id} exists but hasn't sent any data yet. <a href="/howto.html" target="_blank">Read the docs</a> for troubleshooting.</p>`;
+        const message = `<p style="color: #d9534f; font-weight: bold;">Receiver ID ${id} exists but hasn't sent any data yet. <a href="/howto.html" target="_blank">Read the docs</a> for troubleshooting.</p>`;
+        console.log("Setting innerHTML to:", message);
+        receiverBox.innerHTML = message;
       } else if (hasData) {
         console.log("Has data, updating to show 'AIS data is flowing'");
         // Check if we're using an override IP
@@ -1574,8 +1580,10 @@ function fetchReceiversById(receiverId) {
 
         ipHeading.insertAdjacentElement('afterend', receiverBox);
         
-        // Clear the socket connection to prevent receiving data from other sources
-        socket.off("metrics/bysource");
+        // Don't remove the socket listener, we need it to handle the metrics response
+        // with the receiver_exists and receiver_has_no_ip flags
+        // Instead, just fetch metrics to get the updated status
+        fetchMetrics();
         
         return;
       }
@@ -1667,8 +1675,10 @@ function fetchReceiversById(receiverId) {
 
       ipHeading.insertAdjacentElement('afterend', receiverBox);
       
-      // Clear the socket connection to prevent receiving data from other sources
-      socket.off("metrics/bysource");
+      // Don't remove the socket listener, we need it to handle the metrics response
+      // with the receiver_exists and receiver_has_no_ip flags
+      // Instead, just fetch metrics to get the updated status
+      fetchMetrics();
     });
 }
 
@@ -1880,6 +1890,9 @@ async function fetchReceivers(ip) {
     }
 
     ipHeading.insertAdjacentElement('afterend', receiverBox);
+    
+    // Fetch metrics to get the updated status with receiver_exists and receiver_has_no_ip flags
+    fetchMetrics();
   }
 }
 
