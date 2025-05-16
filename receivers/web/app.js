@@ -290,6 +290,4 @@ window.addEventListener('load', () => {
   loadReceivers();
   // Hide regenerate button initially (for new receivers)
   document.getElementById('regenerate-password').style.display = 'none';
-  // Cron overlay removed
 });
-// Cron functionality removed - no longer needed with automatic collector tracking
