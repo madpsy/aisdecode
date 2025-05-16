@@ -182,13 +182,15 @@
         const subsq1 = locator.charCodeAt(4) - 97; // a=0, b=1, etc.
         const subsq2 = locator.charCodeAt(5) - 97;
         
-        // Add subsquare component - exactly matching the encoding in latLngToMaidenhead
-        lng += (subsq1 / 12);
-        lat += (subsq2 / 24);
+        // Properly reverse the encoding from latLngToMaidenhead function
+        // In the encoding: subsq1 = Math.floor((lng % 2) * 12)
+        // In the encoding: subsq2 = Math.floor((lat % 1) * 24)
+        lng += (subsq1 * 2/12); // Each subsquare is 2°/12 wide
+        lat += (subsq2 * 1/24); // Each subsquare is 1°/24 tall
         
         // Center in the subsquare
-        lng += (1 / 24);
-        lat += (1 / 48);
+        lng += (2/12/2); // Half of subsquare width
+        lat += (1/24/2); // Half of subsquare height
       } else {
         // Center in the square for 4-character locator
         lng += 1;
