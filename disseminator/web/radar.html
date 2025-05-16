@@ -23,7 +23,10 @@
 <body>
   <canvas id="radarCanvas"></canvas>
   <div style="margin: 10px auto; width: 300px; text-align: center;">
-    <div style="font-family: Arial, sans-serif; font-size: 14px; margin-bottom: 5px;"><span id="radiusValue">1.0</span> NM</div>
+    <div style="display: flex; justify-content: space-between; font-family: Arial, sans-serif; font-size: 14px; margin-bottom: 5px;">
+      <span>0.1</span>
+      <span>2 NM</span>
+    </div>
     <input type="range" id="radiusSlider" min="0.1" max="2" step="0.1" value="1" style="width: 100%;">
   </div>
   <div id="stats" style="margin-top: 10px; font-family: Arial, sans-serif; font-size: 14px;"></div>
@@ -795,11 +798,9 @@ socket.on("summaryData", function(data) {
     
     // Radius slider functionality
     const radiusSlider = document.getElementById("radiusSlider");
-    const radiusValue = document.getElementById("radiusValue");
     
     radiusSlider.addEventListener("input", function() {
       radarNM = parseFloat(this.value);
-      radiusValue.textContent = radarNM.toFixed(1);
       
       // Update scale factor based on new radius
       scaleFactor = radarRadiusPx / radarNM;
