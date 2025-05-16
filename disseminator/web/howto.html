@@ -208,19 +208,22 @@
         } else if (zoom >= 10) {
           gridSize = 0.1; // Smaller grid at high zoom levels
           fontSize = 11;
-          locatorPrecision = 4; // Use 4-character locator for medium zoom levels
-        } else if (zoom >= 8) {
+          locatorPrecision = 4; // Use 4-character locator for high zoom levels
+        } else if (zoom >= 9) {
           gridSize = 0.25; // Medium grid at medium-high zoom levels
           fontSize = 11;
-          locatorPrecision = 4; // Use 4-character locator for medium zoom levels
-        } else if (zoom >= 6) {
-          gridSize = 0.5; // Medium-large grid at medium zoom levels
-          fontSize = 12;
-          locatorPrecision = 4; // Use 4-character locator for medium zoom levels
+          locatorPrecision = 4; // Use 4-character locator for high zoom levels
         } else {
-          gridSize = 1; // Large grid at low zoom levels
+          // For zoom levels 8 and below
+          if (zoom >= 8) {
+            gridSize = 0.25; // Medium grid at medium-high zoom levels
+          } else if (zoom >= 6) {
+            gridSize = 0.5; // Medium-large grid at medium zoom levels
+          } else {
+            gridSize = 1; // Large grid at low zoom levels
+          }
           fontSize = 12;
-          locatorPrecision = 0; // Don't show locator when zoomed out too far
+          locatorPrecision = 0; // Don't show locator when zoomed out
         }
         
         // Calculate bounds for grid
