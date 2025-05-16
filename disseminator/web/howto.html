@@ -417,8 +417,10 @@
     
     // Track marker movement for progressive zooming
     let markerMoveCount = 0;
-    const MAX_ZOOM_LEVEL = 18;
+    const MAX_ZOOM_LEVEL = 14; // Reduced from 18 to be less aggressive
     const BASE_ZOOM_LEVEL = 10;
+    const ZOOM_INCREMENT = 0.5; // Smaller increment per move
+    const MAX_MOVE_COUNT = 4; // Fewer maximum moves
     // Fetch existing receivers for duplicate name validation
     let receiversData = [];
     fetch('/receivers')
@@ -575,11 +577,11 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
       updateCoordinateFields();
       updateCommand();
       
-      // Increment move count for progressive zooming (max 8 moves)
-      markerMoveCount = Math.min(markerMoveCount + 1, 8);
+      // Increment move count for progressive zooming (with lower max)
+      markerMoveCount = Math.min(markerMoveCount + 1, MAX_MOVE_COUNT);
       
-      // Calculate zoom level based on move count
-      const progressiveZoom = Math.min(BASE_ZOOM_LEVEL + markerMoveCount, MAX_ZOOM_LEVEL);
+      // Calculate zoom level based on move count with smaller increments
+      const progressiveZoom = Math.min(BASE_ZOOM_LEVEL + (markerMoveCount * ZOOM_INCREMENT), MAX_ZOOM_LEVEL);
       
       // Only zoom in, never zoom out - respect user's manual zoom level
       const currentZoom = map.getZoom();
@@ -603,11 +605,11 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
       updateCoordinateFields();
       updateCommand();
       
-      // Increment move count for progressive zooming (max 8 moves)
-      markerMoveCount = Math.min(markerMoveCount + 1, 8);
+      // Increment move count for progressive zooming (with lower max)
+      markerMoveCount = Math.min(markerMoveCount + 1, MAX_MOVE_COUNT);
       
-      // Calculate zoom level based on move count
-      const progressiveZoom = Math.min(BASE_ZOOM_LEVEL + markerMoveCount, MAX_ZOOM_LEVEL);
+      // Calculate zoom level based on move count with smaller increments
+      const progressiveZoom = Math.min(BASE_ZOOM_LEVEL + (markerMoveCount * ZOOM_INCREMENT), MAX_ZOOM_LEVEL);
       
       // Only zoom in, never zoom out - respect user's manual zoom level
       const currentZoom = map.getZoom();
