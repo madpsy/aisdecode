@@ -397,6 +397,11 @@
     
     // Flag to control whether to snap to grid center
     let snapToGrid = false;
+    
+    // Track marker movement for progressive zooming
+    let markerMoveCount = 0;
+    const MAX_ZOOM_LEVEL = 18;
+    const BASE_ZOOM_LEVEL = 10;
     // Fetch existing receivers for duplicate name validation
     let receiversData = [];
     fetch('/receivers')
@@ -574,9 +579,14 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
       updateCoordinateFields();
       updateCommand();
       
-      // Create bounds and fit map to marker
-      const bounds = L.latLngBounds([marker.getLatLng()]);
-      map.fitBounds(bounds, { maxZoom: 13, padding: [50, 50] });
+      // Increment move count for progressive zooming (max 8 moves)
+      markerMoveCount = Math.min(markerMoveCount + 1, 8);
+      
+      // Calculate zoom level based on move count
+      const zoomLevel = Math.min(BASE_ZOOM_LEVEL + markerMoveCount, MAX_ZOOM_LEVEL);
+      
+      // Zoom to marker with progressive zoom level
+      map.setView(marker.getLatLng(), zoomLevel);
     });
     
     // Allow clicking on map to move marker
@@ -596,9 +606,14 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
       updateCoordinateFields();
       updateCommand();
       
-      // Create bounds and fit map to marker
-      const bounds = L.latLngBounds([marker.getLatLng()]);
-      map.fitBounds(bounds, { maxZoom: 13, padding: [50, 50] });
+      // Increment move count for progressive zooming (max 8 moves)
+      markerMoveCount = Math.min(markerMoveCount + 1, 8);
+      
+      // Calculate zoom level based on move count
+      const zoomLevel = Math.min(BASE_ZOOM_LEVEL + markerMoveCount, MAX_ZOOM_LEVEL);
+      
+      // Zoom to marker with progressive zoom level
+      map.setView(marker.getLatLng(), zoomLevel);
     });
     
     // Add a checkbox to toggle snap to grid
