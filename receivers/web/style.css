@@ -146,30 +146,22 @@ th, td {
   text-overflow: ellipsis; /* Add ellipsis for overflowing text */
 }
 
-/* Column width adjustments */
-th[data-key="id"], td:nth-child(1) { width: 50px; }
-th[data-key="lastupdated"], td:nth-child(2) { width: 180px; white-space: normal; } /* Allow wrapping for last updated */
-th[data-key="name"], td:nth-child(3) { width: 120px; }
-th[data-key="ip_address"], td:nth-child(8) { width: 120px; }
-th[data-key="udp_port"], td:nth-child(9) { width: 80px; }
-th[data-key="messages"], td:nth-child(11) { width: 100px; }
+/* Column width adjustments using class selectors */
+.col-id, th[data-key="id"] { width: 50px; }
+.col-lastseen, th[data-key="lastseen"] { width: 180px; white-space: normal; } /* Allow wrapping for last seen */
+.col-lastupdated, th[data-key="lastupdated"] { width: 180px; white-space: normal; } /* Allow wrapping for last updated */
+.col-name, th[data-key="name"] { width: 120px; }
+.col-ip_address, th[data-key="ip_address"] { width: 120px; }
+.col-udp_port, th[data-key="udp_port"] { width: 80px; }
+.col-messages, th[data-key="messages"] { width: 100px; }
+.col-actions, th:last-child { width: 120px; padding-left: 5px; } /* Actions column */
 
-/* Adjust Cron and Actions columns to be closer together */
-th:nth-child(12), td:nth-child(12) { /* Cron column */
-  width: 80px;
-  padding-right: 5px;
-}
-th:nth-child(13), td:nth-child(13) { /* Actions column */
-  width: 120px;
-  padding-left: 5px;
-}
-
-/* Hide specified columns */
-th[data-key="description"], td:nth-child(4),
-th[data-key="latitude"], td:nth-child(5),
-th[data-key="longitude"], td:nth-child(6),
-th[data-key="url"], td:nth-child(7),
-th[data-key="password"], td:nth-child(10) {
+/* Hide specified columns using class selectors */
+.col-description, th[data-key="description"],
+.col-latitude, th[data-key="latitude"],
+.col-longitude, th[data-key="longitude"],
+.col-url, th[data-key="url"],
+.col-password, th[data-key="password"] {
   display: none;
 }
 
@@ -232,45 +224,9 @@ a.action:hover, button.delete-btn:hover {
   font-size: 0.85rem;
   white-space: nowrap;
 }
-/* Cron button styling */
-button.cron-btn {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 0.9rem;
-  text-decoration: underline;
-}
-button.cron-btn:hover {
-  opacity: 0.8;
-}
-
 .password-button:hover {
   background-color: #3a8bc2;
 }
-/* Cron overlay styles */
-.hidden { display: none !important; }
 
-/* Show overlay only when not hidden */
-#cron-overlay:not(.hidden) {
-  display: flex;
-}
-#cron-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  /* display removed; handled by :not(.hidden) rule */
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-}
-#cron-overlay .overlay-content {
-  background: #fff;
-  padding: 1rem;
-  border-radius: var(--radius);
-  max-width: 90%;
-  width: 400px;
-}
+/* Utility class */
+.hidden { display: none !important; }

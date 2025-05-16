@@ -16,7 +16,7 @@ let sortDir       = 1; // 1 = ascending, -1 = descending
 async function loadReceivers() {
   const res = await fetch('/admin/receivers');
   receiversData = await res.json();
-  // console.log('Receivers data:', receiversData); // Debug: Log the receivers data
+  console.log('Receivers data:', receiversData); // Debug: Log the receivers data
   applySortAndFilter();
 }
 
@@ -82,43 +82,43 @@ function applySortAndFilter() {
 
 function renderList(list) {
   tbody.innerHTML = '';
+  
+  // Get all column headers and their data-key attributes
+  const headers = document.querySelectorAll('th.sortable');
+  const columnKeys = Array.from(headers).map(th => th.getAttribute('data-key'));
+  
   list.forEach(r => {
-    //console.log('Rendering receiver:', r.id, 'Password:', r.password); // Debug: Log each receiver's password
+    console.log('Rendering receiver:', r.id, 'Name:', r.name, 'URL:', r.url, 'UDP Port:', r.udp_port, 'Password:', r.password); // Debug: Log each receiver's data
     const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${r.id}</td>
-      <td>${r.lastseen ? new Date(r.lastseen).toLocaleString() : '—'}</td>
-      <td>${new Date(r.lastupdated).toLocaleString()}</td>
-      <td>${r.name}</td>
-      <td>${r.description}</td>
-      <td>${r.latitude}</td>
-      <td>${r.longitude}</td>
-      <td>
-        ${r.url
-          ? `<a href="${r.url}" target="_blank">link</a>`
-          : `—`
-        }
-      </td>
-      <td>
-        ${r.message_stats ?
-          Object.keys(r.message_stats).map(ip =>
-            `${ip} (${r.message_stats[ip].message_count})`
-          ).join('<br>') :
-          r.ip_address || '—'
-        }
-      </td>
-      <td>${r.udp_port !== undefined ? r.udp_port : '—'}</td>
-      <td>${r.password !== undefined ? r.password : '—'}</td>
-      <td>${r.messages !== undefined && r.messages !== null ? r.messages : 'No messages'}</td>
-      <td>
-        ${r.id === 0 ?
-          '—' :
-          `<a class="action" data-id="${r.id}">Edit</a>
-           &nbsp;|&nbsp;
-           <button class="delete-btn" data-id="${r.id}">Delete</button>`
-        }
-      </td>
+    
+    // Create cells with appropriate classes based on column keys
+    const cells = [
+      `<td class="col-id">${r.id}</td>`,
+      `<td class="col-lastseen">${r.lastseen ? new Date(r.lastseen).toLocaleString() : '—'}</td>`,
+      `<td class="col-lastupdated">${new Date(r.lastupdated).toLocaleString()}</td>`,
+      `<td class="col-name">${r.name}</td>`,
+      `<td class="col-description">${r.description}</td>`,
+      `<td class="col-latitude">${r.latitude}</td>`,
+      `<td class="col-longitude">${r.longitude}</td>`,
+      `<td class="col-url">${r.url ? `<a href="${r.url}" target="_blank">link</a>` : `—`}</td>`,
+      `<td class="col-ip_address">${r.message_stats ?
+        Object.keys(r.message_stats).map(ip =>
+          `${ip} (${r.message_stats[ip].message_count})`
+        ).join('<br>') :
+        r.ip_address || '—'}</td>`,
+      `<td class="col-udp_port">${r.udp_port !== undefined ? r.udp_port : '—'}</td>`,
+      `<td class="col-password">${r.password !== undefined ? r.password : '—'}</td>`,
+      `<td class="col-messages">${r.messages !== undefined && r.messages !== null ? r.messages : 'No messages'}</td>`,
+      `<td class="col-actions">${r.id === 0 ?
+        '—' :
+        `<a class="action" data-id="${r.id}">Edit</a>
+         &nbsp;|&nbsp;
+         <button class="delete-btn" data-id="${r.id}">Delete</button>`}</td>`
+    ];
+    
+    tr.innerHTML = cells.join('');
     `;
+    console.log('Generated HTML for row:', tr.innerHTML); // Debug: Log the generated HTML
     tbody.appendChild(tr);
   });
 
