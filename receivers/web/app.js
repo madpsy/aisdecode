@@ -16,7 +16,7 @@ let sortDir       = 1; // 1 = ascending, -1 = descending
 async function loadReceivers() {
   const res = await fetch('/admin/receivers');
   receiversData = await res.json();
-  console.log('Receivers data:', receiversData); // Debug: Log the receivers data
+  // console.log('Receivers data:', receiversData); // Debug: Log the receivers data
   applySortAndFilter();
 }
 
