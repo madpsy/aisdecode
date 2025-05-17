@@ -462,15 +462,24 @@
       const hasCalls = callVal !== '' && !duplicate;
       const hasDesc = descInput.value.trim() !== '';
       
-      // Check if emails match
+      // Check if emails match and validate format
       const email = emailInput.value.trim();
       const emailConfirm = emailConfirmInput.value.trim();
       let emailsMatch = true;
+      let validEmail = true;
+      
+      // Basic email validation regex
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       
       if (email || emailConfirm) {
         if (email !== emailConfirm) {
+          emailErrorEl.textContent = 'Email addresses do not match';
           emailErrorEl.style.display = 'block';
           emailsMatch = false;
+        } else if (!emailRegex.test(email)) {
+          emailErrorEl.textContent = 'Please enter a valid email address';
+          emailErrorEl.style.display = 'block';
+          validEmail = false;
         } else {
           emailErrorEl.style.display = 'none';
         }
@@ -481,7 +490,7 @@
       // hide url error initially
       urlErrorEl.style.display = 'none';
       
-      if (!hasCalls || !hasDesc || !emailsMatch || !email) {
+      if (!hasCalls || !hasDesc || !emailsMatch || !validEmail || !email) {
         codeEl.textContent = 'Command will appear once form is filled in';
         codeEl.parentElement.style.display = 'block';
         btn.style.display = 'none';
