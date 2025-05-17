@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -18,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/crypto/pbkdf2"
 	_ "github.com/lib/pq"
 )
 
@@ -49,7 +52,9 @@ type Receiver struct {
 	IPAddress    string     `json:"ip_address,omitempty"` // Computed from port metrics
 	Email        string     `json:"email"`                // Added email field
 	Notifications bool       `json:"notifications"`       // Flag for notifications
-	Password     string     `json:"password"`
+	Password     string     `json:"-"`                    // Plain text password for temporary use only
+	PasswordHash string     `json:"-"`                    // Hashed password for storage
+	PasswordSalt string     `json:"-"`                    // Salt for password hashing
 	Messages     int        `json:"messages"`
 	UDPPort      *int       `json:"udp_port,omitempty"`
 	MessageStats map[string]MessageStat `json:"message_stats"` // Added for admin endpoints
@@ -615,6 +620,93 @@ func main() {
 }
 
 func createSchema() {
+    // Check if we need to add password_hash and password_salt columns
+    var columnCount int
+    err := db.QueryRow(`
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_name = 'receivers'
+        AND column_name IN ('password_hash', 'password_salt')
+    `).Scan(&columnCount)
+    
+    if err != nil {
+        log.Printf("Error checking for password columns: %v", err)
+    } else if columnCount < 2 {
+        // Add the new columns if they don't exist
+        _, err = db.Exec(`
+            ALTER TABLE receivers
+            ADD COLUMN IF NOT EXISTS password_hash VARCHAR(64),
+            ADD COLUMN IF NOT EXISTS password_salt VARCHAR(32)
+        `)
+        
+        if err != nil {
+            log.Printf("Error adding password columns: %v", err)
+        } else {
+            log.Printf("Added password_hash and password_salt columns to receivers table")
+            
+            // Migrate existing passwords to the new hashed format
+            rows, err := db.Query(`
+                SELECT id, password FROM receivers
+                WHERE password IS NOT NULL AND password != ''
+            `)
+            
+            if err != nil {
+                log.Printf("Error querying receivers for password migration: %v", err)
+            } else {
+                defer rows.Close()
+                
+                for rows.Next() {
+                    var id int
+                    var password string
+                    
+                    if err := rows.Scan(&id, &password); err != nil {
+                        log.Printf("Error scanning receiver row: %v", err)
+                        continue
+                    }
+                    
+                    // Generate salt
+                    saltBytes := make([]byte, 16)
+                    if _, err := rand.Read(saltBytes); err != nil {
+                        log.Printf("Error generating salt for receiver %d: %v", id, err)
+                        continue
+                    }
+                    
+                    salt := base64.StdEncoding.EncodeToString(saltBytes)
+                    hash := hashPassword(password, salt)
+                    
+                    // Update the receiver with the hashed password
+                    _, err = db.Exec(`
+                        UPDATE receivers
+                        SET password_hash = $1, password_salt = $2
+                        WHERE id = $3
+                    `, hash, salt, id)
+                    
+                    if err != nil {
+                        log.Printf("Error updating receiver %d with hashed password: %v", id, err)
+                    }
+                }
+                
+                if err := rows.Err(); err != nil {
+                    log.Printf("Error iterating through receivers: %v", err)
+                }
+            }
+        }
+    }
+    
+    // After adding password_hash and password_salt columns, make the password column nullable
+    // This is a separate step because we can't modify the column in the same transaction as adding columns
+    if columnCount == 2 {
+        _, err = db.Exec(`
+            ALTER TABLE receivers
+            ALTER COLUMN password DROP NOT NULL;
+        `)
+        
+        if err != nil {
+            log.Printf("Error making password column nullable: %v", err)
+        } else {
+            log.Printf("Made password column nullable")
+        }
+    }
     _, err := db.Exec(`
         CREATE TABLE IF NOT EXISTS receivers (
             id SERIAL PRIMARY KEY,
@@ -626,7 +718,9 @@ func createSchema() {
             url TEXT,
             email VARCHAR(100) NOT NULL,
             notifications BOOLEAN NOT NULL DEFAULT TRUE,
-            password VARCHAR(20) NOT NULL DEFAULT '',
+            password VARCHAR(20),
+            password_hash VARCHAR(64) NOT NULL,
+            password_salt VARCHAR(32) NOT NULL,
             request_ip_address TEXT NOT NULL DEFAULT ''
         );
     `)
@@ -746,7 +840,8 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
                r.url,
                r.email,
                r.notifications,
-               r.password,
+               r.password_hash,
+               r.password_salt,
                rp.udp_port
           FROM receivers r
           LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id`
@@ -800,7 +895,8 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
             &rec.URL,
             &rec.Email,
             &rec.Notifications,
-            &rec.Password,   // Add password field
+            &rec.PasswordHash,
+            &rec.PasswordSalt,
             &udpPort,        // Scan into nullable int
         ); err != nil {
             return nil, err
@@ -1327,10 +1423,31 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
     // Convert receivers to maps to ensure all fields are included in the JSON
     var responseList []map[string]interface{}
     for _, rec := range list {
-        // Convert Receiver to map to ensure all fields are included in the JSON
-        recBytes, _ := json.Marshal(rec)
-        var recMap map[string]interface{}
-        json.Unmarshal(recBytes, &recMap)
+        // Convert Receiver to map but exclude password fields
+        recMap := map[string]interface{}{
+            "id":           rec.ID,
+            "lastupdated":  rec.LastUpdated,
+            "description":  rec.Description,
+            "latitude":     rec.Latitude,
+            "longitude":    rec.Longitude,
+            "name":         rec.Name,
+            "email":        rec.Email,
+            "notifications": rec.Notifications,
+            "messages":     rec.Messages,
+            "message_stats": rec.MessageStats,
+            // password field removed as it will no longer be plain text
+        }
+        
+        // Add optional fields
+        if rec.URL != nil {
+            recMap["url"] = rec.URL
+        }
+        if rec.UDPPort != nil {
+            recMap["udp_port"] = rec.UDPPort
+        }
+        if rec.IPAddress != "" {
+            recMap["ip_address"] = rec.IPAddress
+        }
         
         // Add the lastseen field if available
         if rec.lastSeenTime != nil {
@@ -1370,20 +1487,48 @@ func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
     }
 }
 
-// generateRandomPassword creates a random 8-character password
-func generateRandomPassword() (string, error) {
-    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    password := make([]byte, 8)
+// generateRandomPassword generates a random password and returns both the plain text password
+// and the hashed password with salt for secure storage
+func generateRandomPassword() (string, string, string, error) {
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+"
+    password := make([]byte, 12) // Increased from 8 to 12 characters
     
     for i := range password {
         n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
         if err != nil {
-            return "", err
+            return "", "", "", err
         }
         password[i] = charset[n.Int64()]
     }
     
-    return string(password), nil
+    plainPassword := string(password)
+    
+    // Generate a random salt
+    salt := make([]byte, 16)
+    _, err := rand.Read(salt)
+    if err != nil {
+        return "", "", "", err
+    }
+    saltStr := base64.StdEncoding.EncodeToString(salt)
+    
+    // Hash the password with the salt using a more secure method
+    hashedPassword := hashPassword(plainPassword, saltStr)
+    
+    return plainPassword, hashedPassword, saltStr, nil
+}
+
+// hashPassword hashes a password with a given salt using PBKDF2
+func hashPassword(password, salt string) string {
+    // Use PBKDF2 with HMAC-SHA256, 10000 iterations, and 32-byte output
+    dk := pbkdf2.Key([]byte(password), []byte(salt), 10000, 32, sha256.New)
+    return base64.StdEncoding.EncodeToString(dk)
+}
+
+// verifyPassword checks if a plain text password matches the stored hash
+func verifyPassword(plainPassword, storedHash, storedSalt string) bool {
+    // Hash the provided password with the stored salt
+    calculatedHash := hashPassword(plainPassword, storedSalt)
+    return calculatedHash == storedHash
 }
 
 func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
@@ -1395,12 +1540,15 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
     }
 
     // 2) Generate a random password if not provided
-    password := ""
+    var plainPassword string
+    var hashedPassword string
+    var saltStr string
+    
     if input.Password != nil {
-        password = *input.Password
+        plainPassword = *input.Password
     } else {
         var err error
-        password, err = generateRandomPassword()
+        plainPassword, hashedPassword, saltStr, err = generateRandomPassword()
         if err != nil {
             http.Error(w, "Failed to generate password", http.StatusInternalServerError)
             return
@@ -1415,7 +1563,9 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         Name:        strings.ToUpper(input.Name),
         URL:         input.URL,
         Email:       input.Email,
-        Password:    password,
+        Password:    plainPassword, // Store plain password temporarily for validation
+        PasswordHash: hashedPassword,
+        PasswordSalt: saltStr,
         // IPAddress is no longer used - we get IP from port metrics
     }
     
@@ -1480,6 +1630,21 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
     
     // INSERT including password and request_ip_address with explicit ID
     // Note: ip_address is no longer used
+    // If password was provided by the user but not hashed yet, hash it now
+    if input.Password != nil && rec.PasswordHash == "" {
+        // Generate a salt
+        saltBytes := make([]byte, 16)
+        _, err := rand.Read(saltBytes)
+        if err != nil {
+            tx.Rollback()
+            http.Error(w, "Failed to generate salt", http.StatusInternalServerError)
+            return
+        }
+        saltStr = base64.StdEncoding.EncodeToString(saltBytes)
+        rec.PasswordSalt = saltStr
+        rec.PasswordHash = hashPassword(rec.Password, saltStr)
+    }
+
     err = tx.QueryRow(`
         INSERT INTO receivers (
             id,
@@ -1490,11 +1655,12 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
             url,
             email,
             notifications,
-            password,
+            password_hash,
+            password_salt,
             request_ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         RETURNING id, lastupdated
-    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.Password, clientIP).
+    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.PasswordHash, rec.PasswordSalt, clientIP).
         Scan(&rec.ID, &rec.LastUpdated)
     if err != nil {
         tx.Rollback()
@@ -1545,13 +1711,15 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
     var udpPort sql.NullInt64
     
     err := db.QueryRow(`
-        SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, r.email, r.notifications, r.password, rp.udp_port
+        SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, r.email, r.notifications,
+               r.password_hash, r.password_salt, rp.udp_port
         FROM receivers r
         LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
         WHERE r.id = $1
     `, id).Scan(
         &rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.Email, &rec.Notifications, &rec.Password, &udpPort,
+        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.Email, &rec.Notifications,
+        &rec.PasswordHash, &rec.PasswordSalt, &udpPort,
     )
     
     // Only set UDPPort if it's not null
@@ -1606,16 +1774,25 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         return
     }
 
-    // 2) Get current password and IP address if not provided in the input
-    var password string
+    // 2) Get current password hash and salt if not provided in the input
+    var passwordHash, passwordSalt string
+    var plainPassword string
     
     if input.Password != nil {
-        password = *input.Password
+        // Generate a new salt and hash the password
+        saltBytes := make([]byte, 16)
+        if _, err := rand.Read(saltBytes); err != nil {
+            http.Error(w, "Failed to generate salt", http.StatusInternalServerError)
+            return
+        }
+        passwordSalt = base64.StdEncoding.EncodeToString(saltBytes)
+        plainPassword = *input.Password
+        passwordHash = hashPassword(plainPassword, passwordSalt)
     } else {
-        // Fetch the current password from the database
-        err := db.QueryRow(`SELECT password FROM receivers WHERE id = $1`, id).Scan(&password)
+        // Fetch the current password hash and salt from the database
+        err := db.QueryRow(`SELECT password_hash, password_salt FROM receivers WHERE id = $1`, id).Scan(&passwordHash, &passwordSalt)
         if err != nil && err != sql.ErrNoRows {
-            http.Error(w, "Failed to retrieve current password", http.StatusInternalServerError)
+            http.Error(w, "Failed to retrieve current password data", http.StatusInternalServerError)
             return
         }
     }
@@ -1633,7 +1810,9 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         URL:          input.URL,
         Email:        input.Email,
         Notifications: input.Notifications,
-        Password:     password,
+        Password:     plainPassword, // Store plain password temporarily for validation
+        PasswordHash: passwordHash,
+        PasswordSalt: passwordSalt,
     }
     if err := validateReceiver(rec); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1651,8 +1830,9 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
             url,
             email,
             notifications,
-            password
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            password_hash,
+            password_salt
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         ON CONFLICT (id) DO UPDATE
           SET description   = EXCLUDED.description,
               latitude      = EXCLUDED.latitude,
@@ -1661,10 +1841,11 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
               url           = EXCLUDED.url,
               email         = EXCLUDED.email,
               notifications = EXCLUDED.notifications,
-              password      = EXCLUDED.password,
+              password_hash = EXCLUDED.password_hash,
+              password_salt = EXCLUDED.password_salt,
               lastupdated   = NOW()
         RETURNING lastupdated
-    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.Password).
+    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.PasswordHash, rec.PasswordSalt).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1687,7 +1868,8 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     // 3) load existing record
     var rec Receiver
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, email, notifications, password
+        SELECT id, lastupdated, description, latitude, longitude, name, url, email, notifications,
+               password_hash, password_salt
         FROM receivers WHERE id = $1
     `, id).Scan(
         &rec.ID,
@@ -1699,7 +1881,8 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
         &rec.URL,
         &rec.Email,
         &rec.Notifications,
-        &rec.Password,
+        &rec.PasswordHash,
+        &rec.PasswordSalt,
     )
     if err == sql.ErrNoRows {
         w.WriteHeader(http.StatusNotFound)
@@ -1733,7 +1916,15 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
         rec.Notifications = *patch.Notifications
     }
     if patch.Password != nil {
-        rec.Password = *patch.Password
+        // Generate a new salt and hash the new password
+        saltBytes := make([]byte, 16)
+        if _, err := rand.Read(saltBytes); err != nil {
+            http.Error(w, "Failed to generate salt", http.StatusInternalServerError)
+            return
+        }
+        rec.PasswordSalt = base64.StdEncoding.EncodeToString(saltBytes)
+        rec.PasswordHash = hashPassword(*patch.Password, rec.PasswordSalt)
+        rec.Password = *patch.Password // Store temporarily for validation
     }
     // No longer update the IP address field
 
@@ -1753,11 +1944,13 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
                url           = $5,
                email         = $6,
                notifications = $7,
-               password      = $8,
+               password_hash = $8,
+               password_salt = $9,
                lastupdated   = NOW()
-         WHERE id = $9
+         WHERE id = $10
          RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.Password, rec.ID).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications,
+       rec.PasswordHash, rec.PasswordSalt, rec.ID).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1897,7 +2090,7 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Generate a new random password
-    newPassword, err := generateRandomPassword()
+    newPassword, hashedPassword, salt, err := generateRandomPassword()
     if err != nil {
         http.Error(w, "Failed to generate password", http.StatusInternalServerError)
         return
@@ -1938,10 +2131,10 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
     var lastUpdated time.Time
     err = db.QueryRow(`
         UPDATE receivers
-        SET password = $1, lastupdated = NOW()
-        WHERE id = $2
+        SET password_hash = $1, password_salt = $2, lastupdated = NOW()
+        WHERE id = $3
         RETURNING lastupdated
-    `, newPassword, id).Scan(&lastUpdated)
+    `, hashedPassword, salt, id).Scan(&lastUpdated)
 
     if err == sql.ErrNoRows {
         http.Error(w, "Receiver not found", http.StatusNotFound)
@@ -1951,10 +2144,10 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Return the new password
+    // Return the new password (plain text only for display to user)
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(map[string]string{
-        "password": newPassword,
+        "password": plainPassword,
     })
 }
 
@@ -2009,7 +2202,7 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
     // Fetch the current receiver to verify password and get existing values
     var rec Receiver
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, email, notifications, password
+        SELECT id, lastupdated, description, latitude, longitude, name, url, email, notifications, password_hash, password_salt
         FROM receivers WHERE id = $1
     `, input.ID).Scan(
         &rec.ID,
@@ -2021,7 +2214,8 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         &rec.URL,
         &rec.Email,
         &rec.Notifications,
-        &rec.Password,
+        &rec.PasswordHash,
+        &rec.PasswordSalt,
     )
     if err == sql.ErrNoRows {
         http.Error(w, "Receiver not found", http.StatusNotFound)
@@ -2031,8 +2225,8 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Check if password matches
-    if input.Password != rec.Password {
+    // Check if password matches using the hash
+    if !verifyPassword(input.Password, rec.PasswordHash, rec.PasswordSalt) {
         http.Error(w, "Invalid password", http.StatusUnauthorized)
         return
     }
@@ -2061,7 +2255,15 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
     }
     // No longer update the IP address field
     if input.NewPassword != nil {
-        rec.Password = *input.NewPassword
+        // Generate new salt and hash for the new password
+        saltBytes := make([]byte, 16)
+        _, err := rand.Read(saltBytes)
+        if err != nil {
+            http.Error(w, "Failed to generate salt", http.StatusInternalServerError)
+            return
+        }
+        rec.PasswordSalt = base64.StdEncoding.EncodeToString(saltBytes)
+        rec.PasswordHash = hashPassword(*input.NewPassword, rec.PasswordSalt)
     }
 
     // Validate the updated receiver
@@ -2083,12 +2285,13 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
             url              = $5,
             email            = $6,
             notifications    = $7,
-            password         = $8,
-            request_ip_address = $9,
+            password_hash    = $8,
+            password_salt    = $9,
+            request_ip_address = $10,
             lastupdated      = NOW()
-        WHERE id = $10
+        WHERE id = $11
         RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.Password, clientIP, rec.ID).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.PasswordHash, rec.PasswordSalt, clientIP, rec.ID).
         Scan(&rec.LastUpdated)
     
     if err != nil {
@@ -2159,7 +2362,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     }
 
     // Generate a random password
-    password, err := generateRandomPassword()
+    password, hashedPassword, salt, err := generateRandomPassword()
     if err != nil {
         http.Error(w, "Failed to generate password: "+err.Error(), http.StatusInternalServerError)
         return
@@ -2206,6 +2409,8 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         Email:        input.Email,
         Notifications: input.Notifications,
         Password:     password,
+        PasswordHash: hashedPassword,
+        PasswordSalt: salt,
     }
 
     // Validate the receiver
@@ -2338,11 +2543,12 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
             url,
             email,
             notifications,
-            password,
+            password_hash,
+            password_salt,
             request_ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         RETURNING id, lastupdated`,
-        newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.Password, clientIP).
+        newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.PasswordHash, rec.PasswordSalt, clientIP).
         Scan(&rec.ID, &rec.LastUpdated)
     
     if err != nil {
@@ -2429,8 +2635,8 @@ func handleDeleteReceiverPublic(w http.ResponseWriter, r *http.Request) {
     }
 
     // Fetch the current receiver to verify password
-    var storedPassword string
-    err := db.QueryRow(`SELECT password FROM receivers WHERE id = $1`, input.ID).Scan(&storedPassword)
+    var passwordHash, passwordSalt string
+    err := db.QueryRow(`SELECT password_hash, password_salt FROM receivers WHERE id = $1`, input.ID).Scan(&passwordHash, &passwordSalt)
     if err == sql.ErrNoRows {
         http.Error(w, "Receiver not found", http.StatusNotFound)
         return
@@ -2439,8 +2645,8 @@ func handleDeleteReceiverPublic(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Check if password matches
-    if input.Password != storedPassword {
+    // Check if password matches using the hash
+    if !verifyPassword(input.Password, passwordHash, passwordSalt) {
         http.Error(w, "Invalid password", http.StatusUnauthorized)
         return
     }
