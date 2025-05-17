@@ -743,18 +743,6 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
       }
     }
     
-    // Add a test button for IO86ha
-    const testButton = document.createElement('button');
-    testButton.textContent = 'Test IO86ha';
-    testButton.style.position = 'absolute';
-    testButton.style.top = '10px';
-    testButton.style.right = '10px';
-    testButton.style.zIndex = '1000';
-    testButton.addEventListener('click', () => {
-      maidenheadInput.value = 'IO86ha';
-      handleMaidenheadInput();
-    });
-    document.body.appendChild(testButton);
 
     // Copy button handler
     btn.addEventListener('click', async () => {
