@@ -89,7 +89,7 @@ func sendEmail(alertType string, rec Receiver) error {
 		}
 		
 		// Create reset link using the site domain from settings
-		resetLink := fmt.Sprintf("https://%s/reset-password?token=%s", settings.SiteDomain, resetToken)
+		resetLink := fmt.Sprintf("https://%s/resetpassword.html?token=%s", settings.SiteDomain, resetToken)
 		
 		body = fmt.Sprintf(
 			"Hello,\n\nA password reset has been requested for your receiver account.\n\n"+
