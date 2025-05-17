@@ -604,6 +604,8 @@ func main() {
     
     // Public endpoint to update receiver IP address - removed
 
+    // Public endpoint to get UDP port with authentication
+    http.HandleFunc("/getudpport", handleGetUDPPort)
 
     http.HandleFunc("/admin/getip", adminGetIPHandler)
 
@@ -3069,6 +3071,87 @@ func handlePasswordResetWithToken(w http.ResponseWriter, token, newPassword stri
     if err != nil {
         http.Error(w, "Failed to reset password reset limit: "+err.Error(), http.StatusInternalServerError)
         return
+    }
+    
+    // handleGetUDPPort handles requests to get a receiver's UDP port by authenticating with ID and password
+    func handleGetUDPPort(w http.ResponseWriter, r *http.Request) {
+        // Only allow POST requests
+        if r.Method != http.MethodPost {
+            w.WriteHeader(http.StatusMethodNotAllowed)
+            return
+        }
+    
+        // Parse the request body
+        var input struct {
+            ID       int    `json:"id"`
+            Password string `json:"password"`
+        }
+    
+        if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+            http.Error(w, "Invalid JSON", http.StatusBadRequest)
+            return
+        }
+    
+        // Validate input
+        if input.ID <= 0 {
+            http.Error(w, "Invalid receiver ID", http.StatusBadRequest)
+            return
+        }
+    
+        if input.Password == "" {
+            http.Error(w, "Password is required", http.StatusBadRequest)
+            return
+        }
+    
+        // Ensure database connection
+        if err := ensureConnection(); err != nil {
+            http.Error(w, "Database connection error", http.StatusInternalServerError)
+            return
+        }
+    
+        // Query the database for the receiver's password hash and salt
+        var passwordHash, passwordSalt string
+        var udpPort sql.NullInt64
+    
+        err := db.QueryRow(`
+            SELECT r.password_hash, r.password_salt, rp.udp_port
+            FROM receivers r
+            LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
+            WHERE r.id = $1
+        `, input.ID).Scan(&passwordHash, &passwordSalt, &udpPort)
+    
+        if err == sql.ErrNoRows {
+            // Don't reveal whether the receiver exists or not
+            http.Error(w, "Authentication failed", http.StatusUnauthorized)
+            return
+        } else if err != nil {
+            http.Error(w, "Database error", http.StatusInternalServerError)
+            return
+        }
+    
+        // Verify the password
+        if !verifyPassword(input.Password, passwordHash, passwordSalt) {
+            http.Error(w, "Authentication failed", http.StatusUnauthorized)
+            return
+        }
+    
+        // Check if UDP port is assigned
+        if !udpPort.Valid {
+            http.Error(w, "No UDP port assigned to this receiver", http.StatusNotFound)
+            return
+        }
+    
+        // Return the UDP port in JSON format
+        response := struct {
+            ID      int `json:"id"`
+            UDPPort int `json:"udp_port"`
+        }{
+            ID:      input.ID,
+            UDPPort: int(udpPort.Int64),
+        }
+    
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(response)
     }
 
     // Commit the transaction

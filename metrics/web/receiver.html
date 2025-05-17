@@ -2367,6 +2367,7 @@ async function fetchReceivers(ip) {
             <div style="display: flex; gap: 8px; justify-content: space-between;">
               <div style="display: flex; gap: 8px;">
                 <button type="submit" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Save Changes</button>
+                <button type="button" id="show-port-btn" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">Show Port</button>
                 <button type="button" id="cancel-edit-form" style="background-color: #f0f0f0; border: 1px solid #ccc; padding: 4px 8px; cursor: pointer;">Cancel</button>
               </div>
               <div style="display: flex; gap: 8px;">
@@ -2452,6 +2453,62 @@ async function fetchReceivers(ip) {
                 alert('Could not copy to clipboard. Your password has been generated but you\'ll need to copy it manually.');
               }
             );
+          });
+          
+          // Add event listener to the "Show Port" button
+          document.getElementById('show-port-btn').addEventListener('click', function() {
+            // Get the password field
+            const passwordField = document.getElementById('edit-receiver-password');
+            const password = passwordField.value.trim();
+            
+            // Check if password is filled
+            if (!password) {
+              // Show error message
+              const errorElement = document.getElementById('edit-form-error');
+              errorElement.textContent = 'Please enter your password to view your UDP port';
+              errorElement.style.display = 'block';
+              passwordField.focus();
+              return;
+            }
+            
+            // Get the receiver ID
+            const receiverId = parseInt(document.getElementById('edit-receiver-id').value);
+            
+            // Prepare the request data
+            const requestData = {
+              id: receiverId,
+              password: password
+            };
+            
+            // Make a POST request to the getudpport endpoint
+            fetch('/getudpport', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(requestData)
+            })
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+              }
+              return response.json();
+            })
+            .then(data => {
+              // Show the UDP port in a success message
+              const errorElement = document.getElementById('edit-form-error');
+              errorElement.textContent = `Your UDP port is: ${data.udp_port}`;
+              errorElement.style.color = '#28a745'; // Change to green for success
+              errorElement.style.display = 'block';
+            })
+            .catch(error => {
+              // Show error message
+              const errorElement = document.getElementById('edit-form-error');
+              errorElement.textContent = 'Authentication failed or UDP port not found';
+              errorElement.style.color = '#dc3545'; // Red for error
+              errorElement.style.display = 'block';
+              console.error('Error fetching UDP port:', error);
+            });
           });
           
           // Handle form submission
