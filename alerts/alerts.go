@@ -133,7 +133,7 @@ func initDB() error {
 	return nil
 }
 
-func sendEmail(alertType string, rec Receiver, customBody string) error {
+func sendEmail(alertType string, rec Receiver, customBody string) (string, error) {
 	// Translate alert_type into a human-readable subject
 	var subject string
 	var body string
@@ -182,9 +182,16 @@ func sendEmail(alertType string, rec Receiver, customBody string) error {
 	case "receiver_offline":
 		subject = fmt.Sprintf("Your AIS receiver '%s' has not been seen for over 24 hours", rec.Name)
 		
-		// For receiver offline notifications, send to the receiver's email address
+		// For receiver offline notifications, send to both the receiver's email address
+		// and the site owner's addresses
 		if rec.Email != "" {
-			toAddresses = rec.Email
+			// If we have a receiver email, add it to the site owner addresses
+			toAddresses = settings.ToAddresses
+			if toAddresses != "" && rec.Email != "" {
+				toAddresses += "," + rec.Email
+			} else if rec.Email != "" {
+				toAddresses = rec.Email
+			}
 		}
 		
 		if customBody != "" {
@@ -263,11 +270,11 @@ func sendEmail(alertType string, rec Receiver, customBody string) error {
 		if err := w.Close(); err != nil {
 			return fmt.Errorf("SMTP close error: %w", err)
 		}
-		return c.Quit()
+		return toAddresses, c.Quit()
 	}
 
 	toList := strings.Split(toAddresses, ",")
-	return smtp.SendMail(addr, auth, settings.FromAddress, toList, msg)
+	return toAddresses, smtp.SendMail(addr, auth, settings.FromAddress, toList, msg)
 }
 
 func alertHandler(w http.ResponseWriter, r *http.Request) {
@@ -304,7 +311,8 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
-	if err := sendEmail(alertMsg.AlertType, alertMsg.Receiver, ""); err != nil {
+	emailSentTo, err := sendEmail(alertMsg.AlertType, alertMsg.Receiver, "")
+	if err != nil {
 	    log.Printf("alertHandler: sendEmail error for alert_type %s Receiver ID %d: %v", alertMsg.AlertType, alertMsg.Receiver.ID, err)
 	    http.Error(w, "Failed to send alert email: "+err.Error(), http.StatusInternalServerError)
 	    return
@@ -318,22 +326,9 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
 		receiverID = -1
 	}
 	
-	// Determine the email address the alert was sent to
-	email := ""
-	if alertMsg.AlertType == "password_reset" {
-		// For password reset, the email might be in the custom fields
-		if e, ok := alertMsg.Receiver.CustomFields["email"].(string); ok {
-			email = e
-		} else {
-			email = alertMsg.Receiver.Email
-		}
-	} else {
-		email = alertMsg.Receiver.Email
-	}
-	
 	message := fmt.Sprintf("Alert type: %s for receiver %s (ID: %d)",
 		alertMsg.AlertType, alertMsg.Receiver.Name, alertMsg.Receiver.ID)
-	if err := logAlert(alertMsg.AlertType, receiverID, email, message); err != nil {
+	if err := logAlert(alertMsg.AlertType, receiverID, emailSentTo, message); err != nil {
 		log.Printf("Error logging alert to database: %v", err)
 	}
 	
@@ -494,13 +489,14 @@ func checkOfflineReceivers() {
 				)
 
 				// Send the email
-				if err := sendEmail("receiver_offline", receiverCopy, message); err != nil {
+				emailSentTo, err := sendEmail("receiver_offline", receiverCopy, message)
+				if err != nil {
 					log.Printf("Error sending offline notification for receiver %d: %v", receiver.ID, err)
 					continue
 				}
 
 				// Log the alert
-				if err := logAlert("receiver_offline", receiver.ID, receiver.Email, message); err != nil {
+				if err := logAlert("receiver_offline", receiver.ID, emailSentTo, message); err != nil {
 					log.Printf("Error logging alert for receiver %d: %v", receiver.ID, err)
 				}
 
