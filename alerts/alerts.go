@@ -180,6 +180,12 @@ func sendEmail(alertType string, rec Receiver, customBody string) error {
 		)
 	case "receiver_offline":
 		subject = fmt.Sprintf("Your AIS receiver '%s' has not been seen for over 24 hours", rec.Name)
+		
+		// For receiver offline notifications, send to the receiver's email address
+		if rec.Email != "" {
+			toAddresses = rec.Email
+		}
+		
 		if customBody != "" {
 			body = customBody
 		} else {
@@ -190,7 +196,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) error {
 				lastSeenStr = lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
 			}
 			
-			receiverURL := fmt.Sprintf("https://%s/metrics/receivers.html?receiver=%d", settings.SiteDomain, rec.ID)
+			receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, rec.ID)
 			body = fmt.Sprintf(
 				"Hello,\n\nYour AIS receiver '%s' (ID: %d) has not been seen for over 24 hours.\n\n"+
 				"Receiver Details:\n"+
@@ -429,14 +435,14 @@ func checkOfflineReceivers() {
 			}
 
 			if shouldSend {
-				// Determine who to send the email to
-				toEmail := settings.ToAddresses
-				if receiver.Email != "" {
-					toEmail = receiver.Email
-				}
-
-				// Create a copy of the receiver with the email as ToAddresses for sendEmail
+				// Create a copy of the receiver for sendEmail
 				receiverCopy := receiver
+				
+				// Set the email address to use for this notification
+				if receiver.Email != "" {
+					// Use the receiver's email directly in the sendEmail function
+					// The function will use this as the recipient
+				}
 				
 				// Parse the LastSeen time to format it in a human-readable way
 				lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
