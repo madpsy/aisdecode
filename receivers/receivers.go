@@ -272,6 +272,7 @@ func notifyWebhookWithType(rec Receiver, alertType string) {
             "latitude":    rec.Latitude,
             "longitude":   rec.Longitude,
             "name":        rec.Name,
+            "email":       rec.Email,  // Include the email field for notifications
         },
     }
     if rec.URL != nil {
