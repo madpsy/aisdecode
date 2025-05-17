@@ -2490,7 +2490,14 @@ async function fetchReceivers(ip) {
             })
             .then(response => {
               if (!response.ok) {
-                throw new Error(`HTTP error! Status: ${response.status}`);
+                // Handle different error status codes
+                if (response.status === 401) {
+                  throw new Error('Authentication failed: Incorrect password');
+                } else if (response.status === 404) {
+                  throw new Error('No UDP port assigned to this receiver');
+                } else {
+                  throw new Error(`HTTP error! Status: ${response.status}`);
+                }
               }
               return response.json();
             })
@@ -2502,9 +2509,9 @@ async function fetchReceivers(ip) {
               errorElement.style.display = 'block';
             })
             .catch(error => {
-              // Show error message
+              // Show specific error message
               const errorElement = document.getElementById('edit-form-error');
-              errorElement.textContent = 'Authentication failed or UDP port not found';
+              errorElement.textContent = error.message || 'Error fetching UDP port';
               errorElement.style.color = '#dc3545'; // Red for error
               errorElement.style.display = 'block';
               console.error('Error fetching UDP port:', error);
