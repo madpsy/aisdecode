@@ -26,7 +26,9 @@ function updateAnonMessage() {
       msgEl.style.color = 'blue';
       msgEl.style.fontSize = '1.25rem';
       msgEl.style.textAlign = 'left';
-      header.insertAdjacentElement('afterend', msgEl);
+      // Insert message aligned with form section
+      const formSection = document.getElementById('form-section');
+      formSection.insertAdjacentElement('beforebegin', msgEl);
     }
   } else {
     if (msgEl) msgEl.remove();
