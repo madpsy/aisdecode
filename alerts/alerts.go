@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/smtp"
+	"strconv"
 	"strings"
 )
 
@@ -59,9 +60,17 @@ func sendEmail(alertType string, rec Receiver) error {
 	default:
 		subject = alertType
 	}
+	// Prepare display values for URL and UDP port
+	var urlDisplay, udpPortDisplay string
+	if rec.URL != nil {
+		urlDisplay = *rec.URL
+	}
+	if rec.UDPPort != nil {
+		udpPortDisplay = strconv.Itoa(*rec.UDPPort)
+	}
 	body := fmt.Sprintf(
-		"A new receiver was added:\n\nID: %d\nName: %s\nDescription: %s\nLatitude: %f\nLongitude: %f\nLast Updated: %s\nURL: %v\nUDP Port: %v\n",
-		rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, rec.URL, rec.UDPPort,
+		"A new receiver was added:\n\nID: %d\nName: %s\nDescription: %s\nLatitude: %f\nLongitude: %f\nLast Updated: %s\nURL: %s\nUDP Port: %s\n",
+		rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, urlDisplay, udpPortDisplay,
 	)
 	msg := []byte(
 		"From: " + settings.FromName + " <" + settings.FromAddress + ">\r\n" +
