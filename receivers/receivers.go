@@ -47,6 +47,7 @@ type Receiver struct {
 	Name        string     `json:"name"`
 	URL         *string    `json:"url,omitempty"`
 	IPAddress   string     `json:"ip_address,omitempty"` // Computed from port metrics
+	Email       string     `json:"email"`                // Added email field
 	Password    string     `json:"password"`
 	Messages    int        `json:"messages"`
 	UDPPort     *int       `json:"udp_port,omitempty"`
@@ -76,6 +77,7 @@ type ReceiverInput struct {
     Longitude   float64  `json:"longitude"`
     Name        string   `json:"name"`
     URL         *string  `json:"url,omitempty"`
+    Email       string   `json:"email"`
     Password    *string  `json:"password,omitempty"`
 }
 
@@ -85,6 +87,7 @@ type ReceiverPatch struct {
     Longitude   *float64  `json:"longitude,omitempty"`
     Name        *string   `json:"name,omitempty"`
     URL         *string   `json:"url,omitempty"`
+    Email       *string   `json:"email,omitempty"`
     Password    *string   `json:"password,omitempty"`
 }
 
@@ -1277,6 +1280,7 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         Longitude:   0,
         Name:        "Anonymous",
         URL:         nil,
+        Email:       "",
         Password:    "",
         Messages:    0,
         MessageStats: make(map[string]MessageStat),
@@ -1660,7 +1664,7 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     // 3) load existing record
     var rec Receiver
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, password
+        SELECT id, lastupdated, description, latitude, longitude, name, url, email, password
         FROM receivers WHERE id = $1
     `, id).Scan(
         &rec.ID,
@@ -1670,6 +1674,7 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
         &rec.Longitude,
         &rec.Name,
         &rec.URL,
+        &rec.Email,
         &rec.Password,
     )
     if err == sql.ErrNoRows {
@@ -1697,6 +1702,9 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     if patch.URL != nil {
         rec.URL = patch.URL
     }
+    if patch.Email != nil {
+        rec.Email = *patch.Email
+    }
     if patch.Password != nil {
         rec.Password = *patch.Password
     }
@@ -1716,11 +1724,12 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
                longitude    = $3,
                name         = $4,
                url          = $5,
-               password     = $6,
+               email        = $6,
+               password     = $7,
                lastupdated  = NOW()
-         WHERE id = $7
+         WHERE id = $8
          RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, rec.ID).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Password, rec.ID).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1793,6 +1802,14 @@ func validateReceiver(r Receiver) error {
         }
     }
     
+    // Validate email format
+    if r.Email == "" {
+        return fmt.Errorf("email is required")
+    }
+    if !isValidEmail(r.Email) {
+        return fmt.Errorf("invalid email format")
+    }
+    
     // Validate password length
     if len(r.Password) < 8 {
         return fmt.Errorf("password must be at least 8 characters")
@@ -1822,6 +1839,13 @@ func validateReceiver(r Receiver) error {
     }
     
     return nil
+}
+
+// isValidEmail validates email format using a simple regex pattern
+func isValidEmail(email string) bool {
+    // Simple email validation regex
+    emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+    return emailRegex.MatchString(email)
 }
 
 // adminRegeneratePasswordHandler handles POST /admin/receivers/regenerate-password/{id}
@@ -1854,7 +1878,7 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
     // Fetch the current receiver to validate with the new password
     var rec Receiver
     err = db.QueryRow(`
-        SELECT id, description, latitude, longitude, name, url
+        SELECT id, description, latitude, longitude, name, url, email
         FROM receivers WHERE id = $1
     `, id).Scan(
         &rec.ID,
@@ -1863,6 +1887,7 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
         &rec.Longitude,
         &rec.Name,
         &rec.URL,
+        &rec.Email,
     )
     
     if err == sql.ErrNoRows {
@@ -1926,6 +1951,7 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         Longitude   *float64  `json:"longitude,omitempty"`
         Name        *string   `json:"name,omitempty"`
         URL         *string   `json:"url,omitempty"`
+        Email       *string   `json:"email,omitempty"`
         NewPassword *string   `json:"new_password,omitempty"`
     }
 
