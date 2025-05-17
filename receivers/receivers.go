@@ -200,36 +200,38 @@ func notifyWebhook(rec Receiver) {
     if settings.WebhookURL == "" {
         return
     }
-    // Build payload without sensitive fields (exclude password)
-    payloadMap := map[string]interface{}{
-        "id":          rec.ID,
-        "lastupdated": rec.LastUpdated,
-        "description": rec.Description,
-        "latitude":    rec.Latitude,
-        "longitude":   rec.Longitude,
-        "name":        rec.Name,
+    // Build the alert envelope
+    envelope := map[string]interface{}{
+        "alert_type": "receiver_added",
+        "receiver": map[string]interface{}{
+            "id":          rec.ID,
+            "lastupdated": rec.LastUpdated,
+            "description": rec.Description,
+            "latitude":    rec.Latitude,
+            "longitude":   rec.Longitude,
+            "name":        rec.Name,
+        },
     }
     if rec.URL != nil {
-        payloadMap["url"] = rec.URL
+        envelope["receiver"].(map[string]interface{})["url"] = rec.URL
     }
     if rec.UDPPort != nil {
-        payloadMap["udp_port"] = rec.UDPPort
+        envelope["receiver"].(map[string]interface{})["udp_port"] = rec.UDPPort
     }
-    payload, err := json.Marshal(payloadMap)
+    payload, err := json.Marshal(envelope)
     if err != nil {
-        log.Printf("notifyWebhook: failed to marshal receiver payload: %v", err)
+        log.Printf("notifyWebhook: failed to marshal envelope: %v", err)
         return
     }
-    // Call the webhook URL with 5s timeout
     client := &http.Client{Timeout: 5 * time.Second}
     resp, err := client.Post(settings.WebhookURL, "application/json", bytes.NewBuffer(payload))
     if err != nil {
-        log.Printf("notifyWebhook: failed to POST webhook: %v", err)
+        log.Printf("notifyWebhook: POST webhook error: %v", err)
         return
     }
     defer resp.Body.Close()
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-        log.Printf("notifyWebhook: received non-2xx status: %s", resp.Status)
+        log.Printf("notifyWebhook: non-2xx status from webhook: %s", resp.Status)
     }
 }
 

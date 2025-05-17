@@ -14,3 +14,4 @@ disseminator/settings.json
 receivers/settings.json
 mqttproxy/settings.json
 metrics/settings.json
+alerts/settings.json
