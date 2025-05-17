@@ -2193,6 +2193,7 @@ func setupServer(settings *Settings) {
     mux.Handle("/addreceiver", receiversProxy) // addreceiver JSON endpoint
     mux.Handle("/editreceiver", receiversProxy) // editreceiver JSON endpoint
     mux.Handle("/deletereceiver", receiversProxy) // deletereceiver JSON endpoint
+    mux.Handle("/password-reset", receiversProxy) // password-reset JSON endpoint
     mux.Handle("/receiverip", receiversProxy) // receiverip JSON endpoint
     mux.Handle("/metrics/",  metricsProxy) // metrics JSON endpoints
     mux.Handle("/statistics/", statisticsProxy) // statistics JSON endpoints

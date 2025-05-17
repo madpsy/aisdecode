@@ -2369,7 +2369,10 @@ async function fetchReceivers(ip) {
                 <button type="submit" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer;">Save Changes</button>
                 <button type="button" id="cancel-edit-form" style="background-color: #f0f0f0; border: 1px solid #ccc; padding: 4px 8px; cursor: pointer;">Cancel</button>
               </div>
-              <button type="button" id="delete-receiver-btn" style="background-color: #dc3545; color: white; border: none; padding: 4px 8px; cursor: pointer;">Delete Receiver</button>
+              <div style="display: flex; gap: 8px;">
+                <button type="button" id="reset-password-btn" style="background-color: #ffc107; color: black; border: none; padding: 4px 8px; cursor: pointer;">Reset Password</button>
+                <button type="button" id="delete-receiver-btn" style="background-color: #dc3545; color: white; border: none; padding: 4px 8px; cursor: pointer;">Delete Receiver</button>
+              </div>
             </div>
           </form>
         `;
@@ -2540,6 +2543,63 @@ async function fetchReceivers(ip) {
               // Display error message
               errorElement.textContent = `Error: ${error.message}`;
               errorElement.style.display = 'block';
+            });
+          });
+          
+          // Add event listener for the password reset button
+          document.getElementById('reset-password-btn').addEventListener('click', function() {
+            const receiverId = document.getElementById('edit-receiver-id').value;
+            
+            // Prompt for email address
+            const email = prompt('Please enter your email address to receive a password reset link:');
+            
+            // Validate email
+            if (!email) {
+              return; // User cancelled or didn't enter an email
+            }
+            
+            // Basic email validation
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+              alert('Please enter a valid email address');
+              return;
+            }
+            
+            // Send password reset request
+            fetch('/password-reset', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                email: email
+              })
+            })
+            .then(response => {
+              if (!response.ok) {
+                return response.text().then(text => {
+                  throw new Error(text || `HTTP error! Status: ${response.status}`);
+                });
+              }
+              return response.json();
+            })
+            .then(data => {
+              // Show success notification
+              const notification = document.createElement('div');
+              notification.style.cssText = 'position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background-color: #4CAF50; color: white; padding: 16px; border-radius: 4px; z-index: 9999; text-align: center;';
+              notification.textContent = 'Password reset link has been sent to your email address.';
+              document.body.appendChild(notification);
+              
+              // Remove the notification after 3 seconds
+              setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transition = 'opacity 1s';
+                setTimeout(() => notification.remove(), 1000);
+              }, 3000);
+            })
+            .catch(error => {
+              // Show error notification
+              alert(`Error: ${error.message}`);
             });
           });
           
