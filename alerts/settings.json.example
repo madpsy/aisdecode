@@ -1,4 +1,9 @@
 {
+  "db_host": "localhost",
+  "db_port": 5432,
+  "db_user": "new_user",
+  "db_pass": "password",
+  "db_name": "mydatabase",
   "listen_port": 5135,
   "smtp_host": "smtp.example.com",
   "smtp_port": 587,
@@ -9,5 +14,6 @@
   "from_address": "alerts@example.com",
   "from_name": "Alerts Service",
   "to_addresses": "ops@example.com,admin@example.com",
-  "site_domain": "example.com"
+  "site_domain": "example.com",
+  "receivers_base_url": "http://localhost:5123"
 }

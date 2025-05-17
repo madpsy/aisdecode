@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -11,37 +13,69 @@ import (
 	"net/smtp"
 	"strconv"
 	"strings"
+	"time"
+
+	_ "github.com/lib/pq"
 )
 
 // Settings holds configuration for the alerts service.
 type Settings struct {
-	ListenPort  int    `json:"listen_port"`
-	SMTPHost    string `json:"smtp_host"`
-	SMTPPort    int    `json:"smtp_port"`
-	SMTPUser    string `json:"smtp_user"`
+	ListenPort         int    `json:"listen_port"`
+	SMTPHost           string `json:"smtp_host"`
+	SMTPPort           int    `json:"smtp_port"`
+	SMTPUser           string `json:"smtp_user"`
 	SMTPPass           string `json:"smtp_pass"`
 	SMTPUseTLS         bool   `json:"smtp_use_tls"`
 	SMTPTLSSkipVerify  bool   `json:"smtp_tls_skip_verify"`
 	FromAddress        string `json:"from_address"`
 	FromName           string `json:"from_name"`
 	ToAddresses        string `json:"to_addresses"`
-	SiteDomain         string `json:"site_domain"`  // Domain for password reset links
+	SiteDomain         string `json:"site_domain"` // Domain for password reset links
+	ReceiversBaseURL   string `json:"receivers_base_url"`
+	DBHost             string `json:"db_host"`
+	DBPort             int    `json:"db_port"`
+	DBUser             string `json:"db_user"`
+	DBPass             string `json:"db_pass"`
+	DBName             string `json:"db_name"`
 }
 
 // Receiver represents the payload sent by the receivers service.
 type Receiver struct {
 	ID           int                    `json:"id"`
 	LastUpdated  string                 `json:"lastupdated"`
+	LastSeen     string                 `json:"lastseen"`
 	Description  string                 `json:"description"`
 	Latitude     float64                `json:"latitude"`
 	Longitude    float64                `json:"longitude"`
 	Name         string                 `json:"name"`
+	Email        string                 `json:"email"`
 	URL          *string                `json:"url,omitempty"`
 	UDPPort      *int                   `json:"udp_port,omitempty"`
+	Notifications bool                  `json:"notifications"`
 	CustomFields map[string]interface{} `json:"custom_fields,omitempty"` // For additional fields like reset tokens
 }
 
-var settings Settings
+// Alert represents an alert record in the database
+type Alert struct {
+	ID        int       `json:"id"`
+	Type      string    `json:"type"`
+	ReceiverID int      `json:"receiver_id"`
+	SentAt    time.Time `json:"sent_at"`
+	Message   string    `json:"message"`
+}
+
+// ReceiverNotification represents a notification record for receivers
+type ReceiverNotification struct {
+	ID         int       `json:"id"`
+	ReceiverID int       `json:"receiver_id"`
+	LastSentAt time.Time `json:"last_sent_at"`
+	Count      int       `json:"count"`
+}
+
+var (
+	settings Settings
+	db       *sql.DB
+)
 
 func loadSettings() {
 	data, err := ioutil.ReadFile("settings.json")
@@ -53,7 +87,52 @@ func loadSettings() {
 	}
 }
 
-func sendEmail(alertType string, rec Receiver) error {
+func initDB() error {
+	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		settings.DBHost, settings.DBPort, settings.DBUser, settings.DBPass, settings.DBName)
+	
+	var err error
+	db, err = sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Test the connection
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	// Create tables if they don't exist
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS alerts (
+			id SERIAL PRIMARY KEY,
+			type VARCHAR(50) NOT NULL,
+			receiver_id INTEGER NOT NULL,
+			sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			message TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create alerts table: %w", err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS receiver_notifications (
+			id SERIAL PRIMARY KEY,
+			receiver_id INTEGER NOT NULL UNIQUE,
+			last_sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			count INTEGER NOT NULL DEFAULT 1
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create receiver_notifications table: %w", err)
+	}
+
+	log.Println("Database initialized successfully")
+	return nil
+}
+
+func sendEmail(alertType string, rec Receiver, customBody string) error {
 	// Translate alert_type into a human-readable subject
 	var subject string
 	var body string
@@ -99,6 +178,31 @@ func sendEmail(alertType string, rec Receiver) error {
 			"Thank you,\nAIS Decoder Team",
 			resetLink,
 		)
+	case "receiver_offline":
+		subject = fmt.Sprintf("Your AIS receiver '%s' has not been seen for over 24 hours", rec.Name)
+		if customBody != "" {
+			body = customBody
+		} else {
+			// Parse the LastSeen time to format it in a human-readable way
+			lastSeen, err := time.Parse(time.RFC3339, rec.LastSeen)
+			lastSeenStr := rec.LastSeen
+			if err == nil {
+				lastSeenStr = lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
+			}
+			
+			receiverURL := fmt.Sprintf("https://%s/metrics/receivers.html?receiver=%d", settings.SiteDomain, rec.ID)
+			body = fmt.Sprintf(
+				"Hello,\n\nYour AIS receiver '%s' (ID: %d) has not been seen for over 24 hours.\n\n"+
+				"Receiver Details:\n"+
+				"- Name: %s\n"+
+				"- Description: %s\n"+
+				"- Last seen: %s\n\n"+
+				"Please check your receiver's connection and ensure it's properly configured.\n\n"+
+				"You can view your receiver's details and disable notifications here: %s\n\n"+
+				"Thank you,\nAIS Decoder Team",
+				rec.Name, rec.ID, rec.Name, rec.Description, lastSeenStr, receiverURL,
+			)
+		}
 	default:
 		subject = alertType
 		body = fmt.Sprintf("Alert type: %s\nReceiver ID: %d\nName: %s\nDescription: %s\n",
@@ -193,7 +297,7 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
-	if err := sendEmail(alertMsg.AlertType, alertMsg.Receiver); err != nil {
+	if err := sendEmail(alertMsg.AlertType, alertMsg.Receiver, ""); err != nil {
 	    log.Printf("alertHandler: sendEmail error for alert_type %s Receiver ID %d: %v", alertMsg.AlertType, alertMsg.Receiver.ID, err)
 	    http.Error(w, "Failed to send alert email: "+err.Error(), http.StatusInternalServerError)
 	    return
@@ -202,8 +306,211 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// logAlert records an alert in the database
+func logAlert(alertType string, receiverID int, message string) error {
+	_, err := db.Exec(
+		"INSERT INTO alerts (type, receiver_id, sent_at, message) VALUES ($1, $2, NOW(), $3)",
+		alertType, receiverID, message,
+	)
+	return err
+}
+
+// shouldSendNotification determines if we should send a notification for a receiver
+// based on when the last notification was sent
+func shouldSendNotification(receiverID int) (bool, error) {
+	var lastSent time.Time
+	var count int
+
+	err := db.QueryRow(
+		"SELECT last_sent_at, count FROM receiver_notifications WHERE receiver_id = $1",
+		receiverID,
+	).Scan(&lastSent, &count)
+
+	if err == sql.ErrNoRows {
+		// No previous notification, should send
+		return true, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	// If first notification (count=1), we already sent it
+	// For subsequent notifications, send weekly
+	if count == 1 {
+		// Check if it's been a week since the last notification
+		return time.Since(lastSent) >= 7*24*time.Hour, nil
+	}
+
+	return false, nil
+}
+
+// updateNotificationRecord updates or creates a notification record for a receiver
+func updateNotificationRecord(receiverID int) error {
+	// Try to update existing record
+	result, err := db.Exec(
+		"UPDATE receiver_notifications SET last_sent_at = NOW(), count = count + 1 WHERE receiver_id = $1",
+		receiverID,
+	)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	// If no rows were affected, insert a new record
+	if rowsAffected == 0 {
+		_, err = db.Exec(
+			"INSERT INTO receiver_notifications (receiver_id, last_sent_at, count) VALUES ($1, NOW(), 1)",
+			receiverID,
+		)
+		return err
+	}
+
+	return nil
+}
+
+// fetchReceivers gets the current list of receivers from the receivers service
+func fetchReceivers() ([]Receiver, error) {
+	url := fmt.Sprintf("%s/admin/receivers", settings.ReceiversBaseURL)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch receivers: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("receivers API returned status: %d", resp.StatusCode)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var receivers []Receiver
+	if err := json.Unmarshal(body, &receivers); err != nil {
+		return nil, fmt.Errorf("failed to parse receivers: %w", err)
+	}
+
+	return receivers, nil
+}
+
+// checkOfflineReceivers checks for receivers that haven't been seen for over 24 hours
+func checkOfflineReceivers() {
+	receivers, err := fetchReceivers()
+	if err != nil {
+		log.Printf("Error fetching receivers: %v", err)
+		return
+	}
+
+	now := time.Now()
+	for _, receiver := range receivers {
+		// Skip receivers with ID 0, notifications disabled, or no email
+		if receiver.ID == 0 || !receiver.Notifications || receiver.Email == "" {
+			continue
+		}
+
+		// Parse the LastSeen time
+		lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
+		if err != nil {
+			log.Printf("Error parsing LastSeen time for receiver %d: %v", receiver.ID, err)
+			continue
+		}
+
+		// Check if receiver hasn't been seen for over 24 hours
+		if now.Sub(lastSeen) > 24*time.Hour {
+			// Check if we should send a notification
+			shouldSend, err := shouldSendNotification(receiver.ID)
+			if err != nil {
+				log.Printf("Error checking notification status for receiver %d: %v", receiver.ID, err)
+				continue
+			}
+
+			if shouldSend {
+				// Determine who to send the email to
+				toEmail := settings.ToAddresses
+				if receiver.Email != "" {
+					toEmail = receiver.Email
+				}
+
+				// Create a copy of the receiver with the email as ToAddresses for sendEmail
+				receiverCopy := receiver
+				
+				// Parse the LastSeen time to format it in a human-readable way
+				lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
+				lastSeenStr := receiver.LastSeen
+				if err == nil {
+					lastSeenStr = lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
+				}
+				
+				// Create custom message
+				receiverURL := fmt.Sprintf("https://%s/receivers.html?receiver=%d", settings.SiteDomain, receiver.ID)
+				message := fmt.Sprintf(
+					"Your AIS receiver '%s' (ID: %d) has not been seen for over 24 hours.\n\n"+
+					"Receiver Details:\n"+
+					"- Name: %s\n"+
+					"- Description: %s\n"+
+					"- Last seen: %s\n\n"+
+					"Please check your receiver's connection and ensure it's properly configured.\n\n"+
+					"You can view your receiver's details and disable notifications here: %s",
+					receiver.Name, receiver.ID, receiver.Name, receiver.Description, lastSeenStr, receiverURL,
+				)
+
+				// Send the email
+				if err := sendEmail("receiver_offline", receiverCopy, message); err != nil {
+					log.Printf("Error sending offline notification for receiver %d: %v", receiver.ID, err)
+					continue
+				}
+
+				// Log the alert
+				if err := logAlert("receiver_offline", receiver.ID, message); err != nil {
+					log.Printf("Error logging alert for receiver %d: %v", receiver.ID, err)
+				}
+
+				// Update notification record
+				if err := updateNotificationRecord(receiver.ID); err != nil {
+					log.Printf("Error updating notification record for receiver %d: %v", receiver.ID, err)
+				}
+
+				log.Printf("Sent offline notification for receiver %d (%s)", receiver.ID, receiver.Name)
+			}
+		}
+	}
+}
+
+// startReceiverMonitoring starts the background monitoring of receivers
+func startReceiverMonitoring(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			checkOfflineReceivers()
+		case <-ctx.Done():
+			log.Println("Receiver monitoring stopped")
+			return
+		}
+	}
+}
+
 func main() {
 	loadSettings()
+	
+	// Initialize database
+	if err := initDB(); err != nil {
+		log.Fatalf("Database initialization error: %v", err)
+	}
+	defer db.Close()
+	
+	// Start receiver monitoring in a goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go startReceiverMonitoring(ctx)
+	
+	// Start HTTP server
 	addr := fmt.Sprintf(":%d", settings.ListenPort)
 	http.HandleFunc("/", alertHandler)
 	log.Printf("Starting alerts service on %s", addr)
