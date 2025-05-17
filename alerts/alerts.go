@@ -107,7 +107,8 @@ func initDB() error {
 		CREATE TABLE IF NOT EXISTS alerts (
 			id SERIAL PRIMARY KEY,
 			type VARCHAR(50) NOT NULL,
-			receiver_id INTEGER NOT NULL,
+			receiver_id INTEGER NOT NULL, -- Can be -1 for system alerts without a specific receiver
+			email VARCHAR(255),           -- Email address the alert was sent to
 			sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			message TEXT NOT NULL
 		)
@@ -308,15 +309,43 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
 	    http.Error(w, "Failed to send alert email: "+err.Error(), http.StatusInternalServerError)
 	    return
 	}
+	
+	// Log the alert to the database
+	// For password reset, ensure we have a valid receiver ID (might be 0 for new users)
+	receiverID := alertMsg.Receiver.ID
+	if alertMsg.AlertType == "password_reset" && receiverID == 0 {
+		// Use -1 as a placeholder for system alerts without a specific receiver
+		receiverID = -1
+	}
+	
+	// Determine the email address the alert was sent to
+	email := ""
+	if alertMsg.AlertType == "password_reset" {
+		// For password reset, the email might be in the custom fields
+		if e, ok := alertMsg.Receiver.CustomFields["email"].(string); ok {
+			email = e
+		} else {
+			email = alertMsg.Receiver.Email
+		}
+	} else {
+		email = alertMsg.Receiver.Email
+	}
+	
+	message := fmt.Sprintf("Alert type: %s for receiver %s (ID: %d)",
+		alertMsg.AlertType, alertMsg.Receiver.Name, alertMsg.Receiver.ID)
+	if err := logAlert(alertMsg.AlertType, receiverID, email, message); err != nil {
+		log.Printf("Error logging alert to database: %v", err)
+	}
+	
 	log.Printf("alertHandler: alert email sent for alert_type %s Receiver ID %d", alertMsg.AlertType, alertMsg.Receiver.ID)
 	w.WriteHeader(http.StatusOK)
 }
 
 // logAlert records an alert in the database
-func logAlert(alertType string, receiverID int, message string) error {
+func logAlert(alertType string, receiverID int, email string, message string) error {
 	_, err := db.Exec(
-		"INSERT INTO alerts (type, receiver_id, sent_at, message) VALUES ($1, $2, NOW(), $3)",
-		alertType, receiverID, message,
+		"INSERT INTO alerts (type, receiver_id, email, sent_at, message) VALUES ($1, $2, $3, NOW(), $4)",
+		alertType, receiverID, email, message,
 	)
 	return err
 }
@@ -471,7 +500,7 @@ func checkOfflineReceivers() {
 				}
 
 				// Log the alert
-				if err := logAlert("receiver_offline", receiver.ID, message); err != nil {
+				if err := logAlert("receiver_offline", receiver.ID, receiver.Email, message); err != nil {
 					log.Printf("Error logging alert for receiver %d: %v", receiver.ID, err)
 				}
 
