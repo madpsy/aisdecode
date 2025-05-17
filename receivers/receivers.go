@@ -3058,6 +3058,18 @@ func handlePasswordResetWithToken(w http.ResponseWriter, token, newPassword stri
         http.Error(w, "Failed to mark token as used: "+err.Error(), http.StatusInternalServerError)
         return
     }
+    
+    // Delete all other tokens for this receiver to reset the 1-hour limit
+    // This allows the user to request another password reset immediately if needed
+    _, err = tx.Exec(`
+        DELETE FROM password_reset_tokens
+        WHERE receiver_id = $1 AND token != $2
+    `, receiverID, token)
+    
+    if err != nil {
+        http.Error(w, "Failed to reset password reset limit: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
 
     // Commit the transaction
     if err := tx.Commit(); err != nil {
