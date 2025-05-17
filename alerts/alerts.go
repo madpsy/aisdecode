@@ -49,7 +49,14 @@ func loadSettings() {
 }
 
 func sendEmail(alertType string, rec Receiver) error {
-	subject := alertType
+	// Translate alert_type into a human-readable subject
+	var subject string
+	switch alertType {
+	case "receiver_added":
+		subject = "New Receiver Added"
+	default:
+		subject = alertType
+	}
 	body := fmt.Sprintf(
 		"A new receiver was added:\n\nID: %d\nName: %s\nDescription: %s\nLatitude: %f\nLongitude: %f\nLast Updated: %s\nURL: %v\nUDP Port: %v\n",
 		rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, rec.URL, rec.UDPPort,
