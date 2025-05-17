@@ -218,6 +218,19 @@ func notifyWebhook(rec Receiver) {
     notifyWebhookWithType(rec, "receiver_added")
 }
 
+// notifyWebhookWithClientIP is used when we need to include the client IP address
+func notifyWebhookWithClientIP(rec Receiver, clientIP string) {
+    // Store the request IP address in the receiver object for the webhook
+    rec.RequestIPAddress = clientIP
+    
+    // Initialize CustomFields if needed
+    if rec.CustomFields == nil {
+        rec.CustomFields = make(map[string]interface{})
+    }
+    
+    notifyWebhookWithType(rec, "receiver_added")
+}
+
 func notifyWebhookDelete(rec Receiver, clientIP string, isAdminAction bool) {
     // Store the request IP address in the receiver object for the webhook
     rec.RequestIPAddress = clientIP
@@ -1792,7 +1805,7 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(rec)
     // Notify webhook for admin-created receiver
     if settings.WebhookURL != "" {
-        go notifyWebhook(rec)
+        go notifyWebhookWithClientIP(rec, clientIP)
     }
 }
 
@@ -2064,7 +2077,7 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
     } else {
         // This is a new receiver being created with PUT, so notify as an add
         if settings.WebhookURL != "" {
-            go notifyWebhook(rec)
+            go notifyWebhookWithClientIP(rec, clientIP)
         }
     }
 }
@@ -3077,7 +3090,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusCreated)
     json.NewEncoder(w).Encode(rec)
     if settings.WebhookURL != "" {
-        go notifyWebhook(rec)
+        go notifyWebhookWithClientIP(rec, clientIP)
     }
 }
 
