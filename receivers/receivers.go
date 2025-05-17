@@ -2334,6 +2334,11 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         rec.PasswordHash = hashPassword(*input.NewPassword, rec.PasswordSalt)
     }
 
+    // Set the password field for validation
+    // This is needed because validateReceiver checks the password length
+    // but we're not actually changing the password unless NewPassword is provided
+    rec.Password = input.Password
+
     // Validate the updated receiver
     if err := validateReceiver(rec); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
