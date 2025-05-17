@@ -7,5 +7,5 @@
   "smtp_use_tls": true,
   "smtp_tls_skip_verify": false,
   "from_address": "alerts@example.com",
-  "to_addresses": "ops@example.com"
+  "to_addresses": "ops@example.com,admin@example.com"
 }
