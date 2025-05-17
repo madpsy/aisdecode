@@ -2048,7 +2048,7 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         
         // Only send webhook if fields were actually changed
         if len(changedFields) > 0 && settings.WebhookURL != "" {
-            go notifyWebhookUpdate(rec, clientIP, changedFields)
+            go notifyWebhookUpdate(rec, clientIP, changedFields, false) // Not an admin action
         }
     } else {
         // This is a new receiver being created with PUT, so notify as an add
@@ -2059,6 +2059,9 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
 }
 
 func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
+    // Check if this is an admin action based on the request path
+    isAdminAction := strings.Contains(r.URL.Path, "/admin/")
+    
     // Get the client's IP address
     clientIP := getClientIP(r)
     
@@ -2259,6 +2262,9 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
 }
 
 func handleDeleteReceiver(w http.ResponseWriter, r *http.Request, id int) {
+    // Check if this is an admin action based on the request path
+    isAdminAction := strings.Contains(r.URL.Path, "/admin/")
+    
     // Get the client's IP address
     clientIP := getClientIP(r)
     
