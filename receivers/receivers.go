@@ -1,22 +1,22 @@
 package main
 
 import (
-    "crypto/rand"
-    "database/sql"
-    "encoding/json"
-    "fmt"
-    "io/ioutil"
-    "log"
-    "math/big"
-    "net"
-    "net/http"
-    "net/url"
-    "strconv"
-    "strings"
-    "sync"
-    "time"
+	"crypto/rand"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"math/big"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
-    _ "github.com/lib/pq"
+	_ "github.com/lib/pq"
 )
 
 type Settings struct {
@@ -366,6 +366,14 @@ func startCollectorTracking() {
 				collectorsMutex.Lock()
 				collectors = newCollectors
 				collectorsMutex.Unlock()
+
+				// Clear previous port metrics and last seen maps after a successful fetch
+				portMetricsMutex.Lock()
+				portMetricsMap = make(map[string]map[int]PortMetric)
+				portMetricsMutex.Unlock()
+				portLastSeenMutex.Lock()
+				portLastSeenMap = make(map[int]time.Time)
+				portLastSeenMutex.Unlock()
 
 				// For each collector, fetch port metrics
 				for _, collector := range newCollectors {
