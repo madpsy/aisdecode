@@ -2298,12 +2298,24 @@ func handleDeleteReceiver(w http.ResponseWriter, r *http.Request, id int) {
     
     // Fetch the receiver details before deletion for the webhook
     var rec Receiver
+    // Use a temporary string variable to hold the lastupdated text
+    var lastUpdatedStr string
     err := db.QueryRow(`
         SELECT id, name, description, latitude, longitude, url, email, notifications,
                lastupdated::text
         FROM receivers WHERE id = $1`, id).
         Scan(&rec.ID, &rec.Name, &rec.Description, &rec.Latitude, &rec.Longitude,
-             &rec.URL, &rec.Email, &rec.Notifications, &rec.LastUpdated)
+             &rec.URL, &rec.Email, &rec.Notifications, &lastUpdatedStr)
+    
+    // Parse the lastUpdatedStr into a time.Time if the query was successful
+    if err == nil {
+        parsedTime, parseErr := time.Parse(time.RFC3339, lastUpdatedStr)
+        if parseErr != nil {
+            log.Printf("Error parsing lastupdated time: %v", parseErr)
+        } else {
+            rec.LastUpdated = parsedTime
+        }
+    }
     
     if err == sql.ErrNoRows {
         http.Error(w, "Receiver not found", http.StatusNotFound)
@@ -3137,12 +3149,24 @@ func handleDeleteReceiverPublic(w http.ResponseWriter, r *http.Request) {
     // Fetch the current receiver to verify password and for the webhook
     var rec Receiver
     var passwordHash, passwordSalt string
+    // Use a temporary string variable to hold the lastupdated text
+    var lastUpdatedStr string
     err := db.QueryRow(`
         SELECT id, name, description, latitude, longitude, url, email, notifications,
                password_hash, password_salt, lastupdated::text
         FROM receivers WHERE id = $1`, input.ID).
         Scan(&rec.ID, &rec.Name, &rec.Description, &rec.Latitude, &rec.Longitude,
-             &rec.URL, &rec.Email, &rec.Notifications, &passwordHash, &passwordSalt, &rec.LastUpdated)
+             &rec.URL, &rec.Email, &rec.Notifications, &passwordHash, &passwordSalt, &lastUpdatedStr)
+    
+    // Parse the lastUpdatedStr into a time.Time if the query was successful
+    if err == nil {
+        parsedTime, parseErr := time.Parse(time.RFC3339, lastUpdatedStr)
+        if parseErr != nil {
+            log.Printf("Error parsing lastupdated time: %v", parseErr)
+        } else {
+            rec.LastUpdated = parsedTime
+        }
+    }
     if err == sql.ErrNoRows {
         http.Error(w, "Receiver not found", http.StatusNotFound)
         return
