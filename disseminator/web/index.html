@@ -2522,10 +2522,7 @@ function updateStationaryMarkers() {
         // Update the known vessels overlay.
 function updateOverlay() {
   const filterText = document.getElementById('vessel-filter').value.trim().toLowerCase();
-  // When a search is in progress (i.e. 3+ characters are entered), do not update the overlay.
-  if (filterText.length >= 3) {
-    return;
-  }
+  // Removed: Do not skip updates when searching; allow showing receivers on search
 
   const maxAgeHours = parseInt(document.getElementById('age-slider').value, 10);
   const now = Date.now();
@@ -2535,7 +2532,9 @@ function updateOverlay() {
   const receiverArray = Object.values(receiverData);
 
   // Merge the two arrays.
-  const combinedEntries = vesselArray.concat(receiverArray);
+  const combinedEntries = filterText.length >= 3
+    ? vesselArray.concat(receiverArray)
+    : vesselArray;
 
   // Filter entries that have a name and valid update time.
   const validEntries = combinedEntries.filter(entry => entry.Name && entry.LastUpdated);
