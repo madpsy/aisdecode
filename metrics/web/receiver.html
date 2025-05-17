@@ -2451,7 +2451,6 @@ async function fetchReceivers(ip) {
             );
           });
           
-          
           // Handle form submission
           document.getElementById('edit-receiver-form').addEventListener('submit', function(e) {
             e.preventDefault();
@@ -2460,6 +2459,21 @@ async function fetchReceivers(ip) {
             const errorElement = document.getElementById('edit-form-error');
             errorElement.style.display = 'none';
             errorElement.textContent = '';
+            
+            // Validate email if provided
+            const emailField = document.getElementById('edit-receiver-email');
+            const email = emailField.value.trim();
+            if (email) {
+              // Basic email validation regex
+              const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+              if (!emailRegex.test(email)) {
+                errorElement.textContent = 'Please enter a valid email address';
+                errorElement.style.display = 'block';
+                emailField.focus();
+                return;
+              }
+            }
+            
             
             
             const formData = {
@@ -2480,10 +2494,10 @@ async function fetchReceivers(ip) {
               formData.new_password = newPassword;
             }
             
-            // Add email only if provided
-            const email = document.getElementById('edit-receiver-email').value.trim();
-            if (email) {
-              formData.email = email;
+            // Add email only if provided (already validated above)
+            const emailValue = document.getElementById('edit-receiver-email').value.trim();
+            if (emailValue) {
+              formData.email = emailValue;
             }
             
             // Submit the form to the editreceiver endpoint
