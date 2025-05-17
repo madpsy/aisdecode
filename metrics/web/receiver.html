@@ -2318,6 +2318,17 @@ async function fetchReceivers(ip) {
             </div>
             
             <div style="margin-bottom: 8px;">
+              <label for="edit-receiver-email">New Email (optional):</label>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="email" id="edit-receiver-email" placeholder="Only enter email addresss if you wish to change it" style="flex: 1; width: 100%; padding: 4px; margin-top: 2px;">
+                <div style="display: flex; align-items: center; margin-top: 2px;">
+                  <input type="checkbox" id="edit-receiver-notifications" ${receiver.notifications ? 'checked' : ''} style="margin-right: 4px;">
+                  <label for="edit-receiver-notifications">Notifications</label>
+                </div>
+              </div>
+            </div>
+            
+            <div style="margin-bottom: 8px;">
               <label for="edit-receiver-description">Description:</label>
               <textarea id="edit-receiver-description" style="width: 100%; padding: 4px; margin-top: 2px; height: 40px;">${receiver.description}</textarea>
             </div>
@@ -2455,7 +2466,8 @@ async function fetchReceivers(ip) {
               description: document.getElementById('edit-receiver-description').value,
               latitude: parseFloat(document.getElementById('edit-receiver-latitude').value),
               longitude: parseFloat(document.getElementById('edit-receiver-longitude').value),
-              url: document.getElementById('edit-receiver-url').value || undefined
+              url: document.getElementById('edit-receiver-url').value || undefined,
+              notifications: document.getElementById('edit-receiver-notifications').checked
             };
             
             
@@ -2463,6 +2475,12 @@ async function fetchReceivers(ip) {
             const newPassword = document.getElementById('edit-receiver-new-password').value;
             if (newPassword) {
               formData.new_password = newPassword;
+            }
+            
+            // Add email only if provided
+            const email = document.getElementById('edit-receiver-email').value.trim();
+            if (email) {
+              formData.email = email;
             }
             
             // Submit the form to the editreceiver endpoint
