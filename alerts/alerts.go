@@ -21,6 +21,7 @@ type Settings struct {
 	SMTPUseTLS         bool   `json:"smtp_use_tls"`
 	SMTPTLSSkipVerify  bool   `json:"smtp_tls_skip_verify"`
 	FromAddress        string `json:"from_address"`
+	FromName           string `json:"from_name"`
 	ToAddresses        string `json:"to_addresses"`
 }
 
@@ -61,7 +62,9 @@ func sendEmail(alertType string, rec Receiver) error {
 		"A new receiver was added:\n\nID: %d\nName: %s\nDescription: %s\nLatitude: %f\nLongitude: %f\nLast Updated: %s\nURL: %v\nUDP Port: %v\n",
 		rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, rec.URL, rec.UDPPort,
 	)
-	msg := []byte("To: " + settings.ToAddresses + "\r\n" +
+	msg := []byte(
+		"From: " + settings.FromName + " <" + settings.FromAddress + ">\r\n" +
+		"To: " + settings.ToAddresses + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"\r\n" + body + "\r\n")
 	addr := fmt.Sprintf("%s:%d", settings.SMTPHost, settings.SMTPPort)
