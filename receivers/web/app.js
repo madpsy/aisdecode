@@ -123,7 +123,7 @@ function renderList(list) {
         ).join('<br>') :
         r.ip_address || '—'}</td>`,
       `<td class="col-udp_port">${r.udp_port !== undefined ? r.udp_port : '—'}</td>`,
-      `<td class="col-password">${r.password !== undefined ? r.password : '—'}</td>`,
+      `<td class="col-password">••••••••</td>`,
       `<td class="col-messages">${r.messages !== undefined && r.messages !== null ? r.messages : 'No messages'}</td>`,
       `<td class="col-actions">${r.id === 0 ?
         '—' :
