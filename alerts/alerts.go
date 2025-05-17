@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"net/smtp"
 	"strings"
@@ -71,16 +72,21 @@ func sendEmail(alertType string, rec Receiver) error {
 	auth := smtp.PlainAuth("", settings.SMTPUser, settings.SMTPPass, settings.SMTPHost)
 
 	if settings.SMTPUseTLS {
-		tlsConfig := &tls.Config{ServerName: settings.SMTPHost, InsecureSkipVerify: settings.SMTPTLSSkipVerify}
-		conn, err := tls.Dial("tcp", addr, tlsConfig)
+		// Use STARTTLS to upgrade the connection
+		conn, err := net.Dial("tcp", addr)
 		if err != nil {
-			return fmt.Errorf("TLS dial error: %w", err)
+			return fmt.Errorf("SMTP dial error: %w", err)
 		}
 		c, err := smtp.NewClient(conn, settings.SMTPHost)
 		if err != nil {
 			return fmt.Errorf("SMTP client error: %w", err)
 		}
 		defer c.Close()
+
+		tlsConfig := &tls.Config{ServerName: settings.SMTPHost, InsecureSkipVerify: settings.SMTPTLSSkipVerify}
+		if err := c.StartTLS(tlsConfig); err != nil {
+			return fmt.Errorf("SMTP STARTTLS error: %w", err)
+		}
 
 		if err := c.Auth(auth); err != nil {
 			return fmt.Errorf("SMTP auth error: %w", err)
