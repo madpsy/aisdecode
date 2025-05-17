@@ -245,7 +245,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			"AIS Decoder Team",
 			rec.Name, udpPortDisplay,
 			rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, urlDisplay,
-			receiverURL
+			receiverURL,
 		)
 		
 		// Add IP address info in the admin-only version if needed
@@ -313,7 +313,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			"- Longitude: %f\n\n"+
 			"Thank you for your contribution to our AIS network. We hope to see you again in the future!\n\n"+
 			"AIS Decoder Team",
-			rec.Name, rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude
+			rec.Name, rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude,
 		)
 		
 		// Add IP address info in the admin-only version if needed
@@ -487,7 +487,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			"You can view your receiver's details here: %s\n\n"+
 			"Thank you for contributing to our AIS network!\n\n"+
 			"AIS Decoder Team",
-			rec.Name, changesText.String(), receiverURL
+			rec.Name, changesText.String(), receiverURL,
 		)
 		
 		// Add IP address info in the admin-only version if needed
