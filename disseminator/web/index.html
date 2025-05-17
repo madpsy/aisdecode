@@ -2162,10 +2162,10 @@ function renderSearchResults(data) {
       : `<div class="vessel-callsign">${staticTypeMapping[entry.Type] || entry.Type || "N/A"}</div>`;
   
     content += `<div class="vessel-entry" data-userid="${entry.UserID}">
-                  <div class="vessel-name">${name}</div>
-                  ${extraInfo}
-                  <div class="vessel-timestamp">${lastSeen} | ${numMessages} msgs</div>
-                </div>`;
+                      <div class="vessel-name">${name}</div>
+                      ${extraInfo}
+                      <div class="vessel-timestamp">${lastSeen}</div>
+                    </div>`;
   });
   
   document.getElementById('overlay-content').innerHTML = content;
@@ -2559,11 +2559,6 @@ function updateOverlay() {
   for (const id in vesselMarkers) {
     if (map.hasLayer(vesselMarkers[id])) visibleCount++;
   }
-  for (const id in receiverMarkers) {
-    if (bounds.contains(receiverMarkers[id].getLatLng())) {
-	visibleCount++;
-    }
-  }
 
   // Update the overlay count text.
   document.getElementById('vessel-count').innerHTML =
@@ -2579,10 +2574,10 @@ function updateOverlay() {
       ? `<div class="vessel-callsign">Receiver</div>`
       : `<div class="vessel-callsign">${staticTypeMapping[entry.Type] || entry.Type || "N/A"}</div>`;
     content += `<div class="vessel-entry" data-userid="${entry.UserID}">
-                  <div class="vessel-name">${name}</div>
-                  ${extraInfo}
-                  <div class="vessel-timestamp">${lastSeen} | ${numMessages} msgs</div>
-                </div>`;
+                      <div class="vessel-name">${name}</div>
+                      ${extraInfo}
+                      <div class="vessel-timestamp">${lastSeen}</div>
+                    </div>`;
   });
 
   document.getElementById('overlay-content').innerHTML = content;
