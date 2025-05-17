@@ -270,6 +270,9 @@ func notifyWebhookWithType(rec Receiver, alertType string) {
     if rec.RequestIPAddress != "" {
         envelope["receiver"].(map[string]interface{})["request_ip_address"] = rec.RequestIPAddress
     }
+    if rec.CustomFields != nil && len(rec.CustomFields) > 0 {
+        envelope["receiver"].(map[string]interface{})["custom_fields"] = rec.CustomFields
+    }
     payload, err := json.Marshal(envelope)
     if err != nil {
         log.Printf("notifyWebhook: failed to marshal envelope: %v", err)
