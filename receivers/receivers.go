@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1390,6 +1391,7 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         Longitude:   input.Longitude,
         Name:        strings.ToUpper(input.Name),
         URL:         input.URL,
+        Email:       input.Email,
         Password:    password,
         // IPAddress is no longer used - we get IP from port metrics
     }
@@ -1463,11 +1465,12 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
             longitude,
             name,
             url,
+            email,
             password,
             request_ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         RETURNING id, lastupdated
-    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, clientIP).
+    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Password, clientIP).
         Scan(&rec.ID, &rec.LastUpdated)
     if err != nil {
         tx.Rollback()
@@ -1604,6 +1607,7 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         Longitude:   input.Longitude,
         Name:        strings.ToUpper(input.Name),
         URL:         input.URL,
+        Email:       input.Email,
         Password:    password,
     }
     if err := validateReceiver(rec); err != nil {
@@ -1620,18 +1624,20 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
             longitude,
             name,
             url,
+            email,
             password
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         ON CONFLICT (id) DO UPDATE
           SET description = EXCLUDED.description,
               latitude    = EXCLUDED.latitude,
               longitude   = EXCLUDED.longitude,
               name        = EXCLUDED.name,
               url         = EXCLUDED.url,
+              email       = EXCLUDED.email,
               password    = EXCLUDED.password,
               lastupdated = NOW()
         RETURNING lastupdated
-    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password).
+    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Password).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1947,7 +1953,7 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
     // Fetch the current receiver to verify password and get existing values
     var rec Receiver
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, password
+        SELECT id, lastupdated, description, latitude, longitude, name, url, email, password
         FROM receivers WHERE id = $1
     `, input.ID).Scan(
         &rec.ID,
@@ -1957,6 +1963,7 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         &rec.Longitude,
         &rec.Name,
         &rec.URL,
+        &rec.Email,
         &rec.Password,
     )
     if err == sql.ErrNoRows {
@@ -1989,6 +1996,9 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
     if input.URL != nil {
         rec.URL = input.URL
     }
+    if input.Email != nil {
+        rec.Email = *input.Email
+    }
     // No longer update the IP address field
     if input.NewPassword != nil {
         rec.Password = *input.NewPassword
@@ -2011,12 +2021,13 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
             longitude        = $3,
             name             = $4,
             url              = $5,
-            password         = $6,
-            request_ip_address = $7,
+            email            = $6,
+            password         = $7,
+            request_ip_address = $8,
             lastupdated      = NOW()
-        WHERE id = $8
+        WHERE id = $9
         RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, clientIP, rec.ID).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Password, clientIP, rec.ID).
         Scan(&rec.LastUpdated)
     
     if err != nil {
@@ -2062,6 +2073,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         Description string   `json:"description"`
         Latitude    float64  `json:"latitude"`
         Longitude   float64  `json:"longitude"`
+        Email       string   `json:"email"`
         URL         *string  `json:"url,omitempty"`
     }
 
@@ -2077,6 +2089,10 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     }
     if input.Description == "" {
         http.Error(w, "description is required", http.StatusBadRequest)
+        return
+    }
+    if input.Email == "" {
+        http.Error(w, "email is required", http.StatusBadRequest)
         return
     }
 
@@ -2125,6 +2141,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         Longitude:   input.Longitude,
         Name:        strings.ToUpper(input.Name),
         URL:         input.URL,
+        Email:       input.Email,
         Password:    password,
     }
 
@@ -2256,11 +2273,12 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
             longitude,
             name,
             url,
+            email,
             password,
             request_ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         RETURNING id, lastupdated`,
-        newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Password, clientIP).
+        newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Password, clientIP).
         Scan(&rec.ID, &rec.LastUpdated)
     
     if err != nil {
