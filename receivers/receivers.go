@@ -202,7 +202,7 @@ func notifyWebhook(rec Receiver) {
     }
     // Build the alert envelope
     envelope := map[string]interface{}{
-        "alert_type": "receiver_added",
+        "alert_type": "New Receiver Added",
         "receiver": map[string]interface{}{
             "id":          rec.ID,
             "lastupdated": rec.LastUpdated,
