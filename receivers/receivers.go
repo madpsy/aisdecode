@@ -744,6 +744,8 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
                r.longitude,
                r.name,
                r.url,
+               r.email,
+               r.notifications,
                r.password,
                rp.udp_port
           FROM receivers r
@@ -796,6 +798,8 @@ func getFilteredReceivers(w http.ResponseWriter, filters map[string]string) ([]R
             &rec.Longitude,
             &rec.Name,
             &rec.URL,
+            &rec.Email,
+            &rec.Notifications,
             &rec.Password,   // Add password field
             &udpPort,        // Scan into nullable int
         ); err != nil {
@@ -995,7 +999,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
 
     // Build the query based on filters - only filter by ID, not by IP address
     baseQuery := `
-        SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, rp.udp_port
+        SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, r.email, r.notifications, rp.udp_port
         FROM receivers r
         LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
         WHERE 1=1
@@ -1048,7 +1052,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         var udpPort sql.NullInt64
         if err := rows.Scan(
             &rec.ID, &rec.LastUpdated, &rec.Description,
-            &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &udpPort,
+            &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.Email, &rec.Notifications, &udpPort,
         ); err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
@@ -1098,15 +1102,17 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         
         // Convert to PublicReceiver (which doesn't include password or IP address)
         publicRec := PublicReceiver{
-        	ID:          rec.ID,
-        	LastUpdated: rec.LastUpdated,
-        	Description: rec.Description,
-        	Latitude:    rec.Latitude,
-        	Longitude:   rec.Longitude,
-        	Name:        rec.Name,
-        	URL:         rec.URL,
-        	Messages:    msgs,
-        	UDPPort:     rec.UDPPort, // Store UDPPort for filtering but don't expose in JSON
+        	ID:           rec.ID,
+        	LastUpdated:  rec.LastUpdated,
+        	Description:  rec.Description,
+        	Latitude:     rec.Latitude,
+        	Longitude:    rec.Longitude,
+        	Name:         rec.Name,
+        	URL:          rec.URL,
+        	Notifications: rec.Notifications, // Include notifications in public API
+        	Email:        rec.Email, // Store email but don't expose in JSON
+        	Messages:     msgs,
+        	UDPPort:      rec.UDPPort, // Store UDPPort for filtering but don't expose in JSON
         }
         
         // Store the lastSeen value to use later when converting to map
@@ -1192,9 +1198,10 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         
         // Create a map for the anonymous receiver
         anonymousReceiver := map[string]interface{}{
-            "id":          0,
-            "name":        "Anonymous",
-            "description": "Anonymous",
+            "id":           0,
+            "name":         "Anonymous",
+            "description":  "Anonymous",
+            "notifications": true,
         }
         
         // Add the lastseen field if available
@@ -1482,11 +1489,12 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
             name,
             url,
             email,
+            notifications,
             password,
             request_ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         RETURNING id, lastupdated
-    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Password, clientIP).
+    `, newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.Password, clientIP).
         Scan(&rec.ID, &rec.LastUpdated)
     if err != nil {
         tx.Rollback()
@@ -1617,14 +1625,15 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
 
     // 3) build Receiver and validate
     rec := Receiver{
-        ID:          id,
-        Description: input.Description,
-        Latitude:    input.Latitude,
-        Longitude:   input.Longitude,
-        Name:        strings.ToUpper(input.Name),
-        URL:         input.URL,
-        Email:       input.Email,
-        Password:    password,
+        ID:           id,
+        Description:  input.Description,
+        Latitude:     input.Latitude,
+        Longitude:    input.Longitude,
+        Name:         strings.ToUpper(input.Name),
+        URL:          input.URL,
+        Email:        input.Email,
+        Notifications: input.Notifications,
+        Password:     password,
     }
     if err := validateReceiver(rec); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1641,19 +1650,21 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
             name,
             url,
             email,
+            notifications,
             password
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         ON CONFLICT (id) DO UPDATE
-          SET description = EXCLUDED.description,
-              latitude    = EXCLUDED.latitude,
-              longitude   = EXCLUDED.longitude,
-              name        = EXCLUDED.name,
-              url         = EXCLUDED.url,
-              email       = EXCLUDED.email,
-              password    = EXCLUDED.password,
-              lastupdated = NOW()
+          SET description   = EXCLUDED.description,
+              latitude      = EXCLUDED.latitude,
+              longitude     = EXCLUDED.longitude,
+              name          = EXCLUDED.name,
+              url           = EXCLUDED.url,
+              email         = EXCLUDED.email,
+              notifications = EXCLUDED.notifications,
+              password      = EXCLUDED.password,
+              lastupdated   = NOW()
         RETURNING lastupdated
-    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Password).
+    `, rec.ID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.Password).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
