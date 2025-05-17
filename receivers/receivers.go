@@ -587,11 +587,14 @@ func main() {
     
     // Public endpoint to add a new receiver
     http.HandleFunc("/addreceiver", handleAddReceiver)
-    
     // Public endpoint to edit a receiver
     http.HandleFunc("/editreceiver", handleEditReceiver)
     
+    // Public endpoint to delete a receiver
+    http.HandleFunc("/deletereceiver", handleDeleteReceiverPublic)
+    
     // Public endpoint to update receiver IP address - removed
+
 
     http.HandleFunc("/admin/getip", adminGetIPHandler)
 
@@ -2375,4 +2378,104 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     if settings.WebhookURL != "" {
         go notifyWebhook(rec)
     }
+}
+
+// handleDeleteReceiverPublic handles POST /deletereceiver
+// This is a public endpoint that allows deleting an existing receiver
+// It requires id and password for authentication
+func handleDeleteReceiverPublic(w http.ResponseWriter, r *http.Request) {
+    // Only allow POST method
+    if r.Method != http.MethodPost {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        return
+    }
+
+    // Parse JSON request body
+    var input struct {
+        ID       int    `json:"id"`
+        Password string `json:"password"`
+    }
+
+    if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+        http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    // Validate required fields
+    if input.ID <= 0 {
+        http.Error(w, "id is required and must be positive", http.StatusBadRequest)
+        return
+    }
+    if input.Password == "" {
+        http.Error(w, "password is required", http.StatusBadRequest)
+        return
+    }
+
+    // Ensure database connection
+    if err := ensureConnection(); err != nil {
+        http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Fetch the current receiver to verify password
+    var storedPassword string
+    err := db.QueryRow(`SELECT password FROM receivers WHERE id = $1`, input.ID).Scan(&storedPassword)
+    if err == sql.ErrNoRows {
+        http.Error(w, "Receiver not found", http.StatusNotFound)
+        return
+    } else if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Check if password matches
+    if input.Password != storedPassword {
+        http.Error(w, "Invalid password", http.StatusUnauthorized)
+        return
+    }
+
+    // Begin a transaction
+    tx, err := db.Begin()
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Failed to begin transaction: %v", err), http.StatusInternalServerError)
+        return
+    }
+    defer tx.Rollback() // Rollback if not committed
+
+    // First, unallocate the UDP port by setting receiver_id to NULL
+    _, err = tx.Exec(`
+        UPDATE receiver_ports
+        SET receiver_id = NULL, last_updated = NOW()
+        WHERE receiver_id = $1
+    `, input.ID)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Failed to unallocate UDP port: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    // Then delete the receiver
+    res, err := tx.Exec(`DELETE FROM receivers WHERE id = $1`, input.ID)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    n, _ := res.RowsAffected()
+    if n == 0 {
+        w.WriteHeader(http.StatusNotFound)
+        return
+    }
+
+    // Commit the transaction
+    if err := tx.Commit(); err != nil {
+        http.Error(w, fmt.Sprintf("Failed to commit transaction: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    // Return success response
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(map[string]string{
+        "message": "Receiver deleted successfully",
+    })
 }
