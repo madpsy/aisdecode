@@ -1,103 +1,753 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Receivers Manager</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIS Metrics Dashboard</title>
+  <script src="message_types.js"></script>
+<style>
+  :root {
+    --bg: #f5f7fa;
+    --card-bg: #fff;
+    --card-shadow: rgba(0, 0, 0, 0.1);
+    --primary: #2f80ed;
+    --text: #333;
+    --muted: #666;
+  }
+  body {
+    margin: 0;
+    padding: 1rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  h1 {
+    text-align: center;
+    color: var(--primary);
+    margin-bottom: 1rem;
+  }
+  .grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+  .card {
+    background: var(--card-bg);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px var(--card-shadow);
+    padding: 1rem;
+    text-align: center;
+  }
+  .card h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    color: var(--muted);
+  }
+  .card p {
+    margin: .5rem 0 0;
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--primary);
+  }
+  section {
+    margin-top: 2rem;
+  }
+  section h3 {
+    margin-bottom: .5rem;
+    color: var(--primary);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card-bg);
+    box-shadow: 0 1px 4px var(--card-shadow);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: .5rem;
+    text-align: left;
+  }
+  th {
+    background: var(--primary);
+    color: #fff;
+    font-weight: normal;
+  }
+  tr:nth-child(even) {
+    background: #f0f4ff;
+  }
+  @media (max-width: 600px) {
+    .card p {
+      font-size: 1.5rem;
+    }
+  }
+  .small {
+    font-size: .85rem;
+    color: var(--muted);
+  }
+
+  /* ——— Settings Modal Styles ——— */
+  .settings-button {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    color: #444;
+  }
+  .settings-button:hover {
+    color: #000;
+  }
+
+  .modal {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0; top: 0;
+    width: 100%; height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.4);
+  }
+
+  .modal-content {
+    position: absolute;
+    top: 5vh;
+    bottom: 5vh;
+    left: 30vw;    
+    right: 30vw;  
+    background-color: #fff;
+    /* remove default padding so iframe can fill */
+    padding: 0;
+    border: 1px solid #888;
+    border-radius: 4px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .close {
+    align-self: flex-end;
+    margin: 8px;
+    font-size: 28px;
+    font-weight: bold;
+    color: #aaa;
+    cursor: pointer;
+  }
+  .close:hover,
+  .close:focus {
+    color: #000;
+    text-decoration: none;
+  }
+
+  #modalSettingsContent {
+    flex: 1;
+    overflow: hidden;
+  }
+  #modalSettingsContent iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+  /* ———————————————————— */
+</style>
+  <script defer>
+    document.addEventListener('DOMContentLoaded', () => {
+      const overviewKeys = [
+        { id: 'total_bytes_forwarded', label: 'Bytes Per Destination' },
+        { id: 'bytes_forwarded_window', label: 'Bytes Per Destination (window)' },
+        { id: 'total_messages', label: 'Total Messages' },
+        { id: 'window_messages', label: 'Messages (window)' },
+        { id: 'total_failures', label: 'Total Failures' },
+        { id: 'window_failures', label: 'Failures (window)' },
+        { id: 'total_downsampled', label: 'Total Downsampled' },
+        { id: 'window_downsampled', label: 'Downsampled (window)' },
+        { id: 'total_deduplicated', label: 'Total Deduplicated' },
+        { id: 'window_deduplicated', label: 'Deduplicated (window)' },
+        { id: 'total_bytes_received', label: 'Total Bytes Received' },
+        { id: 'total_messages_forwarded', label: 'Total Messages Forwarded' },
+        { id: 'window_messages_forwarded', label: 'Messages Forwarded (window)' },
+        { id: 'bytes_received_window', label: 'Bytes Received (window)' },
+        { id: 'total_clients', label: 'Total Clients' }
+      ];
+
+      function formatNumber(value) {
+        if (value >= 1_000_000) {
+          return (value / 1_000_000).toFixed(2) + 'M';
+        } else if (value >= 1_000) {
+          return (value / 1_000).toFixed(2) + 'K';
+        } else {
+          return value.toString();
+        }
+      }
+
+      function formatPercentage(value) {
+        return (value * 100).toFixed(1) + '%';
+      }
+
+      function renderOverview(data) {
+        const container = document.getElementById('overview');
+        container.innerHTML = '';
+
+        // Build dynamic "per X seconds" label
+        const windowSize = data.metric_window_size_sec;
+        const windowLabel = `per ${windowSize} seconds`;
+
+        // Update all table-header spans
+        document.querySelectorAll('.window-size').forEach(el => {
+          el.textContent = windowSize;
+        });
+
+        // Render the overview cards, replacing "(window)" with "per X seconds"
+        overviewKeys.forEach(({ id, label }) => {
+          let displayLabel = label;
+          if (label.includes('(window)')) {
+            displayLabel = label.replace('(window)', windowLabel);
+          }
+          const card = document.createElement('div');
+          card.className = 'card';
+          const title = document.createElement('h2');
+          title.textContent = displayLabel;
+          const value = document.createElement('p');
+          value.textContent = formatNumber(data[id] ?? 0);
+          card.append(title, value);
+          container.appendChild(card);
+        });
+
+        // Add logic for "All Shards Covered" card
+        const allShardsCovered = (data.shards_missing && data.shards_missing.length === 0) ? 'Yes' : 'No';
+        const allShardsCard = document.createElement('div');
+        allShardsCard.className = 'card';
+        const allShardsTitle = document.createElement('h2');
+        allShardsTitle.textContent = 'All Shards Consumed';
+        const allShardsValue = document.createElement('p');
+        allShardsValue.textContent = allShardsCovered;
+        allShardsCard.append(allShardsTitle, allShardsValue);
+        container.appendChild(allShardsCard);
+
+	const ratioTotal = data.ratio_forwarded_to_received ?? 0;
+	const ratioWindow = data.window_ratio_forwarded_to_received ?? 0;
+
+	// Create the Total Ratio card
+	const ratioCardTotal = document.createElement('div');
+	ratioCardTotal.className = 'card';
+		const ratioTitleTotal = document.createElement('h2');
+	ratioTitleTotal.textContent = 'Total Forwarding Ratio';
+	const ratioValueTotal = document.createElement('p');
+	ratioValueTotal.textContent = formatPercentage(ratioTotal); // Display as percentage
+	ratioCardTotal.append(ratioTitleTotal, ratioValueTotal);
+	container.appendChild(ratioCardTotal);
+
+	// Create the Ratio per X Seconds card (replacing window ratio)
+	const ratioCardWindow = document.createElement('div');
+	ratioCardWindow.className = 'card';
+	const ratioTitleWindow = document.createElement('h2');
+	ratioTitleWindow.textContent = `Forwarding Ratio ${windowLabel}`;  // Label updated
+	const ratioValueWindow = document.createElement('p');
+	ratioValueWindow.textContent = formatPercentage(ratioWindow); // Display as percentage
+	ratioCardWindow.append(ratioTitleWindow, ratioValueWindow);
+	container.appendChild(ratioCardWindow);
+
+	// Heap Sys Memory
+        const heapSysBytes = data.memory_stats?.heap_sys_bytes ?? 0;
+        const heapSysMB = heapSysBytes / (1024 * 1024);
+        const memCard = document.createElement('div');
+        memCard.className = 'card';
+        const memTitle = document.createElement('h2');
+        memTitle.textContent = 'Memory (Heap)';
+        const memValue = document.createElement('p');
+        memValue.textContent = heapSysMB.toFixed(2) + ' MB';
+        memCard.append(memTitle, memValue);
+        container.appendChild(memCard);
+
+	// Uptime
+	const uptimeSec = data.uptime_seconds ?? 0;
+	const hours   = Math.floor(uptimeSec / 3600);
+	const minutes = Math.floor((uptimeSec % 3600) / 60);
+	const seconds = Math.floor(uptimeSec % 60);
+	const uptimeStr = `${hours}h ${minutes}m ${seconds}s`;
+	const uptimeCard  = document.createElement('div');
+	uptimeCard.className = 'card';
+	const uptimeTitle = document.createElement('h2');
+	uptimeTitle.textContent = 'Uptime';
+	const uptimeValue = document.createElement('p');
+	uptimeValue.textContent = uptimeStr;
+	uptimeCard.append(uptimeTitle, uptimeValue);
+	container.appendChild(uptimeCard);
+
+      }
+
+function renderWindowBySource(w) {
+  // Find the <tbody> in the “By Source” table
+  const tbody = document
+    .getElementById('window_by_source')
+    .querySelector('tbody');
+  // Clear any existing rows
+  tbody.innerHTML = '';
+
+  // Destructure your four maps (defaulting to empty objects)
+  const msgs   = w.messages             || {};
+  const bytes  = w.bytes                || {};
+  const fails  = w.failures             || {};
+  const unique = w.unique_uids          || {};
+
+  // Sort sources by message count descending, then render each row
+  Object.keys(msgs)
+    .sort((a, b) => msgs[b] - msgs[a])
+    .forEach(src => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${src}</td>
+        <td>${formatNumber(msgs[src]   || 0)}</td>
+        <td>${formatNumber(bytes[src]  || 0)}</td>
+        <td>${formatNumber(fails[src]  || 0)}</td>
+        <td>${formatNumber(unique[src] || 0)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+}
+
+function renderMap(tableId, mapObj) {
+  const tbody = document.getElementById(tableId).querySelector('tbody');
+  tbody.innerHTML = '';
+
+  // Only translate message IDs if it's a "per_message_id" table
+  const isMessageIdTable = tableId === "per_message_id" || tableId === "down_msg";
+
+  Object.entries(mapObj || {})
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 25)
+    .forEach(([key, val]) => {
+      const tr = document.createElement('tr');
+      
+      // If we're rendering a message ID table, use aisMessageMapping
+      const displayKey = isMessageIdTable && aisMessageMapping[key]
+        ? aisMessageMapping[key]
+        : key; // For non-message-id tables, just use the raw key value
+
+      // Apply the formatNumber function to the value
+      tr.innerHTML = `<td>${displayKey}</td><td>${formatNumber(val)}</td>`;
+      tbody.appendChild(tr);
+    });
+}
+
+
+function renderUdpDestinations(tableId, udpDestinations) {
+  const tbody = document.getElementById(tableId).querySelector('tbody');
+  tbody.innerHTML = '';
+
+  (udpDestinations || []).forEach(destination => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${destination.description}</td>
+      <td>${destination.destination}</td>
+      <td>${destination.shards.join(', ')}</td>
+      <td>${formatNumber(destination.messages_sent)}</td>
+      <td>${formatNumber(destination.bytes_sent)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderBlockedIps(data) {
+  const tbody = document.getElementById('blocked_ips').querySelector('tbody');
+  tbody.innerHTML = '';
+
+  (data.blocked_ip_metrics || []).forEach(item => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${item.source_ip}</td><td>${formatNumber(item.messages_blocked)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+
+      function renderArray(tableId, arr, keyField, valField) {
+        const tbody = document.getElementById(tableId).querySelector('tbody');
+        tbody.innerHTML = '';
+        (arr || [])
+          .sort((a, b) => b[valField] - a[valField])
+          .slice(0, 25)
+          .forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${item[keyField]}</td><td>${formatNumber(item[valField])}</td>`;
+            tbody.appendChild(tr);
+          });
+      }
+
+      function renderTopUsers(tableId, list) {
+        const tbody = document.getElementById(tableId).querySelector('tbody');
+        tbody.innerHTML = '';
+        (list || []).slice(0, 25).forEach(u => {
+     		const perMsg = Object.entries(u.per_message_id || {})
+                      .map(([mid, c]) => `${mid}:${formatNumber(c)}`)
+                      .join(', ');
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${u.user_id}</td>
+            <td>${formatNumber(u.count)}</td>
+            <td>${perMsg}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function renderConnectedClients(tableId, connectedClients) {
+        const tbody = document.getElementById(tableId).querySelector('tbody');
+        tbody.innerHTML = '';
+        (connectedClients || []).forEach(client => {
+          const tr = document.createElement('tr');
+    
+          // Combine IP and Port as 'IP:port'
+          const ipWithPort = client.ip + ':' + (client.port || 'N/A'); // Assuming 'port' exists in the data
+
+          tr.innerHTML = `
+            <td>${client.description}</td>
+            <td>${ipWithPort}</td>  <!-- Display IP and Port together -->
+            <td>${(client.shards || []).join(', ')}</td>
+            <td>${formatNumber(client.bytes_sent)}</td>
+            <td>${formatNumber(client.messages_sent)}</td>
+            <td>${formatNumber(client.messages_per_window)}</td>
+            <td>${formatNumber(client.bytes_per_window)}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function renderShardsWithoutClients(shards_missing) {
+        const container = document.getElementById('shards_without_clients');
+        const tbody = container.querySelector('tbody');
+        tbody.innerHTML = '';
+
+        // Loop through shards_missing to display all shards without clients
+        shards_missing.forEach(shard => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${shard}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function renderOverlappingClients(shards_multiple) {
+        const container = document.getElementById('overlapping_clients');
+        const tbody = container.querySelector('tbody');
+        tbody.innerHTML = '';
+
+        // Loop through shards_multiple to display shards with multiple clients
+        Object.entries(shards_multiple).forEach(([shard, clients]) => {
+          if (clients.length > 1) {
+            const tr = document.createElement('tr');
+      
+            // Create a string that includes the address and the description in brackets
+            const clientsWithDescriptions = clients.map(client => {
+              return `${client.address} (${client.description})`;  // Include description in brackets after the address
+            }).join(', ');
+
+            tr.innerHTML = `<td>${shard}</td><td>${clientsWithDescriptions}</td>`;
+            tbody.appendChild(tr);
+          }
+        });
+      }
+
+      async function fetchAndRender() {
+        try {
+          const res = await fetch('/metrics/ingester');
+          if (!res.ok) throw new Error(res.statusText);
+          const data = await res.json();
+
+          renderOverview(data);
+          renderMap('per_message_id', data.per_message_id);
+          renderTopUsers('top_users', data.top25_per_user_id);
+          renderArray('failures_by_source', data.failures_by_source, 'source_ip', 'count');
+	  renderArray('unique_users_by_source', data.unique_mmsi_by_source, 'source_ip', 'count');
+          renderArray('messages_by_source', data.messages_by_source, 'source_ip', 'count');
+          renderArray('bytes_received_by_source', data.bytes_received_by_source, 'source_ip', 'count');
+          renderMap('down_msg', data.per_downsampled_message_id);
+          renderTopUsers('down_user', data.top25_downsampled_per_user_id);
+          renderTopUsers('dedup_users', data.top25_deduplicated_per_user_id);
+          renderArray('dedup_sources', data.top25_deduplicated_per_source, 'source_ip', 'count');
+          renderMap('messages_per_shard', data.messages_per_shard);
+          renderMap('user_ids_per_shard', data.user_ids_per_shard);
+          renderConnectedClients('connected_clients', data.connected_clients);
+          renderShardsWithoutClients(data.shards_missing);
+          renderOverlappingClients(data.shards_multiple);
+	  renderUdpDestinations('udp_destinations', data.udp_destinations);
+	  renderBlockedIps(data);
+	  renderWindowBySource({
+            messages:    data.window_messages_by_source,
+            bytes:       data.window_bytes_by_source,
+            failures:    data.window_failures_by_source,
+            unique_uids: data.window_unique_uids_by_source
+          });
+          
+        } catch (err) {
+          console.error('Error loading metrics:', err);
+        }
+      }
+
+      fetchAndRender();
+      setInterval(fetchAndRender, 1000);
+
+      // ——— Settings Modal Logic ———
+      const settingsBtn = document.getElementById('settingsBtn');
+      const modal = document.getElementById('settingsModal');
+      const modalContentContainer = document.getElementById('modalSettingsContent');
+      const closeBtn = modal.querySelector('.close');
+
+      settingsBtn.addEventListener('click', () => {
+        modal.style.display = 'block';
+      });
+
+      closeBtn.addEventListener('click', () => {
+        modal.style.display = 'none';
+      });
+
+    });
+  </script>
 </head>
+
 <body>
-  <header><h1>Receivers</h1></header>
-  <main>
-    <section id="form-section">
-      <h2 id="form-title">Add New Receiver</h2>
-      <form id="receiver-form">
-        <input type="hidden" id="field-id">
-        <label>
-          Name
-          <input type="text" id="field-name" maxlength="15" required>
-        </label>
-        <div class="email-notifications-container">
-          <label class="notifications-label">
-            Notifications
-            <input type="checkbox" id="field-notifications" checked>
-          </label>
-          <label class="email-label">
-            Email
-            <input type="email" id="field-email" required>
-          </label>
-        </div>
-        <label>
-          Description
-          <input type="text" id="field-description" maxlength="30" required>
-        </label>
-        <label>
-          Latitude
-          <input type="number" id="field-latitude" step="any" min="-90" max="90" required>
-        </label>
-        <label>
-          Longitude
-          <input type="number" id="field-longitude" step="any" min="-180" max="180" required>
-        </label>
-        <label>
-          URL
-          <input type="url" id="field-url">
-        </label>
-        <!-- IP Address field removed - automatically tracked by collector system -->
-        <label>
-          UDP Port
-          <input type="text" id="field-udp-port" readonly>
-        </label>
-        <div class="password-container">
-          <label>
-            Password
-            <div class="password-field">
-              <input type="text" id="field-password" readonly>
-              <button type="button" id="regenerate-password" class="password-button">Regenerate</button>
-            </div>
-          </label>
-        </div>
-        <div class="buttons">
-          <button type="submit">Save</button>
-          <button type="button" id="cancel-edit">Cancel</button>
-        </div>
-      </form>
-    </section>
+  <h1>AIS Metrics Dashboard</h1>
 
-    <section id="search-section">
-      <input
-        type="text"
-        id="search-input"
-        placeholder="🔍 Search by description, name, IP address or UDP port…"
-        autocomplete="off"
-      >
-    </section>
+  <!-- Settings Button (Cog Icon) -->
+  <button id="settingsBtn" class="settings-button" title="Settings">
+    <!-- Inline SVG gear icon (Bootstrap “gear” icon) -->
+    <svg width="24" height="24" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/>
+      <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873
+      0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873
+      1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873
+      1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873
+      1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873
+      1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873
+      1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873
+      1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873
+      1.873 0 0 0 2.692-1.115l.094-.319z"/>
+    </svg>
+  </button>
 
-    <section id="list-section">
-      <table>
-        <thead>
-          <tr>
-            <th class="sortable" data-key="id">ID</th>
-            <th class="sortable" data-key="lastseen">Last Seen</th>
-            <th class="sortable" data-key="lastupdated">Last Updated</th>
-            <th class="sortable" data-key="name">Name</th>
-            <th class="sortable" data-key="description">Description</th>
-            <th class="sortable" data-key="latitude">Lat</th>
-            <th class="sortable" data-key="longitude">Long</th>
-            <th class="sortable" data-key="url">URL</th>
-            <th class="sortable" data-key="ip_address">IP Address</th>
-            <th class="sortable" data-key="udp_port">UDP Port</th>
-            <th class="sortable" data-key="password">Password</th>
-            <th class="sortable" data-key="messages">Messages</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="receivers-tbody">
-          <!-- rows filled by JS -->
-        </tbody>
-      </table>
-    </section>
-  </main>
-  <!-- Cron overlay removed -->
-  <script src="app.js"></script>
+  <div class="grid" id="overview"></div>
+
+  <section>
+    <h3>Per Message Type</h3>
+    <table id="per_message_id">
+      <thead>
+        <tr><th>Message Type</th><th>Total</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Top 25 MMSI</h3>
+    <table id="top_users">
+      <thead>
+        <tr>
+          <th>MMSI</th>
+          <th>Total</th>
+          <th>Per Message Type</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+ <section>
+   <h3>By Source IP (last <span class="window-size"></span>s)</h3>
+   <table id="window_by_source">
+     <thead>
+       <tr>
+         <th>Source IP</th>
+         <th>Msgs</th>
+         <th>Bytes</th>
+         <th>Fails</th>
+         <th>Unique MMSI</th>
+       </tr>
+     </thead>
+     <tbody></tbody>
+   </table>
+ </section>
+
+  <section>
+    <h3>Failures by Source IP</h3>
+    <table id="failures_by_source">
+      <thead>
+        <tr><th>Source IP</th><th>Failures</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+  <section>
+    <h3>Unique MMSI by Source IP</h3>
+    <table id="unique_users_by_source">
+      <thead>
+        <tr>
+          <th>Source IP</th>
+          <th>Unique MMSI</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+  <section>
+    <h3>Messages by Source IP</h3>
+    <table id="messages_by_source">
+      <thead>
+        <tr><th>Source IP</th><th>Total Msgs</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Bytes Received by Source IP</h3>
+    <table id="bytes_received_by_source">
+      <thead>
+        <tr><th>Source IP</th><th>Bytes Received</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Blocked IPs</h3>
+    <table id="blocked_ips">
+      <thead>
+        <tr><th>IP Address</th><th>Messages Blocked</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Downsampled per Message Type</h3>
+    <table id="down_msg">
+      <thead>
+        <tr><th>Message Type</th><th>Total</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Top 25 Downsampled MMSI</h3>
+    <table id="down_user">
+      <thead>
+        <tr>
+          <th>MMSI</th>
+          <th>Total</th>
+          <th>Per Message Type</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Top 25 Deduplicated MMSI</h3>
+    <table id="dedup_users">
+      <thead>
+        <tr>
+          <th>MMSI</th>
+          <th>Duplicates Dropped</th>
+          <th>Per Message Type</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Top 25 Deduplicated Source IPs</h3>
+    <table id="dedup_sources">
+      <thead>
+        <tr><th>Source IP</th><th>Duplicates Dropped</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Messages per Shard</h3>
+    <table id="messages_per_shard">
+      <thead>
+        <tr><th>Shard</th><th>Messages</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>MMSIs per Shard</h3>
+    <table id="user_ids_per_shard">
+      <thead>
+        <tr><th>Shard</th><th>Unique MMSI</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Connected Clients</h3>
+    <table id="connected_clients">
+      <thead>
+        <tr>
+	  <th>Description</th>
+          <th>IP & Port</th>
+          <th>Shards</th>
+          <th>Bytes Sent</th>
+          <th>Msgs Sent</th>
+          <th>Messages per <span class="window-size"></span> seconds</th>
+          <th>Bytes per <span class="window-size"></span> seconds</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+  <section>
+    <h3>UDP Destinations</h3>
+    <table id="udp_destinations">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th>IP & Port</th>
+          <th>Shards</th>
+          <th>Messages Sent</th>
+          <th>Bytes Sent</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Shards Without Clients / Destinations</h3>
+    <table id="shards_without_clients">
+      <thead>
+        <tr><th>Shard</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3>Overlapping Shards</h3>
+    <table id="overlapping_clients">
+      <thead>
+        <tr><th>Shard</th><th>Clients / Destinations</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- Settings Modal Overlay -->
+  <div id="settingsModal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <div id="modalSettingsContent">
+  	<iframe
+	    src="/settings.html"
+	    style="width:100%; height:100%; border:none;"
+	  ></iframe>
+	</div>
+    </div>
+  </div>
+
 </body>
 </html>
