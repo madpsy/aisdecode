@@ -1638,15 +1638,14 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
             record[0] = ts.Format(time.RFC3339)
         }
 
-        // latitude
-        if lat, ok := row["latitude"].(float64); ok {
-            record[1] = fmt.Sprintf("%f", lat)
+        // latitude & longitude – filter out invalid coordinates
+        latVal, latOK := row["latitude"].(float64)
+        lonVal, lonOK := row["longitude"].(float64)
+        if !latOK || !lonOK || latVal < -90 || latVal > 90 || lonVal < -180 || lonVal > 180 {
+            continue
         }
-
-        // longitude
-        if lon, ok := row["longitude"].(float64); ok {
-            record[2] = fmt.Sprintf("%f", lon)
-        }
+        record[1] = fmt.Sprintf("%f", latVal)
+        record[2] = fmt.Sprintf("%f", lonVal)
 
         // sog
         if sog, ok := row["sog"].(float64); ok {
