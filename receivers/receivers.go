@@ -1503,6 +1503,10 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusCreated)
     json.NewEncoder(w).Encode(rec)
+    // Notify webhook for admin-created receiver
+    if settings.WebhookURL != "" {
+        go notifyWebhook(rec)
+    }
 }
 
 func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
