@@ -39,56 +39,62 @@ type Settings struct {
 }
 
 type Receiver struct {
-	ID          int        `json:"id"`
-	LastUpdated time.Time  `json:"lastupdated"`
-	Description string     `json:"description"`
-	Latitude    float64    `json:"latitude"`
-	Longitude   float64    `json:"longitude"`
-	Name        string     `json:"name"`
-	URL         *string    `json:"url,omitempty"`
-	IPAddress   string     `json:"ip_address,omitempty"` // Computed from port metrics
-	Email       string     `json:"email"`                // Added email field
-	Password    string     `json:"password"`
-	Messages    int        `json:"messages"`
-	UDPPort     *int       `json:"udp_port,omitempty"`
+	ID           int        `json:"id"`
+	LastUpdated  time.Time  `json:"lastupdated"`
+	Description  string     `json:"description"`
+	Latitude     float64    `json:"latitude"`
+	Longitude    float64    `json:"longitude"`
+	Name         string     `json:"name"`
+	URL          *string    `json:"url,omitempty"`
+	IPAddress    string     `json:"ip_address,omitempty"` // Computed from port metrics
+	Email        string     `json:"email"`                // Added email field
+	Notifications bool       `json:"notifications"`       // Flag for notifications
+	Password     string     `json:"password"`
+	Messages     int        `json:"messages"`
+	UDPPort      *int       `json:"udp_port,omitempty"`
 	MessageStats map[string]MessageStat `json:"message_stats"` // Added for admin endpoints
 	lastSeenTime *time.Time `json:"-"` // Not directly exposed in JSON but used when converting to map
 }
 
 // PublicReceiver is used for public API responses without sensitive fields
 type PublicReceiver struct {
-	ID          int        `json:"id"`
-	LastUpdated time.Time  `json:"lastupdated"`
-	Description string     `json:"description"`
-	Latitude    float64    `json:"latitude"`
-	Longitude   float64    `json:"longitude"`
-	Name        string     `json:"name"`
-	URL         *string    `json:"url,omitempty"`
-	Messages    int        `json:"messages"`
+	ID           int        `json:"id"`
+	LastUpdated  time.Time  `json:"lastupdated"`
+	Description  string     `json:"description"`
+	Latitude     float64    `json:"latitude"`
+	Longitude    float64    `json:"longitude"`
+	Name         string     `json:"name"`
+	URL          *string    `json:"url,omitempty"`
+	Notifications bool       `json:"notifications"`  // Flag for notifications
+	Messages     int        `json:"messages"`
+	// Email is intentionally not exposed in the public API
+	Email        string     `json:"-"`
 	// UDPPort is intentionally not exposed in the public API
-	UDPPort     *int       `json:"-"`
+	UDPPort      *int       `json:"-"`
 	// lastSeenTime is not directly exposed in JSON but used when converting to map
 	lastSeenTime *time.Time `json:"-"`
 }
 
 type ReceiverInput struct {
-    Description string   `json:"description"`
-    Latitude    float64  `json:"latitude"`
-    Longitude   float64  `json:"longitude"`
-    Name        string   `json:"name"`
-    URL         *string  `json:"url,omitempty"`
-    Email       string   `json:"email"`
-    Password    *string  `json:"password,omitempty"`
+    Description   string   `json:"description"`
+    Latitude      float64  `json:"latitude"`
+    Longitude     float64  `json:"longitude"`
+    Name          string   `json:"name"`
+    URL           *string  `json:"url,omitempty"`
+    Email         string   `json:"email"`
+    Notifications bool     `json:"notifications"`
+    Password      *string  `json:"password,omitempty"`
 }
 
 type ReceiverPatch struct {
-    Description *string   `json:"description,omitempty"`
-    Latitude    *float64  `json:"latitude,omitempty"`
-    Longitude   *float64  `json:"longitude,omitempty"`
-    Name        *string   `json:"name,omitempty"`
-    URL         *string   `json:"url,omitempty"`
-    Email       *string   `json:"email,omitempty"`
-    Password    *string   `json:"password,omitempty"`
+    Description   *string   `json:"description,omitempty"`
+    Latitude      *float64  `json:"latitude,omitempty"`
+    Longitude     *float64  `json:"longitude,omitempty"`
+    Name          *string   `json:"name,omitempty"`
+    URL           *string   `json:"url,omitempty"`
+    Email         *string   `json:"email,omitempty"`
+    Notifications *bool     `json:"notifications,omitempty"`
+    Password      *string   `json:"password,omitempty"`
 }
 
 var (
@@ -615,6 +621,8 @@ func createSchema() {
             longitude DOUBLE PRECISION NOT NULL,
             name VARCHAR(15) NOT NULL UNIQUE,
             url TEXT,
+            email VARCHAR(100) NOT NULL,
+            notifications BOOLEAN NOT NULL DEFAULT TRUE,
             password VARCHAR(20) NOT NULL DEFAULT '',
             request_ip_address TEXT NOT NULL DEFAULT ''
         );
@@ -1273,16 +1281,17 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
 
     // Create dummy receiver
     dummyReceiver := Receiver{
-        ID:          0,
-        LastUpdated: time.Now(),
-        Description: "Anonymous",
-        Latitude:    0,
-        Longitude:   0,
-        Name:        "Anonymous",
-        URL:         nil,
-        Email:       "",
-        Password:    "",
-        Messages:    0,
+        ID:           0,
+        LastUpdated:  time.Now(),
+        Description:  "Anonymous",
+        Latitude:     0,
+        Longitude:    0,
+        Name:         "Anonymous",
+        URL:          nil,
+        Email:        "",
+        Notifications: true,
+        Password:     "",
+        Messages:     0,
         MessageStats: make(map[string]MessageStat),
     }
     
@@ -1525,13 +1534,13 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
     var udpPort sql.NullInt64
     
     err := db.QueryRow(`
-        SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, r.password, rp.udp_port
+        SELECT r.id, r.lastupdated, r.description, r.latitude, r.longitude, r.name, r.url, r.email, r.notifications, r.password, rp.udp_port
         FROM receivers r
         LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
         WHERE r.id = $1
     `, id).Scan(
         &rec.ID, &rec.LastUpdated, &rec.Description,
-        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.Password, &udpPort,
+        &rec.Latitude, &rec.Longitude, &rec.Name, &rec.URL, &rec.Email, &rec.Notifications, &rec.Password, &udpPort,
     )
     
     // Only set UDPPort if it's not null
@@ -1664,7 +1673,7 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     // 3) load existing record
     var rec Receiver
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, email, password
+        SELECT id, lastupdated, description, latitude, longitude, name, url, email, notifications, password
         FROM receivers WHERE id = $1
     `, id).Scan(
         &rec.ID,
@@ -1675,6 +1684,7 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
         &rec.Name,
         &rec.URL,
         &rec.Email,
+        &rec.Notifications,
         &rec.Password,
     )
     if err == sql.ErrNoRows {
@@ -1705,6 +1715,9 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     if patch.Email != nil {
         rec.Email = *patch.Email
     }
+    if patch.Notifications != nil {
+        rec.Notifications = *patch.Notifications
+    }
     if patch.Password != nil {
         rec.Password = *patch.Password
     }
@@ -1719,17 +1732,18 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     // 6) perform UPDATE (excluding ip_address)
     err = db.QueryRow(`
         UPDATE receivers
-           SET description  = $1,
-               latitude     = $2,
-               longitude    = $3,
-               name         = $4,
-               url          = $5,
-               email        = $6,
-               password     = $7,
-               lastupdated  = NOW()
-         WHERE id = $8
+           SET description   = $1,
+               latitude      = $2,
+               longitude     = $3,
+               name          = $4,
+               url           = $5,
+               email         = $6,
+               notifications = $7,
+               password      = $8,
+               lastupdated   = NOW()
+         WHERE id = $9
          RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Password, rec.ID).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.Password, rec.ID).
         Scan(&rec.LastUpdated)
     if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1878,7 +1892,7 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
     // Fetch the current receiver to validate with the new password
     var rec Receiver
     err = db.QueryRow(`
-        SELECT id, description, latitude, longitude, name, url, email
+        SELECT id, description, latitude, longitude, name, url, email, notifications
         FROM receivers WHERE id = $1
     `, id).Scan(
         &rec.ID,
@@ -1888,6 +1902,7 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
         &rec.Name,
         &rec.URL,
         &rec.Email,
+        &rec.Notifications,
     )
     
     if err == sql.ErrNoRows {
@@ -1944,15 +1959,16 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
 
     // Parse JSON request body
     var input struct {
-        ID          int       `json:"id"`
-        Password    string    `json:"password"`
-        Description *string   `json:"description,omitempty"`
-        Latitude    *float64  `json:"latitude,omitempty"`
-        Longitude   *float64  `json:"longitude,omitempty"`
-        Name        *string   `json:"name,omitempty"`
-        URL         *string   `json:"url,omitempty"`
-        Email       *string   `json:"email,omitempty"`
-        NewPassword *string   `json:"new_password,omitempty"`
+        ID           int       `json:"id"`
+        Password     string    `json:"password"`
+        Description  *string   `json:"description,omitempty"`
+        Latitude     *float64  `json:"latitude,omitempty"`
+        Longitude    *float64  `json:"longitude,omitempty"`
+        Name         *string   `json:"name,omitempty"`
+        URL          *string   `json:"url,omitempty"`
+        Email        *string   `json:"email,omitempty"`
+        Notifications *bool     `json:"notifications,omitempty"`
+        NewPassword  *string   `json:"new_password,omitempty"`
     }
 
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -1979,7 +1995,7 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
     // Fetch the current receiver to verify password and get existing values
     var rec Receiver
     err := db.QueryRow(`
-        SELECT id, lastupdated, description, latitude, longitude, name, url, email, password
+        SELECT id, lastupdated, description, latitude, longitude, name, url, email, notifications, password
         FROM receivers WHERE id = $1
     `, input.ID).Scan(
         &rec.ID,
@@ -1990,6 +2006,7 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         &rec.Name,
         &rec.URL,
         &rec.Email,
+        &rec.Notifications,
         &rec.Password,
     )
     if err == sql.ErrNoRows {
@@ -2025,6 +2042,9 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
     if input.Email != nil {
         rec.Email = *input.Email
     }
+    if input.Notifications != nil {
+        rec.Notifications = *input.Notifications
+    }
     // No longer update the IP address field
     if input.NewPassword != nil {
         rec.Password = *input.NewPassword
@@ -2048,12 +2068,13 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
             name             = $4,
             url              = $5,
             email            = $6,
-            password         = $7,
-            request_ip_address = $8,
+            notifications    = $7,
+            password         = $8,
+            request_ip_address = $9,
             lastupdated      = NOW()
-        WHERE id = $9
+        WHERE id = $10
         RETURNING lastupdated
-    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Password, clientIP, rec.ID).
+    `, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.Password, clientIP, rec.ID).
         Scan(&rec.LastUpdated)
     
     if err != nil {
@@ -2095,12 +2116,13 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     
     // Parse JSON request body
     var input struct {
-        Name        string   `json:"name"`
-        Description string   `json:"description"`
-        Latitude    float64  `json:"latitude"`
-        Longitude   float64  `json:"longitude"`
-        Email       string   `json:"email"`
-        URL         *string  `json:"url,omitempty"`
+        Name          string   `json:"name"`
+        Description   string   `json:"description"`
+        Latitude      float64  `json:"latitude"`
+        Longitude     float64  `json:"longitude"`
+        Email         string   `json:"email"`
+        Notifications bool     `json:"notifications"`
+        URL           *string  `json:"url,omitempty"`
     }
 
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -2162,13 +2184,14 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     }
     
     rec := Receiver{
-        Description: input.Description,
-        Latitude:    input.Latitude,
-        Longitude:   input.Longitude,
-        Name:        strings.ToUpper(input.Name),
-        URL:         input.URL,
-        Email:       input.Email,
-        Password:    password,
+        Description:  input.Description,
+        Latitude:     input.Latitude,
+        Longitude:    input.Longitude,
+        Name:         strings.ToUpper(input.Name),
+        URL:          input.URL,
+        Email:        input.Email,
+        Notifications: input.Notifications,
+        Password:     password,
     }
 
     // Validate the receiver
@@ -2300,11 +2323,12 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
             name,
             url,
             email,
+            notifications,
             password,
             request_ip_address
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         RETURNING id, lastupdated`,
-        newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Password, clientIP).
+        newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.Password, clientIP).
         Scan(&rec.ID, &rec.LastUpdated)
     
     if err != nil {
