@@ -60,6 +60,7 @@ type Receiver struct {
 	UDPPort      *int       `json:"udp_port,omitempty"`
 	MessageStats map[string]MessageStat `json:"message_stats"` // Added for admin endpoints
 	RequestIPAddress string  `json:"request_ip_address,omitempty"` // IP address of who added the receiver
+	CustomFields map[string]interface{} `json:"custom_fields,omitempty"` // For additional fields like reset tokens
 	lastSeenTime *time.Time `json:"-"` // Not directly exposed in JSON but used when converting to map
 }
 
@@ -1565,11 +1566,11 @@ func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
     case http.MethodPut:
         handlePutReceiver(w, r, id)
     case http.MethodPatch:
-        // Admin endpoint
-        handlePatchReceiver(w, r, id, true)
+        // Set isAdminAction flag in the handler
+        handlePatchReceiver(w, r, id)
     case http.MethodDelete:
-        // Admin endpoint
-        handleDeleteReceiver(w, r, id, true)
+        // Set isAdminAction flag in the handler
+        handleDeleteReceiver(w, r, id)
     default:
         w.WriteHeader(http.StatusMethodNotAllowed)
     }
@@ -1932,7 +1933,7 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
     }
 
     // 4) UPSERT excluding ip_address
-    err := db.QueryRow(`
+    err = db.QueryRow(`
         INSERT INTO receivers (
             id,
             description,
@@ -3169,7 +3170,7 @@ func handleDeleteReceiverPublic(w http.ResponseWriter, r *http.Request) {
     
     // Send webhook notification about the deletion (not an admin action)
     if settings.WebhookURL != "" {
-        go notifyWebhookDelete(rec, clientIP, false)
+        go notifyWebhookDelete(rec, clientIP, false) // Public endpoint, not an admin action
     }
 }
 
