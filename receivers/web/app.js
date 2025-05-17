@@ -15,23 +15,18 @@ let sortDir       = -1; // 1 = ascending, -1 = descending
 
 // Function to display anonymous port message if applicable
 function updateAnonMessage() {
-  const anon = receiversData.find(r => r.id === 0 && r.message_stats && Object.keys(r.message_stats).length > 0);
-  let msgEl = document.getElementById('anon-msg');
-  if (anon) {
-    if (!msgEl) {
-      const header = document.querySelector('header');
-      msgEl = document.createElement('div');
-      msgEl.id = 'anon-msg';
-      msgEl.textContent = 'Anonymous port has seen data recently';
-      msgEl.style.color = 'blue';
-      msgEl.style.fontSize = '1.25rem';
-      msgEl.style.textAlign = 'left';
-      // Insert message aligned with form section
-      const formSection = document.getElementById('form-section');
-      formSection.insertAdjacentElement('beforebegin', msgEl);
-    }
-  } else {
-    if (msgEl) msgEl.remove();
+  const hasAnonData = receiversData.some(r => r.id === 0 && r.message_stats && Object.keys(r.message_stats).length > 0);
+  const formSection = document.getElementById('form-section');
+  const existingMsg = document.getElementById('anon-msg');
+  if (existingMsg) {
+    existingMsg.remove();
+  }
+  if (hasAnonData) {
+    const msgEl = document.createElement('div');
+    msgEl.id = 'anon-msg';
+    msgEl.textContent = 'Anonymous port has seen data recently';
+    const titleEl = document.getElementById('form-title');
+    titleEl.insertAdjacentElement('beforebegin', msgEl);
   }
 }
 async function loadReceivers() {
