@@ -1198,10 +1198,10 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         
         // Create a map for the anonymous receiver
         anonymousReceiver := map[string]interface{}{
-            "id":           0,
-            "name":         "Anonymous",
-            "description":  "Anonymous",
-            "notifications": true,
+            "id":          0,
+            "name":        "Anonymous",
+            "description": "Anonymous",
+            // Don't include notifications field for dummy receiver
         }
         
         // Add the lastseen field if available
