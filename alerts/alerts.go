@@ -310,10 +310,12 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			"- Name: %s\n"+
 			"- Description: %s\n"+
 			"- Latitude: %f\n"+
-			"- Longitude: %f\n\n"+
+			"- Longitude: %f\n"+
+			"- URL: %s\n"+
+			"- UDP Port: %s\n\n"+
 			"Thank you for your contribution to our AIS network. We hope to see you again in the future!\n\n"+
 			"AIS Decoder Team",
-			rec.Name, rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude,
+			rec.Name, rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, urlDisplay, udpPortDisplay,
 		)
 		
 		// Add IP address info in the admin-only version if needed
