@@ -707,7 +707,7 @@ func createSchema() {
             log.Printf("Made password column nullable")
         }
     }
-    _, err := db.Exec(`
+    _, err = db.Exec(`
         CREATE TABLE IF NOT EXISTS receivers (
             id SERIAL PRIMARY KEY,
             lastupdated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -2147,7 +2147,7 @@ func adminRegeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
     // Return the new password (plain text only for display to user)
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(map[string]string{
-        "password": plainPassword,
+        "password": newPassword,
     })
 }
 
