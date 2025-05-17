@@ -8,5 +8,6 @@
   "smtp_tls_skip_verify": false,
   "from_address": "alerts@example.com",
   "from_name": "Alerts Service",
-  "to_addresses": "ops@example.com,admin@example.com"
+  "to_addresses": "ops@example.com,admin@example.com",
+  "site_domain": "example.com"
 }
