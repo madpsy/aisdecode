@@ -13,6 +13,25 @@ let editId        = null;
 let sortKey       = 'lastseen';
 let sortDir       = -1; // 1 = ascending, -1 = descending
 
+// Function to display anonymous port message if applicable
+function updateAnonMessage() {
+  const anon = receiversData.find(r => r.id === 0 && r.message_stats && Object.keys(r.message_stats).length > 0);
+  let msgEl = document.getElementById('anon-msg');
+  if (anon) {
+    if (!msgEl) {
+      const header = document.querySelector('header');
+      msgEl = document.createElement('div');
+      msgEl.id = 'anon-msg';
+      msgEl.textContent = 'Anonymous port has seen data recently';
+      msgEl.style.color = 'blue';
+      msgEl.style.fontSize = '1.25rem';
+      msgEl.style.textAlign = 'left';
+      header.insertAdjacentElement('afterend', msgEl);
+    }
+  } else {
+    if (msgEl) msgEl.remove();
+  }
+}
 async function loadReceivers() {
   const res = await fetch('/admin/receivers');
   receiversData = await res.json();
@@ -78,6 +97,7 @@ function applySortAndFilter() {
 
   renderList(list);
   updateHeaderIndicators();
+  updateAnonMessage();
 }
 
 function renderList(list) {
