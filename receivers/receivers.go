@@ -2628,6 +2628,18 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Invalid password", http.StatusUnauthorized)
         return
     }
+    
+    // Store original values for comparison before applying updates
+    originalRec := Receiver{
+        ID:           rec.ID,
+        Description:  rec.Description,
+        Latitude:     rec.Latitude,
+        Longitude:    rec.Longitude,
+        Name:         rec.Name,
+        URL:          rec.URL,
+        Email:        rec.Email,
+        Notifications: rec.Notifications,
+    }
 
     // Apply updates to the receiver
     if input.Description != nil {
@@ -2675,18 +2687,6 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Store original values for comparison
-    originalRec := Receiver{
-        ID:           rec.ID,
-        Description:  rec.Description,
-        Latitude:     rec.Latitude,
-        Longitude:    rec.Longitude,
-        Name:         rec.Name,
-        URL:          rec.URL,
-        Email:        rec.Email,
-        Notifications: rec.Notifications,
-    }
-    
     // Get the client's IP address for tracking
     clientIP := getClientIP(r)
     
