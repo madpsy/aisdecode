@@ -10,8 +10,8 @@ searchInput.addEventListener('input', applySortAndFilter);
 
 let receiversData = [];
 let editId        = null;
-let sortKey       = 'id';
-let sortDir       = 1; // 1 = ascending, -1 = descending
+let sortKey       = 'lastseen';
+let sortDir       = -1; // 1 = ascending, -1 = descending
 
 async function loadReceivers() {
   const res = await fetch('/admin/receivers');
@@ -31,12 +31,13 @@ function applySortAndFilter() {
     
     // For date-based sorting (e.g., 'lastupdated', 'lastseen')
     if (sortKey === 'lastupdated' || sortKey === 'lastseen') {
-      // Handle null or undefined values for lastseen
       if (sortKey === 'lastseen') {
         if (!av) return 1 * sortDir;  // Move null/undefined values to the end
         if (!bv) return -1 * sortDir; // Move null/undefined values to the end
       }
-      return (new Date(av) - new Date(bv)) * sortDir;
+      const diff = (new Date(av) - new Date(bv)) * sortDir;
+      if (diff !== 0) return diff;
+      return a.id - b.id;
     }
     
     // For string-based sorting (e.g., 'name', 'description', 'ip_address')
