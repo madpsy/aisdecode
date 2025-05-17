@@ -160,6 +160,8 @@ function startEdit(id) {
       formTitle.textContent = 'Edit Receiver #' + r.id;
       document.getElementById('field-id').value          = r.id;
       document.getElementById('field-name').value        = r.name;
+      document.getElementById('field-email').value       = r.email;
+      document.getElementById('field-notifications').checked = r.notifications !== undefined ? r.notifications : true;
       document.getElementById('field-description').value = r.description;
       document.getElementById('field-latitude').value    = r.latitude;
       document.getElementById('field-longitude').value   = r.longitude;
@@ -222,10 +224,12 @@ document.getElementById('regenerate-password').addEventListener('click', functio
 form.onsubmit = async e => {
   e.preventDefault();
   const payload = {
-    name:        document.getElementById('field-name').value,
-    description: document.getElementById('field-description').value,
-    latitude:    parseFloat(document.getElementById('field-latitude').value),
-    longitude:   parseFloat(document.getElementById('field-longitude').value),
+    name:         document.getElementById('field-name').value,
+    email:        document.getElementById('field-email').value,
+    notifications: document.getElementById('field-notifications').checked,
+    description:  document.getElementById('field-description').value,
+    latitude:     parseFloat(document.getElementById('field-latitude').value),
+    longitude:    parseFloat(document.getElementById('field-longitude').value),
   };
   const urlVal = document.getElementById('field-url').value.trim();
   if (urlVal) payload.url = urlVal;
