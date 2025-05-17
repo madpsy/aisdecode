@@ -3175,6 +3175,17 @@ func handleDeleteReceiverPublic(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
         return
     }
+    
+    // Get UDP port for the receiver
+    var udpPort sql.NullInt64
+    err = db.QueryRow(`
+        SELECT udp_port FROM receiver_ports WHERE receiver_id = $1
+    `, input.ID).Scan(&udpPort)
+    
+    if err == nil && udpPort.Valid {
+        port := int(udpPort.Int64)
+        rec.UDPPort = &port
+    }
 
     // Check if password matches using the hash
     if !verifyPassword(input.Password, passwordHash, passwordSalt) {
