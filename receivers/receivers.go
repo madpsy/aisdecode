@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
@@ -33,6 +34,7 @@ type Settings struct {
     PublicAddReceiverEnabled bool   `json:"public_add_receiver_enabled"`
     IPAddressTimeoutMinutes int    `json:"ip_address_timeout_minutes"`
     PortMetricsHours        int    `json:"port_metrics_hours"`
+    WebhookURL              string `json:"webhook_url,omitempty"`
 }
 
 type Receiver struct {
@@ -192,6 +194,43 @@ func fetchIngestSettings() (*IngestSettings, error) {
     }
 
     return &ingestSettings, nil
+}
+
+func notifyWebhook(rec Receiver) {
+    if settings.WebhookURL == "" {
+        return
+    }
+    // Build payload without sensitive fields (exclude password)
+    payloadMap := map[string]interface{}{
+        "id":          rec.ID,
+        "lastupdated": rec.LastUpdated,
+        "description": rec.Description,
+        "latitude":    rec.Latitude,
+        "longitude":   rec.Longitude,
+        "name":        rec.Name,
+    }
+    if rec.URL != nil {
+        payloadMap["url"] = rec.URL
+    }
+    if rec.UDPPort != nil {
+        payloadMap["udp_port"] = rec.UDPPort
+    }
+    payload, err := json.Marshal(payloadMap)
+    if err != nil {
+        log.Printf("notifyWebhook: failed to marshal receiver payload: %v", err)
+        return
+    }
+    // Call the webhook URL with 5s timeout
+    client := &http.Client{Timeout: 5 * time.Second}
+    resp, err := client.Post(settings.WebhookURL, "application/json", bytes.NewBuffer(payload))
+    if err != nil {
+        log.Printf("notifyWebhook: failed to POST webhook: %v", err)
+        return
+    }
+    defer resp.Body.Close()
+    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+        log.Printf("notifyWebhook: received non-2xx status: %s", resp.Status)
+    }
 }
 
 // parsePortRange parses a port range string like "9000-9999" into a slice of integers
@@ -2259,4 +2298,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusCreated)
     json.NewEncoder(w).Encode(rec)
+    if settings.WebhookURL != "" {
+        go notifyWebhook(rec)
+    }
 }

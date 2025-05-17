@@ -11,5 +11,6 @@
   "public_add_receiver_enabled": true,
   "ip_address_timeout_minutes": 60,
   "port_metrics_hours": 1,
+  "webhook_url": "http://localhost:5135",
   "debug": false
 }
