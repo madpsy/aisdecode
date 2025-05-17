@@ -1923,9 +1923,17 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
         URL:          input.URL,
         Email:        input.Email,
         Notifications: input.Notifications,
-        Password:     plainPassword, // Store plain password temporarily for validation
         PasswordHash: passwordHash,
         PasswordSalt: passwordSalt,
+    }
+    
+    // Set the password field for validation
+    if input.Password != nil {
+        rec.Password = *input.Password // Use the provided password
+    } else {
+        // Set a dummy password for validation when not changing the password
+        // This is needed because validateReceiver checks the password length
+        rec.Password = "dummy_password_for_validation_only"
     }
     if err := validateReceiver(rec); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
@@ -2144,6 +2152,10 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
         rec.PasswordSalt = base64.StdEncoding.EncodeToString(saltBytes)
         rec.PasswordHash = hashPassword(*patch.Password, rec.PasswordSalt)
         rec.Password = *patch.Password // Store temporarily for validation
+    } else {
+        // Set a dummy password for validation when not changing the password
+        // This is needed because validateReceiver checks the password length
+        rec.Password = "dummy_password_for_validation_only"
     }
     // No longer update the IP address field
 
