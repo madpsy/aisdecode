@@ -107,6 +107,18 @@
       <label for="url">URL (optional):</label>
       <input id="url" type="url" placeholder="https://my-web-site.com" />
       <span id="url-error" style="color: red; font-size: 0.9rem; display: none;">Invalid URL</span>
+      
+      <label for="email">Email Address:</label>
+      <input id="email" type="email" placeholder="your.email@example.com" />
+      
+      <label for="email-confirm">Confirm Email Address:</label>
+      <input id="email-confirm" type="email" placeholder="your.email@example.com" />
+      <span id="email-error" style="color: red; font-size: 0.9rem; display: none;">Email addresses do not match</span>
+      
+      <div style="margin: 10px 0;">
+        <input type="checkbox" id="notifications" checked />
+        <label for="notifications">Enable notifications</label>
+      </div>
       <div style="display: flex; gap: 10px;">
         <div style="flex: 1; display: flex; flex-direction: column;">
           <label for="latitude">Latitude:</label>
@@ -407,10 +419,14 @@
     const callsignInput = document.getElementById('callsign');
     const descInput = document.getElementById('description');
     const urlInput = document.getElementById('url');
+    const emailInput = document.getElementById('email');
+    const emailConfirmInput = document.getElementById('email-confirm');
+    const notificationsInput = document.getElementById('notifications');
     const latInput = document.getElementById('latitude');
     const lngInput = document.getElementById('longitude');
     const maidenheadInput = document.getElementById('maidenhead');
     const urlErrorEl = document.getElementById('url-error');
+    const emailErrorEl = document.getElementById('email-error');
     const callsignErrorEl = document.getElementById('callsign-error');
     const coordsErrorEl = document.getElementById('coords-error');
     const maidenheadErrorEl = document.getElementById('maidenhead-error');
@@ -445,9 +461,27 @@
       }
       const hasCalls = callVal !== '' && !duplicate;
       const hasDesc = descInput.value.trim() !== '';
+      
+      // Check if emails match
+      const email = emailInput.value.trim();
+      const emailConfirm = emailConfirmInput.value.trim();
+      let emailsMatch = true;
+      
+      if (email || emailConfirm) {
+        if (email !== emailConfirm) {
+          emailErrorEl.style.display = 'block';
+          emailsMatch = false;
+        } else {
+          emailErrorEl.style.display = 'none';
+        }
+      } else {
+        emailErrorEl.style.display = 'none';
+      }
+      
       // hide url error initially
       urlErrorEl.style.display = 'none';
-      if (!hasCalls || !hasDesc) {
+      
+      if (!hasCalls || !hasDesc || !emailsMatch || !email) {
         codeEl.textContent = 'Command will appear once form is filled in';
         codeEl.parentElement.style.display = 'block';
         btn.style.display = 'none';
@@ -458,6 +492,8 @@
       let cmd = `bash <(curl -fsSL ${origin}/add_receiver.sh) -u ${origin} -y -l ${lat.toFixed(6)},${lng.toFixed(6)}`;
       cmd += ` -c ${callsignInput.value.trim()}`;
       cmd += ` -d "${descInput.value.trim()}"`;
+      cmd += ` -e "${email}"`;
+      cmd += ` -n ${notificationsInput.checked ? 'true' : 'false'}`;
       // validate URL if provided
       const urlVal = urlInput.value.trim();
       if (urlVal) {
@@ -483,9 +519,12 @@
     }
 
     // Update on input change
-    [callsignInput, descInput, urlInput].forEach(el =>
+    [callsignInput, descInput, urlInput, emailInput, emailConfirmInput, notificationsInput].forEach(el =>
       el.addEventListener('input', updateCommand)
     );
+    
+    // Also update on checkbox change
+    notificationsInput.addEventListener('change', updateCommand);
 
     // Update coordinates fields when marker moves
     function updateCoordinateFields() {

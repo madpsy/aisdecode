@@ -15,12 +15,14 @@ CALLSIGN=""
 DESCRIPTION=""
 URL=""
 IP_ADDRESS=""
+EMAIL=""
+NOTIFICATIONS="true"
 URL_SPECIFIED=false
 AUTO_YES=false
 
 print_usage() {
   cat <<EOF
-Usage: $(basename "$0") -u base_url [-y] [-l lat,long] [-c callsign] [-d description] [-U url] [-i ip_address]
+Usage: $(basename "$0") -u base_url [-y] [-l lat,long] [-c callsign] [-d description] [-U url] [-i ip_address] [-e email] [-n notifications]
 Options:
   -u base_url      Base URL of server (required)
   -y               Automatically proceed without confirmation prompt
@@ -29,12 +31,14 @@ Options:
   -d description   Specify description (max 30 characters)
   -U url           Specify optional URL (must be a valid http(s) URL)
   -i ip_address    Specify optional IP address
+  -e email         Specify email address
+  -n notifications Set notifications (true or false)
   -h               Show this help message
 EOF
 }
 
 # Parse optional flags
-while getopts "u:hyl:c:d:U:i:" opt; do
+while getopts "u:hyl:c:d:U:i:e:n:" opt; do
   case $opt in
     u) BASE_URL="$OPTARG" ;;
     h) print_usage; exit 0 ;;
@@ -44,6 +48,8 @@ while getopts "u:hyl:c:d:U:i:" opt; do
     d) DESCRIPTION="$OPTARG" ;;
     U) URL="$OPTARG"; URL_SPECIFIED=true ;;
     i) IP_ADDRESS="$OPTARG" ;;
+    e) EMAIL="$OPTARG" ;;
+    n) NOTIFICATIONS="$OPTARG" ;;
     *) print_usage; exit 1 ;;
   esac
 done
@@ -190,6 +196,30 @@ if [[ -n "$IP_ADDRESS" ]]; then
   done
 fi
 
+# Prompt for email if not provided
+if [[ -z "$EMAIL" ]]; then
+  while true; do
+    read -p "Email address: " EMAIL
+    if [[ -z "$EMAIL" ]]; then
+      echo "Email address is required."
+    elif ! [[ "$EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+      echo "Invalid email format."
+    else
+      break
+    fi
+  done
+fi
+
+# Prompt for notifications if not provided
+if [[ "$NOTIFICATIONS" != "true" && "$NOTIFICATIONS" != "false" ]]; then
+  read -p "Enable notifications? [Y/n]: " notifications_resp
+  if [[ "$notifications_resp" =~ ^[Nn]$ ]]; then
+    NOTIFICATIONS="false"
+  else
+    NOTIFICATIONS="true"
+  fi
+fi
+
 # Display entered values for confirmation
 echo
 echo "Please confirm the following values:"
@@ -199,6 +229,8 @@ echo "Latitude: $LATITUDE"
 echo "Longitude: $LONGITUDE"
 echo "URL: ${URL:-<none>}"
 echo "IP Address: ${IP_ADDRESS:-<none>}"
+echo "Email: $EMAIL"
+echo "Notifications: $NOTIFICATIONS"
 if [[ "$AUTO_YES" == true ]]; then
   # Skip confirmation if -y flag is set
   echo "Proceeding automatically..."
@@ -216,6 +248,8 @@ PAYLOAD_ARGS=(
   --arg description "$DESCRIPTION"
   --argjson latitude "$LATITUDE"
   --argjson longitude "$LONGITUDE"
+  --arg email "$EMAIL"
+  --argjson notifications "$NOTIFICATIONS"
 )
 
 # Add optional fields if provided
@@ -228,7 +262,7 @@ if [[ -n "${IP_ADDRESS-}" ]]; then
 fi
 
 # Construct the JSON object with conditional fields
-PAYLOAD_EXPR='{name:$name,description:$description,latitude:$latitude,longitude:$longitude}'
+PAYLOAD_EXPR='{name:$name,description:$description,latitude:$latitude,longitude:$longitude,email:$email,notifications:$notifications}'
 
 if [[ -n "${URL-}" ]]; then
   PAYLOAD_EXPR=$(echo "$PAYLOAD_EXPR" | sed 's/}$/,url:$url}/')
