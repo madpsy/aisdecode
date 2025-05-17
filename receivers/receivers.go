@@ -59,6 +59,7 @@ type Receiver struct {
 	Messages     int        `json:"messages"`
 	UDPPort      *int       `json:"udp_port,omitempty"`
 	MessageStats map[string]MessageStat `json:"message_stats"` // Added for admin endpoints
+	RequestIPAddress string  `json:"request_ip_address,omitempty"` // IP address of who added the receiver
 	lastSeenTime *time.Time `json:"-"` // Not directly exposed in JSON but used when converting to map
 }
 
@@ -213,12 +214,43 @@ func fetchIngestSettings() (*IngestSettings, error) {
 }
 
 func notifyWebhook(rec Receiver) {
+    notifyWebhookWithType(rec, "receiver_added")
+}
+
+func notifyWebhookDelete(rec Receiver, clientIP string, isAdminAction bool) {
+    // Store the request IP address in the receiver object for the webhook
+    rec.RequestIPAddress = clientIP
+    
+    // Add information about whether this was an admin action
+    if rec.CustomFields == nil {
+        rec.CustomFields = make(map[string]interface{})
+    }
+    rec.CustomFields["is_admin_action"] = isAdminAction
+    
+    notifyWebhookWithType(rec, "receiver_deleted")
+}
+
+func notifyWebhookUpdate(rec Receiver, clientIP string, changedFields map[string]interface{}, isAdminAction bool) {
+    // Store the request IP address in the receiver object for the webhook
+    rec.RequestIPAddress = clientIP
+    
+    // Add the changed fields to the receiver's custom fields
+    if rec.CustomFields == nil {
+        rec.CustomFields = make(map[string]interface{})
+    }
+    rec.CustomFields["changed_fields"] = changedFields
+    rec.CustomFields["is_admin_action"] = isAdminAction
+    
+    notifyWebhookWithType(rec, "receiver_updated")
+}
+
+func notifyWebhookWithType(rec Receiver, alertType string) {
     if settings.WebhookURL == "" {
         return
     }
     // Build the alert envelope
     envelope := map[string]interface{}{
-        "alert_type": "receiver_added",
+        "alert_type": alertType,
         "receiver": map[string]interface{}{
             "id":          rec.ID,
             "lastupdated": rec.LastUpdated,
@@ -233,6 +265,9 @@ func notifyWebhook(rec Receiver) {
     }
     if rec.UDPPort != nil {
         envelope["receiver"].(map[string]interface{})["udp_port"] = rec.UDPPort
+    }
+    if rec.RequestIPAddress != "" {
+        envelope["receiver"].(map[string]interface{})["request_ip_address"] = rec.RequestIPAddress
     }
     payload, err := json.Marshal(envelope)
     if err != nil {
@@ -1530,9 +1565,11 @@ func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
     case http.MethodPut:
         handlePutReceiver(w, r, id)
     case http.MethodPatch:
-        handlePatchReceiver(w, r, id)
+        // Admin endpoint
+        handlePatchReceiver(w, r, id, true)
     case http.MethodDelete:
-        handleDeleteReceiver(w, r, id)
+        // Admin endpoint
+        handleDeleteReceiver(w, r, id, true)
     default:
         w.WriteHeader(http.StatusMethodNotAllowed)
     }
@@ -1818,6 +1855,9 @@ func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
 }
 
 func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
+    // Get the client's IP address
+    clientIP := getClientIP(r)
+    
     // 1) decode JSON body
     var input ReceiverInput
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -1850,7 +1890,28 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
     
     // No longer update the IP address field
 
-
+    // Fetch the existing receiver to track changes
+    var originalRec Receiver
+    err := db.QueryRow(`
+        SELECT id, description, latitude, longitude, name, url, email, notifications
+        FROM receivers WHERE id = $1
+    `, id).Scan(
+        &originalRec.ID,
+        &originalRec.Description,
+        &originalRec.Latitude,
+        &originalRec.Longitude,
+        &originalRec.Name,
+        &originalRec.URL,
+        &originalRec.Email,
+        &originalRec.Notifications,
+    )
+    
+    // If the receiver doesn't exist yet, that's fine - we're creating a new one
+    if err != nil && err != sql.ErrNoRows {
+        http.Error(w, fmt.Sprintf("Failed to fetch existing receiver: %v", err), http.StatusInternalServerError)
+        return
+    }
+    
     // 3) build Receiver and validate
     rec := Receiver{
         ID:           id,
@@ -1906,9 +1967,100 @@ func handlePutReceiver(w http.ResponseWriter, r *http.Request, id int) {
     // 6) send response
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(rec)
+    
+    // Track what fields were changed
+    changedFields := make(map[string]interface{})
+    
+    // Only track changes if the receiver existed before
+    if err != sql.ErrNoRows {
+        if rec.Description != originalRec.Description {
+            changedFields["description"] = map[string]interface{}{
+                "old": originalRec.Description,
+                "new": rec.Description,
+            }
+        }
+        
+        if rec.Latitude != originalRec.Latitude {
+            changedFields["latitude"] = map[string]interface{}{
+                "old": originalRec.Latitude,
+                "new": rec.Latitude,
+            }
+        }
+        
+        if rec.Longitude != originalRec.Longitude {
+            changedFields["longitude"] = map[string]interface{}{
+                "old": originalRec.Longitude,
+                "new": rec.Longitude,
+            }
+        }
+        
+        if rec.Name != originalRec.Name {
+            changedFields["name"] = map[string]interface{}{
+                "old": originalRec.Name,
+                "new": rec.Name,
+            }
+        }
+        
+        // For URL, we need to handle nil pointers
+        urlChanged := false
+        if (originalRec.URL == nil && rec.URL != nil) ||
+           (originalRec.URL != nil && rec.URL == nil) {
+            urlChanged = true
+        } else if originalRec.URL != nil && rec.URL != nil && *originalRec.URL != *rec.URL {
+            urlChanged = true
+        }
+        
+        if urlChanged {
+            var oldURL, newURL string
+            if originalRec.URL != nil {
+                oldURL = *originalRec.URL
+            }
+            if rec.URL != nil {
+                newURL = *rec.URL
+            }
+            changedFields["url"] = map[string]interface{}{
+                "old": oldURL,
+                "new": newURL,
+            }
+        }
+        
+        if rec.Email != originalRec.Email {
+            changedFields["email"] = map[string]interface{}{
+                "old": originalRec.Email,
+                "new": rec.Email,
+            }
+        }
+        
+        if rec.Notifications != originalRec.Notifications {
+            changedFields["notifications"] = map[string]interface{}{
+                "old": originalRec.Notifications,
+                "new": rec.Notifications,
+            }
+        }
+        
+        if input.Password != nil {
+            // Don't include the actual password values, just indicate it was changed
+            changedFields["password"] = map[string]interface{}{
+                "changed": true,
+            }
+        }
+        
+        // Only send webhook if fields were actually changed
+        if len(changedFields) > 0 && settings.WebhookURL != "" {
+            go notifyWebhookUpdate(rec, clientIP, changedFields)
+        }
+    } else {
+        // This is a new receiver being created with PUT, so notify as an add
+        if settings.WebhookURL != "" {
+            go notifyWebhook(rec)
+        }
+    }
 }
 
 func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
+    // Get the client's IP address
+    clientIP := getClientIP(r)
+    
     // 1) decode JSON body
     var patch ReceiverPatch
     if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
@@ -1941,6 +2093,18 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     } else if err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
+    }
+
+    // Store original values for comparison
+    originalRec := Receiver{
+        ID:           rec.ID,
+        Description:  rec.Description,
+        Latitude:     rec.Latitude,
+        Longitude:    rec.Longitude,
+        Name:         rec.Name,
+        URL:          rec.URL,
+        Email:        rec.Email,
+        Notifications: rec.Notifications,
     }
 
     // 4) apply patch
@@ -2011,9 +2175,120 @@ func handlePatchReceiver(w http.ResponseWriter, r *http.Request, id int) {
     // 8) send response
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(rec)
+    
+    // Track what fields were changed
+    changedFields := make(map[string]interface{})
+    
+    if patch.Description != nil && rec.Description != originalRec.Description {
+        changedFields["description"] = map[string]interface{}{
+            "old": originalRec.Description,
+            "new": rec.Description,
+        }
+    }
+    
+    if patch.Latitude != nil && rec.Latitude != originalRec.Latitude {
+        changedFields["latitude"] = map[string]interface{}{
+            "old": originalRec.Latitude,
+            "new": rec.Latitude,
+        }
+    }
+    
+    if patch.Longitude != nil && rec.Longitude != originalRec.Longitude {
+        changedFields["longitude"] = map[string]interface{}{
+            "old": originalRec.Longitude,
+            "new": rec.Longitude,
+        }
+    }
+    
+    if patch.Name != nil && rec.Name != originalRec.Name {
+        changedFields["name"] = map[string]interface{}{
+            "old": originalRec.Name,
+            "new": rec.Name,
+        }
+    }
+    
+    // For URL, we need to handle nil pointers
+    urlChanged := false
+    if (originalRec.URL == nil && rec.URL != nil) ||
+       (originalRec.URL != nil && rec.URL == nil) {
+        urlChanged = true
+    } else if originalRec.URL != nil && rec.URL != nil && *originalRec.URL != *rec.URL {
+        urlChanged = true
+    }
+    
+    if urlChanged {
+        var oldURL, newURL string
+        if originalRec.URL != nil {
+            oldURL = *originalRec.URL
+        }
+        if rec.URL != nil {
+            newURL = *rec.URL
+        }
+        changedFields["url"] = map[string]interface{}{
+            "old": oldURL,
+            "new": newURL,
+        }
+    }
+    
+    if patch.Email != nil && rec.Email != originalRec.Email {
+        changedFields["email"] = map[string]interface{}{
+            "old": originalRec.Email,
+            "new": rec.Email,
+        }
+    }
+    
+    if patch.Notifications != nil && rec.Notifications != originalRec.Notifications {
+        changedFields["notifications"] = map[string]interface{}{
+            "old": originalRec.Notifications,
+            "new": rec.Notifications,
+        }
+    }
+    
+    if patch.Password != nil {
+        // Don't include the actual password values, just indicate it was changed
+        changedFields["password"] = map[string]interface{}{
+            "changed": true,
+        }
+    }
+    
+    // Only send webhook if fields were actually changed
+    if len(changedFields) > 0 && settings.WebhookURL != "" {
+        go notifyWebhookUpdate(rec, clientIP, changedFields, isAdminAction)
+    }
 }
 
 func handleDeleteReceiver(w http.ResponseWriter, r *http.Request, id int) {
+    // Get the client's IP address
+    clientIP := getClientIP(r)
+    
+    // Fetch the receiver details before deletion for the webhook
+    var rec Receiver
+    err := db.QueryRow(`
+        SELECT id, name, description, latitude, longitude, url, email, notifications,
+               lastupdated::text
+        FROM receivers WHERE id = $1`, id).
+        Scan(&rec.ID, &rec.Name, &rec.Description, &rec.Latitude, &rec.Longitude,
+             &rec.URL, &rec.Email, &rec.Notifications, &rec.LastUpdated)
+    
+    if err == sql.ErrNoRows {
+        http.Error(w, "Receiver not found", http.StatusNotFound)
+        return
+    } else if err != nil {
+        http.Error(w, fmt.Sprintf("Failed to fetch receiver: %v", err), http.StatusInternalServerError)
+        return
+    }
+    
+    // Get UDP port for the receiver
+    var udpPort sql.NullInt64
+    err = db.QueryRow(`
+        SELECT udp_port FROM receiver_ports WHERE receiver_id = $1
+    `, id).Scan(&udpPort)
+    
+    if err == nil && udpPort.Valid {
+        port := int(udpPort.Int64)
+        rec.UDPPort = &port
+    }
+    
     // Begin a transaction
     tx, err := db.Begin()
     if err != nil {
@@ -2053,6 +2328,11 @@ func handleDeleteReceiver(w http.ResponseWriter, r *http.Request, id int) {
     }
 
     w.WriteHeader(http.StatusNoContent)
+    
+    // Send webhook notification about the deletion
+    if settings.WebhookURL != "" {
+        go notifyWebhookDelete(rec, clientIP, isAdminAction)
+    }
 }
 
 func validateReceiver(r Receiver) error {
@@ -2347,6 +2627,18 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Store original values for comparison
+    originalRec := Receiver{
+        ID:           rec.ID,
+        Description:  rec.Description,
+        Latitude:     rec.Latitude,
+        Longitude:    rec.Longitude,
+        Name:         rec.Name,
+        URL:          rec.URL,
+        Email:        rec.Email,
+        Notifications: rec.Notifications,
+    }
+    
     // Get the client's IP address for tracking
     clientIP := getClientIP(r)
     
@@ -2393,6 +2685,86 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
     // Return the updated receiver
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(rec)
+    
+    // Track what fields were changed
+    changedFields := make(map[string]interface{})
+    
+    if rec.Description != originalRec.Description {
+        changedFields["description"] = map[string]interface{}{
+            "old": originalRec.Description,
+            "new": rec.Description,
+        }
+    }
+    
+    if rec.Latitude != originalRec.Latitude {
+        changedFields["latitude"] = map[string]interface{}{
+            "old": originalRec.Latitude,
+            "new": rec.Latitude,
+        }
+    }
+    
+    if rec.Longitude != originalRec.Longitude {
+        changedFields["longitude"] = map[string]interface{}{
+            "old": originalRec.Longitude,
+            "new": rec.Longitude,
+        }
+    }
+    
+    if rec.Name != originalRec.Name {
+        changedFields["name"] = map[string]interface{}{
+            "old": originalRec.Name,
+            "new": rec.Name,
+        }
+    }
+    
+    // For URL, we need to handle nil pointers
+    urlChanged := false
+    if (originalRec.URL == nil && rec.URL != nil) ||
+       (originalRec.URL != nil && rec.URL == nil) {
+        urlChanged = true
+    } else if originalRec.URL != nil && rec.URL != nil && *originalRec.URL != *rec.URL {
+        urlChanged = true
+    }
+    
+    if urlChanged {
+        var oldURL, newURL string
+        if originalRec.URL != nil {
+            oldURL = *originalRec.URL
+        }
+        if rec.URL != nil {
+            newURL = *rec.URL
+        }
+        changedFields["url"] = map[string]interface{}{
+            "old": oldURL,
+            "new": newURL,
+        }
+    }
+    
+    if rec.Email != originalRec.Email {
+        changedFields["email"] = map[string]interface{}{
+            "old": originalRec.Email,
+            "new": rec.Email,
+        }
+    }
+    
+    if rec.Notifications != originalRec.Notifications {
+        changedFields["notifications"] = map[string]interface{}{
+            "old": originalRec.Notifications,
+            "new": rec.Notifications,
+        }
+    }
+    
+    if input.NewPassword != nil {
+        // Don't include the actual password values, just indicate it was changed
+        changedFields["password"] = map[string]interface{}{
+            "changed": true,
+        }
+    }
+    
+    // Only send webhook if fields were actually changed
+    if len(changedFields) > 0 && settings.WebhookURL != "" {
+        go notifyWebhookUpdate(rec, clientIP, changedFields, false) // Not an admin action
+    }
 }
 
 // handleAddReceiver handles POST /addreceiver
@@ -2631,6 +3003,9 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         RETURNING id, lastupdated`,
         newID, rec.Description, rec.Latitude, rec.Longitude, rec.Name, rec.URL, rec.Email, rec.Notifications, rec.PasswordHash, rec.PasswordSalt, clientIP).
         Scan(&rec.ID, &rec.LastUpdated)
+        
+    // Store the request IP address in the receiver object for the webhook
+    rec.RequestIPAddress = clientIP
     
     if err != nil {
         tx.Rollback() // Rollback the transaction on error
@@ -2693,6 +3068,9 @@ func handleDeleteReceiverPublic(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusMethodNotAllowed)
         return
     }
+    
+    // Get the client's IP address
+    clientIP := getClientIP(r)
 
     // Parse JSON request body
     var input struct {
@@ -2721,9 +3099,15 @@ func handleDeleteReceiverPublic(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Fetch the current receiver to verify password
+    // Fetch the current receiver to verify password and for the webhook
+    var rec Receiver
     var passwordHash, passwordSalt string
-    err := db.QueryRow(`SELECT password_hash, password_salt FROM receivers WHERE id = $1`, input.ID).Scan(&passwordHash, &passwordSalt)
+    err := db.QueryRow(`
+        SELECT id, name, description, latitude, longitude, url, email, notifications,
+               password_hash, password_salt, lastupdated::text
+        FROM receivers WHERE id = $1`, input.ID).
+        Scan(&rec.ID, &rec.Name, &rec.Description, &rec.Latitude, &rec.Longitude,
+             &rec.URL, &rec.Email, &rec.Notifications, &passwordHash, &passwordSalt, &rec.LastUpdated)
     if err == sql.ErrNoRows {
         http.Error(w, "Receiver not found", http.StatusNotFound)
         return
@@ -2782,6 +3166,11 @@ func handleDeleteReceiverPublic(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(map[string]string{
         "message": "Receiver deleted successfully",
     })
+    
+    // Send webhook notification about the deletion (not an admin action)
+    if settings.WebhookURL != "" {
+        go notifyWebhookDelete(rec, clientIP, false)
+    }
 }
 
 // generateResetToken generates a secure random token for password reset

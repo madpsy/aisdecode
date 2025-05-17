@@ -41,18 +41,19 @@ type Settings struct {
 
 // Receiver represents the payload sent by the receivers service.
 type Receiver struct {
-	ID           int                    `json:"id"`
-	LastUpdated  string                 `json:"lastupdated"`
-	LastSeen     string                 `json:"lastseen"`
-	Description  string                 `json:"description"`
-	Latitude     float64                `json:"latitude"`
-	Longitude    float64                `json:"longitude"`
-	Name         string                 `json:"name"`
-	Email        string                 `json:"email"`
-	URL          *string                `json:"url,omitempty"`
-	UDPPort      *int                   `json:"udp_port,omitempty"`
-	Notifications bool                  `json:"notifications"`
-	CustomFields map[string]interface{} `json:"custom_fields,omitempty"` // For additional fields like reset tokens
+	ID               int                    `json:"id"`
+	LastUpdated      string                 `json:"lastupdated"`
+	LastSeen         string                 `json:"lastseen"`
+	Description      string                 `json:"description"`
+	Latitude         float64                `json:"latitude"`
+	Longitude        float64                `json:"longitude"`
+	Name             string                 `json:"name"`
+	Email            string                 `json:"email"`
+	URL              *string                `json:"url,omitempty"`
+	UDPPort          *int                   `json:"udp_port,omitempty"`
+	Notifications    bool                   `json:"notifications"`
+	RequestIPAddress string                 `json:"request_ip_address,omitempty"` // IP address of who added the receiver
+	CustomFields     map[string]interface{} `json:"custom_fields,omitempty"` // For additional fields like reset tokens
 }
 
 // Alert represents an alert record in the database
@@ -133,6 +134,62 @@ func initDB() error {
 	return nil
 }
 
+// sendSingleEmail sends an email to a single recipient
+func sendSingleEmail(subject, body, toAddress string) error {
+	msg := []byte(
+		"From: " + settings.FromName + " <" + settings.FromAddress + ">\r\n" +
+		"To: " + toAddress + "\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"\r\n" + body + "\r\n")
+	
+	addr := fmt.Sprintf("%s:%d", settings.SMTPHost, settings.SMTPPort)
+	auth := smtp.PlainAuth("", settings.SMTPUser, settings.SMTPPass, settings.SMTPHost)
+
+	if settings.SMTPUseTLS {
+		// Use STARTTLS to upgrade the connection
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("SMTP dial error: %w", err)
+		}
+		c, err := smtp.NewClient(conn, settings.SMTPHost)
+		if err != nil {
+			return fmt.Errorf("SMTP client error: %w", err)
+		}
+		defer c.Close()
+
+		tlsConfig := &tls.Config{ServerName: settings.SMTPHost, InsecureSkipVerify: settings.SMTPTLSSkipVerify}
+		if err := c.StartTLS(tlsConfig); err != nil {
+			return fmt.Errorf("SMTP STARTTLS error: %w", err)
+		}
+
+		if err := c.Auth(auth); err != nil {
+			return fmt.Errorf("SMTP auth error: %w", err)
+		}
+		if err := c.Mail(settings.FromAddress); err != nil {
+			return fmt.Errorf("SMTP mail error: %w", err)
+		}
+		
+		if err := c.Rcpt(toAddress); err != nil {
+			return fmt.Errorf("SMTP rcpt error for %s: %w", toAddress, err)
+		}
+		
+		w, err := c.Data()
+		if err != nil {
+			return fmt.Errorf("SMTP data error: %w", err)
+		}
+		_, err = w.Write(msg)
+		if err != nil {
+			return fmt.Errorf("SMTP write error: %w", err)
+		}
+		if err := w.Close(); err != nil {
+			return fmt.Errorf("SMTP close error: %w", err)
+		}
+		return c.Quit()
+	}
+
+	return smtp.SendMail(addr, auth, settings.FromAddress, []string{toAddress}, msg)
+}
+
 func sendEmail(alertType string, rec Receiver, customBody string) (string, error) {
 	// Translate alert_type into a human-readable subject
 	var subject string
@@ -144,7 +201,20 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 	
 	switch alertType {
 	case "receiver_added":
-		subject = "New Receiver Added"
+		// Include the receiver's name in the subject
+		subject = fmt.Sprintf("New Receiver Added: %s", rec.Name)
+		
+		// For receiver added, send to both the site owner addresses and the receiver's email address
+		if rec.Email != "" {
+			// If we have a receiver email, add it to the site owner addresses
+			toAddresses = settings.ToAddresses
+			if toAddresses != "" && rec.Email != "" {
+				toAddresses += "," + rec.Email
+			} else if rec.Email != "" {
+				toAddresses = rec.Email
+			}
+		}
+		
 		// Prepare display values for URL and UDP port
 		var urlDisplay, udpPortDisplay string
 		if rec.URL != nil {
@@ -153,10 +223,124 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 		if rec.UDPPort != nil {
 			udpPortDisplay = strconv.Itoa(*rec.UDPPort)
 		}
+		
+		// Create a link to the receiver
+		receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, rec.ID)
+		
+		// Create a more user-friendly email with a welcome message
 		body = fmt.Sprintf(
-			"A new receiver was added:\n\nID: %d\nName: %s\nDescription: %s\nLatitude: %f\nLongitude: %f\nLast Updated: %s\nURL: %s\nUDP Port: %s\n",
-			rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, urlDisplay, udpPortDisplay,
+			"Hello,\n\n"+
+			"Welcome to AIS Decoder! Your new receiver '%s' has been successfully registered.\n\n"+
+			"Your UDP Port: %s\n\n"+ // Highlight the UDP port as most important
+			"Receiver Details:\n"+
+			"- ID: %d\n"+
+			"- Name: %s\n"+
+			"- Description: %s\n"+
+			"- Latitude: %f\n"+
+			"- Longitude: %f\n"+
+			"- Last Updated: %s\n"+
+			"- URL: %s\n\n"+
+			"You can view your receiver's details here: %s\n\n"+
+			"Thank you for contributing to our AIS network!\n\n"+
+			"AIS Decoder Team",
+			rec.Name, udpPortDisplay,
+			rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, urlDisplay,
+			receiverURL
 		)
+		
+		// Add IP address info in the admin-only version if needed
+		if settings.ToAddresses != "" {
+			adminBody := body + fmt.Sprintf("\n\nAdditional Admin Info:\nAdded from IP: %s", rec.RequestIPAddress)
+			
+			// If we're sending to both admin and user, send separate emails
+			if rec.Email != "" && settings.ToAddresses != "" {
+				// First send the user-friendly version to the receiver owner
+				err := sendSingleEmail(subject, body, rec.Email)
+				if err != nil {
+					log.Printf("Error sending user email for receiver %d: %v", rec.ID, err)
+				}
+				
+				// Then prepare the admin version with IP info
+				body = adminBody
+				toAddresses = settings.ToAddresses
+			} else {
+				// If sending to only one type of recipient, use the admin version
+				body = adminBody
+			}
+		}
+	case "receiver_deleted":
+		// Include the receiver's name in the subject
+		subject = fmt.Sprintf("Receiver Deleted: %s", rec.Name)
+		
+		// Check if this was an admin action
+		isAdminAction := false
+		if rec.CustomFields != nil {
+			isAdminAction, _ = rec.CustomFields["is_admin_action"].(bool)
+		}
+		
+		// For receiver deleted, only include the user's email if it wasn't an admin action
+		if rec.Email != "" && !isAdminAction {
+			// If we have a receiver email and it's not an admin action, add it to the site owner addresses
+			toAddresses = settings.ToAddresses
+			if toAddresses != "" && rec.Email != "" {
+				toAddresses += "," + rec.Email
+			} else if rec.Email != "" {
+				toAddresses = rec.Email
+			}
+		} else {
+			// If it's an admin action or no email, just use the site owner addresses
+			toAddresses = settings.ToAddresses
+		}
+		
+		// Prepare display values for URL and UDP port
+		var urlDisplay, udpPortDisplay string
+		if rec.URL != nil {
+			urlDisplay = *rec.URL
+		}
+		if rec.UDPPort != nil {
+			udpPortDisplay = strconv.Itoa(*rec.UDPPort)
+		}
+		
+		// Create a user-friendly email with a "sorry to see you go" message
+		body = fmt.Sprintf(
+			"Hello,\n\n"+
+			"We're sorry to see you go. Your receiver '%s' has been successfully deleted from our system.\n\n"+
+			"Receiver Details:\n"+
+			"- ID: %d\n"+
+			"- Name: %s\n"+
+			"- Description: %s\n"+
+			"- Latitude: %f\n"+
+			"- Longitude: %f\n\n"+
+			"Thank you for your contribution to our AIS network. We hope to see you again in the future!\n\n"+
+			"AIS Decoder Team",
+			rec.Name, rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude
+		)
+		
+		// Add IP address info in the admin-only version if needed
+		if settings.ToAddresses != "" {
+			ipInfo := ""
+			if rec.RequestIPAddress != "" {
+				ipInfo = fmt.Sprintf("\n\nAdditional Admin Info:\nDeleted from IP: %s", rec.RequestIPAddress)
+			}
+			
+			adminBody := body + ipInfo
+			
+			// If we're sending to both admin and user, send separate emails
+			if rec.Email != "" && settings.ToAddresses != "" {
+				// First send the user-friendly version to the receiver owner
+				err := sendSingleEmail(subject, body, rec.Email)
+				if err != nil {
+					log.Printf("Error sending user email for deleted receiver %d: %v", rec.ID, err)
+				}
+				
+				// Then prepare the admin version with IP info
+				body = adminBody
+				toAddresses = settings.ToAddresses
+			} else {
+				// If sending to only one type of recipient, use the admin version
+				body = adminBody
+			}
+		}
 	case "password_reset":
 		subject = "Password Reset Request"
 		// Extract reset link and email from the custom fields
@@ -217,64 +401,144 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 				rec.Name, rec.ID, rec.Name, rec.Description, lastSeenStr, receiverURL,
 			)
 		}
+	case "receiver_updated":
+		// Include the receiver's name in the subject
+		subject = fmt.Sprintf("Receiver Updated: %s", rec.Name)
+		
+		// Check if this was an admin action
+		isAdminAction := false
+		if rec.CustomFields != nil {
+			isAdminAction, _ = rec.CustomFields["is_admin_action"].(bool)
+		}
+		
+		// For receiver updates, only include the user's email if it wasn't an admin action
+		if rec.Email != "" && !isAdminAction {
+			// If we have a receiver email and it's not an admin action, add it to the site owner addresses
+			toAddresses = settings.ToAddresses
+			if toAddresses != "" && rec.Email != "" {
+				toAddresses += "," + rec.Email
+			} else if rec.Email != "" {
+				toAddresses = rec.Email
+			}
+		} else {
+			// If it's an admin action or no email, just use the site owner addresses
+			toAddresses = settings.ToAddresses
+		}
+		
+		// Extract the changed fields from custom fields
+		changedFields, _ := rec.CustomFields["changed_fields"].(map[string]interface{})
+		
+		// Create a user-friendly email with details about what changed
+		var changesText strings.Builder
+		
+		if changedFields != nil {
+			for field, change := range changedFields {
+				changeMap, ok := change.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				
+				// Special handling for password
+				if field == "password" {
+					changesText.WriteString("- Password: Changed (for security, values not shown)\n")
+					continue
+				}
+				
+				// Format the change based on field type
+				switch field {
+				case "name", "description", "email", "url":
+					oldVal := fmt.Sprintf("%v", changeMap["old"])
+					newVal := fmt.Sprintf("%v", changeMap["new"])
+					changesText.WriteString(fmt.Sprintf("- %s: Changed from '%s' to '%s'\n",
+						strings.Title(field), oldVal, newVal))
+				case "latitude", "longitude":
+					oldVal := fmt.Sprintf("%.6f", changeMap["old"])
+					newVal := fmt.Sprintf("%.6f", changeMap["new"])
+					changesText.WriteString(fmt.Sprintf("- %s: Changed from %s to %s\n",
+						strings.Title(field), oldVal, newVal))
+				case "notifications":
+					newVal := fmt.Sprintf("%v", changeMap["new"])
+					notificationStatus := "Disabled"
+					if newVal == "true" {
+						notificationStatus = "Enabled"
+					}
+					changesText.WriteString(fmt.Sprintf("- Notifications: %s\n", notificationStatus))
+				default:
+					oldVal := fmt.Sprintf("%v", changeMap["old"])
+					newVal := fmt.Sprintf("%v", changeMap["new"])
+					changesText.WriteString(fmt.Sprintf("- %s: Changed from '%s' to '%s'\n",
+						strings.Title(field), oldVal, newVal))
+				}
+			}
+		}
+		
+		// If no changes were found or formatted
+		if changesText.Len() == 0 {
+			changesText.WriteString("- Some details were updated\n")
+		}
+		
+		// Create a link to the receiver
+		receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, rec.ID)
+		
+		// Create the email body
+		body = fmt.Sprintf(
+			"Hello,\n\n"+
+			"Your receiver '%s' has been updated with the following changes:\n\n%s\n"+
+			"You can view your receiver's details here: %s\n\n"+
+			"Thank you for contributing to our AIS network!\n\n"+
+			"AIS Decoder Team",
+			rec.Name, changesText.String(), receiverURL
+		)
+		
+		// Add IP address info in the admin-only version if needed
+		if settings.ToAddresses != "" {
+			ipInfo := ""
+			if rec.RequestIPAddress != "" {
+				ipInfo = fmt.Sprintf("\n\nAdditional Admin Info:\nUpdated from IP: %s", rec.RequestIPAddress)
+			}
+			
+			adminBody := body + ipInfo
+			
+			// If we're sending to both admin and user, send separate emails
+			if rec.Email != "" && settings.ToAddresses != "" {
+				// First send the user-friendly version to the receiver owner
+				err := sendSingleEmail(subject, body, rec.Email)
+				if err != nil {
+					log.Printf("Error sending user email for updated receiver %d: %v", rec.ID, err)
+				}
+				
+				// Then prepare the admin version with IP info
+				body = adminBody
+				toAddresses = settings.ToAddresses
+			} else {
+				// If sending to only one type of recipient, use the admin version
+				body = adminBody
+			}
+		}
 	default:
 		subject = alertType
 		body = fmt.Sprintf("Alert type: %s\nReceiver ID: %d\nName: %s\nDescription: %s\n",
 			alertType, rec.ID, rec.Name, rec.Description)
 	}
-	msg := []byte(
-		"From: " + settings.FromName + " <" + settings.FromAddress + ">\r\n" +
-		"To: " + toAddresses + "\r\n" +
-		"Subject: " + subject + "\r\n" +
-		"\r\n" + body + "\r\n")
-	addr := fmt.Sprintf("%s:%d", settings.SMTPHost, settings.SMTPPort)
-	auth := smtp.PlainAuth("", settings.SMTPUser, settings.SMTPPass, settings.SMTPHost)
-
-	if settings.SMTPUseTLS {
-		// Use STARTTLS to upgrade the connection
-		conn, err := net.Dial("tcp", addr)
-		if err != nil {
-			return "", fmt.Errorf("SMTP dial error: %w", err)
-		}
-		c, err := smtp.NewClient(conn, settings.SMTPHost)
-		if err != nil {
-			return "", fmt.Errorf("SMTP client error: %w", err)
-		}
-		defer c.Close()
-
-		tlsConfig := &tls.Config{ServerName: settings.SMTPHost, InsecureSkipVerify: settings.SMTPTLSSkipVerify}
-		if err := c.StartTLS(tlsConfig); err != nil {
-			return "", fmt.Errorf("SMTP STARTTLS error: %w", err)
-		}
-
-		if err := c.Auth(auth); err != nil {
-			return "", fmt.Errorf("SMTP auth error: %w", err)
-		}
-		if err := c.Mail(settings.FromAddress); err != nil {
-			return "", fmt.Errorf("SMTP mail error: %w", err)
-		}
+	// If there are multiple recipients, send to each one individually
+	if strings.Contains(toAddresses, ",") {
 		toList := strings.Split(toAddresses, ",")
+		var lastErr error
 		for _, addr := range toList {
-			if err := c.Rcpt(strings.TrimSpace(addr)); err != nil {
-				return "", fmt.Errorf("SMTP rcpt error for %s: %w", addr, err)
+			recipientAddr := strings.TrimSpace(addr)
+			if err := sendSingleEmail(subject, body, recipientAddr); err != nil {
+				log.Printf("Error sending email to %s: %v", recipientAddr, err)
+				lastErr = err
 			}
 		}
-		w, err := c.Data()
-		if err != nil {
-			return "", fmt.Errorf("SMTP data error: %w", err)
+		if lastErr != nil {
+			return toAddresses, fmt.Errorf("error sending to one or more recipients: %w", lastErr)
 		}
-		_, err = w.Write(msg)
-		if err != nil {
-			return "", fmt.Errorf("SMTP write error: %w", err)
-		}
-		if err := w.Close(); err != nil {
-			return "", fmt.Errorf("SMTP close error: %w", err)
-		}
-		return toAddresses, c.Quit()
+		return toAddresses, nil
+	} else {
+		// Single recipient
+		return toAddresses, sendSingleEmail(subject, body, toAddresses)
 	}
-
-	toList := strings.Split(toAddresses, ",")
-	return toAddresses, smtp.SendMail(addr, auth, settings.FromAddress, toList, msg)
 }
 
 func alertHandler(w http.ResponseWriter, r *http.Request) {
