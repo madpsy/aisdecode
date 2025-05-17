@@ -39,6 +39,7 @@ type Settings struct {
     IPAddressTimeoutMinutes int    `json:"ip_address_timeout_minutes"`
     PortMetricsHours        int    `json:"port_metrics_hours"`
     WebhookURL              string `json:"webhook_url,omitempty"`
+    BaseURL                 string `json:"base_url"`                // Base URL for password reset links
 }
 
 type Receiver struct {
@@ -598,6 +599,9 @@ func main() {
     // Public endpoint to delete a receiver
     http.HandleFunc("/deletereceiver", handleDeleteReceiverPublic)
     
+    // Public endpoint for password reset
+    http.HandleFunc("/password-reset", handlePasswordReset)
+    
     // Public endpoint to update receiver IP address - removed
 
 
@@ -707,6 +711,31 @@ func createSchema() {
             log.Printf("Made password column nullable")
         }
     }
+    
+    // Check if email uniqueness constraint exists
+    var constraintExists bool
+    err = db.QueryRow(`
+        SELECT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'receivers_email_key'
+        )
+    `).Scan(&constraintExists)
+    
+    if err != nil {
+        log.Printf("Error checking for email uniqueness constraint: %v", err)
+    } else if !constraintExists {
+        // Add unique constraint to email column
+        _, err = db.Exec(`
+            ALTER TABLE receivers
+            ADD CONSTRAINT receivers_email_key UNIQUE (email);
+        `)
+        
+        if err != nil {
+            log.Printf("Error adding unique constraint to email column: %v", err)
+        } else {
+            log.Printf("Added unique constraint to email column")
+        }
+    }
     _, err = db.Exec(`
         CREATE TABLE IF NOT EXISTS receivers (
             id SERIAL PRIMARY KEY,
@@ -796,6 +825,26 @@ func createSchema() {
                 }
             }
         }
+    }
+    
+    // Create password_reset_tokens table
+    _, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            token VARCHAR(64) PRIMARY KEY,
+            receiver_id INT NOT NULL REFERENCES receivers(id) ON DELETE CASCADE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            expires_at TIMESTAMPTZ NOT NULL,
+            used BOOLEAN NOT NULL DEFAULT FALSE
+        );
+    `)
+    if err != nil {
+        log.Fatalf("Error creating password_reset_tokens table: %v", err)
+    }
+    
+    // Create index on receiver_id
+    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_receiver_id ON password_reset_tokens(receiver_id);`)
+    if err != nil {
+        log.Fatalf("Error creating index on receiver_id: %v", err)
     }
 }
 
@@ -2059,6 +2108,25 @@ func validateReceiver(r Receiver) error {
         return fmt.Errorf("name '%s' is already in use by another receiver", r.Name)
     }
     
+    // Check if the email is already in use by another receiver
+    query = `SELECT COUNT(*) FROM receivers WHERE email = $1`
+    args = []interface{}{r.Email}
+    
+    // If we're updating an existing receiver, exclude it from the check
+    if r.ID > 0 {
+        query += ` AND id != $2`
+        args = append(args, r.ID)
+    }
+    
+    err = db.QueryRow(query, args...).Scan(&count)
+    if err != nil {
+        return fmt.Errorf("database error while checking email uniqueness: %v", err)
+    }
+    
+    if count > 0 {
+        return fmt.Errorf("email '%s' is already in use by another receiver", r.Email)
+    }
+    
     return nil
 }
 
@@ -2295,10 +2363,16 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
         Scan(&rec.LastUpdated)
     
     if err != nil {
-        // Check for name uniqueness violation
-        if strings.Contains(err.Error(), "unique constraint") && strings.Contains(err.Error(), "idx_receivers_name") {
-            http.Error(w, fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name), http.StatusBadRequest)
-            return
+        // Check for uniqueness violations
+        if strings.Contains(err.Error(), "unique constraint") {
+            if strings.Contains(err.Error(), "idx_receivers_name") {
+                http.Error(w, fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name), http.StatusBadRequest)
+                return
+            }
+            if strings.Contains(err.Error(), "receivers_email_key") {
+                http.Error(w, fmt.Sprintf("email '%s' is already in use by another receiver", rec.Email), http.StatusBadRequest)
+                return
+            }
         }
         http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
         return
@@ -2554,10 +2628,16 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         tx.Rollback() // Rollback the transaction on error
         
-        // Check for name uniqueness violation
-        if strings.Contains(err.Error(), "unique constraint") && strings.Contains(err.Error(), "idx_receivers_name") {
-            http.Error(w, fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name), http.StatusBadRequest)
-            return
+        // Check for uniqueness violations
+        if strings.Contains(err.Error(), "unique constraint") {
+            if strings.Contains(err.Error(), "idx_receivers_name") {
+                http.Error(w, fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name), http.StatusBadRequest)
+                return
+            }
+            if strings.Contains(err.Error(), "receivers_email_key") {
+                http.Error(w, fmt.Sprintf("email '%s' is already in use by another receiver", rec.Email), http.StatusBadRequest)
+                return
+            }
         }
         http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
         return
@@ -2694,5 +2774,566 @@ func handleDeleteReceiverPublic(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
     json.NewEncoder(w).Encode(map[string]string{
         "message": "Receiver deleted successfully",
+    })
+}
+
+// generateResetToken generates a secure random token for password reset
+func generateResetToken() (string, error) {
+    // Generate 32 random bytes (256 bits)
+    tokenBytes := make([]byte, 32)
+    _, err := rand.Read(tokenBytes)
+    if err != nil {
+        return "", err
+    }
+    
+    // Encode as base64 for URL safety
+    token := base64.URLEncoding.EncodeToString(tokenBytes)
+    return token, nil
+}
+
+// handlePasswordReset handles POST /password-reset
+// This endpoint handles both requesting a password reset and resetting the password with a token
+func handlePasswordReset(w http.ResponseWriter, r *http.Request) {
+    // Only allow POST method
+    if r.Method != http.MethodPost {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        return
+    }
+
+    // Parse JSON request body
+    var requestBody map[string]interface{}
+    if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+        http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    // Determine if this is a reset request or a password reset
+    if email, ok := requestBody["email"].(string); ok && email != "" {
+        // This is a request for a password reset
+        handlePasswordResetRequest(w, email)
+        return
+    } else if token, ok := requestBody["token"].(string); ok && token != "" {
+        // This is a password reset with token
+        newPassword, ok := requestBody["new_password"].(string)
+        if !ok || newPassword == "" {
+            http.Error(w, "New password is required", http.StatusBadRequest)
+            return
+        }
+        handlePasswordResetWithToken(w, token, newPassword)
+        return
+    } else {
+        // Invalid request
+        http.Error(w, "Either email or token+new_password is required", http.StatusBadRequest)
+        return
+    }
+}
+
+// handlePasswordResetRequest handles the first part of the password reset process
+// It generates a token and sends an email with a reset link
+func handlePasswordResetRequest(w http.ResponseWriter, email string) {
+    // Ensure database connection
+    if err := ensureConnection(); err != nil {
+        http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Find receiver by email
+    var receiverID int
+    var receiverName string
+    err := db.QueryRow(`
+        SELECT id, name FROM receivers WHERE email = $1
+    `, email).Scan(&receiverID, &receiverName)
+    
+    // Always return success even if email not found to prevent email enumeration attacks
+    if err == sql.ErrNoRows {
+        w.WriteHeader(http.StatusOK)
+        json.NewEncoder(w).Encode(map[string]string{
+            "message": "If your email is registered, you will receive a password reset link",
+        })
+        return
+    } else if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // Check if a reset has been requested in the last hour
+    var lastResetTime time.Time
+    err = db.QueryRow(`
+        SELECT created_at FROM password_reset_tokens
+        WHERE receiver_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+    `, receiverID).Scan(&lastResetTime)
+    
+    if err == nil && time.Since(lastResetTime) < time.Hour {
+        // A reset was requested less than an hour ago, but don't reveal this
+        // Return success to prevent timing attacks
+        w.WriteHeader(http.StatusOK)
+        json.NewEncoder(w).Encode(map[string]string{
+            "message": "If your email is registered, you will receive a password reset link",
+        })
+        return
+    }
+
+    // Generate a secure token
+    token, err := generateResetToken()
+    if err != nil {
+        http.Error(w, "Failed to generate reset token: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Calculate expiration time (24 hours from now)
+    expiresAt := time.Now().Add(24 * time.Hour)
+
+    // Delete any existing tokens for this receiver
+    _, err = db.Exec(`
+        DELETE FROM password_reset_tokens WHERE receiver_id = $1
+    `, receiverID)
+    if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Store the token in the database
+    _, err = db.Exec(`
+        INSERT INTO password_reset_tokens (token, receiver_id, expires_at)
+        VALUES ($1, $2, $3)
+    `, token, receiverID, expiresAt)
+    if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Send email with reset link via webhook
+    if settings.WebhookURL != "" {
+        // Create a custom alert envelope with reset token
+        envelope := map[string]interface{}{
+            "alert_type": "password_reset",
+            "receiver": map[string]interface{}{
+                "id":          receiverID,
+                "name":        receiverName,
+                "description": "Password Reset",
+            },
+            "custom": map[string]interface{}{
+                "reset_token": token,
+                "email":       email,
+            },
+        }
+        
+        // Send the webhook
+        payload, err := json.Marshal(envelope)
+        if err != nil {
+            log.Printf("Failed to marshal password reset envelope: %v", err)
+            http.Error(w, "Failed to send password reset email", http.StatusInternalServerError)
+            return
+        }
+        
+        client := &http.Client{Timeout: 5 * time.Second}
+        resp, err := client.Post(settings.WebhookURL, "application/json", bytes.NewBuffer(payload))
+        if err != nil {
+            log.Printf("POST webhook error for password reset: %v", err)
+            http.Error(w, "Failed to send password reset email", http.StatusInternalServerError)
+            return
+        }
+        defer resp.Body.Close()
+        
+        if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+            log.Printf("Non-2xx status from webhook for password reset: %s", resp.Status)
+            http.Error(w, "Failed to send password reset email", http.StatusInternalServerError)
+            return
+        }
+    }
+
+    // Return success response - same message whether email exists or not
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(map[string]string{
+        "message": "If your email is registered, you will receive a password reset link",
+    })
+}
+
+// handlePasswordResetWithToken handles the second part of the password reset process
+// It verifies the token and updates the password
+func handlePasswordResetWithToken(w http.ResponseWriter, token, newPassword string) {
+    // Ensure database connection
+    if err := ensureConnection(); err != nil {
+        http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Validate password length
+    if len(newPassword) < 8 {
+        http.Error(w, "Password must be at least 8 characters", http.StatusBadRequest)
+        return
+    }
+    if len(newPassword) > 20 {
+        http.Error(w, "Password must be no more than 20 characters", http.StatusBadRequest)
+        return
+    }
+
+    // Find the token in the database
+    var receiverID int
+    var expiresAt time.Time
+    var used bool
+    err := db.QueryRow(`
+        SELECT receiver_id, expires_at, used FROM password_reset_tokens WHERE token = $1
+    `, token).Scan(&receiverID, &expiresAt, &used)
+    
+    if err == sql.ErrNoRows {
+        http.Error(w, "Invalid or expired token", http.StatusBadRequest)
+        return
+    } else if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Check if token is expired
+    if time.Now().After(expiresAt) {
+        http.Error(w, "Token has expired", http.StatusBadRequest)
+        return
+    }
+
+    // Check if token has already been used
+    if used {
+        http.Error(w, "Token has already been used", http.StatusBadRequest)
+        return
+    }
+
+    // Get receiver information
+    var rec Receiver
+    err = db.QueryRow(`
+        SELECT id, name, email FROM receivers WHERE id = $1
+    `, receiverID).Scan(&rec.ID, &rec.Name, &rec.Email)
+    
+    if err == sql.ErrNoRows {
+        http.Error(w, "Receiver not found", http.StatusNotFound)
+        return
+    } else if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Generate a new salt and hash the password
+    saltBytes := make([]byte, 16)
+    _, err = rand.Read(saltBytes)
+    if err != nil {
+        http.Error(w, "Failed to generate salt", http.StatusInternalServerError)
+        return
+    }
+    salt := base64.StdEncoding.EncodeToString(saltBytes)
+    hash := hashPassword(newPassword, salt)
+
+    // Begin a transaction
+    tx, err := db.Begin()
+    if err != nil {
+        http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    defer tx.Rollback() // Rollback if not committed
+
+    // Update the password
+    _, err = tx.Exec(`
+        UPDATE receivers
+        SET password_hash = $1, password_salt = $2, lastupdated = NOW()
+        WHERE id = $3
+    `, hash, salt, receiverID)
+    
+    if err != nil {
+        http.Error(w, "Failed to update password: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Mark the token as used
+    _, err = tx.Exec(`
+        UPDATE password_reset_tokens
+        SET used = true
+        WHERE token = $1
+    `, token)
+    
+    if err != nil {
+        http.Error(w, "Failed to mark token as used: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Commit the transaction
+    if err := tx.Commit(); err != nil {
+        http.Error(w, "Failed to commit transaction: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Return success response
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(map[string]string{
+        "message": "Password has been reset successfully",
+    })
+}
+
+// generateResetToken generates a secure random token for password reset
+func generateResetToken() (string, error) {
+    // Generate 32 random bytes (256 bits)
+    tokenBytes := make([]byte, 32)
+    _, err := rand.Read(tokenBytes)
+    if err != nil {
+        return "", err
+    }
+    
+    // Encode as base64 for URL safety
+    token := base64.URLEncoding.EncodeToString(tokenBytes)
+    return token, nil
+}
+
+// handlePasswordReset handles POST /password-reset
+// This endpoint handles both requesting a password reset and resetting the password with a token
+func handlePasswordReset(w http.ResponseWriter, r *http.Request) {
+    // Only allow POST method
+    if r.Method != http.MethodPost {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        return
+    }
+
+    // Parse JSON request body
+    var requestBody map[string]interface{}
+    if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+        http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    // Determine if this is a reset request or a password reset
+    if email, ok := requestBody["email"].(string); ok && email != "" {
+        // This is a request for a password reset
+        handlePasswordResetRequest(w, email)
+        return
+    } else if token, ok := requestBody["token"].(string); ok && token != "" {
+        // This is a password reset with token
+        newPassword, ok := requestBody["new_password"].(string)
+        if !ok || newPassword == "" {
+            http.Error(w, "New password is required", http.StatusBadRequest)
+            return
+        }
+        handlePasswordResetWithToken(w, token, newPassword)
+        return
+    } else {
+        // Invalid request
+        http.Error(w, "Either email or token+new_password is required", http.StatusBadRequest)
+        return
+    }
+}
+
+// handlePasswordResetRequest handles the first part of the password reset process
+// It generates a token and sends an email with a reset link
+func handlePasswordResetRequest(w http.ResponseWriter, email string) {
+    // Ensure database connection
+    if err := ensureConnection(); err != nil {
+        http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Find receiver by email
+    var receiverID int
+    var receiverName string
+    err := db.QueryRow(`
+        SELECT id, name FROM receivers WHERE email = $1
+    `, email).Scan(&receiverID, &receiverName)
+    
+    // Always return success even if email not found to prevent email enumeration attacks
+    if err == sql.ErrNoRows {
+        w.WriteHeader(http.StatusOK)
+        json.NewEncoder(w).Encode(map[string]string{
+            "message": "If your email is registered, you will receive a password reset link",
+        })
+        return
+    } else if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Generate a secure token
+    token, err := generateResetToken()
+    if err != nil {
+        http.Error(w, "Failed to generate reset token: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Calculate expiration time (24 hours from now)
+    expiresAt := time.Now().Add(24 * time.Hour)
+
+    // Delete any existing tokens for this receiver
+    _, err = db.Exec(`
+        DELETE FROM password_reset_tokens WHERE receiver_id = $1
+    `, receiverID)
+    if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Store the token in the database
+    _, err = db.Exec(`
+        INSERT INTO password_reset_tokens (token, receiver_id, expires_at)
+        VALUES ($1, $2, $3)
+    `, token, receiverID, expiresAt)
+    if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Send email with reset link via webhook
+    if settings.WebhookURL != "" {
+        // Create a custom alert envelope with reset token
+        envelope := map[string]interface{}{
+            "alert_type": "password_reset",
+            "receiver": map[string]interface{}{
+                "id":          receiverID,
+                "name":        receiverName,
+                "description": "Password Reset",
+            },
+            "custom": map[string]interface{}{
+                "reset_token": token,
+                "email":       email,
+            },
+        }
+        
+        // Send the webhook
+        payload, err := json.Marshal(envelope)
+        if err != nil {
+            log.Printf("Failed to marshal password reset envelope: %v", err)
+            http.Error(w, "Failed to send password reset email", http.StatusInternalServerError)
+            return
+        }
+        
+        client := &http.Client{Timeout: 5 * time.Second}
+        resp, err := client.Post(settings.WebhookURL, "application/json", bytes.NewBuffer(payload))
+        if err != nil {
+            log.Printf("POST webhook error for password reset: %v", err)
+            http.Error(w, "Failed to send password reset email", http.StatusInternalServerError)
+            return
+        }
+        defer resp.Body.Close()
+        
+        if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+            log.Printf("Non-2xx status from webhook for password reset: %s", resp.Status)
+            http.Error(w, "Failed to send password reset email", http.StatusInternalServerError)
+            return
+        }
+    }
+
+    // Return success response
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(map[string]string{
+        "message": "If your email is registered, you will receive a password reset link",
+    })
+}
+
+// handlePasswordResetWithToken handles the second part of the password reset process
+// It verifies the token and updates the password
+func handlePasswordResetWithToken(w http.ResponseWriter, token, newPassword string) {
+    // Ensure database connection
+    if err := ensureConnection(); err != nil {
+        http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Validate password length
+    if len(newPassword) < 8 {
+        http.Error(w, "Password must be at least 8 characters", http.StatusBadRequest)
+        return
+    }
+    if len(newPassword) > 20 {
+        http.Error(w, "Password must be no more than 20 characters", http.StatusBadRequest)
+        return
+    }
+
+    // Find the token in the database
+    var receiverID int
+    var expiresAt time.Time
+    var used bool
+    err := db.QueryRow(`
+        SELECT receiver_id, expires_at, used FROM password_reset_tokens WHERE token = $1
+    `, token).Scan(&receiverID, &expiresAt, &used)
+    
+    if err == sql.ErrNoRows {
+        http.Error(w, "Invalid or expired token", http.StatusBadRequest)
+        return
+    } else if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Check if token is expired
+    if time.Now().After(expiresAt) {
+        http.Error(w, "Token has expired", http.StatusBadRequest)
+        return
+    }
+
+    // Check if token has already been used
+    if used {
+        http.Error(w, "Token has already been used", http.StatusBadRequest)
+        return
+    }
+
+    // Get receiver information
+    var rec Receiver
+    err = db.QueryRow(`
+        SELECT id, name, email FROM receivers WHERE id = $1
+    `, receiverID).Scan(&rec.ID, &rec.Name, &rec.Email)
+    
+    if err == sql.ErrNoRows {
+        http.Error(w, "Receiver not found", http.StatusNotFound)
+        return
+    } else if err != nil {
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Generate a new salt and hash the password
+    saltBytes := make([]byte, 16)
+    _, err = rand.Read(saltBytes)
+    if err != nil {
+        http.Error(w, "Failed to generate salt", http.StatusInternalServerError)
+        return
+    }
+    salt := base64.StdEncoding.EncodeToString(saltBytes)
+    hash := hashPassword(newPassword, salt)
+
+    // Begin a transaction
+    tx, err := db.Begin()
+    if err != nil {
+        http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    defer tx.Rollback() // Rollback if not committed
+
+    // Update the password
+    _, err = tx.Exec(`
+        UPDATE receivers
+        SET password_hash = $1, password_salt = $2, lastupdated = NOW()
+        WHERE id = $3
+    `, hash, salt, receiverID)
+    
+    if err != nil {
+        http.Error(w, "Failed to update password: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Mark the token as used
+    _, err = tx.Exec(`
+        UPDATE password_reset_tokens
+        SET used = true
+        WHERE token = $1
+    `, token)
+    
+    if err != nil {
+        http.Error(w, "Failed to mark token as used: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Commit the transaction
+    if err := tx.Commit(); err != nil {
+        http.Error(w, "Failed to commit transaction: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Return success response
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(map[string]string{
+        "message": "Password has been reset successfully",
     })
 }

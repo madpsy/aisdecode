@@ -25,18 +25,20 @@ type Settings struct {
 	FromAddress        string `json:"from_address"`
 	FromName           string `json:"from_name"`
 	ToAddresses        string `json:"to_addresses"`
+	SiteDomain         string `json:"site_domain"`  // Domain for password reset links
 }
 
 // Receiver represents the payload sent by the receivers service.
 type Receiver struct {
-	ID          int      `json:"id"`
-	LastUpdated string   `json:"lastupdated"`
-	Description string   `json:"description"`
-	Latitude    float64  `json:"latitude"`
-	Longitude   float64  `json:"longitude"`
-	Name        string   `json:"name"`
-	URL         *string  `json:"url,omitempty"`
-	UDPPort     *int     `json:"udp_port,omitempty"`
+	ID           int                    `json:"id"`
+	LastUpdated  string                 `json:"lastupdated"`
+	Description  string                 `json:"description"`
+	Latitude     float64                `json:"latitude"`
+	Longitude    float64                `json:"longitude"`
+	Name         string                 `json:"name"`
+	URL          *string                `json:"url,omitempty"`
+	UDPPort      *int                   `json:"udp_port,omitempty"`
+	CustomFields map[string]interface{} `json:"custom_fields,omitempty"` // For additional fields like reset tokens
 }
 
 var settings Settings
@@ -54,27 +56,57 @@ func loadSettings() {
 func sendEmail(alertType string, rec Receiver) error {
 	// Translate alert_type into a human-readable subject
 	var subject string
+	var body string
+	var toAddresses string
+	
+	// Default to the configured to_addresses
+	toAddresses = settings.ToAddresses
+	
 	switch alertType {
 	case "receiver_added":
 		subject = "New Receiver Added"
+		// Prepare display values for URL and UDP port
+		var urlDisplay, udpPortDisplay string
+		if rec.URL != nil {
+			urlDisplay = *rec.URL
+		}
+		if rec.UDPPort != nil {
+			udpPortDisplay = strconv.Itoa(*rec.UDPPort)
+		}
+		body = fmt.Sprintf(
+			"A new receiver was added:\n\nID: %d\nName: %s\nDescription: %s\nLatitude: %f\nLongitude: %f\nLast Updated: %s\nURL: %s\nUDP Port: %s\n",
+			rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, urlDisplay, udpPortDisplay,
+		)
+	case "password_reset":
+		subject = "Password Reset Request"
+		// Extract reset link and email from the custom fields
+		resetToken, _ := rec.CustomFields["reset_token"].(string)
+		email, _ := rec.CustomFields["email"].(string)
+		
+		// For password reset, send to the user's email address
+		if email != "" {
+			toAddresses = email
+		}
+		
+		// Create reset link using the site domain from settings
+		resetLink := fmt.Sprintf("https://%s/reset-password?token=%s", settings.SiteDomain, resetToken)
+		
+		body = fmt.Sprintf(
+			"Hello,\n\nA password reset has been requested for your receiver account.\n\n"+
+			"Click the link below to reset your password:\n\n%s\n\n"+
+			"This link will expire in 24 hours.\n\n"+
+			"If you did not request this password reset, please ignore this email.\n\n"+
+			"Thank you,\nAIS Decoder Team",
+			resetLink,
+		)
 	default:
 		subject = alertType
+		body = fmt.Sprintf("Alert type: %s\nReceiver ID: %d\nName: %s\nDescription: %s\n",
+			alertType, rec.ID, rec.Name, rec.Description)
 	}
-	// Prepare display values for URL and UDP port
-	var urlDisplay, udpPortDisplay string
-	if rec.URL != nil {
-		urlDisplay = *rec.URL
-	}
-	if rec.UDPPort != nil {
-		udpPortDisplay = strconv.Itoa(*rec.UDPPort)
-	}
-	body := fmt.Sprintf(
-		"A new receiver was added:\n\nID: %d\nName: %s\nDescription: %s\nLatitude: %f\nLongitude: %f\nLast Updated: %s\nURL: %s\nUDP Port: %s\n",
-		rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, urlDisplay, udpPortDisplay,
-	)
 	msg := []byte(
 		"From: " + settings.FromName + " <" + settings.FromAddress + ">\r\n" +
-		"To: " + settings.ToAddresses + "\r\n" +
+		"To: " + toAddresses + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"\r\n" + body + "\r\n")
 	addr := fmt.Sprintf("%s:%d", settings.SMTPHost, settings.SMTPPort)
@@ -103,7 +135,7 @@ func sendEmail(alertType string, rec Receiver) error {
 		if err := c.Mail(settings.FromAddress); err != nil {
 			return fmt.Errorf("SMTP mail error: %w", err)
 		}
-		toList := strings.Split(settings.ToAddresses, ",")
+		toList := strings.Split(toAddresses, ",")
 		for _, addr := range toList {
 			if err := c.Rcpt(strings.TrimSpace(addr)); err != nil {
 				return fmt.Errorf("SMTP rcpt error for %s: %w", addr, err)
@@ -123,7 +155,7 @@ func sendEmail(alertType string, rec Receiver) error {
 		return c.Quit()
 	}
 
-	toList := strings.Split(settings.ToAddresses, ",")
+	toList := strings.Split(toAddresses, ",")
 	return smtp.SendMail(addr, auth, settings.FromAddress, toList, msg)
 }
 
@@ -134,8 +166,9 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var alertMsg struct {
-		AlertType string   `json:"alert_type"`
-		Receiver  Receiver `json:"receiver"`
+		AlertType string                 `json:"alert_type"`
+		Receiver  Receiver               `json:"receiver"`
+		Custom    map[string]interface{} `json:"custom,omitempty"`
 	}
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -147,6 +180,19 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
 	    return
 	}
 	log.Printf("alertHandler: webhook received for alert_type %s Receiver ID %d, Name %s", alertMsg.AlertType, alertMsg.Receiver.ID, alertMsg.Receiver.Name)
+	
+	// Initialize CustomFields if it's nil
+	if alertMsg.Receiver.CustomFields == nil {
+		alertMsg.Receiver.CustomFields = make(map[string]interface{})
+	}
+	
+	// Copy any custom fields from the top-level custom field
+	if alertMsg.Custom != nil {
+		for k, v := range alertMsg.Custom {
+			alertMsg.Receiver.CustomFields[k] = v
+		}
+	}
+	
 	if err := sendEmail(alertMsg.AlertType, alertMsg.Receiver); err != nil {
 	    log.Printf("alertHandler: sendEmail error for alert_type %s Receiver ID %d: %v", alertMsg.AlertType, alertMsg.Receiver.ID, err)
 	    http.Error(w, "Failed to send alert email: "+err.Error(), http.StatusInternalServerError)
