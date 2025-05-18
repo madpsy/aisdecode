@@ -252,6 +252,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			"Hello,\n\n"+
 			"Welcome to AIS Decoder! Your new receiver '%s' has been successfully registered.\n\n"+
 			"Your UDP Port: %s\n\n"+ // Highlight the UDP port as most important
+			"Please ensure your feeder is configured to send to ingest.%s UDP port %s\n\n"+
 			"Receiver Details:\n"+
 			"- ID: %d\n"+
 			"- Name: %s\n"+
