@@ -15,5 +15,6 @@
   "from_name": "Alerts Service",
   "to_addresses": "ops@example.com,admin@example.com",
   "site_domain": "example.com",
-  "receivers_base_url": "http://localhost:5123"
+  "receivers_base_url": "http://localhost:5123",
+  "receiver_offline_hours": 24
 }

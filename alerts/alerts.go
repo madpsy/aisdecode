@@ -20,23 +20,24 @@ import (
 
 // Settings holds configuration for the alerts service.
 type Settings struct {
-	ListenPort         int    `json:"listen_port"`
-	SMTPHost           string `json:"smtp_host"`
-	SMTPPort           int    `json:"smtp_port"`
-	SMTPUser           string `json:"smtp_user"`
-	SMTPPass           string `json:"smtp_pass"`
-	SMTPUseTLS         bool   `json:"smtp_use_tls"`
-	SMTPTLSSkipVerify  bool   `json:"smtp_tls_skip_verify"`
-	FromAddress        string `json:"from_address"`
-	FromName           string `json:"from_name"`
-	ToAddresses        string `json:"to_addresses"`
-	SiteDomain         string `json:"site_domain"` // Domain for password reset links
-	ReceiversBaseURL   string `json:"receivers_base_url"`
-	DBHost             string `json:"db_host"`
-	DBPort             int    `json:"db_port"`
-	DBUser             string `json:"db_user"`
-	DBPass             string `json:"db_pass"`
-	DBName             string `json:"db_name"`
+	ListenPort          int    `json:"listen_port"`
+	SMTPHost            string `json:"smtp_host"`
+	SMTPPort            int    `json:"smtp_port"`
+	SMTPUser            string `json:"smtp_user"`
+	SMTPPass            string `json:"smtp_pass"`
+	SMTPUseTLS          bool   `json:"smtp_use_tls"`
+	SMTPTLSSkipVerify   bool   `json:"smtp_tls_skip_verify"`
+	FromAddress         string `json:"from_address"`
+	FromName            string `json:"from_name"`
+	ToAddresses         string `json:"to_addresses"`
+	SiteDomain          string `json:"site_domain"` // Domain for password reset links
+	ReceiversBaseURL    string `json:"receivers_base_url"`
+	DBHost              string `json:"db_host"`
+	DBPort              int    `json:"db_port"`
+	DBUser              string `json:"db_user"`
+	DBPass              string `json:"db_pass"`
+	DBName              string `json:"db_name"`
+	ReceiverOfflineHours int    `json:"receiver_offline_hours"` // Hours before a receiver is considered offline
 }
 
 // Receiver represents the payload sent by the receivers service.
@@ -85,6 +86,12 @@ func loadSettings() {
 	}
 	if err := json.Unmarshal(data, &settings); err != nil {
 		log.Fatalf("Error parsing settings.json: %v", err)
+	}
+	
+	// Set default value for ReceiverOfflineHours if not specified
+	if settings.ReceiverOfflineHours <= 0 {
+		settings.ReceiverOfflineHours = 24 // Default to 24 hours if not specified
+		log.Println("ReceiverOfflineHours not specified in settings.json, using default value of 24 hours")
 	}
 }
 
@@ -366,7 +373,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			resetLink,
 		)
 	case "receiver_offline":
-		subject = fmt.Sprintf("Your AIS receiver '%s' has not been seen for over 24 hours", rec.Name)
+		subject = fmt.Sprintf("Your AIS receiver '%s' has not been seen for over %d hours", rec.Name, settings.ReceiverOfflineHours)
 		
 		// For receiver offline notifications, send to both the receiver's email address
 		// and the site owner's addresses
@@ -392,7 +399,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			
 			receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, rec.ID)
 			body = fmt.Sprintf(
-				"Hello,\n\nYour AIS receiver '%s' (ID: %d) has not been seen for over 24 hours.\n\n"+
+				"Hello,\n\nYour AIS receiver '%s' (ID: %d) has not been seen for over %d hours.\n\n"+
 				"Receiver Details:\n"+
 				"- Name: %s\n"+
 				"- Description: %s\n"+
@@ -400,7 +407,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 				"Please check your receiver's connection and ensure it's properly configured.\n\n"+
 				"You can view your receiver's details and disable notifications here: %s\n\n"+
 				"Thank you,\nAIS Decoder Team\nhttps://" + settings.SiteDomain + "/",
-				rec.Name, rec.ID, rec.Name, rec.Description, lastSeenStr, receiverURL,
+				rec.Name, rec.ID, settings.ReceiverOfflineHours, rec.Name, rec.Description, lastSeenStr, receiverURL,
 			)
 		}
 	case "receiver_updated":
@@ -715,8 +722,8 @@ func checkOfflineReceivers() {
 			continue
 		}
 
-		// Check if receiver hasn't been seen for over 24 hours
-		if now.Sub(lastSeen) > 24*time.Hour {
+		// Check if receiver hasn't been seen for over the configured time period
+		if now.Sub(lastSeen) > time.Duration(settings.ReceiverOfflineHours)*time.Hour {
 			// Check if we should send a notification
 			shouldSend, err := shouldSendNotification(receiver.ID)
 			if err != nil {
@@ -744,14 +751,14 @@ func checkOfflineReceivers() {
 				// Create custom message
 				receiverURL := fmt.Sprintf("https://%s/receivers.html?receiver=%d", settings.SiteDomain, receiver.ID)
 				message := fmt.Sprintf(
-					"Your AIS receiver '%s' (ID: %d) has not been seen for over 24 hours.\n\n"+
+					"Your AIS receiver '%s' (ID: %d) has not been seen for over %d hours.\n\n"+
 					"Receiver Details:\n"+
 					"- Name: %s\n"+
 					"- Description: %s\n"+
 					"- Last seen: %s\n\n"+
 					"Please check your receiver's connection and ensure it's properly configured.\n\n"+
 					"You can view your receiver's details and disable notifications here: %s",
-					receiver.Name, receiver.ID, receiver.Name, receiver.Description, lastSeenStr, receiverURL,
+					receiver.Name, receiver.ID, settings.ReceiverOfflineHours, receiver.Name, receiver.Description, lastSeenStr, receiverURL,
 				)
 
 				// Send the email
