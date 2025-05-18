@@ -201,70 +201,6 @@ a.action:hover, button.delete-btn:hover {
   opacity: 0.8;
 }
 
-/* Password field styling */
-.password-container {
-  margin-bottom: 0.5rem;
-}
-
-.password-field {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-#field-password, #field-udp-port {
-  flex: 1;:root {
-  --primary: #246;
-  --accent: #48a;
-  --bg: #f9f9f9;
-  --fg: #333;
-  --radius: 6px;
-}
-
-* { box-sizing: border-box; }
-
-body {
-  margin: 0; padding: 1rem;
-  font-family: Arial, sans-serif;
-  background: var(--bg);
-  color: var(--fg);
-}
-
-header {
-  text-align: center;
-  margin-bottom: 1rem;
-}
-
-main {
-  display: grid;
-  gap: 2rem;
-  max-width: 1200px; /* Increased max-width to accommodate the wide table */
-  margin: 0 auto; /* Explicit 0 for top/bottom, auto for left/right */
-  width: 100%; /* Ensure it takes full width up to max-width */
-}
-
-form {
-  background: #fff;
-  padding: 1rem;
-  border: 1px solid #ddd;
-  border-radius: var(--radius);
-  display: grid;
-  gap: 0.5rem;
-}
-
-label {
-  display: flex;
-  flex-direction: column;
-  font-size: 0.9rem;
-}
-
-input {
-  padding: 0.4rem;
-  font-size: 1rem;
-  border: 1px solid #ccc;
-  border-radius: var(--radius);
-}
-
 /* Email and notifications container */
 .email-notifications-container {
   display: flex;
@@ -295,157 +231,6 @@ input {
   margin: 0;
 }
 
-input.error {
-  border: 2px solid #e74c3c;
-  background-color: #fef5f5;
-  animation: shake 0.5s;
-}
-
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
-  20%, 40%, 60%, 80% { transform: translateX(5px); }
-}
-
-.buttons {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-}
-
-button {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: var(--radius);
-  background: var(--primary);
-  color: #fff;
-  cursor: pointer;
-}
-
-button#cancel-edit {
-  background: #aaa;
-}
-
-button:hover {
-  opacity: 0.9;
-}
-
-#search-section {
-  max-width: 1200px; /* Match the main container width */
-  margin: 0 auto 1rem;
-  width: 100%;
-}
-
-#search-input {
-  width: 100%;
-  padding: 0.5rem;
-  font-size: 1rem;
-  border: 1px solid #ccc;
-  border-radius: var(--radius);
-}
-
-/* Add overflow handling to the list section containing the table */
-#list-section {
-  overflow-x: auto; /* Enable horizontal scrolling */
-  width: 100%;
-  border: 1px solid #ddd;
-  border-radius: var(--radius);
-  background: #fff;
-  max-width: 100%; /* Ensure it doesn't exceed the container width */
-  position: relative; /* Create a positioning context */
-}
-
-/* Add a subtle indicator that the table is scrollable */
-#list-section::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 5px;
-  background: linear-gradient(to right, transparent, rgba(0,0,0,0.05));
-  pointer-events: none; /* Allow clicks to pass through */
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-#list-section:hover::after {
-  opacity: 1;
-}
-
-table {
-  width: 100%;
-  min-width: 800px; /* Reduced minimum width since we're hiding columns */
-  border-collapse: collapse;
-  background: #fff;
-  table-layout: auto; /* Auto layout to let browser adjust column widths */
-}
-
-/* Set reasonable widths for table columns */
-th, td {
-  padding: 0.6rem;
-  text-align: left;
-  border-bottom: 1px solid #eee;
-  white-space: nowrap; /* Prevent text wrapping */
-  overflow: hidden;
-  text-overflow: ellipsis; /* Add ellipsis for overflowing text */
-}
-
-/* Column width adjustments using class selectors */
-.col-id, th[data-key="id"] { width: 50px; }
-.col-lastseen, th[data-key="lastseen"] { width: 180px; white-space: normal; } /* Allow wrapping for last seen */
-.col-lastupdated, th[data-key="lastupdated"] { width: 180px; white-space: normal; } /* Allow wrapping for last updated */
-.col-name, th[data-key="name"] { width: 120px; }
-.col-ip_address, th[data-key="ip_address"] { width: 120px; }
-.col-udp_port, th[data-key="udp_port"] { width: 80px; }
-.col-messages, th[data-key="messages"] { width: 100px; }
-.col-actions, th:last-child { width: 120px; padding-left: 5px; } /* Actions column */
-
-/* Hide specified columns using class selectors */
-.col-description, th[data-key="description"],
-.col-latitude, th[data-key="latitude"],
-.col-longitude, th[data-key="longitude"],
-.col-url, th[data-key="url"],
-.col-password, th[data-key="password"] {
-  display: none;
-}
-
-/* Force table to recalculate layout after hiding columns */
-table {
-  display: table;
-  width: 100%;
-}
-
-tr:nth-child(even) {
-  background: #fafafa;
-}
-
-th.sortable {
-  cursor: pointer;
-}
-
-th.sortable:hover {
-  background: #f0f0f0;
-}
-
-a.action, button.delete-btn {
-  color: var(--accent);
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  font-size: 0.9rem;
-  text-decoration: underline;
-}
-
-button.delete-btn {
-  color: #c22;
-}
-
-a.action:hover, button.delete-btn:hover {
-  opacity: 0.8;
-}
-
 /* Password field styling */
 .password-container {
   margin-bottom: 0.5rem;
@@ -469,13 +254,13 @@ a.action:hover, button.delete-btn:hover {
   font-size: 0.85rem;
   white-space: nowrap;
 }
+
 .password-button:hover {
   background-color: #3a8bc2;
 }
 
 /* Utility class */
 .hidden { display: none !important; }
-
 
 #anon-msg {
   color: blue;
@@ -554,29 +339,4 @@ a.action:hover, button.delete-btn:hover {
 
 #delete-cancel-btn {
   background-color: #7f8c8d;
-}
-
-  font-family: monospace;
-  background-color: #f5f5f5;
-}
-
-.password-button {
-  background-color: var(--accent);
-  padding: 0.4rem 0.8rem;
-  font-size: 0.85rem;
-  white-space: nowrap;
-}
-.password-button:hover {
-  background-color: #3a8bc2;
-}
-
-/* Utility class */
-.hidden { display: none !important; }
-
-
-#anon-msg {
-  color: blue;
-  font-size: 1.25rem;
-  text-align: left;
-  margin-bottom: 1rem;
 }
