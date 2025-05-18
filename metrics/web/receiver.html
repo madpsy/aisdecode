@@ -249,6 +249,88 @@
   }
 </style>
 
+  <!-- Modal styles for delete confirmation -->
+  <style>
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 2000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      overflow: auto;
+    }
+    
+    .modal.show {
+      display: block;
+    }
+    
+    .modal-content {
+      background-color: #fefefe;
+      margin: 15% auto;
+      padding: 20px;
+      border: 1px solid #888;
+      width: 80%;
+      max-width: 500px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    
+    .modal-content h3 {
+      margin-top: 0;
+    }
+    
+    .modal-content input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      margin: 10px 0;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    
+    .modal-content input.valid {
+      border-color: #28a745;
+      background-color: rgba(40, 167, 69, 0.1);
+    }
+    
+    .modal-content input.invalid {
+      border-color: #dc3545;
+      background-color: rgba(220, 53, 69, 0.1);
+    }
+    
+    .modal-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 15px;
+    }
+    
+    .modal-buttons button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    .modal-buttons button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    #delete-confirm-btn {
+      background-color: #dc3545;
+      color: white;
+    }
+    
+    #delete-cancel-btn {
+      background-color: #6c757d;
+      color: white;
+    }
+  </style>
+
   <!-- Socket.IO for real-time communication -->
   <script src="/socket.io.min.js"></script>
 </head>
@@ -2669,28 +2751,88 @@ async function fetchReceivers(ip) {
           
           // Add event listener for the delete button
           document.getElementById('delete-receiver-btn').addEventListener('click', function() {
-            // Confirm deletion
-            if (confirm('Are you sure you want to delete this receiver? This action cannot be undone.')) {
-              const receiverId = document.getElementById('edit-receiver-id').value;
-              const password = document.getElementById('edit-receiver-password').value;
-              
-              // Check if password is provided
-              if (!password) {
-                alert('Please enter your current password to delete the receiver.');
-                return;
-              }
-              
-              // Submit delete request
-              fetch('/deletereceiver', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  id: parseInt(receiverId),
-                  password: password
-                })
+            const receiverId = document.getElementById('edit-receiver-id').value;
+            const receiverName = document.getElementById('edit-receiver-name').value;
+            const password = document.getElementById('edit-receiver-password').value;
+            
+            // Check if password is provided
+            if (!password) {
+              alert('Please enter your current password to delete the receiver.');
+              return;
+            }
+            
+            // Show delete confirmation modal
+            showDeleteModal(receiverId, receiverName, password);
+          });
+          
+          // Function to show the delete confirmation modal
+          function showDeleteModal(id, name, password) {
+            // Get modal elements
+            const deleteModal = document.getElementById('delete-modal');
+            const deleteReceiverName = document.getElementById('delete-receiver-name');
+            const deleteReceiverId = document.getElementById('delete-receiver-id');
+            const deleteReceiverPassword = document.getElementById('delete-receiver-password');
+            const deleteConfirmInput = document.getElementById('delete-confirm-input');
+            const deleteConfirmBtn = document.getElementById('delete-confirm-btn');
+            
+            // Set values
+            deleteReceiverId.value = id;
+            deleteReceiverName.textContent = name;
+            deleteReceiverPassword.value = password;
+            deleteConfirmInput.value = '';
+            deleteConfirmBtn.disabled = true;
+            
+            // Remove any existing classes
+            deleteConfirmInput.classList.remove('valid', 'invalid');
+            
+            // Show the modal
+            deleteModal.classList.add('show');
+            
+            // Focus on the input field
+            deleteConfirmInput.focus();
+          }
+          
+          // Function to hide the delete confirmation modal
+          function hideDeleteModal() {
+            const deleteModal = document.getElementById('delete-modal');
+            deleteModal.classList.remove('show');
+          }
+          
+          // Add event listener for the delete confirmation input
+          document.getElementById('delete-confirm-input').addEventListener('input', function() {
+            const value = this.value.trim();
+            const deleteConfirmBtn = document.getElementById('delete-confirm-btn');
+            
+            if (value === 'delete') {
+              this.classList.add('valid');
+              this.classList.remove('invalid');
+              deleteConfirmBtn.disabled = false;
+            } else if (value.length > 0) {
+              this.classList.add('invalid');
+              this.classList.remove('valid');
+              deleteConfirmBtn.disabled = true;
+            } else {
+              this.classList.remove('valid', 'invalid');
+              deleteConfirmBtn.disabled = true;
+            }
+          });
+          
+          // Add event listener for the delete confirmation button
+          document.getElementById('delete-confirm-btn').addEventListener('click', function() {
+            const receiverId = document.getElementById('delete-receiver-id').value;
+            const password = document.getElementById('delete-receiver-password').value;
+            
+            // Submit delete request
+            fetch('/deletereceiver', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                id: parseInt(receiverId),
+                password: password
               })
+            })
               .then(response => {
                 if (!response.ok) {
                   return response.text().then(text => {
@@ -2700,6 +2842,9 @@ async function fetchReceivers(ip) {
                 return response.json();
               })
               .then(data => {
+                // Hide the modal
+                hideDeleteModal();
+                
                 // Show success notification
                 const notification = document.createElement('div');
                 notification.style.cssText = 'position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background-color: #4CAF50; color: white; padding: 16px; border-radius: 4px; z-index: 9999; text-align: center;';
@@ -2735,11 +2880,30 @@ async function fetchReceivers(ip) {
                 fetchUserIP(true);
               })
               .catch(error => {
+                // Hide the modal
+                hideDeleteModal();
+                
                 // Display error message
                 const errorElement = document.getElementById('edit-form-error');
                 errorElement.textContent = `Error: ${error.message}`;
                 errorElement.style.display = 'block';
               });
+          });
+          
+          // Add event listener for the delete cancel button
+          document.getElementById('delete-cancel-btn').addEventListener('click', hideDeleteModal);
+          
+          // Close modal when clicking outside of it
+          document.getElementById('delete-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+              hideDeleteModal();
+            }
+          });
+          
+          // Close modal with Escape key
+          document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && document.getElementById('delete-modal').classList.contains('show')) {
+              hideDeleteModal();
             }
           });
         }, 100);
@@ -2751,5 +2915,21 @@ async function fetchReceivers(ip) {
   }
 
   </script>
+  
+  <!-- Delete confirmation modal -->
+  <div id="delete-modal" class="modal">
+    <div class="modal-content">
+      <h3>Confirm Deletion</h3>
+      <p>Are you sure you want to delete receiver "<span id="delete-receiver-name"></span>"?</p>
+      <input type="hidden" id="delete-receiver-id">
+      <input type="hidden" id="delete-receiver-password">
+      <p>Type <strong>delete</strong> to confirm:</p>
+      <input type="text" id="delete-confirm-input" placeholder="Type 'delete' here">
+      <div class="modal-buttons">
+        <button id="delete-confirm-btn" disabled>Delete</button>
+        <button id="delete-cancel-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
