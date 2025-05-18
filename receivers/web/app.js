@@ -201,12 +201,21 @@ cancelBtn.onclick = () => {
   // Hide regenerate button for new receivers (will be auto-generated)
   document.getElementById('regenerate-password').style.display = 'none';
   
-  // Reset the map to default view
+  // Reset the map to UK view and remove marker
   if (map) {
-    const latlng = L.latLng(0, 0);
-    updateMarkerPosition(latlng);
-    map.setView(latlng, 2);
-    updateOverlay(latlng);
+    // Remove marker if it exists
+    if (marker) {
+      map.removeLayer(marker);
+      marker = null;
+    }
+    
+    // Center on UK with zoom level 5
+    map.setView([54.5, -3.5], 5);
+    
+    // Hide the overlay
+    if (overlayDiv) {
+      overlayDiv.style.display = 'none';
+    }
   }
 };
 
