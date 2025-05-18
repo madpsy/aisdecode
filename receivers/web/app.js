@@ -3,10 +3,13 @@ const tbody         = document.getElementById('receivers-tbody');
 const formTitle     = document.getElementById('form-title');
 const cancelBtn     = document.getElementById('cancel-edit');
 const searchInput   = document.getElementById('search-input');
+const notSeenFilter = document.getElementById('not-seen-filter');
 const headers       = document.querySelectorAll('th.sortable');
 
 // re-apply sorting + filtering on every keystroke
 searchInput.addEventListener('input', applySortAndFilter);
+// re-apply sorting + filtering when checkbox is toggled
+notSeenFilter.addEventListener('change', applySortAndFilter);
 
 let receiversData = [];
 let editId        = null;
@@ -67,7 +70,10 @@ function applySortAndFilter() {
 
   // Filter
   const term = searchInput.value.trim().toLowerCase();
-  const list = term
+  const notSeenFilterChecked = notSeenFilter.checked;
+  
+  // First filter by search term
+  let filteredList = term
     ? receiversData.filter(r => {
         // Check description and name
         if (r.description.toLowerCase().includes(term) ||
@@ -94,6 +100,23 @@ function applySortAndFilter() {
         return false;
       })
     : receiversData;
+    
+  // Then apply the "Not seen >24 hours" filter if checked
+  if (notSeenFilterChecked) {
+    const twentyFourHoursAgo = new Date();
+    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+    
+    filteredList = filteredList.filter(r => {
+      // If lastseen is null/undefined, it's never been seen, so include it
+      if (!r.lastseen) return true;
+      
+      // Compare the last seen date with 24 hours ago
+      const lastSeenDate = new Date(r.lastseen);
+      return lastSeenDate < twentyFourHoursAgo;
+    });
+  }
+  
+  const list = filteredList;
 
   renderList(list);
   updateHeaderIndicators();
