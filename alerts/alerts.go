@@ -328,7 +328,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			adminBody := body + ipInfo
 			
 			// If we're sending to both admin and user, send separate emails
-			if rec.Email != "" && settings.ToAddresses != "" {
+			if rec.Email != "" && settings.ToAddresses != "" && !isAdminAction {
 				// First send the user-friendly version to the receiver owner
 				err := sendSingleEmail(subject, body, rec.Email)
 				if err != nil {
