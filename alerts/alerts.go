@@ -715,9 +715,14 @@ func checkOfflineReceivers() {
 			continue
 		}
 
-		// Parse the LastSeen time
+		// Skip receivers with no LastSeen value or parse the LastSeen time
+		if receiver.LastSeen == "" {
+			continue // Silently skip receivers with no LastSeen value
+		}
+		
 		lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
 		if err != nil {
+			// Only log parsing errors for non-empty LastSeen values
 			log.Printf("Error parsing LastSeen time for receiver %d: %v", receiver.ID, err)
 			continue
 		}
