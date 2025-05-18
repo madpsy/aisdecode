@@ -1621,9 +1621,11 @@ function updateVesselDetailHeader(UserID) {
       ${vesselData[UserID].AISClass === 'A' || vesselData[UserID].AISClass === 'B'
         ? `<a href="/vesselhistory.html?UserID=${UserID}" target="_blank" style="text-decoration: underline; color: inherit; font-size:1.2em;">${vesselData[UserID].Name}</a>`
         : `<span style="font-size:1.2em;">${vesselData[UserID].Name}</span>`}<br>
-      <a href="https://www.vesselfinder.com/vessels/details/${vesselData[UserID].UserID}"
+      ${vesselData[UserID].AISClass === 'A' || vesselData[UserID].AISClass === 'B'
+        ? `<a href="https://www.vesselfinder.com/vessels/details/${vesselData[UserID].UserID}"
          target="_blank">VesselFinder</a>
-      |
+      |`
+        : ``}
       <span id="copy-link" style="cursor:pointer; color:blue;">Link</span>
   `;
 
