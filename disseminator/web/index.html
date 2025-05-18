@@ -4652,19 +4652,27 @@ document.getElementById("age-slider").addEventListener("input", () => {
   // Debounce the filtering process to avoid excessive function calls.
   clearTimeout(ageDebounceTimer);
   ageDebounceTimer = setTimeout(() => {
-    // Remove existing receiver markers that are now older than the max age
+    // Process existing receiver markers based on the new age setting
     const now = Date.now();
     const maxAgeMilliseconds = ageHours * 3600000;
     
-    for (const id in receiverMarkers) {
+    for (const id in receiverData) {
       if (receiverData[id] && receiverData[id].LastUpdated) {
         try {
           const lastUpdated = new Date(receiverData[id].LastUpdated).getTime();
-          if (!isNaN(lastUpdated) && (now - lastUpdated) > maxAgeMilliseconds) {
-            // This receiver is now older than the max age, remove it from the map
-            map.removeLayer(receiverMarkers[id]);
-            // Note: We don't delete from receiverMarkers/receiverData here
-            // as refreshReceivers() will handle that properly
+          if (!isNaN(lastUpdated)) {
+            const isWithinAge = (now - lastUpdated) <= maxAgeMilliseconds;
+            
+            // If the receiver exists on the map
+            if (receiverMarkers[id]) {
+              if (!isWithinAge) {
+                // Too old - remove from map
+                map.removeLayer(receiverMarkers[id]);
+              } else if (!map.hasLayer(receiverMarkers[id])) {
+                // Within age but not on map - add it back
+                map.addLayer(receiverMarkers[id]);
+              }
+            }
           }
         } catch (error) {
           console.error("Error processing receiver date for filtering:", error);
