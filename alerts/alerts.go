@@ -137,7 +137,7 @@ func initDB() error {
 // sendSingleEmail sends an email to a single recipient
 func sendSingleEmail(subject, body, toAddress string) error {
 	msg := []byte(
-		"From: " + settings.FromName + " <" + settings.FromAddress + ">\r\n" +
+		"From: " + settings.FromName + " [" + settings.SiteDomain + "] <" + settings.FromAddress + ">\r\n" +
 		"To: " + toAddress + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"\r\n" + body + "\r\n")
@@ -242,7 +242,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			"- URL: %s\n\n"+
 			"You can view your receiver's details here: %s\n\n"+
 			"Thank you for contributing to our AIS network!\n\n"+
-			"AIS Decoder Team",
+			"AIS Decoder Team\nhttps://" + settings.SiteDomain + "/",
 			rec.Name, udpPortDisplay,
 			rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, urlDisplay,
 			receiverURL,
@@ -314,7 +314,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			"- URL: %s\n"+
 			"- UDP Port: %s\n\n"+
 			"Thank you for your contribution to our AIS network. We hope to see you again in the future!\n\n"+
-			"AIS Decoder Team",
+			"AIS Decoder Team\nhttps://" + settings.SiteDomain + "/",
 			rec.Name, rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, urlDisplay, udpPortDisplay,
 		)
 		
@@ -362,7 +362,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			"Click the link below to reset your password:\n\n%s\n\n"+
 			"This link will expire in 24 hours.\n\n"+
 			"If you did not request this password reset, please ignore this email.\n\n"+
-			"Thank you,\nAIS Decoder Team",
+			"Thank you,\nAIS Decoder Team\nhttps://" + settings.SiteDomain + "/",
 			resetLink,
 		)
 	case "receiver_offline":
@@ -399,7 +399,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 				"- Last seen: %s\n\n"+
 				"Please check your receiver's connection and ensure it's properly configured.\n\n"+
 				"You can view your receiver's details and disable notifications here: %s\n\n"+
-				"Thank you,\nAIS Decoder Team",
+				"Thank you,\nAIS Decoder Team\nhttps://" + settings.SiteDomain + "/",
 				rec.Name, rec.ID, rec.Name, rec.Description, lastSeenStr, receiverURL,
 			)
 		}
@@ -488,7 +488,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			"Your receiver '%s' has been updated with the following changes:\n\n%s\n"+
 			"You can view your receiver's details here: %s\n\n"+
 			"Thank you for contributing to our AIS network!\n\n"+
-			"AIS Decoder Team",
+			"AIS Decoder Team\nhttps://" + settings.SiteDomain + "/",
 			rec.Name, changesText.String(), receiverURL,
 		)
 		
