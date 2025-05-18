@@ -129,7 +129,7 @@ function renderList(list) {
         '—' :
         `<a class="action" data-id="${r.id}">Edit</a>
          &nbsp;|&nbsp;
-         <button class="delete-btn" data-id="${r.id}">Delete</button>`}</td>`
+         <button class="delete-btn" data-id="${r.id}" data-name="${r.name}">Delete</button>`}</td>`
     ];
     
     tr.innerHTML = cells.join('');
@@ -141,7 +141,8 @@ function renderList(list) {
   document.querySelectorAll('.delete-btn')
     .forEach(b => b.addEventListener('click', e => {
       const id = e.target.dataset.id;
-      showDeleteModal(id);
+      const name = e.target.dataset.name;
+      showDeleteModal(id, name);
     }));
 }
 
@@ -299,13 +300,15 @@ function updateHeaderIndicators() {
 // Delete confirmation modal functionality
 const deleteModal = document.getElementById('delete-modal');
 const deleteReceiverId = document.getElementById('delete-receiver-id');
+const deleteReceiverName = document.getElementById('delete-receiver-name');
 const deleteConfirmInput = document.getElementById('delete-confirm-input');
 const deleteConfirmBtn = document.getElementById('delete-confirm-btn');
 const deleteCancelBtn = document.getElementById('delete-cancel-btn');
 
 // Show the delete confirmation modal
-function showDeleteModal(id) {
-  deleteReceiverId.textContent = id;
+function showDeleteModal(id, name) {
+  deleteReceiverId.value = id;
+  deleteReceiverName.textContent = name;
   deleteConfirmInput.value = '';
   deleteConfirmBtn.disabled = true;
   deleteConfirmInput.classList.remove('valid', 'invalid');
@@ -338,7 +341,7 @@ deleteConfirmInput.addEventListener('input', () => {
 
 // Handle delete confirmation
 deleteConfirmBtn.addEventListener('click', () => {
-  const id = deleteReceiverId.textContent;
+  const id = deleteReceiverId.value;
   
   fetch(`/admin/receivers/${id}`, { method: 'DELETE' })
     .then(res => {
