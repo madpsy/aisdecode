@@ -141,14 +141,7 @@ function renderList(list) {
   document.querySelectorAll('.delete-btn')
     .forEach(b => b.addEventListener('click', e => {
       const id = e.target.dataset.id;
-      if (confirm(`Are you sure you want to delete receiver #${id}?`)) {
-        fetch(`/admin/receivers/${id}`, { method: 'DELETE' })
-          .then(res => {
-            if (!res.ok) throw new Error(res.statusText);
-            loadReceivers();
-          })
-          .catch(err => alert('Delete failed: ' + err));
-      }
+      showDeleteModal(id);
     }));
 }
 
@@ -302,6 +295,79 @@ function updateHeaderIndicators() {
     }
   });
 }
+
+// Delete confirmation modal functionality
+const deleteModal = document.getElementById('delete-modal');
+const deleteReceiverId = document.getElementById('delete-receiver-id');
+const deleteConfirmInput = document.getElementById('delete-confirm-input');
+const deleteConfirmBtn = document.getElementById('delete-confirm-btn');
+const deleteCancelBtn = document.getElementById('delete-cancel-btn');
+
+// Show the delete confirmation modal
+function showDeleteModal(id) {
+  deleteReceiverId.textContent = id;
+  deleteConfirmInput.value = '';
+  deleteConfirmBtn.disabled = true;
+  deleteConfirmInput.classList.remove('valid', 'invalid');
+  deleteModal.classList.add('show');
+  deleteConfirmInput.focus();
+}
+
+// Hide the delete confirmation modal
+function hideDeleteModal() {
+  deleteModal.classList.remove('show');
+}
+
+// Validate the delete confirmation input
+deleteConfirmInput.addEventListener('input', () => {
+  const value = deleteConfirmInput.value.trim();
+  
+  if (value === 'delete') {
+    deleteConfirmInput.classList.add('valid');
+    deleteConfirmInput.classList.remove('invalid');
+    deleteConfirmBtn.disabled = false;
+  } else if (value.length > 0) {
+    deleteConfirmInput.classList.add('invalid');
+    deleteConfirmInput.classList.remove('valid');
+    deleteConfirmBtn.disabled = true;
+  } else {
+    deleteConfirmInput.classList.remove('valid', 'invalid');
+    deleteConfirmBtn.disabled = true;
+  }
+});
+
+// Handle delete confirmation
+deleteConfirmBtn.addEventListener('click', () => {
+  const id = deleteReceiverId.textContent;
+  
+  fetch(`/admin/receivers/${id}`, { method: 'DELETE' })
+    .then(res => {
+      if (!res.ok) throw new Error(res.statusText);
+      hideDeleteModal();
+      loadReceivers();
+    })
+    .catch(err => {
+      hideDeleteModal();
+      alert('Delete failed: ' + err);
+    });
+});
+
+// Handle delete cancellation
+deleteCancelBtn.addEventListener('click', hideDeleteModal);
+
+// Close modal when clicking outside of it
+deleteModal.addEventListener('click', (e) => {
+  if (e.target === deleteModal) {
+    hideDeleteModal();
+  }
+});
+
+// Close modal with Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && deleteModal.classList.contains('show')) {
+    hideDeleteModal();
+  }
+});
 
 window.addEventListener('load', () => {
   loadReceivers();

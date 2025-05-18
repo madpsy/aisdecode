@@ -95,7 +95,21 @@
       </table>
     </section>
   </main>
-  <!-- Cron overlay removed -->
+  
+  <!-- Delete confirmation modal -->
+  <div id="delete-modal" class="modal">
+    <div class="modal-content">
+      <h3>Confirm Deletion</h3>
+      <p>Are you sure you want to delete receiver #<span id="delete-receiver-id"></span>?</p>
+      <p>Type <strong>delete</strong> to confirm:</p>
+      <input type="text" id="delete-confirm-input" placeholder="Type 'delete' here">
+      <div class="modal-buttons">
+        <button id="delete-confirm-btn" disabled>Delete</button>
+        <button id="delete-cancel-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+  
   <script src="app.js"></script>
 </body>
 </html>
