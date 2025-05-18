@@ -154,7 +154,8 @@ func sendSingleEmail(subject, body, toAddress string) error {
 	currentTime := time.Now().Format("Mon, 02 Jan 2006 15:04:05 -0700")
 	
 	msg := []byte(
-		"From: " + settings.FromName + " [" + settings.SiteDomain + "] <" + settings.FromAddress + ">\r\n" +
+		"From: " + settings.FromName + " (" + settings.SiteDomain + ") <" + settings.FromAddress + ">\r\n" +
+		"Reply-To: " + settings.FromName + " (" + settings.SiteDomain + ") <" + settings.FromAddress + ">\r\n" +
 		"To: " + toAddress + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"Date: " + currentTime + "\r\n" +
