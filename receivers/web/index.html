@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <title>Receivers Manager</title>
   <link rel="stylesheet" href="style.css">
+  <!-- Leaflet CSS/JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 </head>
 <body>
   <header><h1>Receivers</h1></header>
@@ -28,14 +31,20 @@
           Description
           <input type="text" id="field-description" maxlength="30" required>
         </label>
-        <label>
-          Latitude
-          <input type="number" id="field-latitude" step="any" min="-90" max="90" required>
-        </label>
-        <label>
-          Longitude
-          <input type="number" id="field-longitude" step="any" min="-180" max="180" required>
-        </label>
+        <div class="coordinates-container">
+          <div class="coordinate-inputs">
+            <label>
+              Latitude
+              <input type="number" id="field-latitude" step="any" min="-90" max="90" required>
+            </label>
+            <label>
+              Longitude
+              <input type="number" id="field-longitude" step="any" min="-180" max="180" required>
+            </label>
+          </div>
+          <div id="location-map"></div>
+          <p class="map-help">Click on the map or drag the marker to set location</p>
+        </div>
         <label>
           URL
           <input type="url" id="field-url">

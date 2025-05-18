@@ -12,6 +12,9 @@ let receiversData = [];
 let editId        = null;
 let sortKey       = 'lastseen';
 let sortDir       = -1; // 1 = ascending, -1 = descending
+let map           = null;
+let marker        = null;
+let overlayDiv    = null;
 
 // Function to display anonymous port message if applicable
 function updateAnonMessage() {
@@ -167,6 +170,19 @@ function startEdit(id) {
       // Show regenerate button when editing
       document.getElementById('regenerate-password').style.display = 'inline-block';
       
+      // Update the map with the receiver's location
+      if (map) {
+        const latlng = L.latLng(r.latitude, r.longitude);
+        updateMarkerPosition(latlng);
+        map.setView(latlng, 10);
+        updateOverlay(latlng);
+      } else {
+        // Initialize the map if it doesn't exist
+        setTimeout(() => {
+          initMap();
+        }, 100);
+      }
+      
       // Scroll to the top of the page to show the form
       window.scrollTo({
         top: 0,
@@ -184,6 +200,14 @@ cancelBtn.onclick = () => {
   document.getElementById('field-password').value = '';
   // Hide regenerate button for new receivers (will be auto-generated)
   document.getElementById('regenerate-password').style.display = 'none';
+  
+  // Reset the map to default view
+  if (map) {
+    const latlng = L.latLng(0, 0);
+    updateMarkerPosition(latlng);
+    map.setView(latlng, 2);
+    updateOverlay(latlng);
+  }
 };
 
 // Handle password regeneration
@@ -372,8 +396,124 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// Initialize the map
+function initMap() {
+  // Create the map if it doesn't exist
+  if (!map) {
+    map = L.map('location-map').setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Create overlay for coordinates
+    overlayDiv = document.createElement('div');
+    overlayDiv.className = 'latlng-overlay';
+    map.getContainer().appendChild(overlayDiv);
+    
+    // Add click handler to the map
+    map.on('click', function(e) {
+      updateMarkerPosition(e.latlng);
+      updateLatLngFields(e.latlng);
+      updateOverlay(e.latlng);
+    });
+    
+    // Handle map resize when form becomes visible
+    setTimeout(() => map.invalidateSize(), 0);
+    window.addEventListener('resize', () => map.invalidateSize());
+  }
+  
+  // Reset the marker if it exists
+  if (marker) {
+    map.removeLayer(marker);
+    marker = null;
+  }
+  
+  // Get initial coordinates from the form fields
+  const lat = parseFloat(document.getElementById('field-latitude').value) || 0;
+  const lng = parseFloat(document.getElementById('field-longitude').value) || 0;
+  const latlng = L.latLng(lat, lng);
+  
+  // Create a new marker
+  marker = L.marker(latlng, { draggable: true }).addTo(map);
+  
+  // Update fields when marker is dragged
+  marker.on('dragend', function() {
+    const position = marker.getLatLng();
+    updateLatLngFields(position);
+    updateOverlay(position);
+  });
+  
+  // Update overlay when marker is dragged
+  marker.on('drag', function() {
+    updateOverlay(marker.getLatLng());
+  });
+  
+  // Center the map on the marker
+  map.setView(latlng, 10);
+  
+  // Update the overlay
+  updateOverlay(latlng);
+}
+
+// Update the lat/lng fields when the marker is moved
+function updateLatLngFields(latlng) {
+  document.getElementById('field-latitude').value = latlng.lat.toFixed(6);
+  document.getElementById('field-longitude').value = latlng.lng.toFixed(6);
+}
+
+// Update the marker position when the lat/lng fields are changed
+function updateMarkerPosition(latlng) {
+  if (marker) {
+    marker.setLatLng(latlng);
+  }
+}
+
+// Update the overlay with the current coordinates
+function updateOverlay(latlng) {
+  if (overlayDiv && latlng) {
+    overlayDiv.textContent = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
+    overlayDiv.style.display = 'block';
+  }
+}
+
+// Function to handle coordinate field updates
+function handleCoordinateChange() {
+  const lat = parseFloat(document.getElementById('field-latitude').value);
+  const lng = parseFloat(document.getElementById('field-longitude').value);
+  
+  if (!isNaN(lat) && !isNaN(lng)) {
+    const latlng = L.latLng(lat, lng);
+    updateMarkerPosition(latlng);
+    map.setView(latlng, map.getZoom());
+    updateOverlay(latlng);
+  }
+}
+
+// Add event listeners to the lat/lng fields
+const latField = document.getElementById('field-latitude');
+const lngField = document.getElementById('field-longitude');
+
+// Use both change and blur events for better reliability
+latField.addEventListener('change', handleCoordinateChange);
+latField.addEventListener('blur', handleCoordinateChange);
+latField.addEventListener('keyup', function(e) {
+  if (e.key === 'Enter') {
+    handleCoordinateChange();
+  }
+});
+
+lngField.addEventListener('change', handleCoordinateChange);
+lngField.addEventListener('blur', handleCoordinateChange);
+lngField.addEventListener('keyup', function(e) {
+  if (e.key === 'Enter') {
+    handleCoordinateChange();
+  }
+});
+
 window.addEventListener('load', () => {
   loadReceivers();
   // Hide regenerate button initially (for new receivers)
   document.getElementById('regenerate-password').style.display = 'none';
+  // Initialize the map
+  initMap();
 });

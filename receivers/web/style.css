@@ -340,3 +340,59 @@ a.action:hover, button.delete-btn:hover {
 #delete-cancel-btn {
   background-color: #7f8c8d;
 }
+
+/* Map and coordinates styling */
+.coordinates-container {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.coordinate-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+#location-map {
+  height: 250px;
+  border: 1px solid #ccc;
+  border-radius: var(--radius);
+  margin-top: 0.5rem;
+}
+
+.map-help {
+  font-size: 0.8rem;
+  color: #666;
+  margin: 0;
+  text-align: center;
+}
+
+/* Make the leaflet popup look nicer */
+.leaflet-popup-content-wrapper {
+  border-radius: var(--radius);
+  padding: 0.5rem;
+}
+
+.leaflet-popup-content {
+  margin: 0;
+  padding: 0;
+  font-size: 0.9rem;
+}
+
+/* Lat/Lng overlay centered at top of map */
+.latlng-overlay {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255,255,255,0.8);
+  padding: 4px 8px;
+  font-weight: bold;
+  border-radius: 4px;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  z-index: 1000;
+  font-size: 0.8rem;
+}
