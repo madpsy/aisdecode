@@ -199,7 +199,7 @@
     background-color: #d0e8ff;
   }
 
-  .receiver-name, .receiver-description, .receiver-url {
+  .receiver-name, .receiver-description, .receiver-url, .receiver-lastseen {
     font-size: 0.8em; /* Reduce the font size */
     font-weight: normal;
   }
@@ -602,8 +602,20 @@
     }
     function formatAgo(ts){
       const sec = Math.floor((Date.now() - ts.getTime())/1000),
-            h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
-      return (h? h+'h ':'') + (m? m+'m ':'') + s+'s';
+            d = Math.floor(sec/86400), h = Math.floor((sec%86400)/3600),
+            m = Math.floor((sec%3600)/60), s = sec%60;
+      return (d? d+'d ':'') + (h? h+'h ':'') + (m? m+'m ':'') + s+'s';
+    }
+    
+    // Format the lastseen timestamp for receivers
+    function formatLastSeen(timestamp) {
+      if (!timestamp) return { formatted: 'Never', ago: '' };
+      
+      const date = new Date(timestamp);
+      const formatted = date.toLocaleString();
+      const ago = formatAgo(date);
+      
+      return { formatted, ago };
     }
 
     // Build cards
@@ -1800,6 +1812,7 @@ function fetchReceiversById(receiverId) {
       // Build and insert new info box with receiver details
       const box = document.createElement('div');
       box.id = 'receiver-box';
+      const lastSeen = formatLastSeen(receiver.lastseen);
       box.innerHTML = `
         <div class="receiver-info-content">
           <h3>Receiver Information</h3>
@@ -1807,6 +1820,9 @@ function fetchReceiversById(receiverId) {
           <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
           <p class="receiver-url"><strong>URL:</strong>
             ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+          </p>
+          <p class="receiver-lastseen"><strong>Last Seen:</strong>
+            ${lastSeen.formatted}${lastSeen.ago ? ` (${lastSeen.ago} ago)` : ''}
           </p>
           <div style="margin-bottom: 10px;">
             <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
@@ -1996,12 +2012,16 @@ async function fetchReceivers(ip) {
     receiverBox.id = 'receiver-box';
     
     // Display receiver information
+    const lastSeen = formatLastSeen(receiver.lastseen);
     receiverBox.innerHTML = `
       <h3>Receiver Information</h3>
       <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
       <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
       <p class="receiver-url"><strong>URL:</strong>
         ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
+      </p>
+      <p class="receiver-lastseen"><strong>Last Seen:</strong>
+        ${lastSeen.formatted}${lastSeen.ago ? ` (${lastSeen.ago} ago)` : ''}
       </p>
       <div style="margin-bottom: 10px;">
         <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
