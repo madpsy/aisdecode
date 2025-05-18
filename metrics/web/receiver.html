@@ -753,6 +753,88 @@ function fetchUserIP(applyAsOverride = false) {
     .catch(e => console.error('Error fetching user IP:', e));
 }
 
+// Variables to store the update intervals
+let receiverUpdateInterval = null;
+let receiverTimeAgoInterval = null;
+let currentReceiverLastSeen = null;
+
+// Function to update the "time ago" part of the Last Seen field every second
+function updateTimeAgo() {
+  if (!currentReceiverLastSeen) return;
+  
+  const lastSeenElement = document.querySelector('.receiver-lastseen');
+  if (!lastSeenElement) return;
+  
+  const date = new Date(currentReceiverLastSeen);
+  const ago = formatAgo(date);
+  
+  // Only update the "time ago" part, keeping the formatted date the same
+  const formattedDate = new Date(currentReceiverLastSeen).toLocaleString();
+  lastSeenElement.innerHTML = `<strong>Last Seen:</strong>
+    ${formattedDate}${ago ? ` (${ago} ago)` : ''}`;
+}
+
+// Function to update receiver information periodically
+function startReceiverUpdates(receiverId) {
+  // Clear any existing intervals
+  stopReceiverUpdates();
+  
+  // Set up new interval to update receiver info every 10 seconds
+  receiverUpdateInterval = setInterval(() => {
+    if (!receiverId) return;
+    
+    // Fetch the latest receiver information
+    fetch(`/receivers?id=${encodeURIComponent(receiverId)}`)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        const receiver = Array.isArray(data) ? data[0] : data;
+        
+        // Get the receiver info content div
+        const infoContent = document.querySelector('.receiver-info-content');
+        if (!infoContent) return;
+        
+        // Store the lastseen timestamp for the 1-second updates
+        currentReceiverLastSeen = receiver.lastseen;
+        
+        // Update the Last Seen field
+        const lastSeen = formatLastSeen(receiver.lastseen);
+        const lastSeenElement = infoContent.querySelector('.receiver-lastseen');
+        
+        if (lastSeenElement) {
+          lastSeenElement.innerHTML = `<strong>Last Seen:</strong>
+            ${lastSeen.formatted}${lastSeen.ago ? ` (${lastSeen.ago} ago)` : ''}`;
+        }
+      })
+      .catch(err => {
+        console.error('Error updating receiver info:', err);
+      });
+  }, 10000); // 10 seconds
+  
+  // Set up a 1-second interval to update just the "time ago" part
+  if (receiverTimeAgoInterval) {
+    clearInterval(receiverTimeAgoInterval);
+  }
+  
+  receiverTimeAgoInterval = setInterval(updateTimeAgo, 1000); // 1 second
+}
+
+function stopReceiverUpdates() {
+  if (receiverUpdateInterval) {
+    clearInterval(receiverUpdateInterval);
+    receiverUpdateInterval = null;
+  }
+  
+  if (receiverTimeAgoInterval) {
+    clearInterval(receiverTimeAgoInterval);
+    receiverTimeAgoInterval = null;
+  }
+  
+  currentReceiverLastSeen = null;
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   // Always fetch the user's IP for display
   fetchUserIP(false);
@@ -1186,6 +1268,9 @@ function loadReceivers() {
           // Send a WebSocket request with the new receiver ID
           console.log('Sending WebSocket request for receiver ID:', r.id);
           fetchMetrics();
+          
+          // Start periodic updates for this receiver
+          startReceiverUpdates(r.id);
         });
 
         // Store for nearest/override lookup
@@ -1804,6 +1889,9 @@ function fetchReceiversById(receiverId) {
       // Now that we've confirmed the receiver exists, fetch metrics for it
       console.log('Receiver found, now fetching metrics for ID:', receiver.id);
       fetchMetrics();
+      
+      // Start periodic updates for this receiver
+      startReceiverUpdates(receiver.id);
 
       // Remove existing info box if present
       const oldBox = document.getElementById('receiver-box');
@@ -1813,6 +1901,10 @@ function fetchReceiversById(receiverId) {
       const box = document.createElement('div');
       box.id = 'receiver-box';
       const lastSeen = formatLastSeen(receiver.lastseen);
+      
+      // Store the lastseen timestamp for the 1-second updates
+      currentReceiverLastSeen = receiver.lastseen;
+      
       box.innerHTML = `
         <div class="receiver-info-content">
           <h3>Receiver Information</h3>
@@ -1998,6 +2090,9 @@ async function fetchReceivers(ip) {
 
     // Now fetch metrics using the receiver's ID
     fetchMetrics();
+    
+    // Start periodic updates for this receiver
+    startReceiverUpdates(receiver.id);
 
     // Continue with normal receiver handling...
 
@@ -2013,6 +2108,10 @@ async function fetchReceivers(ip) {
     
     // Display receiver information
     const lastSeen = formatLastSeen(receiver.lastseen);
+    
+    // Store the lastseen timestamp for the 1-second updates
+    currentReceiverLastSeen = receiver.lastseen;
+    
     receiverBox.innerHTML = `
       <h3>Receiver Information</h3>
       <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
@@ -2127,6 +2226,9 @@ async function fetchReceivers(ip) {
     fetchMetrics();
   }
 }
+
+// Stop receiver updates when page is unloaded
+window.addEventListener('beforeunload', stopReceiverUpdates);
 
     function typeNameFor(info) {
       if (info.AISClass === 'AtoN') {
@@ -2336,6 +2438,9 @@ async function fetchReceivers(ip) {
       overrideIp = '';
       overrideReceiverId = '';  // Reset receiver id
       
+      // Stop any active receiver updates
+      stopReceiverUpdates();
+      
       // Update the URL to remove the ip_address parameter
       const url = new URL(window.location);
       url.searchParams.delete('ip_address');
@@ -2482,6 +2587,9 @@ async function fetchReceivers(ip) {
         
         // Add event listener to the cancel button
         document.getElementById('cancel-edit-form').addEventListener('click', function() {
+          // Stop any active receiver updates before reloading
+          stopReceiverUpdates();
+          
           // Reload the receiver details to restore the view
           fetchReceiversById(receiverId);
         });
@@ -2877,6 +2985,9 @@ async function fetchReceivers(ip) {
                   notification.style.transition = 'opacity 1s';
                   setTimeout(() => notification.remove(), 1000);
                 }, 3000);
+                
+                // Stop any active receiver updates
+                stopReceiverUpdates();
                 
                 // Clear the receiver box and reset the page
                 const receiverBox = document.getElementById('receiver-box');
