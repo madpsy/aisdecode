@@ -1669,6 +1669,7 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
         Name:        strings.ToUpper(input.Name),
         URL:         input.URL,
         Email:       input.Email,
+        Notifications: input.Notifications,
         Password:    plainPassword, // Store plain password temporarily for validation
         PasswordHash: hashedPassword,
         PasswordSalt: saltStr,
