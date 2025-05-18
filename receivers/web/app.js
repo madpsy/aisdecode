@@ -138,7 +138,7 @@ function renderList(list) {
       `<td class="col-id">${r.id}</td>`,
       `<td class="col-lastseen">${r.lastseen ? new Date(r.lastseen).toLocaleString() : '—'}</td>`,
       `<td class="col-lastupdated">${new Date(r.lastupdated).toLocaleString()}</td>`,
-      `<td class="col-name">${r.id === 0 ? r.name : `<a href="/metrics/receiver.html?id=${r.id}" target="_blank">${r.name}</a>`}</td>`,
+      `<td class="col-name">${r.id === 0 ? r.name : `<a href="/metrics/receiver.html?receiver=${r.id}" target="_blank">${r.name}</a>`}</td>`,
       `<td class="col-description">${r.description}</td>`,
       `<td class="col-latitude">${r.latitude}</td>`,
       `<td class="col-longitude">${r.longitude}</td>`,
