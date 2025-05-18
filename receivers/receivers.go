@@ -1384,8 +1384,8 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     // Create a response that will include receivers
     var response []interface{}
     
-    // Only add the anonymous receiver if no specific ID was requested
-    if idParam == "" {
+    // Only add the anonymous receiver if no specific ID was requested and no IP filter was provided
+    if idParam == "" && ipAddressFilter == "" {
         // Fetch the UDP listen port from the ingester settings
         ingestSettings, err := fetchIngestSettings()
         var udpListenPort int
