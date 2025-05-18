@@ -101,18 +101,18 @@ function applySortAndFilter() {
       })
     : receiversData;
     
-  // Then apply the "Not seen >24 hours" filter if checked
+  // Then apply the "Not seen >1 week" filter if checked
   if (notSeenFilterChecked) {
-    const twentyFourHoursAgo = new Date();
-    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
     
     filteredList = filteredList.filter(r => {
       // If lastseen is null/undefined, it's never been seen, so include it
       if (!r.lastseen) return true;
       
-      // Compare the last seen date with 24 hours ago
+      // Compare the last seen date with 1 week ago
       const lastSeenDate = new Date(r.lastseen);
-      return lastSeenDate < twentyFourHoursAgo;
+      return lastSeenDate < oneWeekAgo;
     });
   }
   
