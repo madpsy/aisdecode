@@ -143,10 +143,22 @@ func initDB() error {
 
 // sendSingleEmail sends an email to a single recipient
 func sendSingleEmail(subject, body, toAddress string) error {
+	// Generate a Message-ID
+	hostname := settings.SiteDomain
+	if hostname == "" {
+		hostname = settings.SMTPHost
+	}
+	messageID := fmt.Sprintf("<%d.%d@%s>", time.Now().Unix(), time.Now().UnixNano()%1000000, hostname)
+	
+	// Format current time as per RFC 5322
+	currentTime := time.Now().Format("Mon, 02 Jan 2006 15:04:05 -0700")
+	
 	msg := []byte(
 		"From: " + settings.FromName + " [" + settings.SiteDomain + "] <" + settings.FromAddress + ">\r\n" +
 		"To: " + toAddress + "\r\n" +
 		"Subject: " + subject + "\r\n" +
+		"Date: " + currentTime + "\r\n" +
+		"Message-Id: " + messageID + "\r\n" +
 		"\r\n" + body + "\r\n")
 	
 	addr := fmt.Sprintf("%s:%d", settings.SMTPHost, settings.SMTPPort)
