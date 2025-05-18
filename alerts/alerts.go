@@ -906,7 +906,6 @@ func checkWeeklyInactiveReceivers() {
 	}
 
 	// Send the email to admins only
-	subject := fmt.Sprintf("Weekly Inactive Receivers Report - %d receivers inactive", len(inactiveReceivers))
 	emailSentTo, err := sendEmail("weekly_inactive_receivers", dummyReceiver, bodyBuilder.String())
 	if err != nil {
 		log.Printf("Error sending weekly inactive receivers report: %v", err)
