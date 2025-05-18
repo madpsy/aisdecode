@@ -264,7 +264,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			"You can view your receiver's details here: %s\n\n"+
 			"Thank you for contributing to our AIS network!\n\n"+
 			"AIS Decoder Team\nhttps://" + settings.SiteDomain + "/",
-			rec.Name, udpPortDisplay,
+			rec.Name, udpPortDisplay, settings.SiteDomain, udpPortDisplay,
 			rec.ID, rec.Name, rec.Description, rec.Latitude, rec.Longitude, rec.LastUpdated, urlDisplay,
 			receiverURL,
 		)
