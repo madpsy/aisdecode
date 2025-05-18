@@ -3099,10 +3099,40 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     
     rec.UDPPort = &udpPort
 
-    // Return the complete receiver object including password and UDP port
+    // Create a response object that includes the password
+    type AddReceiverResponse struct {
+        ID           int        `json:"id"`
+        LastUpdated  time.Time  `json:"lastupdated"`
+        Description  string     `json:"description"`
+        Latitude     float64    `json:"latitude"`
+        Longitude    float64    `json:"longitude"`
+        Name         string     `json:"name"`
+        URL          *string    `json:"url,omitempty"`
+        Email        string     `json:"email"`
+        Notifications bool       `json:"notifications"`
+        Password     string     `json:"password"`  // Include password in response
+        UDPPort      *int       `json:"udp_port,omitempty"`
+    }
+    
+    // Create the response with the password included
+    response := AddReceiverResponse{
+        ID:           rec.ID,
+        LastUpdated:  rec.LastUpdated,
+        Description:  rec.Description,
+        Latitude:     rec.Latitude,
+        Longitude:    rec.Longitude,
+        Name:         rec.Name,
+        URL:          rec.URL,
+        Email:        rec.Email,
+        Notifications: rec.Notifications,
+        Password:     rec.Password,  // Include the plain text password
+        UDPPort:      rec.UDPPort,
+    }
+    
+    // Return the response object with the password included
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(rec)
+    json.NewEncoder(w).Encode(response)
     if settings.WebhookURL != "" {
         go notifyWebhookWithClientIP(rec, clientIP)
     }
