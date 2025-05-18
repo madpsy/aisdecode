@@ -821,15 +821,133 @@ func checkOfflineReceivers() {
 	}
 }
 
+// checkWeeklyInactiveReceivers checks for receivers that haven't been seen for over 1 week
+// and sends a summary email to site admins only
+func checkWeeklyInactiveReceivers() {
+	// Only proceed if we have admin email addresses configured
+	if settings.ToAddresses == "" {
+		log.Println("No admin email addresses configured, skipping weekly inactive receivers check")
+		return
+	}
+
+	receivers, err := fetchReceivers()
+	if err != nil {
+		log.Printf("Error fetching receivers for weekly check: %v", err)
+		return
+	}
+
+	now := time.Now()
+	var inactiveReceivers []Receiver
+	oneWeek := 7 * 24 * time.Hour
+
+	for _, receiver := range receivers {
+		// Skip receivers with no LastSeen value
+		if receiver.LastSeen == "" {
+			continue
+		}
+		
+		lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
+		if err != nil {
+			log.Printf("Error parsing LastSeen time for receiver %d: %v", receiver.ID, err)
+			continue
+		}
+
+		// Check if receiver hasn't been seen for over 1 week
+		if now.Sub(lastSeen) > oneWeek {
+			inactiveReceivers = append(inactiveReceivers, receiver)
+		}
+	}
+
+	// If no inactive receivers, no need to send an email
+	if len(inactiveReceivers) == 0 {
+		log.Println("No receivers inactive for over 1 week, skipping weekly report")
+		return
+	}
+
+	// Build the email body with a summary of inactive receivers
+	var bodyBuilder strings.Builder
+	bodyBuilder.WriteString(fmt.Sprintf("Weekly Inactive Receivers Report - %s\n\n", now.Format("2006-01-02")))
+	bodyBuilder.WriteString(fmt.Sprintf("The following %d receivers have not been seen for over 1 week:\n\n", len(inactiveReceivers)))
+
+	for i, receiver := range inactiveReceivers {
+		lastSeen, _ := time.Parse(time.RFC3339, receiver.LastSeen)
+		lastSeenStr := lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
+		daysInactive := int(now.Sub(lastSeen).Hours() / 24)
+		
+		bodyBuilder.WriteString(fmt.Sprintf("%d. Receiver ID: %d\n", i+1, receiver.ID))
+		bodyBuilder.WriteString(fmt.Sprintf("   Name: %s\n", receiver.Name))
+		bodyBuilder.WriteString(fmt.Sprintf("   Description: %s\n", receiver.Description))
+		bodyBuilder.WriteString(fmt.Sprintf("   Last seen: %s (%d days ago)\n", lastSeenStr, daysInactive))
+		bodyBuilder.WriteString(fmt.Sprintf("   Email: %s\n", receiver.Email))
+		
+		// Add UDP port if available
+		if receiver.UDPPort != nil {
+			bodyBuilder.WriteString(fmt.Sprintf("   UDP Port: %d\n", *receiver.UDPPort))
+		}
+		
+		// Add URL if available
+		if receiver.URL != nil && *receiver.URL != "" {
+			bodyBuilder.WriteString(fmt.Sprintf("   URL: %s\n", *receiver.URL))
+		}
+		
+		// Add link to receiver details
+		receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, receiver.ID)
+		bodyBuilder.WriteString(fmt.Sprintf("   Details: %s\n\n", receiverURL))
+	}
+
+	bodyBuilder.WriteString(fmt.Sprintf("\nThis is an automated weekly report sent every Saturday at midnight.\n"))
+	bodyBuilder.WriteString(fmt.Sprintf("\nAIS Decoder Team\nhttps://%s/", settings.SiteDomain))
+
+	// Create a dummy receiver for the sendEmail function
+	dummyReceiver := Receiver{
+		ID:          -1,
+		Name:        "System",
+		Description: "Weekly Inactive Receivers Report",
+	}
+
+	// Send the email to admins only
+	subject := fmt.Sprintf("Weekly Inactive Receivers Report - %d receivers inactive", len(inactiveReceivers))
+	emailSentTo, err := sendEmail("weekly_inactive_receivers", dummyReceiver, bodyBuilder.String())
+	if err != nil {
+		log.Printf("Error sending weekly inactive receivers report: %v", err)
+		return
+	}
+
+	// Log the alert
+	if err := logAlert("weekly_inactive_receivers", -1, emailSentTo, fmt.Sprintf("Weekly report of %d inactive receivers", len(inactiveReceivers))); err != nil {
+		log.Printf("Error logging weekly inactive receivers alert: %v", err)
+	}
+
+	log.Printf("Sent weekly inactive receivers report to %s", emailSentTo)
+}
+
 // startReceiverMonitoring starts the background monitoring of receivers
 func startReceiverMonitoring(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
+	// Initialize the last run time for weekly check
+	lastWeeklyCheck := time.Now()
+
 	for {
 		select {
 		case <-ticker.C:
+			// Regular offline receiver check
 			checkOfflineReceivers()
+			
+			// Check if it's Saturday at midnight (or close to it)
+			now := time.Now()
+			isSaturday := now.Weekday() == time.Saturday
+			isNearMidnight := now.Hour() == 0 && now.Minute() < 5
+			
+			// Ensure we only run once per week by checking if it's been at least 23 hours since last check
+			timeSinceLastCheck := now.Sub(lastWeeklyCheck)
+			
+			if isSaturday && isNearMidnight && timeSinceLastCheck >= 23*time.Hour {
+				log.Println("Running weekly inactive receivers check")
+				checkWeeklyInactiveReceivers()
+				lastWeeklyCheck = now
+			}
 		case <-ctx.Done():
 			log.Println("Receiver monitoring stopped")
 			return
