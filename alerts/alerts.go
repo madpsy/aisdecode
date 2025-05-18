@@ -398,16 +398,24 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			}
 			
 			receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, rec.ID)
+			
+			// Prepare UDP port display
+			udpPortDisplay := "Not set"
+			if rec.UDPPort != nil {
+				udpPortDisplay = strconv.Itoa(*rec.UDPPort)
+			}
+			
 			body = fmt.Sprintf(
 				"Hello,\n\nYour AIS receiver '%s' (ID: %d) has not been seen for over %d hours.\n\n"+
 				"Receiver Details:\n"+
 				"- Name: %s\n"+
 				"- Description: %s\n"+
+				"- UDP Port: %s\n"+
 				"- Last seen: %s\n\n"+
-				"Please check your receiver's connection and ensure it's properly configured.\n\n"+
+				"Please check your receiver's connection and ensure it's properly configured to send data to ingest.%s UDP port %s.\n\n"+
 				"You can view your receiver's details and disable notifications here: %s\n\n"+
 				"Thank you,\nAIS Decoder Team\nhttps://" + settings.SiteDomain + "/",
-				rec.Name, rec.ID, settings.ReceiverOfflineHours, rec.Name, rec.Description, lastSeenStr, receiverURL,
+				rec.Name, rec.ID, settings.ReceiverOfflineHours, rec.Name, rec.Description, udpPortDisplay, lastSeenStr, settings.SiteDomain, udpPortDisplay, receiverURL,
 			)
 		}
 	case "receiver_updated":
@@ -754,7 +762,7 @@ func checkOfflineReceivers() {
 				}
 				
 				// Create custom message
-				receiverURL := fmt.Sprintf("https://%s/receivers.html?receiver=%d", settings.SiteDomain, receiver.ID)
+				receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, receiver.ID)
 				message := fmt.Sprintf(
 					"Your AIS receiver '%s' (ID: %d) has not been seen for over %d hours.\n\n"+
 					"Receiver Details:\n"+
