@@ -1376,6 +1376,17 @@ function refreshReceivers() {
             console.error("Error processing date for receiver id", id, error);
             updatedLocalTime = "Invalid date";
           }
+          
+          // Check if the receiver is older than the max age setting
+          if (updatedLocalTime !== "Invalid date") {
+            const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
+            const now = Date.now();
+            const ageMilliseconds = now - updatedLocalTime.getTime();
+            if (ageMilliseconds > maxAgeHours * 3600000) { // Convert hours to milliseconds
+              // Skip this receiver if it's older than the max age
+              return;
+            }
+          }
 
           // Create or update the receiver marker.
           if (receiverMarkers[id]) {
@@ -3447,6 +3458,26 @@ function performSearch(query) {
   })
   .then(searchResults => {
     const receiverResults = Object.values(receiverData).filter(receiver => {
+      // First check if the receiver is within the max age limit
+      const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
+      const now = Date.now();
+      let lastUpdated;
+      
+      try {
+        lastUpdated = new Date(receiver.LastUpdated).getTime();
+        if (isNaN(lastUpdated)) {
+          return false; // Skip receivers with invalid dates
+        }
+      } catch (error) {
+        return false; // Skip receivers with dates that cause errors
+      }
+      
+      const ageMilliseconds = now - lastUpdated;
+      if (ageMilliseconds > maxAgeHours * 3600000) {
+        return false; // Skip receivers older than max age
+      }
+      
+      // Then check if it matches the search query
       const q = query.toLowerCase();
       return (
         receiver.Name.toLowerCase().includes(q) ||
@@ -4623,6 +4654,7 @@ document.getElementById("age-slider").addEventListener("input", () => {
   ageDebounceTimer = setTimeout(() => {
     sendSummaryRequest();
     updateOverlay();  // Update the vessel overlay count
+    refreshReceivers(); // Refresh receivers to apply the age filter
   }, 500);  // Adjust the debounce delay as needed.
 });
 
