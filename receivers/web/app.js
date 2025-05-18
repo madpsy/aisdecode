@@ -400,7 +400,8 @@ document.addEventListener('keydown', (e) => {
 function initMap() {
   // Create the map if it doesn't exist
   if (!map) {
-    map = L.map('location-map').setView([0, 0], 2);
+    // Default to UK view if no coordinates are set
+    map = L.map('location-map').setView([54.5, -3.5], 5); // UK centered view
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
@@ -429,30 +430,48 @@ function initMap() {
   }
   
   // Get initial coordinates from the form fields
-  const lat = parseFloat(document.getElementById('field-latitude').value) || 0;
-  const lng = parseFloat(document.getElementById('field-longitude').value) || 0;
-  const latlng = L.latLng(lat, lng);
+  const latField = document.getElementById('field-latitude');
+  const lngField = document.getElementById('field-longitude');
+  const lat = parseFloat(latField.value);
+  const lng = parseFloat(lngField.value);
   
-  // Create a new marker
-  marker = L.marker(latlng, { draggable: true }).addTo(map);
+  // Check if we have valid coordinates
+  const hasValidCoordinates = !isNaN(lat) && !isNaN(lng) &&
+                             (lat !== 0 || lng !== 0) &&
+                             latField.value.trim() !== '' &&
+                             lngField.value.trim() !== '';
   
-  // Update fields when marker is dragged
-  marker.on('dragend', function() {
-    const position = marker.getLatLng();
-    updateLatLngFields(position);
-    updateOverlay(position);
-  });
-  
-  // Update overlay when marker is dragged
-  marker.on('drag', function() {
-    updateOverlay(marker.getLatLng());
-  });
-  
-  // Center the map on the marker
-  map.setView(latlng, 10);
-  
-  // Update the overlay
-  updateOverlay(latlng);
+  if (hasValidCoordinates) {
+    // Create a new marker only if we have valid coordinates
+    const latlng = L.latLng(lat, lng);
+    marker = L.marker(latlng, { draggable: true }).addTo(map);
+    
+    // Update fields when marker is dragged
+    marker.on('dragend', function() {
+      const position = marker.getLatLng();
+      updateLatLngFields(position);
+      updateOverlay(position);
+    });
+    
+    // Update overlay when marker is dragged
+    marker.on('drag', function() {
+      updateOverlay(marker.getLatLng());
+    });
+    
+    // Center the map on the marker
+    map.setView(latlng, 10);
+    
+    // Update the overlay
+    updateOverlay(latlng);
+  } else {
+    // If no valid coordinates, hide the overlay
+    if (overlayDiv) {
+      overlayDiv.style.display = 'none';
+    }
+    
+    // Center on UK with zoom level 5
+    map.setView([54.5, -3.5], 5);
+  }
 }
 
 // Update the lat/lng fields when the marker is moved
@@ -465,6 +484,21 @@ function updateLatLngFields(latlng) {
 function updateMarkerPosition(latlng) {
   if (marker) {
     marker.setLatLng(latlng);
+  } else {
+    // Create a new marker if one doesn't exist
+    marker = L.marker(latlng, { draggable: true }).addTo(map);
+    
+    // Update fields when marker is dragged
+    marker.on('dragend', function() {
+      const position = marker.getLatLng();
+      updateLatLngFields(position);
+      updateOverlay(position);
+    });
+    
+    // Update overlay when marker is dragged
+    marker.on('drag', function() {
+      updateOverlay(marker.getLatLng());
+    });
   }
 }
 
@@ -478,14 +512,34 @@ function updateOverlay(latlng) {
 
 // Function to handle coordinate field updates
 function handleCoordinateChange() {
-  const lat = parseFloat(document.getElementById('field-latitude').value);
-  const lng = parseFloat(document.getElementById('field-longitude').value);
+  const latField = document.getElementById('field-latitude');
+  const lngField = document.getElementById('field-longitude');
+  const lat = parseFloat(latField.value);
+  const lng = parseFloat(lngField.value);
   
-  if (!isNaN(lat) && !isNaN(lng)) {
+  // Check if we have valid coordinates
+  const hasValidCoordinates = !isNaN(lat) && !isNaN(lng) &&
+                             (lat !== 0 || lng !== 0) &&
+                             latField.value.trim() !== '' &&
+                             lngField.value.trim() !== '';
+  
+  if (hasValidCoordinates) {
     const latlng = L.latLng(lat, lng);
     updateMarkerPosition(latlng);
-    map.setView(latlng, map.getZoom());
+    map.setView(latlng, 10); // Use zoom level 10 for better visibility
     updateOverlay(latlng);
+  } else if (marker) {
+    // If coordinates are invalid but we have a marker, remove it
+    map.removeLayer(marker);
+    marker = null;
+    
+    // Hide the overlay
+    if (overlayDiv) {
+      overlayDiv.style.display = 'none';
+    }
+    
+    // Center on UK with zoom level 5
+    map.setView([54.5, -3.5], 5);
   }
 }
 
