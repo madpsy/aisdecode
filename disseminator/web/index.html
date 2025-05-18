@@ -4652,6 +4652,26 @@ document.getElementById("age-slider").addEventListener("input", () => {
   // Debounce the filtering process to avoid excessive function calls.
   clearTimeout(ageDebounceTimer);
   ageDebounceTimer = setTimeout(() => {
+    // Remove existing receiver markers that are now older than the max age
+    const now = Date.now();
+    const maxAgeMilliseconds = ageHours * 3600000;
+    
+    for (const id in receiverMarkers) {
+      if (receiverData[id] && receiverData[id].LastUpdated) {
+        try {
+          const lastUpdated = new Date(receiverData[id].LastUpdated).getTime();
+          if (!isNaN(lastUpdated) && (now - lastUpdated) > maxAgeMilliseconds) {
+            // This receiver is now older than the max age, remove it from the map
+            map.removeLayer(receiverMarkers[id]);
+            // Note: We don't delete from receiverMarkers/receiverData here
+            // as refreshReceivers() will handle that properly
+          }
+        } catch (error) {
+          console.error("Error processing receiver date for filtering:", error);
+        }
+      }
+    }
+    
     sendSummaryRequest();
     updateOverlay();  // Update the vessel overlay count
     refreshReceivers(); // Refresh receivers to apply the age filter
