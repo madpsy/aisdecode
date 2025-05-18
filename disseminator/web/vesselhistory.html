@@ -2712,11 +2712,29 @@
       });
       
       document.getElementById('receiver-select').addEventListener('change', async () => {
+        // Clear the histogram and map before fetching new data
+        document.getElementById('message-histogram').innerHTML = '';
+        if (mapLayerGroup) {
+          mapLayerGroup.clearLayers();
+        }
+        
+        // Reset global state variables
+        window.currentHistoryData = null;
+        window.originalHistoryData = null;
+        timeFilter = {
+          active: false,
+          startTime: null,
+          endTime: null
+        };
+        
         const historyData = await fetchVesselHistory();
         if (historyData) {
           displayVesselTrack(historyData);
           displayMessageHistogram(historyData);
           trackChanges(historyData);
+        } else {
+          // If no history data is returned, ensure the histogram is cleared
+          document.getElementById('message-histogram').innerHTML = '<div style="padding: 10px; text-align: center; color: #666;">No position messages available</div>';
         }
       });
       
