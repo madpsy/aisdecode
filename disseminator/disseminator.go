@@ -343,7 +343,7 @@ func (cc *ClientConnection) ensureDB() error {
 func handleMetricsBysource(client *serverSocket.Socket, data map[string]interface{}) {
     var queryParam, queryValue string
 
-    // Check if the 'id' or 'ipaddress' parameter is present
+    // Check if the 'id' or 'ipaddress'/'ip_address' parameter is present
     if id, ok := data["id"].(float64); ok {
         idInt := int(id)
         log.Printf("Client %s requested by id: %d", client.Id(), idInt)
@@ -353,6 +353,16 @@ func handleMetricsBysource(client *serverSocket.Socket, data map[string]interfac
         log.Printf("Client %s requested by ipaddress: %s", client.Id(), ip)
         queryParam = "ipaddress"
         queryValue = ip
+        
+        // Add debug logging to verify the IP address being used
+        log.Printf("Using IP address %s for metrics/bysource WebSocket request", ip)
+    } else if ip, ok := data["ip_address"].(string); ok {
+        // Handle the case where the client sends 'ip_address' instead of 'ipaddress'
+        log.Printf("Client %s requested by ip_address: %s", client.Id(), ip)
+        queryParam = "ipaddress"  // Convert to the format expected by the HTTP endpoint
+        queryValue = ip
+        
+        log.Printf("Using IP address %s for metrics/bysource WebSocket request (from ip_address field)", ip)
     } else {
         log.Printf("Invalid or missing ipaddress/id in data: %v", data)
         return
