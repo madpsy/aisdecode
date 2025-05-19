@@ -1059,21 +1059,15 @@ func timeSeriesHandler(w http.ResponseWriter, r *http.Request) {
 // fetchMessageTimeSeries retrieves message counts grouped by time period and message_id
 func fetchMessageTimeSeries(period TimeSeriesPeriod, days int, receiverID int) ([]TimeSeriesDataPoint, error) {
 	// Define time format and interval based on period
-	var timeFormat, timeInterval, groupBy string
+	var timeInterval string
 	
 	switch period {
 	case TimeSeriesDaily:
-		timeFormat = "2006-01-02 15:00:00" // YYYY-MM-DD HH:00:00
 		timeInterval = "1 hour"
-		groupBy = "DATE_TRUNC('hour', timestamp)"
 	case TimeSeriesMonthly:
-		timeFormat = "2006-01-02" // YYYY-MM-DD
 		timeInterval = "1 day"
-		groupBy = "DATE_TRUNC('day', timestamp)"
 	case TimeSeriesYearly:
-		timeFormat = "2006-01" // YYYY-MM
 		timeInterval = "1 month"
-		groupBy = "DATE_TRUNC('month', timestamp)"
 	}
 	
 	// Build query with optional receiver_id filter
@@ -1193,21 +1187,15 @@ func fetchMessageTimeSeries(period TimeSeriesPeriod, days int, receiverID int) (
 // fetchVesselTimeSeries retrieves unique vessel counts grouped by time period and ais_class
 func fetchVesselTimeSeries(period TimeSeriesPeriod, days int, receiverID int) ([]TimeSeriesDataPoint, error) {
 	// Define time format and interval based on period
-	var timeFormat, timeInterval, groupBy string
+	var timeInterval string
 	
 	switch period {
 	case TimeSeriesDaily:
-		timeFormat = "2006-01-02 15:00:00" // YYYY-MM-DD HH:00:00
 		timeInterval = "1 hour"
-		groupBy = "DATE_TRUNC('hour', timestamp)"
 	case TimeSeriesMonthly:
-		timeFormat = "2006-01-02" // YYYY-MM-DD
 		timeInterval = "1 day"
-		groupBy = "DATE_TRUNC('day', timestamp)"
 	case TimeSeriesYearly:
-		timeFormat = "2006-01" // YYYY-MM
 		timeInterval = "1 month"
-		groupBy = "DATE_TRUNC('month', timestamp)"
 	}
 	
 	// Build query with optional receiver_id filter
