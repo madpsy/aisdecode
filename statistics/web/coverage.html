@@ -189,6 +189,23 @@
             <div class="loading-spinner"></div>
             <span>Loading...</span>
           </div>
+          <!-- Date/Time overlay for replay -->
+          <div id="replay-datetime-overlay" style="
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.8);
+            padding: 5px 10px;
+            border-radius: 5px;
+            z-index: 1000;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+            display: none;
+          ">
+            <span id="replay-datetime-text"></span>
+          </div>
           <!-- Nautical Mile Scale -->
           <div id="nm-scale" style="
             position: absolute;
@@ -236,12 +253,43 @@
         <!-- Replay Section -->
         <div class="mt-4 mb-3">
           <h4>Replay</h4>
-          <div class="btn-group">
+          <div class="btn-group mb-2">
             <button id="replay-day-btn" class="btn btn-outline-primary">Day</button>
             <button id="replay-week-btn" class="btn btn-outline-primary">Week</button>
           </div>
-          <div id="replay-progress" class="progress mt-2" style="display: none;">
-            <div id="replay-progress-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+          <div class="d-flex align-items-center mt-2" id="replay-controls" style="display: none !important;">
+            <div class="btn-group me-3">
+              <button id="replay-prev-btn" class="btn btn-sm btn-outline-secondary">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-skip-backward" viewBox="0 0 16 16">
+                  <path d="M.5 3.5A.5.5 0 0 1 1 3h2a.5.5 0 0 1 0 1H1a.5.5 0 0 1-.5-.5zm0 9a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 0 1H1a.5.5 0 0 1-.5-.5z"/>
+                  <path d="M8 4a.5.5 0 0 1 .5.5v3.248l2.856-3.354a.5.5 0 0 1 .866.302V11.5l2.856-3.354a.5.5 0 0 1 .866.302V11.5a.5.5 0 0 1-1 0V9.162l-1.856 2.178a.5.5 0 0 1-.866-.302V6.5a.5.5 0 0 1-1 0v5.338l-1.856 2.178a.5.5 0 0 1-.866-.302V4.5A.5.5 0 0 1 8 4z"/>
+                </svg>
+              </button>
+              <button id="replay-pause-btn" class="btn btn-sm btn-outline-secondary">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pause" viewBox="0 0 16 16">
+                  <path d="M6 3.5a.5.5 0 0 1 .5.5v8a.5.5 0 0 1-1 0V4a.5.5 0 0 1 .5-.5zm4 0a.5.5 0 0 1 .5.5v8a.5.5 0 0 1-1 0V4a.5.5 0 0 1 .5-.5z"/>
+                </svg>
+              </button>
+              <button id="replay-play-btn" class="btn btn-sm btn-outline-secondary" style="display: none;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-play" viewBox="0 0 16 16">
+                  <path d="M10.804 8 5 4.633v6.734L10.804 8zm.792-.696a.802.802 0 0 1 0 1.392l-6.363 3.692C4.713 12.69 4 12.345 4 11.692V4.308c0-.653.713-.998 1.233-.696l6.363 3.692z"/>
+                </svg>
+              </button>
+              <button id="replay-next-btn" class="btn btn-sm btn-outline-secondary">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-skip-forward" viewBox="0 0 16 16">
+                  <path d="M15.5 3.5a.5.5 0 0 1 .5.5v8a.5.5 0 0 1-1 0V4a.5.5 0 0 1 .5-.5zM7.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+                  <path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+                </svg>
+              </button>
+              <button id="replay-stop-btn" class="btn btn-sm btn-outline-secondary">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-stop" viewBox="0 0 16 16">
+                  <path d="M3.5 5A1.5 1.5 0 0 1 5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5zM5 4.5a.5.5 0 0 0-.5.5v6a.5.5 0 0 0 .5.5h6a.5.5 0 0 0 .5-.5V5a.5.5 0 0 0-.5-.5H5z"/>
+                </svg>
+              </button>
+            </div>
+            <div class="progress flex-grow-1">
+              <div id="replay-progress-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+            </div>
           </div>
           <div id="replay-info" class="mt-2 small text-muted" style="display: none;"></div>
         </div>
@@ -1048,6 +1096,10 @@
       }
     }
     
+    // Variables for replay state
+    let originalData = null; // Store original data to restore after replay
+    let isPaused = false;
+    
     // Start replay of data
     function startReplay() {
       // If already replaying, stop it first
@@ -1055,17 +1107,25 @@
         stopReplay();
       }
       
+      // Store current data to restore after replay
+      storeOriginalState();
+      
       // Reset index
       replayIndex = 0;
       isReplaying = true;
+      isPaused = false;
       
-      // Show progress bar
-      document.getElementById('replay-progress').style.display = 'flex';
+      // Show controls and info
+      document.getElementById('replay-controls').style.display = 'flex !important';
+      document.getElementById('replay-controls').setAttribute('style', 'display: flex !important');
       document.getElementById('replay-info').style.display = 'block';
+      document.getElementById('replay-datetime-overlay').style.display = 'block';
       
-      // Disable replay buttons during replay
+      // Set button states
       document.getElementById('replay-day-btn').disabled = true;
       document.getElementById('replay-week-btn').disabled = true;
+      document.getElementById('replay-pause-btn').style.display = 'inline-block';
+      document.getElementById('replay-play-btn').style.display = 'none';
       
       // Calculate time per frame (total 10 seconds divided by number of frames)
       const timePerFrame = 10000 / replayData.length;
@@ -1075,20 +1135,89 @@
       
       // Start interval for replay
       replayInterval = setInterval(() => {
+        if (isPaused) return;
+        
         replayIndex++;
         
         // Update progress bar
-        const progress = (replayIndex / (replayData.length - 1)) * 100;
-        document.getElementById('replay-progress-bar').style.width = `${progress}%`;
+        updateProgressBar();
         
         // Update map with current frame
         updateMapWithReplayFrame(replayIndex);
         
         // Check if we're done
         if (replayIndex >= replayData.length - 1) {
-          stopReplay();
+          pauseReplay(); // Pause at the end
+          
+          // After a delay, reset to original state
+          setTimeout(() => {
+            if (isReplaying) { // Only if we haven't manually stopped
+              restoreOriginalState();
+            }
+          }, 3000);
         }
       }, timePerFrame);
+    }
+    
+    // Update progress bar
+    function updateProgressBar() {
+      const progress = (replayIndex / (replayData.length - 1)) * 100;
+      document.getElementById('replay-progress-bar').style.width = `${progress}%`;
+    }
+    
+    // Pause replay
+    function pauseReplay() {
+      isPaused = true;
+      document.getElementById('replay-pause-btn').style.display = 'none';
+      document.getElementById('replay-play-btn').style.display = 'inline-block';
+    }
+    
+    // Resume replay
+    function resumeReplay() {
+      isPaused = false;
+      document.getElementById('replay-pause-btn').style.display = 'inline-block';
+      document.getElementById('replay-play-btn').style.display = 'none';
+    }
+    
+    // Go to previous frame
+    function previousFrame() {
+      if (replayIndex > 0) {
+        replayIndex--;
+        updateProgressBar();
+        updateMapWithReplayFrame(replayIndex);
+      }
+    }
+    
+    // Go to next frame
+    function nextFrame() {
+      if (replayIndex < replayData.length - 1) {
+        replayIndex++;
+        updateProgressBar();
+        updateMapWithReplayFrame(replayIndex);
+      }
+    }
+    
+    // Store original state to restore after replay
+    function storeOriginalState() {
+      // Store current map state
+      originalData = {
+        receiverId: document.getElementById('receiver-select').value,
+        isDateRange: document.getElementById('dateRangeRadio').checked,
+        days: document.getElementById('days-select').value,
+        fromDate: document.getElementById('from-date').value,
+        toDate: document.getElementById('to-date').value
+      };
+    }
+    
+    // Restore original state after replay
+    function restoreOriginalState() {
+      if (!originalData) return;
+      
+      // Reload the original data
+      loadCoverageData();
+      
+      // Hide replay elements
+      document.getElementById('replay-datetime-overlay').style.display = 'none';
     }
     
     // Stop replay
@@ -1099,14 +1228,19 @@
       }
       
       isReplaying = false;
+      isPaused = false;
       
-      // Hide progress bar
-      document.getElementById('replay-progress').style.display = 'none';
+      // Hide controls and info
+      document.getElementById('replay-controls').setAttribute('style', 'display: none !important');
       document.getElementById('replay-info').style.display = 'none';
+      document.getElementById('replay-datetime-overlay').style.display = 'none';
       
       // Re-enable replay buttons
       document.getElementById('replay-day-btn').disabled = false;
       document.getElementById('replay-week-btn').disabled = false;
+      
+      // Restore original state
+      restoreOriginalState();
     }
     
     // Update map with replay frame
@@ -1122,6 +1256,10 @@
       
       // Update info text
       document.getElementById('replay-info').textContent = `Showing data for: ${frameData.label}`;
+      
+      // Update datetime overlay
+      document.getElementById('replay-datetime-text').textContent = frameData.timestamp instanceof Date ?
+        frameData.timestamp.toLocaleString() : frameData.label;
       
       // Clear previous heat layer
       if (heatLayer) {
@@ -1157,6 +1295,15 @@
     document.addEventListener('DOMContentLoaded', async () => {
       // Add event listeners
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
+      
+      // Add event listeners for replay controls
+      document.getElementById('replay-day-btn').addEventListener('click', fetchDayReplayData);
+      document.getElementById('replay-week-btn').addEventListener('click', fetchWeekReplayData);
+      document.getElementById('replay-prev-btn').addEventListener('click', previousFrame);
+      document.getElementById('replay-next-btn').addEventListener('click', nextFrame);
+      document.getElementById('replay-pause-btn').addEventListener('click', pauseReplay);
+      document.getElementById('replay-play-btn').addEventListener('click', resumeReplay);
+      document.getElementById('replay-stop-btn').addEventListener('click', stopReplay);
       
       // Set up date range toggle
       document.getElementById('fixedWindowRadio').addEventListener('change', function() {
