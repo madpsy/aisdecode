@@ -202,13 +202,13 @@
           <div class="row">
             <div class="col-md-6">
               <div class="card">
-                <div class="card-header">Vessels by Distance</div>
+                <div class="card-header">Messages by Distance</div>
                 <div class="card-body">
                   <table class="table table-sm">
                     <thead>
                       <tr>
                         <th>Range</th>
-                        <th>Vessel Count</th>
+                        <th>Message Count</th>
                         <th>Percentage</th>
                       </tr>
                     </thead>
@@ -221,13 +221,13 @@
             </div>
             <div class="col-md-6">
               <div class="card">
-                <div class="card-header">Vessels by Direction</div>
+                <div class="card-header">Messages by Direction</div>
                 <div class="card-body">
                   <table class="table table-sm">
                     <thead>
                       <tr>
                         <th>Direction</th>
-                        <th>Vessel Count</th>
+                        <th>Message Count</th>
                         <th>Percentage</th>
                       </tr>
                     </thead>
@@ -323,7 +323,7 @@
       // Create 3 equally spaced circles
       for (let i = 1; i <= 3; i++) {
         const radiusMeters = maxDistance * i / 3;
-        const radiusNM = (radiusMeters / 1852).toFixed(1); // Convert meters to nautical miles
+        const radiusNM = Math.round(radiusMeters / 1852); // Convert meters to nautical miles and round to nearest whole number
         
         // Create circle
         const circle = L.circle(receiverLatLng, {
@@ -475,9 +475,9 @@
       const { distanceStats, directionStats, totalPoints, rings } = stats;
       
       // Add distance stats rows
-      const ring1NM = (rings.ring1 / 1852).toFixed(1);
-      const ring2NM = (rings.ring2 / 1852).toFixed(1);
-      const ring3NM = (rings.ring3 / 1852).toFixed(1);
+      const ring1NM = Math.round(rings.ring1 / 1852);
+      const ring2NM = Math.round(rings.ring2 / 1852);
+      const ring3NM = Math.round(rings.ring3 / 1852);
       
       distanceStatsTable.innerHTML += `
         <tr>
@@ -763,7 +763,7 @@
       const latLngX = map.containerPointToLatLng(pointX);
       const distanceMeters = center.distanceTo(latLngX);
       const distanceNM = distanceMeters / 1852; // Convert meters to nautical miles
-      scaleLabel.textContent = `${distanceNM.toFixed(1)} NM`;
+      scaleLabel.textContent = `${Math.round(distanceNM)} NM`;
     }
     
     // Initialize
