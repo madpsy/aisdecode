@@ -1379,6 +1379,10 @@
           // For "All" receivers, don't show direction stats
           updateStatsDisplay(null, false);
         }
+        
+        // Fit bounds to include all points (heatmap + receivers)
+        const bounds = L.latLngBounds(points);
+        map.fitBounds(bounds, { padding: [50, 50] });
       } catch (e) {
         console.error('Failed to load coverage data:', e);
         alert('Failed to load coverage data. Please try again later.');
