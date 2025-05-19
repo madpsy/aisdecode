@@ -1107,12 +1107,25 @@
       
       // Also update the date/time overlay on the map
       document.getElementById('replay-datetime-overlay').style.display = 'block';
-      document.getElementById('replay-datetime-text').textContent = hourDisplay.textContent;
+      
+      // Show appropriate time format based on which navigation was last used
+      if (lastNavigationType === 'day') {
+        // For day navigation, just show the date
+        const currentDay = new Date(currentFromDate);
+        currentDay.setHours(0, 0, 0, 0);
+        document.getElementById('replay-datetime-text').textContent = currentDay.toLocaleDateString();
+      } else {
+        // For hour navigation, show the hour range
+        document.getElementById('replay-datetime-text').textContent = hourDisplay.textContent;
+      }
     }
     
     // Step to previous hour
     function stepToPreviousHour() {
       if (!currentFromDate || !currentToDate) return;
+      
+      // Set navigation type
+      lastNavigationType = 'hour';
       
       // Move back one hour and set range to exactly one hour
       const newFromDate = new Date(currentFromDate);
@@ -1131,6 +1144,9 @@
     // Step to next hour
     function stepToNextHour() {
       if (!currentFromDate || !currentToDate) return;
+      
+      // Set navigation type
+      lastNavigationType = 'hour';
       
       // Don't allow navigating beyond current time
       const now = new Date();
@@ -1161,6 +1177,9 @@
     function stepToPreviousDay() {
       if (!currentFromDate || !currentToDate) return;
       
+      // Set navigation type
+      lastNavigationType = 'day';
+      
       // Get current day and move to start of day
       const currentDay = new Date(currentFromDate);
       currentDay.setHours(0, 0, 0, 0);
@@ -1172,9 +1191,9 @@
       // Set from date to start of previous day
       currentFromDate = new Date(previousDay);
       
-      // Set to date to current hour in previous day
-      currentToDate = new Date(currentFromDate);
-      currentToDate.setHours(currentToDate.getHours() + 1);
+      // Set to date to end of previous day for full day data
+      currentToDate = new Date(previousDay);
+      currentToDate.setHours(23, 59, 59, 999);
       
       updateTimeDisplays();
       loadDateRangeData();
@@ -1183,6 +1202,9 @@
     // Step to next day
     function stepToNextDay() {
       if (!currentFromDate || !currentToDate) return;
+      
+      // Set navigation type
+      lastNavigationType = 'day';
       
       // Don't allow navigating beyond current time
       const now = new Date();
@@ -1201,9 +1223,9 @@
       // Set from date to start of next day
       currentFromDate = new Date(nextDay);
       
-      // Set to date to current hour in next day
-      currentToDate = new Date(currentFromDate);
-      currentToDate.setHours(currentToDate.getHours() + 1);
+      // Set to date to end of next day for full day data
+      currentToDate = new Date(nextDay);
+      currentToDate.setHours(23, 59, 59, 999);
       
       // If end time would be beyond now, cap it at now
       if (currentToDate > now) {
@@ -1223,8 +1245,23 @@
         showMapLoading();
         
         // Format dates for API
-        const fromFormatted = formatDateForAPI(currentFromDate);
-        const toFormatted = formatDateForAPI(currentToDate);
+        let fromFormatted, toFormatted;
+        
+        if (lastNavigationType === 'day') {
+          // For day navigation, ensure we request the entire day's data
+          const dayStart = new Date(currentFromDate);
+          dayStart.setHours(0, 0, 0, 0);
+          
+          const dayEnd = new Date(dayStart);
+          dayEnd.setHours(23, 59, 59, 999);
+          
+          fromFormatted = formatDateForAPI(dayStart);
+          toFormatted = formatDateForAPI(dayEnd);
+        } else {
+          // For hour navigation, use the current from/to dates
+          fromFormatted = formatDateForAPI(currentFromDate);
+          toFormatted = formatDateForAPI(currentToDate);
+        }
         
         // Build URL
         let url = `/statistics/stats/coverage-map?from=${fromFormatted}&to=${toFormatted}`;
@@ -1268,8 +1305,11 @@
           gradient: {0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}
         }).addTo(map);
         
-        // Load all receivers
-        const receivers = await fetch('/receivers').then(r => r.json());
+        // Use cached receivers or fetch them if not available
+        if (!cachedReceivers) {
+          cachedReceivers = await fetch('/receivers').then(r => r.json());
+        }
+        const receivers = cachedReceivers;
         
         // Create a receiver icon
         const receiverIcon = L.divIcon({
@@ -1390,6 +1430,8 @@
     let currentToDate = null;
     let dateRangeStepSize = 'hour'; // 'hour' or 'day'
     let showDayNavigation = false; // Flag to show/hide day navigation
+    let cachedReceivers = null; // Cache receivers to avoid fetching on every time step
+    let lastNavigationType = 'hour'; // Track which navigation type was last used ('hour' or 'day')
     
     // Replay functionality
     let replayData = [];
