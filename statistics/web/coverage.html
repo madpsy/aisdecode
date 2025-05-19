@@ -1042,11 +1042,27 @@
       
       if (!fromDateInput || !toDateInput) return;
       
-      currentFromDate = new Date(fromDateInput);
-      currentToDate = new Date(toDateInput);
+      // Get the original date range selected by the user
+      const originalFromDate = new Date(fromDateInput);
+      const originalToDate = new Date(toDateInput);
       
       // Determine step size based on date range
-      dateRangeStepSize = determineDateRangeStepSize(currentFromDate, currentToDate);
+      dateRangeStepSize = determineDateRangeStepSize(originalFromDate, originalToDate);
+      
+      // Set the initial date range based on step size
+      if (dateRangeStepSize === 'hour') {
+        // For hour steps, start with the first hour of the selected range
+        currentFromDate = new Date(originalFromDate);
+        currentToDate = new Date(currentFromDate);
+        currentToDate.setHours(currentToDate.getHours() + 1);
+      } else {
+        // For day steps, start with the first day of the selected range
+        currentFromDate = new Date(originalFromDate);
+        currentFromDate.setHours(0, 0, 0, 0); // Start of the day
+        
+        currentToDate = new Date(currentFromDate);
+        currentToDate.setHours(23, 59, 59, 999); // End of the day
+      }
       
       // Update button labels based on step size
       document.getElementById('prev-step-text').textContent = `Previous ${dateRangeStepSize}`;
@@ -1064,9 +1080,14 @@
       const currentTimeDisplay = document.getElementById('current-time-display');
       
       if (dateRangeStepSize === 'hour') {
-        currentTimeDisplay.textContent = `${currentFromDate.toLocaleDateString()} ${currentFromDate.getHours()}:00 - ${currentToDate.toLocaleDateString()} ${currentToDate.getHours()}:00`;
+        // For hour steps, show the current hour and the next hour
+        const endHour = new Date(currentFromDate);
+        endHour.setHours(endHour.getHours() + 1);
+        
+        currentTimeDisplay.textContent = `${currentFromDate.toLocaleDateString()} ${currentFromDate.getHours()}:00 - ${endHour.getHours()}:00`;
       } else {
-        currentTimeDisplay.textContent = `${currentFromDate.toLocaleDateString()} - ${currentToDate.toLocaleDateString()}`;
+        // For day steps, show the current day
+        currentTimeDisplay.textContent = `${currentFromDate.toLocaleDateString()}`;
       }
       
       // Also update the date/time overlay on the map
@@ -1078,19 +1099,27 @@
     function stepToPreviousTimePeriod() {
       if (!currentFromDate || !currentToDate) return;
       
-      const newFromDate = new Date(currentFromDate);
-      const newToDate = new Date(currentToDate);
-      
       if (dateRangeStepSize === 'hour') {
+        // For hour steps, move back one hour and set range to exactly one hour
+        const newFromDate = new Date(currentFromDate);
         newFromDate.setHours(newFromDate.getHours() - 1);
-        newToDate.setHours(newToDate.getHours() - 1);
+        
+        const newToDate = new Date(newFromDate);
+        newToDate.setHours(newToDate.getHours() + 1);
+        
+        currentFromDate = newFromDate;
+        currentToDate = newToDate;
       } else {
+        // For day steps, move back one day and set range to exactly one day
+        const newFromDate = new Date(currentFromDate);
         newFromDate.setDate(newFromDate.getDate() - 1);
-        newToDate.setDate(newToDate.getDate() - 1);
+        
+        const newToDate = new Date(newFromDate);
+        newToDate.setHours(23, 59, 59, 999); // End of the day
+        
+        currentFromDate = newFromDate;
+        currentToDate = newToDate;
       }
-      
-      currentFromDate = newFromDate;
-      currentToDate = newToDate;
       
       updateCurrentTimeDisplay();
       loadDateRangeData();
@@ -1100,23 +1129,47 @@
     function stepToNextTimePeriod() {
       if (!currentFromDate || !currentToDate) return;
       
-      const newFromDate = new Date(currentFromDate);
-      const newToDate = new Date(currentToDate);
-      
-      if (dateRangeStepSize === 'hour') {
-        newFromDate.setHours(newFromDate.getHours() + 1);
-        newToDate.setHours(newToDate.getHours() + 1);
-      } else {
-        newFromDate.setDate(newFromDate.getDate() + 1);
-        newToDate.setDate(newToDate.getDate() + 1);
-      }
-      
       // Don't allow navigating beyond current time
       const now = new Date();
-      if (newToDate > now) return;
       
-      currentFromDate = newFromDate;
-      currentToDate = newToDate;
+      if (dateRangeStepSize === 'hour') {
+        // For hour steps, move forward one hour and set range to exactly one hour
+        const newFromDate = new Date(currentFromDate);
+        newFromDate.setHours(newFromDate.getHours() + 1);
+        
+        // Check if we'd be going beyond current time
+        if (newFromDate > now) return;
+        
+        const newToDate = new Date(newFromDate);
+        newToDate.setHours(newToDate.getHours() + 1);
+        
+        // If end time would be beyond now, cap it at now
+        if (newToDate > now) {
+          newToDate.setTime(now.getTime());
+        }
+        
+        currentFromDate = newFromDate;
+        currentToDate = newToDate;
+      } else {
+        // For day steps, move forward one day and set range to exactly one day
+        const newFromDate = new Date(currentFromDate);
+        newFromDate.setDate(newFromDate.getDate() + 1);
+        newFromDate.setHours(0, 0, 0, 0); // Start of the day
+        
+        // Check if we'd be going beyond current time
+        if (newFromDate > now) return;
+        
+        const newToDate = new Date(newFromDate);
+        newToDate.setHours(23, 59, 59, 999); // End of the day
+        
+        // If end time would be beyond now, cap it at now
+        if (newToDate > now) {
+          newToDate.setTime(now.getTime());
+        }
+        
+        currentFromDate = newFromDate;
+        currentToDate = newToDate;
+      }
       
       updateCurrentTimeDisplay();
       loadDateRangeData();
