@@ -1670,9 +1670,9 @@ socket.on("metrics/bysource", function(data) {
         console.log("Has data, updating to show 'AIS data is flowing'");
         // Check if we're using an override IP
         if (overrideIp) {
-          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for IP ${overrideIp}. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+          receiverBox.innerHTML = `<p>No receiver found but AIS data has been seen from the IP ${overrideIp}. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
         } else {
-          receiverBox.innerHTML = `<p>No receiver found but AIS data is flowing for your IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
+          receiverBox.innerHTML = `<p>No receiver found but AIS data has been seen from your IP. <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>`;
         }
       } else {
         console.log("No data, updating to show 'No receiver found'");
@@ -2066,7 +2066,7 @@ async function fetchReceivers(ip) {
         console.log('Setting up howto link');
         
         receiverBox.innerHTML = `
-          <p>No receiver found but AIS data is flowing for ${overrideIp ? `IP ${overrideIp}` : 'your IP'}.
+          <p>No receiver found but AIS data has been seen from the IP ${overrideIp ? `IP ${overrideIp}` : 'your IP'}.
           <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
         `;
         
@@ -2213,7 +2213,7 @@ async function fetchReceivers(ip) {
       console.log('Setting up howto link (error handler)');
       
       receiverBox.innerHTML = `
-        <p>No receiver found but AIS data is flowing for ${overrideIp ? `IP ${overrideIp}` : 'your IP'}.
+        <p>No receiver found but AIS data has been seen from the IP ${overrideIp ? `IP ${overrideIp}` : 'your IP'}.
         <a href="/howto.html" target="_blank">Read the docs</a> to find out how to get started.</p>
       `;
     } else {
