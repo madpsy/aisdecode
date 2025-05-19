@@ -849,6 +849,7 @@
     let receiversData = []; // Store receivers data globally
     let lastSeenTime = null; // Store the last seen time globally
     let dateRangeAdjusted = false; // Track if date range was automatically adjusted
+    let lastKnownLocation = null; // Store the last known location from /state call globally
     
     // Helper function to create a diamond-shaped icon for receivers
     function createReceiverIcon(color = 'red') {
@@ -1096,6 +1097,13 @@
                   // Format coordinates with 5 decimal places
                   const lat = parseFloat(data.Latitude).toFixed(5);
                   const lon = parseFloat(data.Longitude).toFixed(5);
+                  
+                  // Store the last known location globally for fallback
+                  lastKnownLocation = {
+                    lat: data.Latitude,
+                    lon: data.Longitude,
+                    name: data.Name || ''
+                  };
                   
                   // Create clickable link - make sure it's a simple inline element without line breaks
                   return `<a href="#" class="location-link" data-lat="${data.Latitude}" data-lon="${data.Longitude}" data-name="${data.Name || ''}" data-mmsi="${userID}">${lat}, ${lon}</a>`;
@@ -1561,27 +1569,70 @@
         }
         
         // Make two separate calls for position and static messages
-        const [positionResponse, staticResponse] = await Promise.all([
+        let positionData = [];
+        let staticData = [];
+        let usedFallbackLocation = false;
+        
+        try {
           // Position messages call
-          fetch(`/latestmessages?${new URLSearchParams(positionParams)}`, {cache: 'no-store'}),
+          const positionResponse = await fetch(`/latestmessages?${new URLSearchParams(positionParams)}`, {cache: 'no-store'});
+          
+          // Check if response is ok (status code 200-299)
+          if (positionResponse.ok) {
+            positionData = await positionResponse.json();
+          } else {
+            console.warn('Position messages API returned non-200 status:', positionResponse.status);
+            // If we have a last known location, we'll use it as fallback
+            usedFallbackLocation = true;
+          }
           
           // Static messages call
-          fetch(`/latestmessages?${new URLSearchParams(staticParams)}`, {cache: 'no-store'})
-        ]);
-
-        // Parse both responses
-        const positionData = await positionResponse.json();
-        const staticData = await staticResponse.json();
+          const staticResponse = await fetch(`/latestmessages?${new URLSearchParams(staticParams)}`, {cache: 'no-store'});
+          
+          // Check if response is ok (status code 200-299)
+          if (staticResponse.ok) {
+            staticData = await staticResponse.json();
+          } else {
+            console.warn('Static messages API returned non-200 status:', staticResponse.status);
+          }
+        } catch (error) {
+          console.error('Error fetching messages:', error);
+          usedFallbackLocation = true;
+        }
         
         // Check if either response has the same number of results as the limit
         const positionCount = positionData.length;
         const staticCount = staticData.length;
+        // If we need to use fallback location and we have one available
+        if (usedFallbackLocation && lastKnownLocation) {
+          console.log('Using fallback location from /state call:', lastKnownLocation);
+          
+          // Create a synthetic position record with the last known location
+          const fallbackRecord = {
+            Timestamp: new Date().toISOString(),
+            MessageID: '1', // Position report
+            ReceiverID: '',
+            Packet: {
+              Latitude: lastKnownLocation.lat,
+              Longitude: lastKnownLocation.lon
+            }
+          };
+          
+          // Add the fallback record to position data
+          positionData.push(fallbackRecord);
+        }
+        
         const combinedResults = [...positionData, ...staticData];
         
         // If either count matches the limit, show a warning
         if (positionCount === limit || staticCount === limit) {
           const warningDiv = document.getElementById('error');
           warningDiv.textContent = `Warning: Some data may be missing. ${positionCount === limit ? 'Position' : ''} ${positionCount === limit && staticCount === limit ? 'and' : ''} ${staticCount === limit ? 'Static' : ''} data reached the limit of ${limit} records. Try reducing the time range.`;
+          warningDiv.style.display = 'block';
+        } else if (usedFallbackLocation) {
+          // If we used fallback location, show a warning
+          const warningDiv = document.getElementById('error');
+          warningDiv.textContent = 'Warning: Using last known location from vessel state as fallback due to API error.';
           warningDiv.style.display = 'block';
         } else if (dateRangeAdjusted) {
           // If date range was adjusted, keep the warning message
@@ -1800,7 +1851,26 @@
     // Display vessel track on map
     function displayVesselTrack(historyData) {
       if (!historyData || !historyData.length) {
-        return;
+        // If no history data but we have a last known location, create a minimal display with just that point
+        if (lastKnownLocation) {
+          console.log('No history data, using last known location for map display');
+          
+          // Create a synthetic record with the last known location
+          const fallbackData = [{
+            Timestamp: new Date().toISOString(),
+            MessageID: '1', // Position report
+            ReceiverID: '',
+            Packet: {
+              Latitude: lastKnownLocation.lat,
+              Longitude: lastKnownLocation.lon
+            }
+          }];
+          
+          // Use the fallback data instead
+          historyData = fallbackData;
+        } else {
+          return;
+        }
       }
 
       // Store the current history data globally for use with time filtering
@@ -4628,6 +4698,14 @@
                 data.Longitude !== undefined && data.Longitude !== null) {
               const lat = parseFloat(data.Latitude).toFixed(5);
               const lon = parseFloat(data.Longitude).toFixed(5);
+              
+              // Update the global last known location
+              lastKnownLocation = {
+                lat: data.Latitude,
+                lon: data.Longitude,
+                name: data.Name || ''
+              };
+              
               return `<a href="#" class="location-link" data-lat="${data.Latitude}" data-lon="${data.Longitude}" data-name="${data.Name || ''}" data-mmsi="${userID}">${lat}, ${lon}</a>`;
             }
             return '';
