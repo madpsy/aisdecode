@@ -170,23 +170,61 @@
           Copy Link
         </button>
       </div>
-      <div class="d-flex align-items-center">
-        <div class="me-3">
+      <div class="d-flex align-items-center flex-column flex-lg-row">
+        <div class="me-3 mb-2 mb-lg-0">
           <label for="receiver-select" class="form-label me-2">Receiver:</label>
           <select id="receiver-select" class="form-select d-inline-block w-auto">
             <option value="" selected>All</option>
             <!-- Receivers will be loaded dynamically -->
           </select>
         </div>
-        <div>
-          <label for="days-select" class="form-label me-2">Time window:</label>
-          <select id="days-select" class="form-select d-inline-block w-auto">
-            <option value="1" selected>1 day</option>
-            <option value="2">2 days</option>
-            <option value="7">7 days</option>
-            <option value="14">14 days</option>
-            <option value="30">30 days</option>
-          </select>
+        
+        <!-- Time Range Selection -->
+        <div class="mb-2 mb-lg-0">
+          <div class="d-flex align-items-center mb-2">
+            <div class="form-check me-3">
+              <input class="form-check-input" type="radio" name="timeRangeType" id="fixedWindowRadio" value="fixed" checked>
+              <label class="form-check-label" for="fixedWindowRadio">
+                Fixed window
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="timeRangeType" id="dateRangeRadio" value="dateRange">
+              <label class="form-check-label" for="dateRangeRadio">
+                Custom range
+              </label>
+            </div>
+          </div>
+          
+          <!-- Fixed Time Window -->
+          <div id="fixedWindowContainer">
+            <label for="days-select" class="form-label me-2">Time window:</label>
+            <select id="days-select" class="form-select d-inline-block w-auto">
+              <option value="1" selected>1 day</option>
+              <option value="2">2 days</option>
+              <option value="7">7 days</option>
+              <option value="14">14 days</option>
+              <option value="30">30 days</option>
+            </select>
+          </div>
+          
+          <!-- Date Range -->
+          <div id="dateRangeContainer" style="display: none;">
+            <div class="d-flex align-items-center">
+              <div class="me-2">
+                <label for="from-date" class="form-label me-1">From:</label>
+                <input type="datetime-local" id="from-date" class="form-control form-control-sm">
+              </div>
+              <div class="me-2">
+                <label for="to-date" class="form-label me-1">To:</label>
+                <input type="datetime-local" id="to-date" class="form-control form-control-sm">
+              </div>
+              <div>
+                <button id="date-range-go" class="btn btn-primary btn-sm">Go</button>
+              </div>
+            </div>
+            <div id="date-range-error" class="text-danger mt-1" style="display: none; font-size: 0.875rem;"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -376,6 +414,65 @@
       function hideGlobalLoading() {
         globalLoadingOverlay.style.display = 'none';
       }
+      
+      // Toggle between fixed window and date range
+      function toggleTimeRangeType(triggerUpdate = false) {
+        const isDateRange = document.getElementById('dateRangeRadio').checked;
+        document.getElementById('fixedWindowContainer').style.display = isDateRange ? 'none' : 'block';
+        document.getElementById('dateRangeContainer').style.display = isDateRange ? 'block' : 'none';
+        
+        // For fixed window, trigger update automatically
+        // For date range, user will click the Go button
+        if (!isDateRange && triggerUpdate) {
+          updateUrlWithSelections();
+          fetchAll();
+        }
+      }
+      
+      // Format date for API request (RFC3339 format)
+      function formatDateForAPI(date) {
+        return date.toISOString();
+      }
+      
+      // Validate date range doesn't exceed 30 days
+      function validateDateRange(fromDate, toDate) {
+        if (!fromDate || !toDate) {
+          document.getElementById('date-range-error').textContent = 'Both dates are required';
+          document.getElementById('date-range-error').style.display = 'block';
+          return false;
+        }
+        
+        const from = new Date(fromDate);
+        const to = new Date(toDate);
+        
+        if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+          document.getElementById('date-range-error').textContent = 'Invalid date format';
+          document.getElementById('date-range-error').style.display = 'block';
+          return false;
+        }
+        
+        // Check if from date is before to date
+        if (from > to) {
+          document.getElementById('date-range-error').textContent = 'From date must be before To date';
+          document.getElementById('date-range-error').style.display = 'block';
+          return false;
+        }
+        
+        // Calculate difference in days
+        const diffTime = Math.abs(to - from);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        // Check if range exceeds 30 days
+        if (diffDays > 30) {
+          document.getElementById('date-range-error').textContent = 'Date range cannot exceed 30 days';
+          document.getElementById('date-range-error').style.display = 'block';
+          return false;
+        }
+        
+        // Hide error message if validation passes
+        document.getElementById('date-range-error').style.display = 'none';
+        return true;
+      }
       // Add event listener for copy link button
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
       
@@ -540,16 +637,36 @@
       
       async function fetchAll() {
         showGlobalLoading();
-        const days = $('#days-select').val();
         const receiverId = $('#receiver-select').val();
+        const isDateRange = document.getElementById('dateRangeRadio').checked;
+        
+        let days, fromDate, toDate;
+        
+        if (isDateRange) {
+          fromDate = document.getElementById('from-date').value;
+          toDate = document.getElementById('to-date').value;
+          
+          // Validate date range
+          if (!validateDateRange(fromDate, toDate)) {
+            hideGlobalLoading();
+            return; // Stop if validation fails
+          }
+          
+          // Format dates for API
+          fromDate = new Date(fromDate);
+          toDate = new Date(toDate);
+        } else {
+          days = $('#days-select').val();
+        }
+        
         try {
           await Promise.all([
-            fetchTopPositions(days, receiverId),
-            fetchTopSog(days, receiverId),
-            fetchTopTypes(days, receiverId),
-            fetchTopClasses(days, receiverId),
-            fetchTopDistance(days, receiverId),
-            fetchUserCounts(days, receiverId)
+            fetchTopPositions(days, receiverId, fromDate, toDate),
+            fetchTopSog(days, receiverId, fromDate, toDate),
+            fetchTopTypes(days, receiverId, fromDate, toDate),
+            fetchTopClasses(days, receiverId, fromDate, toDate),
+            fetchTopDistance(days, receiverId, fromDate, toDate),
+            fetchUserCounts(days, receiverId, fromDate, toDate)
           ]);
         } catch (error) {
           console.error('Error fetching data:', error);
@@ -558,8 +675,17 @@
         }
       }
 
-      async function fetchTopPositions(days, receiverId) {
-        let url = `/statistics/stats/top-positions?days=${days}`;
+      async function fetchTopPositions(days, receiverId, fromDate, toDate) {
+        let url;
+        
+        if (fromDate && toDate) {
+          // Use date range parameters
+          url = `/statistics/stats/top-positions?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}`;
+        } else {
+          // Use days parameter
+          url = `/statistics/stats/top-positions?days=${days}`;
+        }
+        
         if (receiverId) {
           url += `&receiver_id=${receiverId}`;
         }
@@ -591,8 +717,17 @@
         posChart.update();
       }
 
-      async function fetchTopSog(days, receiverId) {
-        let url = `/statistics/stats/top-sog?days=${days}`;
+      async function fetchTopSog(days, receiverId, fromDate, toDate) {
+        let url;
+        
+        if (fromDate && toDate) {
+          // Use date range parameters
+          url = `/statistics/stats/top-sog?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}`;
+        } else {
+          // Use days parameter
+          url = `/statistics/stats/top-sog?days=${days}`;
+        }
+        
         if (receiverId) {
           url += `&receiver_id=${receiverId}`;
         }
@@ -626,8 +761,17 @@
         sogChart.update();
       }
 
-      async function fetchTopTypes(days, receiverId) {
-        let url = `/statistics/stats/top-types?days=${days}`;
+      async function fetchTopTypes(days, receiverId, fromDate, toDate) {
+        let url;
+        
+        if (fromDate && toDate) {
+          // Use date range parameters
+          url = `/statistics/stats/top-types?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}`;
+        } else {
+          // Use days parameter
+          url = `/statistics/stats/top-types?days=${days}`;
+        }
+        
         if (receiverId) {
           url += `&receiver_id=${receiverId}`;
         }
@@ -651,8 +795,17 @@
         typeChart.update();
       }
       
-      async function fetchTopClasses(days, receiverId) {
-        let url = `/statistics/stats/top-classes?days=${days}`;
+      async function fetchTopClasses(days, receiverId, fromDate, toDate) {
+        let url;
+        
+        if (fromDate && toDate) {
+          // Use date range parameters
+          url = `/statistics/stats/top-classes?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}`;
+        } else {
+          // Use days parameter
+          url = `/statistics/stats/top-classes?days=${days}`;
+        }
+        
         if (receiverId) {
           url += `&receiver_id=${receiverId}`;
         }
@@ -679,8 +832,17 @@
       let distanceCircles = [];
       let receiverMarkers = []; // Track receiver markers separately
       
-      async function fetchTopDistance(days, receiverId) {
-        let url = `/statistics/stats/top-distance?days=${days}`;
+      async function fetchTopDistance(days, receiverId, fromDate, toDate) {
+        let url;
+        
+        if (fromDate && toDate) {
+          // Use date range parameters
+          url = `/statistics/stats/top-distance?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}`;
+        } else {
+          // Use days parameter
+          url = `/statistics/stats/top-distance?days=${days}`;
+        }
+        
         if (receiverId) {
           url += `&receiver_id=${receiverId}`;
         }
@@ -954,8 +1116,17 @@
       }
 
       // Word cloud for user message counts
-      async function fetchUserCounts(days, receiverId) {
-        let url = `/statistics/stats/user-counts?days=${days}`;
+      async function fetchUserCounts(days, receiverId, fromDate, toDate) {
+        let url;
+        
+        if (fromDate && toDate) {
+          // Use date range parameters
+          url = `/statistics/stats/user-counts?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}`;
+        } else {
+          // Use days parameter
+          url = `/statistics/stats/user-counts?days=${days}`;
+        }
+        
         if (receiverId) {
           url += `&receiver_id=${receiverId}`;
         }
@@ -1107,10 +1278,29 @@
         fetchAll();
       });
       
+      // Set up date range toggle
+      document.getElementById('fixedWindowRadio').addEventListener('change', function() {
+        toggleTimeRangeType(true); // Trigger update when switching to fixed window
+      });
+      document.getElementById('dateRangeRadio').addEventListener('change', function() {
+        toggleTimeRangeType(false); // Don't trigger update when switching to date range
+      });
+      
+      // Add event listener for the Go button
+      document.getElementById('date-range-go').addEventListener('click', function() {
+        if (validateDateRange(
+          document.getElementById('from-date').value,
+          document.getElementById('to-date').value
+        )) {
+          updateUrlWithSelections();
+          fetchAll();
+        }
+      });
+      
       // Function to update URL with current selections
       function updateUrlWithSelections() {
-        const days = $('#days-select').val();
         const receiverId = $('#receiver-select').val();
+        const isDateRange = document.getElementById('dateRangeRadio').checked;
         
         // Create URL object from current URL
         const url = new URL(window.location.href);
@@ -1122,7 +1312,28 @@
           url.searchParams.delete('receiver_id');
         }
         
-        url.searchParams.set('days', days);
+        if (isDateRange) {
+          const fromDate = document.getElementById('from-date').value;
+          const toDate = document.getElementById('to-date').value;
+          
+          if (fromDate && toDate) {
+            try {
+              const fromDateObj = new Date(fromDate);
+              const toDateObj = new Date(toDate);
+              
+              url.searchParams.set('from', formatDateForAPI(fromDateObj));
+              url.searchParams.set('to', formatDateForAPI(toDateObj));
+              url.searchParams.delete('days');
+            } catch (e) {
+              console.error('Error formatting dates for URL:', e);
+            }
+          }
+        } else {
+          const days = $('#days-select').val();
+          url.searchParams.set('days', days);
+          url.searchParams.delete('from');
+          url.searchParams.delete('to');
+        }
         
         // Update browser history without reloading the page
         window.history.replaceState({}, '', url);
@@ -1133,18 +1344,62 @@
           loadReceivers()
         ]);
         
+        // Set default values for date inputs (today and yesterday)
+        const today = new Date();
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        // Format dates for datetime-local input (YYYY-MM-DDThh:mm)
+        const formatDateForInput = (date) => {
+          return date.toISOString().slice(0, 16);
+        };
+        
+        document.getElementById('to-date').value = formatDateForInput(today);
+        document.getElementById('from-date').value = formatDateForInput(yesterday);
+        
         // Check for parameters in URL and select them in dropdowns if present
         const receiverId = getQueryParam('receiver_id');
         if (receiverId) {
           $('#receiver-select').val(receiverId);
         }
         
-        const days = getQueryParam('days');
-        if (days) {
-          $('#days-select').val(days);
-        }
+        // Check if we have from/to parameters
+        const fromParam = getQueryParam('from');
+        const toParam = getQueryParam('to');
         
-        fetchAll();
+        if (fromParam && toParam) {
+          try {
+            const fromDate = new Date(fromParam);
+            const toDate = new Date(toParam);
+            
+            // Switch to date range mode
+            document.getElementById('dateRangeRadio').checked = true;
+            document.getElementById('fixedWindowRadio').checked = false;
+            toggleTimeRangeType(false);
+            
+            // Set the date inputs
+            document.getElementById('from-date').value = formatDateForInput(fromDate);
+            document.getElementById('to-date').value = formatDateForInput(toDate);
+            
+            fetchAll();
+          } catch (e) {
+            console.error('Error parsing date parameters:', e);
+            // Fall back to days parameter
+            const days = getQueryParam('days');
+            if (days) {
+              $('#days-select').val(days);
+              fetchAll();
+            }
+          }
+        } else {
+          // Use days parameter
+          const days = getQueryParam('days');
+          if (days) {
+            $('#days-select').val(days);
+          }
+          
+          fetchAll();
+        }
       })();
 
       $(document).on('click', '.thumb', function() {
