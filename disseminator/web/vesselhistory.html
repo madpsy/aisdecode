@@ -1800,6 +1800,84 @@
     // Display vessel track on map
     function displayVesselTrack(historyData) {
       if (!historyData || !historyData.length) {
+        // If no history data is available, use the last known location from the table
+        console.log('No history data available, checking for last known location');
+        
+        // Fetch the vessel's current state to get the last known location
+        fetch(`/state?UserID=${userID}`, { cache: 'no-store' })
+          .then(response => response.json())
+          .then(data => {
+            if (data.Latitude !== undefined && data.Latitude !== null &&
+                data.Longitude !== undefined && data.Longitude !== null &&
+                !isNaN(data.Latitude) && !isNaN(data.Longitude) &&
+                !(data.Latitude === 91 && data.Longitude === 181)) {
+              
+              console.log('Using last known location:', data.Latitude, data.Longitude);
+              
+              // Clear existing layers
+              mapLayerGroup.clearLayers();
+              
+              // Create a marker for the last known position
+              const lastKnownMarker = L.marker([data.Latitude, data.Longitude], {
+                icon: L.divIcon({
+                  className: 'last-known-marker',
+                  html: '📍',
+                  iconSize: [24, 24],
+                  iconAnchor: [12, 24]
+                })
+              }).addTo(mapLayerGroup);
+              
+              // Add tooltip with vessel info
+              let tooltipContent = '';
+              if (data.Name && data.Name.trim() !== '') {
+                tooltipContent += `<strong>${data.Name}</strong><br>`;
+              }
+              tooltipContent += `MMSI: ${userID}<br>`;
+              tooltipContent += `Last seen: ${new Date(data.LastUpdated).toLocaleString()}`;
+              
+              lastKnownMarker.bindTooltip(tooltipContent, {
+                direction: 'top',
+                offset: [0, -12],
+                permanent: false,
+                sticky: true
+              });
+              
+              // Fit map to the marker
+              map.setView([data.Latitude, data.Longitude], 10);
+              
+              // Add receiver markers if available
+              if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
+                // Filter receivers to only those that heard this vessel
+                const relevantReceivers = receiversData.filter(receiver =>
+                  data.ReceiverIDs.includes(receiver.id)
+                );
+                
+                // Add a marker for each receiver
+                relevantReceivers.forEach(receiver => {
+                  if (receiver.latitude && receiver.longitude) {
+                    // Create a red diamond marker for the receiver
+                    const receiverMarker = L.marker([receiver.latitude, receiver.longitude], {
+                      icon: createReceiverIcon()
+                    }).addTo(mapLayerGroup);
+                    
+                    // Add a permanent tooltip with the receiver name
+                    receiverMarker.bindTooltip(receiver.name, {
+                      permanent: true,
+                      direction: 'top',
+                      offset: [0, -10],
+                      className: 'receiver-tooltip'
+                    }).openTooltip();
+                  }
+                });
+              }
+            } else {
+              console.log('No valid last known location available');
+            }
+          })
+          .catch(err => {
+            console.error('Error fetching vessel data for last known location:', err);
+          });
+          
         return;
       }
 
