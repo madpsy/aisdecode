@@ -829,6 +829,14 @@
             const fromDateObj = new Date(fromDate);
             const toDateObj = new Date(toDate);
             
+            // Reset navigation type to show full date range
+            lastNavigationType = null;
+            
+            // Show the full selected range in the map overlay
+            document.getElementById('replay-datetime-overlay').style.display = 'block';
+            document.getElementById('replay-datetime-text').textContent =
+              `${fromDateObj.toLocaleString()} - ${toDateObj.toLocaleString()}`;
+            
             // Initialize date range navigation
             currentFromDate = fromDateObj;
             currentToDate = toDateObj;
@@ -1083,8 +1091,23 @@
       document.getElementById('date-range-navigation-hour').style.display = 'block';
       document.getElementById('date-range-navigation-day').style.display = showDayNavigation ? 'block' : 'none';
       
-      // Update the current time displays
-      updateTimeDisplays();
+      // Update the hour and day displays in the navigation controls
+      const hourEndTime = new Date(currentFromDate);
+      hourEndTime.setHours(hourEndTime.getHours() + 1);
+      
+      const hourDisplay = document.getElementById('current-hour-display');
+      hourDisplay.textContent = `${currentFromDate.toLocaleDateString()} ${currentFromDate.getHours()}:00 - ${hourEndTime.getHours()}:00`;
+      
+      if (showDayNavigation) {
+        const currentDay = new Date(currentFromDate);
+        currentDay.setHours(0, 0, 0, 0);
+        
+        const dayDisplay = document.getElementById('current-day-display');
+        dayDisplay.textContent = currentDay.toLocaleDateString();
+      }
+      
+      // Note: We don't update the map overlay here to preserve the full date range display
+      // The overlay will be updated when the user clicks on a navigation button
     }
     
     // Update both time displays
@@ -1105,19 +1128,20 @@
         dayDisplay.textContent = currentDay.toLocaleDateString();
       }
       
-      // Also update the date/time overlay on the map
-      document.getElementById('replay-datetime-overlay').style.display = 'block';
-      
-      // Show appropriate time format based on which navigation was last used
+      // Only update the date/time overlay if a navigation button has been clicked
       if (lastNavigationType === 'day') {
         // For day navigation, just show the date
         const currentDay = new Date(currentFromDate);
         currentDay.setHours(0, 0, 0, 0);
+        document.getElementById('replay-datetime-overlay').style.display = 'block';
         document.getElementById('replay-datetime-text').textContent = currentDay.toLocaleDateString();
-      } else {
+      } else if (lastNavigationType === 'hour') {
         // For hour navigation, show the hour range
+        document.getElementById('replay-datetime-overlay').style.display = 'block';
         document.getElementById('replay-datetime-text').textContent = hourDisplay.textContent;
       }
+      // If lastNavigationType is not set, we don't update the overlay
+      // This preserves the full date range display set in loadCoverageData
     }
     
     // Step to previous hour
