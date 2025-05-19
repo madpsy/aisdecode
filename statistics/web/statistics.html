@@ -351,7 +351,7 @@
         try {
           // Try to load from different possible locations
           try {
-            messageTypes = await fetch('/statistics/message_types.json').then(r => r.json());
+            messageTypes = await fetch('/message_types.json').then(r => r.json());
           } catch (e) {
             try {
               messageTypes = await fetch('/message_types.json').then(r => r.json());
