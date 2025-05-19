@@ -630,10 +630,16 @@
     }
     
     // Toggle between fixed window and date range
-    function toggleTimeRangeType() {
+    function toggleTimeRangeType(triggerUpdate = true) {
       const isDateRange = document.getElementById('dateRangeRadio').checked;
       document.getElementById('fixedWindowContainer').style.display = isDateRange ? 'none' : 'block';
       document.getElementById('dateRangeContainer').style.display = isDateRange ? 'block' : 'none';
+      
+      // Trigger data update if requested
+      if (triggerUpdate) {
+        updateURL();
+        loadCoverageData();
+      }
     }
     
     // Format date for API request (RFC3339 format)
@@ -927,17 +933,23 @@
       
       // Add event listeners for date inputs
       document.getElementById('from-date').addEventListener('change', function() {
-        validateDateRange(
+        if (validateDateRange(
           document.getElementById('from-date').value,
           document.getElementById('to-date').value
-        );
+        )) {
+          updateURL();
+          loadCoverageData();
+        }
       });
       
       document.getElementById('to-date').addEventListener('change', function() {
-        validateDateRange(
+        if (validateDateRange(
           document.getElementById('from-date').value,
           document.getElementById('to-date').value
-        );
+        )) {
+          updateURL();
+          loadCoverageData();
+        }
       });
       
       // Update URL and load data when selections change
@@ -971,7 +983,7 @@
           // Switch to date range mode
           document.getElementById('dateRangeRadio').checked = true;
           document.getElementById('fixedWindowRadio').checked = false;
-          toggleTimeRangeType();
+          toggleTimeRangeType(false); // Don't trigger update yet
           
           // Set the date inputs
           document.getElementById('from-date').value = formatDateForInput(fromDate);
