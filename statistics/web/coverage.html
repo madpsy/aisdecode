@@ -397,6 +397,16 @@
         receiverTooltip = null;
       }
       
+      // Clear any other receiver markers that might have been added
+      map.eachLayer(function(layer) {
+        if (layer instanceof L.Marker || layer instanceof L.Tooltip) {
+          if (layer._icon && layer._icon.className.includes('receiver-marker') ||
+              layer.options && layer.options.className === 'receiver-tooltip') {
+            map.removeLayer(layer);
+          }
+        }
+      });
+      
       // Remove range circles and labels
       rangeCircles.forEach(circle => {
         if (circle) map.removeLayer(circle);
@@ -1319,6 +1329,28 @@
       }
     }
     
+    // Function to update receiver visibility
+    function updateReceiverVisibility() {
+      // Get current state of checkbox
+      showReceivers = document.getElementById('show-receivers-checkbox').checked;
+      
+      // Clear all receiver markers
+      map.eachLayer(function(layer) {
+        if (layer instanceof L.Marker || layer instanceof L.Tooltip) {
+          if (layer._icon && layer._icon.className.includes('receiver-marker') ||
+              layer.options && layer.options.className === 'receiver-tooltip') {
+            map.removeLayer(layer);
+          }
+        }
+      });
+      
+      // If receivers should be shown, add them back
+      if (showReceivers) {
+        // Reload the map data to add receivers back
+        loadCoverageData();
+      }
+    }
+    
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
       // Add event listeners
@@ -1334,10 +1366,7 @@
       document.getElementById('replay-stop-btn').addEventListener('click', stopReplay);
       
       // Add event listener for receivers checkbox
-      document.getElementById('show-receivers-checkbox').addEventListener('change', function() {
-        showReceivers = this.checked;
-        loadCoverageData(); // Reload the map with the new setting
-      });
+      document.getElementById('show-receivers-checkbox').addEventListener('change', updateReceiverVisibility);
       
       // Set up date range toggle
       document.getElementById('fixedWindowRadio').addEventListener('change', function() {
