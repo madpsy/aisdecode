@@ -469,9 +469,15 @@
       document.getElementById('load-btn').addEventListener('click', loadCoverageData);
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
       
-      // Update URL when selections change
-      document.getElementById('receiver-select').addEventListener('change', updateURL);
-      document.getElementById('days-select').addEventListener('change', updateURL);
+      // Update URL and load data when selections change
+      document.getElementById('receiver-select').addEventListener('change', function() {
+        updateURL();
+        loadCoverageData();
+      });
+      document.getElementById('days-select').addEventListener('change', function() {
+        updateURL();
+        loadCoverageData();
+      });
       
       // Load receivers
       await loadReceivers();
