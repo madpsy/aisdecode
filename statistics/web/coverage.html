@@ -269,6 +269,25 @@
           </div>
         </div>
         
+        <!-- Date Range Navigation Section -->
+        <div id="date-range-navigation" class="mt-3 mb-2" style="display: none;">
+          <div class="d-flex align-items-center justify-content-center">
+            <button id="date-range-prev-btn" class="btn btn-sm btn-outline-primary me-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left" viewBox="0 0 16 16">
+                <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+              </svg>
+              <span id="prev-step-text">Previous</span>
+            </button>
+            <div id="current-time-display" class="mx-3 fw-bold"></div>
+            <button id="date-range-next-btn" class="btn btn-sm btn-outline-primary ms-2">
+              <span id="next-step-text">Next</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-right" viewBox="0 0 16 16">
+                <path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        
         <!-- Replay Section -->
         <div class="mt-4 mb-3">
           <h4>Replay</h4>
@@ -745,6 +764,10 @@
       document.getElementById('fixedWindowContainer').style.display = isDateRange ? 'none' : 'block';
       document.getElementById('dateRangeContainer').style.display = isDateRange ? 'block' : 'none';
       
+      // Hide date range navigation when switching to fixed window
+      document.getElementById('date-range-navigation').style.display = 'none';
+      document.getElementById('replay-datetime-overlay').style.display = 'none';
+      
       // For fixed window, trigger update automatically
       // For date range, user will click the Go button
       if (!isDateRange && triggerUpdate) {
@@ -785,6 +808,11 @@
             // Format dates for API
             const fromDateObj = new Date(fromDate);
             const toDateObj = new Date(toDate);
+            
+            // Initialize date range navigation
+            currentFromDate = fromDateObj;
+            currentToDate = toDateObj;
+            initializeDateRangeNavigation();
             
             // Fetch coverage data with date range
             url = `/statistics/stats/coverage-map?from=${formatDateForAPI(fromDateObj)}&to=${formatDateForAPI(toDateObj)}`;
@@ -996,6 +1024,246 @@
       window.history.replaceState({}, '', url);
     }
     
+    // Determine appropriate step size (hour or day) based on date range
+    function determineDateRangeStepSize(fromDate, toDate) {
+      const from = new Date(fromDate);
+      const to = new Date(toDate);
+      const diffTime = Math.abs(to - from);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      // If range is more than 7 days, use day step size, otherwise use hour
+      return diffDays > 7 ? 'day' : 'hour';
+    }
+    
+    // Initialize date range navigation
+    function initializeDateRangeNavigation() {
+      const fromDateInput = document.getElementById('from-date').value;
+      const toDateInput = document.getElementById('to-date').value;
+      
+      if (!fromDateInput || !toDateInput) return;
+      
+      currentFromDate = new Date(fromDateInput);
+      currentToDate = new Date(toDateInput);
+      
+      // Determine step size based on date range
+      dateRangeStepSize = determineDateRangeStepSize(currentFromDate, currentToDate);
+      
+      // Update button labels based on step size
+      document.getElementById('prev-step-text').textContent = `Previous ${dateRangeStepSize}`;
+      document.getElementById('next-step-text').textContent = `Next ${dateRangeStepSize}`;
+      
+      // Show the navigation controls
+      document.getElementById('date-range-navigation').style.display = 'block';
+      
+      // Update the current time display
+      updateCurrentTimeDisplay();
+    }
+    
+    // Update the current time display
+    function updateCurrentTimeDisplay() {
+      const currentTimeDisplay = document.getElementById('current-time-display');
+      
+      if (dateRangeStepSize === 'hour') {
+        currentTimeDisplay.textContent = `${currentFromDate.toLocaleDateString()} ${currentFromDate.getHours()}:00 - ${currentToDate.toLocaleDateString()} ${currentToDate.getHours()}:00`;
+      } else {
+        currentTimeDisplay.textContent = `${currentFromDate.toLocaleDateString()} - ${currentToDate.toLocaleDateString()}`;
+      }
+      
+      // Also update the date/time overlay on the map
+      document.getElementById('replay-datetime-overlay').style.display = 'block';
+      document.getElementById('replay-datetime-text').textContent = currentTimeDisplay.textContent;
+    }
+    
+    // Step to previous time period
+    function stepToPreviousTimePeriod() {
+      if (!currentFromDate || !currentToDate) return;
+      
+      const newFromDate = new Date(currentFromDate);
+      const newToDate = new Date(currentToDate);
+      
+      if (dateRangeStepSize === 'hour') {
+        newFromDate.setHours(newFromDate.getHours() - 1);
+        newToDate.setHours(newToDate.getHours() - 1);
+      } else {
+        newFromDate.setDate(newFromDate.getDate() - 1);
+        newToDate.setDate(newToDate.getDate() - 1);
+      }
+      
+      currentFromDate = newFromDate;
+      currentToDate = newToDate;
+      
+      updateCurrentTimeDisplay();
+      loadDateRangeData();
+    }
+    
+    // Step to next time period
+    function stepToNextTimePeriod() {
+      if (!currentFromDate || !currentToDate) return;
+      
+      const newFromDate = new Date(currentFromDate);
+      const newToDate = new Date(currentToDate);
+      
+      if (dateRangeStepSize === 'hour') {
+        newFromDate.setHours(newFromDate.getHours() + 1);
+        newToDate.setHours(newToDate.getHours() + 1);
+      } else {
+        newFromDate.setDate(newFromDate.getDate() + 1);
+        newToDate.setDate(newToDate.getDate() + 1);
+      }
+      
+      // Don't allow navigating beyond current time
+      const now = new Date();
+      if (newToDate > now) return;
+      
+      currentFromDate = newFromDate;
+      currentToDate = newToDate;
+      
+      updateCurrentTimeDisplay();
+      loadDateRangeData();
+    }
+    
+    // Load data for the current date range
+    async function loadDateRangeData() {
+      const receiverId = document.getElementById('receiver-select').value;
+      
+      try {
+        // Show loading state
+        showMapLoading();
+        
+        // Format dates for API
+        const fromFormatted = formatDateForAPI(currentFromDate);
+        const toFormatted = formatDateForAPI(currentToDate);
+        
+        // Build URL
+        let url = `/statistics/stats/coverage-map?from=${fromFormatted}&to=${toFormatted}`;
+        if (receiverId) {
+          url += `&receiver_id=${receiverId}`;
+        }
+        
+        // Update URL in browser without reloading
+        const browserUrl = new URL(window.location.href);
+        browserUrl.searchParams.set('from', fromFormatted);
+        browserUrl.searchParams.set('to', toFormatted);
+        if (receiverId) {
+          browserUrl.searchParams.set('receiver_id', receiverId);
+        }
+        window.history.replaceState({}, '', browserUrl);
+        
+        // Fetch data
+        const data = await fetch(url).then(r => r.json());
+        
+        if (data.length === 0) {
+          alert('No coverage data available for the selected time period');
+          hideMapLoading();
+          return;
+        }
+        
+        // Convert data to heatmap format
+        const heatData = data.map(point => {
+          const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
+          return [point.lat, point.lon, intensity];
+        });
+        
+        // Clear all previous map layers
+        clearMapLayers();
+        
+        // Create new heat layer
+        heatLayer = L.heatLayer(heatData, {
+          radius: 20,
+          blur: 15,
+          maxZoom: 17,
+          minOpacity: 0.4,
+          gradient: {0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}
+        }).addTo(map);
+        
+        // Load all receivers
+        const receivers = await fetch('/receivers').then(r => r.json());
+        
+        // Create a receiver icon
+        const receiverIcon = L.divIcon({
+          html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+          className: 'receiver-marker',
+          iconSize: [12, 12]
+        });
+        
+        // Points for bounds calculation
+        const points = heatData.map(p => [p[0], p[1]]);
+        
+        if (receiverId) {
+          // Specific receiver selected
+          const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
+          
+          if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
+            // Add marker with popup and store reference if receivers should be shown
+            if (showReceivers) {
+              receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
+                .addTo(map)
+                .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
+              
+              // Add permanent tooltip with receiver name and store reference
+              receiverTooltip = L.tooltip({
+                permanent: true,
+                direction: 'top',
+                className: 'receiver-tooltip',
+                offset: [0, -10]
+              })
+              .setContent(`<b>${selectedReceiver.name}</b>`)
+              .setLatLng([selectedReceiver.latitude, selectedReceiver.longitude])
+              .addTo(map);
+            }
+            
+            // Calculate maximum distance and draw range circles
+            const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
+            const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
+            drawRangeCircles(receiverLatLng, maxDistance);
+            
+            // Add receiver location to points for bounds calculation
+            points.push([selectedReceiver.latitude, selectedReceiver.longitude]);
+            
+            // Calculate and display statistics
+            const stats = calculateCoverageStats(heatData, receiverLatLng, maxDistance);
+            updateStatsDisplay(stats, true);
+          }
+        } else {
+          // "All" receivers selected - show markers for all receivers but no range circles
+          receivers.forEach(receiver => {
+            if (receiver.latitude && receiver.longitude) {
+              // Add receiver location to points for bounds calculation
+              points.push([receiver.latitude, receiver.longitude]);
+              
+              // Only add markers if receivers should be shown
+              if (showReceivers) {
+                // Add marker with popup
+                L.marker([receiver.latitude, receiver.longitude], {icon: receiverIcon})
+                  .addTo(map)
+                  .bindPopup(`<b>Receiver:</b> ${receiver.name}`);
+                
+                // Add tooltip with receiver name
+                L.tooltip({
+                  permanent: true,
+                  direction: 'top',
+                  className: 'receiver-tooltip',
+                  offset: [0, -10]
+                })
+                .setContent(`<b>${receiver.name}</b>`)
+                .setLatLng([receiver.latitude, receiver.longitude])
+                .addTo(map);
+              }
+            }
+          });
+          
+          // For "All" receivers, don't show direction stats
+          updateStatsDisplay(null, false);
+        }
+      } catch (e) {
+        console.error('Failed to load coverage data:', e);
+        alert('Failed to load coverage data. Please try again later.');
+      } finally {
+        // Hide loading overlay
+        hideMapLoading();
+      }
+    }
+    
     // Copy current URL to clipboard
     function copyLinkToClipboard() {
       const url = window.location.href;
@@ -1024,6 +1292,11 @@
       const distanceNM = distanceMeters / 1852; // Convert meters to nautical miles
       scaleLabel.textContent = `${Math.round(distanceNM)} NM`;
     }
+    
+    // Date range navigation variables
+    let currentFromDate = null;
+    let currentToDate = null;
+    let dateRangeStepSize = 'hour'; // 'hour' or 'day'
     
     // Replay functionality
     let replayData = [];
@@ -1624,6 +1897,10 @@
       // Add event listeners for replay buttons
       document.getElementById('replay-day-btn').addEventListener('click', fetchDayReplayData);
       document.getElementById('replay-week-btn').addEventListener('click', fetchWeekReplayData);
+      
+      // Add event listeners for date range navigation
+      document.getElementById('date-range-prev-btn').addEventListener('click', stepToPreviousTimePeriod);
+      document.getElementById('date-range-next-btn').addEventListener('click', stepToNextTimePeriod);
       
       // Update the scale whenever the map is zoomed or moved
       map.on('zoomend moveend', updateNauticalScale);
