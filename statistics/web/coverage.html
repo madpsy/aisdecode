@@ -56,7 +56,7 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      z-index: 2000; /* Higher than all other overlays */
+      z-index: 10;
       font-size: 1.2rem;
       font-weight: bold;
       color: #666;
@@ -75,9 +75,43 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+    /* Global loading overlay */
+    .global-loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(255, 255, 255, 0.9);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000; /* Higher than other elements */
+      flex-direction: column;
+    }
+    .global-loading-spinner {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #3498db;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      animation: spin 1.5s linear infinite;
+      margin-bottom: 20px;
+    }
+    .global-loading-text {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #333;
+    }
   </style>
 </head>
 <body>
+  <!-- Global loading overlay -->
+  <div class="global-loading-overlay" id="globalLoadingOverlay">
+    <div class="global-loading-spinner"></div>
+    <div class="global-loading-text">Loading data...</div>
+  </div>
+
   <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h1>Coverage Map</h1>
@@ -235,50 +269,12 @@
           </div>
         </div>
         
-        <!-- Date Range Navigation Section - Hourly -->
-        <div id="date-range-navigation-hour" class="mt-3 mb-2" style="display: none;">
-          <div class="d-flex align-items-center justify-content-center">
-            <button id="date-range-prev-hour-btn" class="btn btn-sm btn-outline-primary me-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left" viewBox="0 0 16 16">
-                <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
-              </svg>
-              <span>Previous hour</span>
-            </button>
-            <div id="current-hour-display" class="mx-3 fw-bold"></div>
-            <button id="date-range-next-hour-btn" class="btn btn-sm btn-outline-primary ms-2">
-              <span>Next hour</span>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-right" viewBox="0 0 16 16">
-                <path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        
-        <!-- Date Range Navigation Section - Daily -->
-        <div id="date-range-navigation-day" class="mt-2 mb-2" style="display: none;">
-          <div class="d-flex align-items-center justify-content-center">
-            <button id="date-range-prev-day-btn" class="btn btn-sm btn-outline-secondary me-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left" viewBox="0 0 16 16">
-                <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
-              </svg>
-              <span>Previous day</span>
-            </button>
-            <div id="current-day-display" class="mx-3 fw-bold"></div>
-            <button id="date-range-next-day-btn" class="btn btn-sm btn-outline-secondary ms-2">
-              <span>Next day</span>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-right" viewBox="0 0 16 16">
-                <path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        
         <!-- Replay Section -->
         <div class="mt-4 mb-3">
-          <h4>Replay Previous</h4>
+          <h4>Replay</h4>
           <div class="btn-group mb-2">
-            <button id="replay-day-btn" class="btn btn-outline-primary">24 hours</button>
-            <button id="replay-week-btn" class="btn btn-outline-primary">7 days</button>
+            <button id="replay-day-btn" class="btn btn-outline-primary">Day</button>
+            <button id="replay-week-btn" class="btn btn-outline-primary">Week</button>
           </div>
           <div class="d-flex align-items-center mt-2" id="replay-controls" style="display: none !important;">
             <div class="btn-group me-3">
@@ -691,16 +687,14 @@
       }
     }
     
-    // Show global loading overlay - now just uses map loading overlay
+    // Show global loading overlay
     function showGlobalLoading() {
-      // Use map loading overlay instead
-      showMapLoading();
+      document.getElementById('globalLoadingOverlay').style.display = 'flex';
     }
     
-    // Hide global loading overlay - now just uses map loading overlay
+    // Hide global loading overlay
     function hideGlobalLoading() {
-      // Use map loading overlay instead
-      hideMapLoading();
+      document.getElementById('globalLoadingOverlay').style.display = 'none';
     }
     
     // Show map loading overlay
@@ -751,11 +745,6 @@
       document.getElementById('fixedWindowContainer').style.display = isDateRange ? 'none' : 'block';
       document.getElementById('dateRangeContainer').style.display = isDateRange ? 'block' : 'none';
       
-      // Hide date range navigation when switching to fixed window
-      document.getElementById('date-range-navigation-hour').style.display = 'none';
-      document.getElementById('date-range-navigation-day').style.display = 'none';
-      document.getElementById('replay-datetime-overlay').style.display = 'none';
-      
       // For fixed window, trigger update automatically
       // For date range, user will click the Go button
       if (!isDateRange && triggerUpdate) {
@@ -777,6 +766,7 @@
       try {
         // Show loading state
         showGlobalLoading();
+        showMapLoading();
         
         let url;
         
@@ -787,6 +777,7 @@
           // Validate date range
           if (!validateDateRange(fromDate, toDate)) {
             hideGlobalLoading();
+            hideMapLoading();
             return; // Stop if validation fails
           }
           
@@ -794,19 +785,6 @@
             // Format dates for API
             const fromDateObj = new Date(fromDate);
             const toDateObj = new Date(toDate);
-            
-            // Reset navigation type to show full date range
-            lastNavigationType = null;
-            
-            // Show the full selected range in the map overlay
-            document.getElementById('replay-datetime-overlay').style.display = 'block';
-            document.getElementById('replay-datetime-text').textContent =
-              `${fromDateObj.toLocaleString()} - ${toDateObj.toLocaleString()}`;
-            
-            // Initialize date range navigation
-            currentFromDate = fromDateObj;
-            currentToDate = toDateObj;
-            initializeDateRangeNavigation();
             
             // Fetch coverage data with date range
             url = `/statistics/stats/coverage-map?from=${formatDateForAPI(fromDateObj)}&to=${formatDateForAPI(toDateObj)}`;
@@ -817,6 +795,7 @@
             console.error('Date formatting error:', e);
             alert('Invalid date format. Please check your date inputs.');
             hideGlobalLoading();
+            hideMapLoading();
             return;
           }
         } else {
@@ -895,10 +874,12 @@
               .addTo(map);
             }
             
-            // Calculate maximum distance and draw range circles
+            // Calculate maximum distance and draw range circles only if receivers are shown
             const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
             const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
-            drawRangeCircles(receiverLatLng, maxDistance);
+            if (showReceivers) {
+              drawRangeCircles(receiverLatLng, maxDistance);
+            }
             
             // Add receiver location to points for bounds calculation
             points.push([selectedReceiver.latitude, selectedReceiver.longitude]);
@@ -956,8 +937,9 @@
         console.error('Failed to load coverage data:', e);
         alert('Failed to load coverage data. Please try again later.');
       } finally {
-        // Hide loading overlay
+        // Hide loading overlays
         hideGlobalLoading();
+        hideMapLoading();
       }
     }
     
@@ -1016,374 +998,6 @@
       window.history.replaceState({}, '', url);
     }
     
-    // Determine appropriate step size (hour or day) based on date range
-    function determineDateRangeStepSize(fromDate, toDate) {
-      const from = new Date(fromDate);
-      const to = new Date(toDate);
-      const diffTime = Math.abs(to - from);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      // If range is more than 7 days, use day step size, otherwise use hour
-      return diffDays > 7 ? 'day' : 'hour';
-    }
-    
-    // Initialize date range navigation
-    function initializeDateRangeNavigation() {
-      const fromDateInput = document.getElementById('from-date').value;
-      const toDateInput = document.getElementById('to-date').value;
-      
-      if (!fromDateInput || !toDateInput) return;
-      
-      // Get the original date range selected by the user
-      const originalFromDate = new Date(fromDateInput);
-      const originalToDate = new Date(toDateInput);
-      
-      // Determine if we should show day navigation (if range > 24 hours)
-      const diffTime = Math.abs(originalToDate - originalFromDate);
-      const diffHours = diffTime / (1000 * 60 * 60);
-      showDayNavigation = diffHours > 24;
-      
-      // Determine step size based on date range
-      dateRangeStepSize = determineDateRangeStepSize(originalFromDate, originalToDate);
-      
-      // Set the initial date range for hourly navigation
-      currentFromDate = new Date(originalFromDate);
-      currentToDate = new Date(currentFromDate);
-      currentToDate.setHours(currentToDate.getHours() + 1);
-      
-      // Show the appropriate navigation controls
-      document.getElementById('date-range-navigation-hour').style.display = 'block';
-      document.getElementById('date-range-navigation-day').style.display = showDayNavigation ? 'block' : 'none';
-      
-      // Update the hour and day displays in the navigation controls
-      const hourEndTime = new Date(currentFromDate);
-      hourEndTime.setHours(hourEndTime.getHours() + 1);
-      
-      const hourDisplay = document.getElementById('current-hour-display');
-      hourDisplay.textContent = `${currentFromDate.toLocaleDateString()} ${currentFromDate.getHours()}:00 - ${hourEndTime.getHours()}:00`;
-      
-      if (showDayNavigation) {
-        const currentDay = new Date(currentFromDate);
-        currentDay.setHours(0, 0, 0, 0);
-        
-        const dayDisplay = document.getElementById('current-day-display');
-        dayDisplay.textContent = currentDay.toLocaleDateString();
-      }
-      
-      // Note: We don't update the map overlay here to preserve the full date range display
-      // The overlay will be updated when the user clicks on a navigation button
-    }
-    
-    // Update both time displays
-    function updateTimeDisplays() {
-      // Update hour display
-      const hourEndTime = new Date(currentFromDate);
-      hourEndTime.setHours(hourEndTime.getHours() + 1);
-      
-      const hourDisplay = document.getElementById('current-hour-display');
-      hourDisplay.textContent = `${currentFromDate.toLocaleDateString()} ${currentFromDate.getHours()}:00 - ${hourEndTime.getHours()}:00`;
-      
-      // Update day display if showing
-      if (showDayNavigation) {
-        const currentDay = new Date(currentFromDate);
-        currentDay.setHours(0, 0, 0, 0); // Start of the day
-        
-        const dayDisplay = document.getElementById('current-day-display');
-        dayDisplay.textContent = currentDay.toLocaleDateString();
-      }
-      
-      // Only update the date/time overlay if a navigation button has been clicked
-      if (lastNavigationType === 'day') {
-        // For day navigation, just show the date
-        const currentDay = new Date(currentFromDate);
-        currentDay.setHours(0, 0, 0, 0);
-        document.getElementById('replay-datetime-overlay').style.display = 'block';
-        document.getElementById('replay-datetime-text').textContent = currentDay.toLocaleDateString();
-      } else if (lastNavigationType === 'hour') {
-        // For hour navigation, show the hour range
-        document.getElementById('replay-datetime-overlay').style.display = 'block';
-        document.getElementById('replay-datetime-text').textContent = hourDisplay.textContent;
-      }
-      // If lastNavigationType is not set, we don't update the overlay
-      // This preserves the full date range display set in loadCoverageData
-    }
-    
-    // Step to previous hour
-    function stepToPreviousHour() {
-      if (!currentFromDate || !currentToDate) return;
-      
-      // Set navigation type
-      lastNavigationType = 'hour';
-      
-      // Move back one hour and set range to exactly one hour
-      const newFromDate = new Date(currentFromDate);
-      newFromDate.setHours(newFromDate.getHours() - 1);
-      
-      const newToDate = new Date(newFromDate);
-      newToDate.setHours(newToDate.getHours() + 1);
-      
-      currentFromDate = newFromDate;
-      currentToDate = newToDate;
-      
-      updateTimeDisplays();
-      loadDateRangeData();
-    }
-    
-    // Step to next hour
-    function stepToNextHour() {
-      if (!currentFromDate || !currentToDate) return;
-      
-      // Set navigation type
-      lastNavigationType = 'hour';
-      
-      // Don't allow navigating beyond current time
-      const now = new Date();
-      
-      // Move forward one hour and set range to exactly one hour
-      const newFromDate = new Date(currentFromDate);
-      newFromDate.setHours(newFromDate.getHours() + 1);
-      
-      // Check if we'd be going beyond current time
-      if (newFromDate > now) return;
-      
-      const newToDate = new Date(newFromDate);
-      newToDate.setHours(newToDate.getHours() + 1);
-      
-      // If end time would be beyond now, cap it at now
-      if (newToDate > now) {
-        newToDate.setTime(now.getTime());
-      }
-      
-      currentFromDate = newFromDate;
-      currentToDate = newToDate;
-      
-      updateTimeDisplays();
-      loadDateRangeData();
-    }
-    
-    // Step to previous day
-    function stepToPreviousDay() {
-      if (!currentFromDate || !currentToDate) return;
-      
-      // Set navigation type
-      lastNavigationType = 'day';
-      
-      // Get current day and move to start of day
-      const currentDay = new Date(currentFromDate);
-      currentDay.setHours(0, 0, 0, 0);
-      
-      // Move back one day
-      const previousDay = new Date(currentDay);
-      previousDay.setDate(previousDay.getDate() - 1);
-      
-      // Set from date to start of previous day
-      currentFromDate = new Date(previousDay);
-      
-      // Set to date to end of previous day for full day data
-      currentToDate = new Date(previousDay);
-      currentToDate.setHours(23, 59, 59, 999);
-      
-      updateTimeDisplays();
-      loadDateRangeData();
-    }
-    
-    // Step to next day
-    function stepToNextDay() {
-      if (!currentFromDate || !currentToDate) return;
-      
-      // Set navigation type
-      lastNavigationType = 'day';
-      
-      // Don't allow navigating beyond current time
-      const now = new Date();
-      
-      // Get current day and move to start of day
-      const currentDay = new Date(currentFromDate);
-      currentDay.setHours(0, 0, 0, 0);
-      
-      // Move forward one day
-      const nextDay = new Date(currentDay);
-      nextDay.setDate(nextDay.getDate() + 1);
-      
-      // Check if we'd be going beyond current time
-      if (nextDay > now) return;
-      
-      // Set from date to start of next day
-      currentFromDate = new Date(nextDay);
-      
-      // Set to date to end of next day for full day data
-      currentToDate = new Date(nextDay);
-      currentToDate.setHours(23, 59, 59, 999);
-      
-      // If end time would be beyond now, cap it at now
-      if (currentToDate > now) {
-        currentToDate.setTime(now.getTime());
-      }
-      
-      updateTimeDisplays();
-      loadDateRangeData();
-    }
-    
-    // Load data for the current date range
-    async function loadDateRangeData() {
-      const receiverId = document.getElementById('receiver-select').value;
-      
-      try {
-        // Show loading state
-        showMapLoading();
-        
-        // Format dates for API
-        let fromFormatted, toFormatted;
-        
-        if (lastNavigationType === 'day') {
-          // For day navigation, ensure we request the entire day's data
-          const dayStart = new Date(currentFromDate);
-          dayStart.setHours(0, 0, 0, 0);
-          
-          const dayEnd = new Date(dayStart);
-          dayEnd.setHours(23, 59, 59, 999);
-          
-          fromFormatted = formatDateForAPI(dayStart);
-          toFormatted = formatDateForAPI(dayEnd);
-        } else {
-          // For hour navigation, use the current from/to dates
-          fromFormatted = formatDateForAPI(currentFromDate);
-          toFormatted = formatDateForAPI(currentToDate);
-        }
-        
-        // Build URL
-        let url = `/statistics/stats/coverage-map?from=${fromFormatted}&to=${toFormatted}`;
-        if (receiverId) {
-          url += `&receiver_id=${receiverId}`;
-        }
-        
-        // Update URL in browser without reloading
-        const browserUrl = new URL(window.location.href);
-        browserUrl.searchParams.set('from', fromFormatted);
-        browserUrl.searchParams.set('to', toFormatted);
-        if (receiverId) {
-          browserUrl.searchParams.set('receiver_id', receiverId);
-        }
-        window.history.replaceState({}, '', browserUrl);
-        
-        // Fetch data
-        const data = await fetch(url).then(r => r.json());
-        
-        if (data.length === 0) {
-          alert('No coverage data available for the selected time period');
-          hideMapLoading();
-          return;
-        }
-        
-        // Convert data to heatmap format
-        const heatData = data.map(point => {
-          const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
-          return [point.lat, point.lon, intensity];
-        });
-        
-        // Clear all previous map layers
-        clearMapLayers();
-        
-        // Create new heat layer
-        heatLayer = L.heatLayer(heatData, {
-          radius: 20,
-          blur: 15,
-          maxZoom: 17,
-          minOpacity: 0.4,
-          gradient: {0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}
-        }).addTo(map);
-        
-        // Use cached receivers or fetch them if not available
-        if (!cachedReceivers) {
-          cachedReceivers = await fetch('/receivers').then(r => r.json());
-        }
-        const receivers = cachedReceivers;
-        
-        // Create a receiver icon
-        const receiverIcon = L.divIcon({
-          html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
-          className: 'receiver-marker',
-          iconSize: [12, 12]
-        });
-        
-        // Points for bounds calculation
-        const points = heatData.map(p => [p[0], p[1]]);
-        
-        if (receiverId) {
-          // Specific receiver selected
-          const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
-          
-          if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
-            // Add marker with popup and store reference if receivers should be shown
-            if (showReceivers) {
-              receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
-                .addTo(map)
-                .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
-              
-              // Add permanent tooltip with receiver name and store reference
-              receiverTooltip = L.tooltip({
-                permanent: true,
-                direction: 'top',
-                className: 'receiver-tooltip',
-                offset: [0, -10]
-              })
-              .setContent(`<b>${selectedReceiver.name}</b>`)
-              .setLatLng([selectedReceiver.latitude, selectedReceiver.longitude])
-              .addTo(map);
-            }
-            
-            // Calculate maximum distance and draw range circles
-            const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
-            const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
-            drawRangeCircles(receiverLatLng, maxDistance);
-            
-            // Add receiver location to points for bounds calculation
-            points.push([selectedReceiver.latitude, selectedReceiver.longitude]);
-            
-            // Calculate and display statistics
-            const stats = calculateCoverageStats(heatData, receiverLatLng, maxDistance);
-            updateStatsDisplay(stats, true);
-          }
-        } else {
-          // "All" receivers selected - show markers for all receivers but no range circles
-          receivers.forEach(receiver => {
-            if (receiver.latitude && receiver.longitude) {
-              // Add receiver location to points for bounds calculation
-              points.push([receiver.latitude, receiver.longitude]);
-              
-              // Only add markers if receivers should be shown
-              if (showReceivers) {
-                // Add marker with popup
-                L.marker([receiver.latitude, receiver.longitude], {icon: receiverIcon})
-                  .addTo(map)
-                  .bindPopup(`<b>Receiver:</b> ${receiver.name}`);
-                
-                // Add tooltip with receiver name
-                L.tooltip({
-                  permanent: true,
-                  direction: 'top',
-                  className: 'receiver-tooltip',
-                  offset: [0, -10]
-                })
-                .setContent(`<b>${receiver.name}</b>`)
-                .setLatLng([receiver.latitude, receiver.longitude])
-                .addTo(map);
-              }
-            }
-          });
-          
-          // For "All" receivers, don't show direction stats
-          updateStatsDisplay(null, false);
-        }
-      } catch (e) {
-        console.error('Failed to load coverage data:', e);
-        alert('Failed to load coverage data. Please try again later.');
-      } finally {
-        // Hide loading overlay
-        hideMapLoading();
-      }
-    }
-    
     // Copy current URL to clipboard
     function copyLinkToClipboard() {
       const url = window.location.href;
@@ -1412,14 +1026,6 @@
       const distanceNM = distanceMeters / 1852; // Convert meters to nautical miles
       scaleLabel.textContent = `${Math.round(distanceNM)} NM`;
     }
-    
-    // Date range navigation variables
-    let currentFromDate = null;
-    let currentToDate = null;
-    let dateRangeStepSize = 'hour'; // 'hour' or 'day'
-    let showDayNavigation = false; // Flag to show/hide day navigation
-    let cachedReceivers = null; // Cache receivers to avoid fetching on every time step
-    let lastNavigationType = 'hour'; // Track which navigation type was last used ('hour' or 'day')
     
     // Replay functionality
     let replayData = [];
@@ -1750,6 +1356,24 @@
         if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
           const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
           const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
+          
+          // Only draw range circles if receivers should be shown
+          if (showReceivers) {
+            // Add receiver marker
+            const receiverIcon = L.divIcon({
+              html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+              className: 'receiver-marker',
+              iconSize: [12, 12]
+            });
+            
+            L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
+              .addTo(map)
+              .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
+            
+            // Draw range circles
+            drawRangeCircles(receiverLatLng, maxDistance);
+          }
+          
           const stats = calculateCoverageStats(heatData, receiverLatLng, maxDistance);
           updateStatsDisplay(stats, true);
         }
@@ -1881,21 +1505,6 @@
           }
         }
       });
-      
-      // Clear range circles and labels when receivers are hidden
-      if (!showReceivers) {
-        // Remove range circles
-        rangeCircles.forEach(circle => {
-          if (circle) map.removeLayer(circle);
-        });
-        rangeCircles = [];
-        
-        // Remove range labels
-        rangeLabels.forEach(label => {
-          if (label) map.removeLayer(label);
-        });
-        rangeLabels = [];
-      }
       
       // If receivers should be shown, add them back
       if (showReceivers) {
@@ -2035,12 +1644,6 @@
       // Add event listeners for replay buttons
       document.getElementById('replay-day-btn').addEventListener('click', fetchDayReplayData);
       document.getElementById('replay-week-btn').addEventListener('click', fetchWeekReplayData);
-      
-      // Add event listeners for date range navigation
-      document.getElementById('date-range-prev-hour-btn').addEventListener('click', stepToPreviousHour);
-      document.getElementById('date-range-next-hour-btn').addEventListener('click', stepToNextHour);
-      document.getElementById('date-range-prev-day-btn').addEventListener('click', stepToPreviousDay);
-      document.getElementById('date-range-next-day-btn').addEventListener('click', stepToNextDay);
       
       // Update the scale whenever the map is zoomed or moved
       map.on('zoomend moveend', updateNauticalScale);
