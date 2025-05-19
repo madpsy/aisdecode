@@ -1339,7 +1339,11 @@ let receiverMarkers = {};
 let selectedReceiverId = null;
 
 function refreshReceivers() {
-  fetch('/receivers')
+  // Get the maxage value from the age slider
+  const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
+  
+  // Use the maxage parameter in the API request instead of filtering client-side
+  fetch(`/receivers?maxage=${maxAgeHours}`)
     .then(response => {
       if (!response.ok) {
         throw new Error(`Network error: ${response.status}`);
@@ -1387,16 +1391,7 @@ function refreshReceivers() {
             updatedLocalTime = "Invalid date";
           }
           
-          // Check if the receiver is older than the max age setting
-          if (updatedLocalTime !== "Invalid date") {
-            const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
-            const now = Date.now();
-            const ageMilliseconds = now - updatedLocalTime.getTime();
-            if (ageMilliseconds > maxAgeHours * 3600000) { // Convert hours to milliseconds
-              // Skip this receiver if it's older than the max age
-              return;
-            }
-          }
+          // No need to filter by age here anymore since we're using the server-side maxage parameter
 
           // Create or update the receiver marker.
           if (receiverMarkers[id]) {
@@ -2632,17 +2627,25 @@ if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
 
 // Add the list of receivers that have reported this vessel
 if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
-  // Create links for each receiver ID
-  const receiverLinks = data.ReceiverIDs.map(id => {
-    if (receiverData[id] && receiverData[id].Name) {
-      return `<a href="/metrics/receiver.html?receiver=${id}" target="_blank">${receiverData[id].Name}</a>`;
-    } else {
-      return `<a href="/metrics/receiver.html?receiver=${id}" target="_blank">ID: ${id}</a>`;
-    }
-  });
+  // Filter out receivers that aren't in the current receiver list
+  const validReceiverIds = data.ReceiverIDs.filter(id => receiverData[id]);
   
-  // Join the links with commas
-  lines.push(`Receivers: ${receiverLinks.join(', ')}`);
+  if (validReceiverIds.length > 0) {
+    // Create links for each valid receiver ID
+    const receiverLinks = validReceiverIds.map(id => {
+      if (receiverData[id] && receiverData[id].Name) {
+        return `<a href="/metrics/receiver.html?receiver=${id}" target="_blank">${receiverData[id].Name}</a>`;
+      } else {
+        return `<a href="/metrics/receiver.html?receiver=${id}" target="_blank">ID: ${id}</a>`;
+      }
+    });
+    
+    // Join the links with commas
+    lines.push(`Receivers: ${receiverLinks.join(', ')}`);
+  } else {
+    // No valid receivers available
+    lines.push(`Receivers: None`);
+  }
 } else {
   // No receivers available
   lines.push(`Receivers: None`);
