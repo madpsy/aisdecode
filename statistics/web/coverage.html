@@ -1882,6 +1882,21 @@
         }
       });
       
+      // Clear range circles and labels when receivers are hidden
+      if (!showReceivers) {
+        // Remove range circles
+        rangeCircles.forEach(circle => {
+          if (circle) map.removeLayer(circle);
+        });
+        rangeCircles = [];
+        
+        // Remove range labels
+        rangeLabels.forEach(label => {
+          if (label) map.removeLayer(label);
+        });
+        rangeLabels = [];
+      }
+      
       // If receivers should be shown, add them back
       if (showReceivers) {
         // Reload the map data to add receivers back
