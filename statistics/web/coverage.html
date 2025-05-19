@@ -63,25 +63,22 @@
     <div class="card">
       <div class="card-body">
         <div class="controls row">
-          <div class="col-md-4">
+          <div class="col-md-6">
             <label for="receiver-select" class="form-label">Receiver:</label>
             <select id="receiver-select" class="form-select">
               <option value="" selected>All</option>
               <!-- Receivers will be loaded dynamically -->
             </select>
           </div>
-          <div class="col-md-4">
-                      <label for="days-select" class="form-label">Time window:</label>
-                      <select id="days-select" class="form-select">
-                        <option value="1" selected>1 day</option>
-                        <option value="2">2 days</option>
-                        <option value="7">7 days</option>
-                        <option value="14">14 days</option>
-                        <option value="30">30 days</option>
-                      </select>
-                    </div>
-          <div class="col-md-4 d-flex align-items-end">
-            <button id="load-btn" class="btn btn-primary">Load Coverage Map</button>
+          <div class="col-md-6">
+            <label for="days-select" class="form-label">Time window:</label>
+            <select id="days-select" class="form-select">
+              <option value="1" selected>1 day</option>
+              <option value="2">2 days</option>
+              <option value="7">7 days</option>
+              <option value="14">14 days</option>
+              <option value="30">30 days</option>
+            </select>
           </div>
         </div>
         
@@ -286,9 +283,7 @@
       updateURL();
       
       try {
-        // Show loading state
-        document.getElementById('load-btn').disabled = true;
-        document.getElementById('load-btn').textContent = 'Loading...';
+        // Show loading state (global loading indicator could be added here if needed)
         
         // Fetch coverage data
         let url = `/statistics/stats/coverage-map?days=${days}`;
@@ -397,9 +392,7 @@
         console.error('Failed to load coverage data:', e);
         alert('Failed to load coverage data. Please try again later.');
       } finally {
-        // Reset button state
-        document.getElementById('load-btn').disabled = false;
-        document.getElementById('load-btn').textContent = 'Load Coverage Map';
+        // Loading complete
       }
     }
     
@@ -466,7 +459,6 @@
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
       // Add event listeners
-      document.getElementById('load-btn').addEventListener('click', loadCoverageData);
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
       
       // Update URL and load data when selections change
