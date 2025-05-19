@@ -834,13 +834,13 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
                    FROM messages m
                    LEFT JOIN state s ON m.user_id = s.user_id
                   WHERE m.distance IS NOT NULL
-                    AND m.distance <= 500000  -- Filter out spurious values over 500km
+                    AND m.distance <= %d  -- Filter out spurious values over configured distance
                     AND m.timestamp >= '%s'
                     AND m.timestamp <= '%s'
                     AND m.receiver_id = %d
                     AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
                   ORDER BY m.user_id, m.receiver_id, m.distance DESC
-            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+            `, conf.MaxDistanceMeters, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
         } else {
             qry = fmt.Sprintf(`
                 SELECT DISTINCT ON (m.user_id, m.receiver_id)
@@ -854,12 +854,12 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
                    FROM messages m
                    LEFT JOIN state s ON m.user_id = s.user_id
                   WHERE m.distance IS NOT NULL
-                    AND m.distance <= 500000  -- Filter out spurious values over 500km
+                    AND m.distance <= %d  -- Filter out spurious values over configured distance
                     AND m.timestamp >= now() - INTERVAL '%d days'
                     AND m.receiver_id = %d
                     AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
                   ORDER BY m.user_id, m.receiver_id, m.distance DESC
-            `, days, receiverID)
+            `, conf.MaxDistanceMeters, days, receiverID)
         }
     } else {
         if timeRange.UseRange {
@@ -875,12 +875,12 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
                    FROM messages m
                    LEFT JOIN state s ON m.user_id = s.user_id
                   WHERE m.distance IS NOT NULL
-                    AND m.distance <= 500000  -- Filter out spurious values over 500km
+                    AND m.distance <= %d  -- Filter out spurious values over configured distance
                     AND m.timestamp >= '%s'
                     AND m.timestamp <= '%s'
                     AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
                   ORDER BY m.user_id, m.receiver_id, m.distance DESC
-            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
+            `, conf.MaxDistanceMeters, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
         } else {
             qry = fmt.Sprintf(`
                 SELECT DISTINCT ON (m.user_id, m.receiver_id)
@@ -894,11 +894,11 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
                    FROM messages m
                    LEFT JOIN state s ON m.user_id = s.user_id
                   WHERE m.distance IS NOT NULL
-                    AND m.distance <= 500000  -- Filter out spurious values over 500km
+                    AND m.distance <= %d  -- Filter out spurious values over configured distance
                     AND m.timestamp >= now() - INTERVAL '%d days'
                     AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
                   ORDER BY m.user_id, m.receiver_id, m.distance DESC
-            `, days)
+            `, conf.MaxDistanceMeters, days)
         }
     }
 

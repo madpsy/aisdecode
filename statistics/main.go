@@ -23,13 +23,14 @@ import (
 //
 
 type Settings struct {
-    IngestHost string `json:"ingester_host"`
-    IngestPort int    `json:"ingester_port"`
-    ListenPort int    `json:"listen_port"`
-    CacheTime  int    `json:"cache_time"`  // TTL in seconds
-    RedisHost  string `json:"redis_host"`
-    RedisPort  int    `json:"redis_port"`
-    Debug      bool   `json:"debug"`
+    IngestHost           string `json:"ingester_host"`
+    IngestPort           int    `json:"ingester_port"`
+    ListenPort           int    `json:"listen_port"`
+    CacheTime            int    `json:"cache_time"`  // TTL in seconds
+    RedisHost            string `json:"redis_host"`
+    RedisPort            int    `json:"redis_port"`
+    Debug                bool   `json:"debug"`
+    MaxDistanceMeters    int    `json:"max_distance_meters"`  // Maximum distance constraint in meters
 }
 
 type ClientInfo struct {
@@ -493,6 +494,12 @@ func main() {
     conf, err = loadSettings("settings.json")
     if err != nil {
         log.Fatalf("load settings: %v", err)
+    }
+
+    // Set default value for MaxDistanceMeters if not specified
+    if conf.MaxDistanceMeters == 0 {
+        conf.MaxDistanceMeters = 500000 // Default to 500km if not specified
+        log.Println("MaxDistanceMeters not specified in settings.json, using default value of 500000 meters (500km)")
     }
 
     initRedis()
