@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Message Statistics</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+  
+  <style>
+    body {
+      background-color: #f8f9fa;
+      padding: 2rem;
+      font-family: sans-serif;
+    }
+    h1, h2 {
+      color: #343a40;
+    }
+    .card {
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      margin-bottom: 2rem;
+    }
+    .chart-container {
+      position: relative;
+      height: 400px;
+      width: 100%;
+    }
+    /* Shrink charts on small screens */
+    @media (max-width: 576px) {
+      .chart-container {
+        height: 300px;
+      }
+    }
+    .period-selector {
+      margin-bottom: 1rem;
+    }
+    .period-selector .btn-group {
+      width: 100%;
+    }
+    .period-selector .btn {
+      flex: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container-fluid">
+    <!-- Header + Time Selector -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-column flex-sm-row">
+      <div class="d-flex align-items-center">
+        <h1 class="m-0 mb-3 mb-sm-0 me-3">Message Statistics</h1>
+        <button id="copy-link-btn" class="btn btn-outline-secondary">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-link-45deg" viewBox="0 0 16 16">
+            <path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/>
+            <path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243L6.586 4.672z"/>
+          </svg>
+          Copy Link
+        </button>
+      </div>
+      <div class="d-flex align-items-center">
+        <div class="me-3">
+          <label for="receiver-select" class="form-label me-2">Receiver:</label>
+          <select id="receiver-select" class="form-select d-inline-block w-auto">
+            <option value="" selected>All</option>
+            <!-- Receivers will be loaded dynamically -->
+          </select>
+        </div>
+        <div>
+          <label for="days-select" class="form-label me-2">Time window:</label>
+          <select id="days-select" class="form-select d-inline-block w-auto">
+            <option value="1" selected>1 day</option>
+            <option value="2">2 days</option>
+            <option value="7">7 days</option>
+            <option value="14">14 days</option>
+            <option value="30">30 days</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Message Counts Chart -->
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title">Message Counts Over Time</h2>
+        <div class="period-selector">
+          <div class="btn-group" role="group" aria-label="Time period selector">
+            <button type="button" class="btn btn-outline-primary active" data-period="daily">Daily (per hour)</button>
+            <button type="button" class="btn btn-outline-primary" data-period="monthly">Monthly (per day)</button>
+            <button type="button" class="btn btn-outline-primary" data-period="yearly">Yearly (per month)</button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="messageChart"></canvas>
+        </div>
+        <div class="mt-3">
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="stackedMessages" checked>
+            <label class="form-check-label" for="stackedMessages">Stacked</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="showLegendMessages" checked>
+            <label class="form-check-label" for="showLegendMessages">Show Legend</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Unique Vessels Chart -->
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title">Unique Vessels Over Time</h2>
+        <div class="period-selector">
+          <div class="btn-group" role="group" aria-label="Time period selector">
+            <button type="button" class="btn btn-outline-primary active" data-period="daily">Daily (per hour)</button>
+            <button type="button" class="btn btn-outline-primary" data-period="monthly">Monthly (per day)</button>
+            <button type="button" class="btn btn-outline-primary" data-period="yearly">Yearly (per month)</button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="vesselChart"></canvas>
+        </div>
+        <div class="mt-3">
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="stackedVessels" checked>
+            <label class="form-check-label" for="stackedVessels">Stacked</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="showLegendVessels" checked>
+            <label class="form-check-label" for="showLegendVessels">Show Legend</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dependencies -->
+  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+
+  <script>
+    $(function() {
+      // Chart.js configuration
+      Chart.defaults.font.family = "'Segoe UI', 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif";
+      Chart.defaults.color = '#666';
+      
+      // Global variables
+      let messageChart = null;
+      let vesselChart = null;
+      let receivers = [];
+      let messageTypes = {};
+      
+      // Color palette for message types and vessel classes
+      const colorPalette = [
+        '#4dc9f6', '#f67019', '#f53794', '#537bc4', '#acc236', 
+        '#166a8f', '#00a950', '#58595b', '#8549ba', '#e6194b',
+        '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', 
+        '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080'
+      ];
+      
+      // Initialize
+      init();
+      
+      // Add event listener for copy link button
+      document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
+      
+      // Add event listeners for period selectors
+      document.querySelectorAll('.period-selector .btn-group').forEach(group => {
+        group.addEventListener('click', function(e) {
+          if (e.target.classList.contains('btn')) {
+            // Remove active class from all buttons in this group
+            this.querySelectorAll('.btn').forEach(btn => btn.classList.remove('active'));
+            // Add active class to clicked button
+            e.target.classList.add('active');
+            
+            // Determine which chart to update
+            const chartType = e.target.closest('.card').querySelector('canvas').id === 'messageChart' ? 'messages' : 'vessels';
+            const period = e.target.dataset.period;
+            
+            // Update chart
+            loadChartData(chartType, period);
+          }
+        });
+      });
+      
+      // Add event listeners for stacked/legend checkboxes
+      document.getElementById('stackedMessages').addEventListener('change', function() {
+        updateChartStacking('messages', this.checked);
+      });
+      
+      document.getElementById('showLegendMessages').addEventListener('change', function() {
+        updateChartLegend('messages', this.checked);
+      });
+      
+      document.getElementById('stackedVessels').addEventListener('change', function() {
+        updateChartStacking('vessels', this.checked);
+      });
+      
+      document.getElementById('showLegendVessels').addEventListener('change', function() {
+        updateChartLegend('vessels', this.checked);
+      });
+      
+      // Add event listeners for days and receiver selectors
+      document.getElementById('days-select').addEventListener('change', function() {
+        updateURL();
+        refreshCharts();
+      });
+      
+      document.getElementById('receiver-select').addEventListener('change', function() {
+        updateURL();
+        refreshCharts();
+      });
+      
+      // Initialize the page
+      async function init() {
+        await Promise.all([
+          loadReceivers(),
+          loadMessageTypes()
+        ]);
+        
+        // Check for query parameters
+        const params = getQueryParams();
+        
+        // Set the dropdown values to match query parameters if available
+        if (params.receiverId) {
+          document.getElementById('receiver-select').value = params.receiverId;
+        }
+        
+        if (params.days) {
+          document.getElementById('days-select').value = params.days;
+        }
+        
+        // Initialize charts
+        initCharts();
+        
+        // Load initial data
+        refreshCharts();
+      }
+      
+      // Initialize charts
+      function initCharts() {
+        // Message chart
+        messageChart = new Chart(document.getElementById('messageChart'), {
+          type: 'bar',
+          data: {
+            labels: [],
+            datasets: []
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                stacked: true
+              },
+              y: {
+                stacked: true,
+                beginAtZero: true
+              }
+            },
+            plugins: {
+              legend: {
+                position: 'bottom',
+                display: true
+              },
+              tooltip: {
+                mode: 'index',
+                intersect: false
+              }
+            }
+          }
+        });
+        
+        // Vessel chart
+        vesselChart = new Chart(document.getElementById('vesselChart'), {
+          type: 'bar',
+          data: {
+            labels: [],
+            datasets: []
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                stacked: true
+              },
+              y: {
+                stacked: true,
+                beginAtZero: true
+              }
+            },
+            plugins: {
+              legend: {
+                position: 'bottom',
+                display: true
+              },
+              tooltip: {
+                mode: 'index',
+                intersect: false
+              }
+            }
+          }
+        });
+      }
+      
+      // Load receivers
+      async function loadReceivers() {
+        try {
+          receivers = await fetch('/receivers').then(r => r.json());
+          const select = $('#receiver-select');
+          
+          // Sort receivers by name
+          receivers.sort((a, b) => a.name.localeCompare(b.name));
+          
+          // Add receivers to dropdown (excluding receiver ID 0)
+          receivers.forEach(receiver => {
+            // Skip receiver ID 0
+            if (receiver.id === 0) return;
+            
+            select.append(`<option value="${receiver.id}">${receiver.name}</option>`);
+          });
+        } catch (e) {
+          console.error('Failed to load receivers:', e);
+        }
+      }
+      
+      // Load message types
+      async function loadMessageTypes() {
+        try {
+          messageTypes = await fetch('/message_types.json').then(r => r.json());
+        } catch (e) {
+          console.error('Failed to load message types:', e);
+        }
+      }
+      
+      // Refresh all charts
+      function refreshCharts() {
+        // Get active periods
+        const messagePeriod = document.querySelector('#messageChart').closest('.card').querySelector('.btn.active').dataset.period;
+        const vesselPeriod = document.querySelector('#vesselChart').closest('.card').querySelector('.btn.active').dataset.period;
+        
+        // Load data for both charts
+        loadChartData('messages', messagePeriod);
+        loadChartData('vessels', vesselPeriod);
+      }
+      
+      // Load chart data
+      async function loadChartData(type, period) {
+        const days = document.getElementById('days-select').value;
+        const receiverId = document.getElementById('receiver-select').value;
+        
+        try {
+          // Build URL
+          let url = `/statistics/stats/time-series?type=${type}&period=${period}&days=${days}`;
+          if (receiverId) {
+            url += `&receiver_id=${receiverId}`;
+          }
+          
+          // Fetch data
+          const response = await fetch(url);
+          const data = await response.json();
+          
+          // Update chart
+          if (type === 'messages') {
+            updateMessageChart(data);
+          } else {
+            updateVesselChart(data);
+          }
+        } catch (e) {
+          console.error(`Failed to load ${type} data:`, e);
+        }
+      }
+      
+      // Update message chart
+      function updateMessageChart(data) {
+        // Extract timestamps for labels
+        const labels = data.data_points.map(point => {
+          const date = new Date(point.timestamp);
+          
+          // Format based on period
+          if (data.period === 'daily') {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          } else if (data.period === 'monthly') {
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          } else {
+            return date.toLocaleDateString([], { year: 'numeric', month: 'short' });
+          }
+        });
+        
+        // Get all unique message IDs
+        const messageIds = new Set();
+        data.data_points.forEach(point => {
+          Object.keys(point.values).forEach(id => messageIds.add(id));
+        });
+        
+        // Sort message IDs numerically
+        const sortedMessageIds = Array.from(messageIds).sort((a, b) => parseInt(a) - parseInt(b));
+        
+        // Create datasets
+        const datasets = sortedMessageIds.map((id, index) => {
+          // Get message name from message types or use ID if not found
+          const messageName = messageTypes[id] ? messageTypes[id].name : `Message ${id}`;
+          
+          return {
+            label: messageName,
+            data: data.data_points.map(point => point.values[id] || 0),
+            backgroundColor: colorPalette[index % colorPalette.length],
+            borderColor: 'rgba(255, 255, 255, 0.5)',
+            borderWidth: 1
+          };
+        });
+        
+        // Update chart
+        messageChart.data.labels = labels;
+        messageChart.data.datasets = datasets;
+        messageChart.update();
+      }
+      
+      // Update vessel chart
+      function updateVesselChart(data) {
+        // Extract timestamps for labels
+        const labels = data.data_points.map(point => {
+          const date = new Date(point.timestamp);
+          
+          // Format based on period
+          if (data.period === 'daily') {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          } else if (data.period === 'monthly') {
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          } else {
+            return date.toLocaleDateString([], { year: 'numeric', month: 'short' });
+          }
+        });
+        
+        // Get all unique AIS classes
+        const aisClasses = new Set();
+        data.data_points.forEach(point => {
+          Object.keys(point.values).forEach(cls => aisClasses.add(cls));
+        });
+        
+        // Sort AIS classes alphabetically
+        const sortedAisClasses = Array.from(aisClasses).sort();
+        
+        // Create datasets
+        const datasets = sortedAisClasses.map((cls, index) => {
+          // Format class name
+          const className = cls === 'UNKNOWN' ? 'Unknown' : `Class ${cls}`;
+          
+          return {
+            label: className,
+            data: data.data_points.map(point => point.values[cls] || 0),
+            backgroundColor: colorPalette[index % colorPalette.length],
+            borderColor: 'rgba(255, 255, 255, 0.5)',
+            borderWidth: 1
+          };
+        });
+        
+        // Update chart
+        vesselChart.data.labels = labels;
+        vesselChart.data.datasets = datasets;
+        vesselChart.update();
+      }
+      
+      // Update chart stacking
+      function updateChartStacking(type, stacked) {
+        const chart = type === 'messages' ? messageChart : vesselChart;
+        
+        chart.options.scales.x.stacked = stacked;
+        chart.options.scales.y.stacked = stacked;
+        chart.update();
+      }
+      
+      // Update chart legend
+      function updateChartLegend(type, show) {
+        const chart = type === 'messages' ? messageChart : vesselChart;
+        
+        chart.options.plugins.legend.display = show;
+        chart.update();
+      }
+      
+      // Parse URL query parameters
+      function getQueryParams() {
+        const params = new URLSearchParams(window.location.search);
+        return {
+          receiverId: params.get('receiver_id'),
+          days: params.get('days')
+        };
+      }
+      
+      // Update URL with current selections without reloading the page
+      function updateURL() {
+        const receiverId = document.getElementById('receiver-select').value;
+        const days = document.getElementById('days-select').value;
+        
+        const url = new URL(window.location.href);
+        
+        if (receiverId) {
+          url.searchParams.set('receiver_id', receiverId);
+        } else {
+          url.searchParams.delete('receiver_id');
+        }
+        
+        if (days) {
+          url.searchParams.set('days', days);
+        } else {
+          url.searchParams.delete('days');
+        }
+        
+        window.history.replaceState({}, '', url);
+      }
+      
+      // Copy current URL to clipboard
+      function copyLinkToClipboard() {
+        const url = window.location.href;
+        navigator.clipboard.writeText(url).then(() => {
+          const btn = document.getElementById('copy-link-btn');
+          const originalText = btn.innerHTML;
+          btn.innerHTML = 'Copied!';
+          setTimeout(() => {
+            btn.innerHTML = originalText;
+          }, 2000);
+        }).catch(err => {
+          console.error('Failed to copy URL: ', err);
+          alert('Failed to copy URL to clipboard');
+        });
+      }
+    });
+  </script>
+</body>
+</html>

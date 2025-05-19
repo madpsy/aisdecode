@@ -132,6 +132,7 @@ func registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/statistics/stats/top-distance", topDistanceHandler)
 	mux.HandleFunc("/statistics/stats/user-counts", userCountsHandler)
 	mux.HandleFunc("/statistics/stats/coverage-map", coverageMapHandler)
+	mux.HandleFunc("/statistics/stats/time-series", timeSeriesHandler)
 }
 
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
@@ -933,4 +934,409 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
     // Cache the result
     cacheSet(cacheKey, coverageData)
     respondJSON(w, coverageData)
+}
+
+// TimeSeriesType represents the type of time series data
+type TimeSeriesType string
+
+const (
+	TimeSeriesMessages TimeSeriesType = "messages"
+	TimeSeriesVessels  TimeSeriesType = "vessels"
+)
+
+// TimeSeriesPeriod represents the time period for aggregation
+type TimeSeriesPeriod string
+
+const (
+	TimeSeriesDaily   TimeSeriesPeriod = "daily"
+	TimeSeriesMonthly TimeSeriesPeriod = "monthly"
+	TimeSeriesYearly  TimeSeriesPeriod = "yearly"
+)
+
+// TimeSeriesDataPoint represents a single data point in the time series
+type TimeSeriesDataPoint struct {
+	Timestamp time.Time         `json:"timestamp"`
+	Values    map[string]int    `json:"values"` // Key is message_id or ais_class
+}
+
+// TimeSeriesResponse is the JSON response for the time-series endpoint
+type TimeSeriesResponse struct {
+	Type     TimeSeriesType     `json:"type"`
+	Period   TimeSeriesPeriod   `json:"period"`
+	DataPoints []TimeSeriesDataPoint `json:"data_points"`
+}
+
+// parseTimeSeriesTypeParam reads 'type' query param, defaults to "messages"
+func parseTimeSeriesTypeParam(r *http.Request) TimeSeriesType {
+	typeParam := r.URL.Query().Get("type")
+	if typeParam == "vessels" {
+		return TimeSeriesVessels
+	}
+	return TimeSeriesMessages
+}
+
+// parseTimeSeriesPeriodParam reads 'period' query param, defaults to "daily"
+func parseTimeSeriesPeriodParam(r *http.Request) TimeSeriesPeriod {
+	periodParam := r.URL.Query().Get("period")
+	switch periodParam {
+	case "monthly":
+		return TimeSeriesMonthly
+	case "yearly":
+		return TimeSeriesYearly
+	default:
+		return TimeSeriesDaily
+	}
+}
+
+// timeSeriesHandler provides time series data for messages or vessels
+// Query parameters:
+// - type: "messages" or "vessels" (default: "messages")
+// - period: "daily", "monthly", "yearly" (default: "daily")
+// - days: number of days to look back (default: 1, max: 30 for daily, 365 for monthly, 1825 for yearly)
+// - receiver_id: optional filter for a specific receiver
+func timeSeriesHandler(w http.ResponseWriter, r *http.Request) {
+	seriesType := parseTimeSeriesTypeParam(r)
+	period := parseTimeSeriesPeriodParam(r)
+	receiverID := parseReceiverIDParam(r)
+	
+	// Adjust max days based on period
+	maxDays := 30
+	if period == TimeSeriesMonthly {
+		maxDays = 365
+	} else if period == TimeSeriesYearly {
+		maxDays = 1825 // ~5 years
+	}
+	
+	// Parse days with custom max
+	days := 1
+	if d := r.URL.Query().Get("days"); d != "" {
+		if n, err := strconv.Atoi(d); err == nil && n > 0 {
+			if n > maxDays {
+				days = maxDays
+			} else {
+				days = n
+			}
+		}
+	}
+	
+	// Build cache key
+	var cacheKey string
+	if receiverID > 0 {
+		cacheKey = fmt.Sprintf("time-series:%s:%s:%dd:r%d", seriesType, period, days, receiverID)
+	} else {
+		cacheKey = fmt.Sprintf("time-series:%s:%s:%dd", seriesType, period, days)
+	}
+	
+	var response TimeSeriesResponse
+	if ok, _ := cacheGet(cacheKey, &response); ok {
+		respondJSON(w, response)
+		return
+	}
+	
+	// Initialize response
+	response = TimeSeriesResponse{
+		Type:   seriesType,
+		Period: period,
+	}
+	
+	// Build and execute query based on type and period
+	var err error
+	if seriesType == TimeSeriesMessages {
+		response.DataPoints, err = fetchMessageTimeSeries(period, days, receiverID)
+	} else {
+		response.DataPoints, err = fetchVesselTimeSeries(period, days, receiverID)
+	}
+	
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	
+	cacheSet(cacheKey, response)
+	respondJSON(w, response)
+}
+
+// fetchMessageTimeSeries retrieves message counts grouped by time period and message_id
+func fetchMessageTimeSeries(period TimeSeriesPeriod, days int, receiverID int) ([]TimeSeriesDataPoint, error) {
+	// Define time format and interval based on period
+	var timeFormat, timeInterval, groupBy string
+	
+	switch period {
+	case TimeSeriesDaily:
+		timeFormat = "2006-01-02 15:00:00" // YYYY-MM-DD HH:00:00
+		timeInterval = "1 hour"
+		groupBy = "DATE_TRUNC('hour', timestamp)"
+	case TimeSeriesMonthly:
+		timeFormat = "2006-01-02" // YYYY-MM-DD
+		timeInterval = "1 day"
+		groupBy = "DATE_TRUNC('day', timestamp)"
+	case TimeSeriesYearly:
+		timeFormat = "2006-01" // YYYY-MM
+		timeInterval = "1 month"
+		groupBy = "DATE_TRUNC('month', timestamp)"
+	}
+	
+	// Build query with optional receiver_id filter
+	var qry string
+	if receiverID > 0 {
+		qry = fmt.Sprintf(`
+			WITH time_series AS (
+				SELECT
+					generate_series(
+						DATE_TRUNC('%s', NOW() - INTERVAL '%d days'),
+						DATE_TRUNC('%s', NOW()),
+						INTERVAL '%s'
+					) AS ts
+			)
+			SELECT
+				ts.ts AS timestamp,
+				COALESCE(m.message_id, 0) AS message_id,
+				COALESCE(COUNT(m.id), 0) AS count
+			FROM
+				time_series ts
+			LEFT JOIN
+				messages m ON DATE_TRUNC('%s', m.timestamp) = ts.ts
+				AND m.receiver_id = %d
+			GROUP BY
+				ts.ts, m.message_id
+			ORDER BY
+				ts.ts, m.message_id
+		`,
+		getIntervalName(period), days, getIntervalName(period), timeInterval,
+		getIntervalName(period), receiverID)
+	} else {
+		qry = fmt.Sprintf(`
+			WITH time_series AS (
+				SELECT
+					generate_series(
+						DATE_TRUNC('%s', NOW() - INTERVAL '%d days'),
+						DATE_TRUNC('%s', NOW()),
+						INTERVAL '%s'
+					) AS ts
+			)
+			SELECT
+				ts.ts AS timestamp,
+				COALESCE(m.message_id, 0) AS message_id,
+				COALESCE(COUNT(m.id), 0) AS count
+			FROM
+				time_series ts
+			LEFT JOIN
+				messages m ON DATE_TRUNC('%s', m.timestamp) = ts.ts
+			GROUP BY
+				ts.ts, m.message_id
+			ORDER BY
+				ts.ts, m.message_id
+		`,
+		getIntervalName(period), days, getIntervalName(period), timeInterval,
+		getIntervalName(period))
+	}
+	
+	shardResults, err := QueryDatabasesForAllShards(qry)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Process results
+	timeMap := make(map[time.Time]map[string]int)
+	
+	for _, recs := range shardResults {
+		for _, rec := range recs {
+			ts, err := parseTime(rec["timestamp"])
+			if err != nil {
+				continue
+			}
+			
+			msgID, err := parseInt(rec["message_id"])
+			if err != nil {
+				continue
+			}
+			
+			count, err := parseInt(rec["count"])
+			if err != nil {
+				continue
+			}
+			
+			// Convert message_id to string for the map key
+			msgIDStr := fmt.Sprintf("%d", msgID)
+			
+			// Initialize map for this timestamp if needed
+			if _, ok := timeMap[ts]; !ok {
+				timeMap[ts] = make(map[string]int)
+			}
+			
+			// Add count to existing value (aggregating across shards)
+			timeMap[ts][msgIDStr] += count
+		}
+	}
+	
+	// Convert map to sorted slice
+	var timestamps []time.Time
+	for ts := range timeMap {
+		timestamps = append(timestamps, ts)
+	}
+	sort.Slice(timestamps, func(i, j int) bool {
+		return timestamps[i].Before(timestamps[j])
+	})
+	
+	// Build response
+	dataPoints := make([]TimeSeriesDataPoint, len(timestamps))
+	for i, ts := range timestamps {
+		dataPoints[i] = TimeSeriesDataPoint{
+			Timestamp: ts,
+			Values:    timeMap[ts],
+		}
+	}
+	
+	return dataPoints, nil
+}
+
+// fetchVesselTimeSeries retrieves unique vessel counts grouped by time period and ais_class
+func fetchVesselTimeSeries(period TimeSeriesPeriod, days int, receiverID int) ([]TimeSeriesDataPoint, error) {
+	// Define time format and interval based on period
+	var timeFormat, timeInterval, groupBy string
+	
+	switch period {
+	case TimeSeriesDaily:
+		timeFormat = "2006-01-02 15:00:00" // YYYY-MM-DD HH:00:00
+		timeInterval = "1 hour"
+		groupBy = "DATE_TRUNC('hour', timestamp)"
+	case TimeSeriesMonthly:
+		timeFormat = "2006-01-02" // YYYY-MM-DD
+		timeInterval = "1 day"
+		groupBy = "DATE_TRUNC('day', timestamp)"
+	case TimeSeriesYearly:
+		timeFormat = "2006-01" // YYYY-MM
+		timeInterval = "1 month"
+		groupBy = "DATE_TRUNC('month', timestamp)"
+	}
+	
+	// Build query with optional receiver_id filter
+	var qry string
+	if receiverID > 0 {
+		qry = fmt.Sprintf(`
+			WITH time_series AS (
+				SELECT
+					generate_series(
+						DATE_TRUNC('%s', NOW() - INTERVAL '%d days'),
+						DATE_TRUNC('%s', NOW()),
+						INTERVAL '%s'
+					) AS ts
+			)
+			SELECT
+				ts.ts AS timestamp,
+				COALESCE(s.ais_class, 'UNKNOWN') AS ais_class,
+				COUNT(DISTINCT m.user_id) AS count
+			FROM
+				time_series ts
+			LEFT JOIN
+				messages m ON DATE_TRUNC('%s', m.timestamp) = ts.ts
+				AND m.receiver_id = %d
+			LEFT JOIN
+				state s ON m.user_id = s.user_id
+			WHERE m.user_id IS NOT NULL
+			GROUP BY
+				ts.ts, s.ais_class
+			ORDER BY
+				ts.ts, s.ais_class
+		`,
+		getIntervalName(period), days, getIntervalName(period), timeInterval,
+		getIntervalName(period), receiverID)
+	} else {
+		qry = fmt.Sprintf(`
+			WITH time_series AS (
+				SELECT
+					generate_series(
+						DATE_TRUNC('%s', NOW() - INTERVAL '%d days'),
+						DATE_TRUNC('%s', NOW()),
+						INTERVAL '%s'
+					) AS ts
+			)
+			SELECT
+				ts.ts AS timestamp,
+				COALESCE(s.ais_class, 'UNKNOWN') AS ais_class,
+				COUNT(DISTINCT m.user_id) AS count
+			FROM
+				time_series ts
+			LEFT JOIN
+				messages m ON DATE_TRUNC('%s', m.timestamp) = ts.ts
+			LEFT JOIN
+				state s ON m.user_id = s.user_id
+			WHERE m.user_id IS NOT NULL
+			GROUP BY
+				ts.ts, s.ais_class
+			ORDER BY
+				ts.ts, s.ais_class
+		`,
+		getIntervalName(period), days, getIntervalName(period), timeInterval,
+		getIntervalName(period))
+	}
+	
+	shardResults, err := QueryDatabasesForAllShards(qry)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Process results
+	timeMap := make(map[time.Time]map[string]int)
+	
+	for _, recs := range shardResults {
+		for _, rec := range recs {
+			ts, err := parseTime(rec["timestamp"])
+			if err != nil {
+				continue
+			}
+			
+			aisClass, err := parseString(rec["ais_class"])
+			if err != nil || aisClass == "" {
+				aisClass = "UNKNOWN"
+			}
+			
+			count, err := parseInt(rec["count"])
+			if err != nil {
+				continue
+			}
+			
+			// Initialize map for this timestamp if needed
+			if _, ok := timeMap[ts]; !ok {
+				timeMap[ts] = make(map[string]int)
+			}
+			
+			// Add count to existing value (aggregating across shards)
+			timeMap[ts][aisClass] += count
+		}
+	}
+	
+	// Convert map to sorted slice
+	var timestamps []time.Time
+	for ts := range timeMap {
+		timestamps = append(timestamps, ts)
+	}
+	sort.Slice(timestamps, func(i, j int) bool {
+		return timestamps[i].Before(timestamps[j])
+	})
+	
+	// Build response
+	dataPoints := make([]TimeSeriesDataPoint, len(timestamps))
+	for i, ts := range timestamps {
+		dataPoints[i] = TimeSeriesDataPoint{
+			Timestamp: ts,
+			Values:    timeMap[ts],
+		}
+	}
+	
+	return dataPoints, nil
+}
+
+// getIntervalName returns the PostgreSQL interval name for a given period
+func getIntervalName(period TimeSeriesPeriod) string {
+	switch period {
+	case TimeSeriesDaily:
+		return "hour"
+	case TimeSeriesMonthly:
+		return "day"
+	case TimeSeriesYearly:
+		return "month"
+	default:
+		return "hour"
+	}
 }
