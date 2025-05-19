@@ -1198,9 +1198,12 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     ipParam := r.URL.Query().Get("ip_address")
     maxAgeParam := r.URL.Query().Get("maxage")
     
-    // Parse maxage parameter (in hours) if provided
-    var maxAgeHours float64
+    // Parse maxage parameter (in hours)
+    // Default to 7 days (168 hours) if not specified
+    // Maximum allowed value is 90 days (2160 hours)
+    var maxAgeHours float64 = 168 // Default to 7 days
     var maxAgeTime *time.Time
+    
     if maxAgeParam != "" {
         var err error
         maxAgeHours, err = strconv.ParseFloat(maxAgeParam, 64)
@@ -1209,10 +1212,15 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             return
         }
         
-        // Calculate the cutoff time
-        cutoffTime := time.Now().Add(-time.Duration(maxAgeHours * float64(time.Hour)))
-        maxAgeTime = &cutoffTime
+        // Cap at maximum allowed value (90 days = 2160 hours)
+        if maxAgeHours > 2160 {
+            maxAgeHours = 2160
+        }
     }
+    
+    // Calculate the cutoff time
+    cutoffTime := time.Now().Add(-time.Duration(maxAgeHours * float64(time.Hour)))
+    maxAgeTime = &cutoffTime
 
     // Build the query based on filters - only filter by ID, not by IP address
     baseQuery := `
@@ -1431,7 +1439,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         portLastSeenMutex.RUnlock()
         
         // Only add the anonymous receiver if it meets the maxage criteria
-        if maxAgeTime == nil || (anonymousLastSeen != nil && !anonymousLastSeen.Before(*maxAgeTime)) {
+        if anonymousLastSeen != nil && !anonymousLastSeen.Before(*maxAgeTime) {
             // Add the anonymous receiver first
             response = append(response, anonymousReceiver)
         }
@@ -1440,7 +1448,7 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     // Add all the regular receivers that meet the maxage criteria
     for _, rec := range list {
         // Skip receivers that don't meet the maxage criteria
-        if maxAgeTime != nil && (rec.lastSeenTime == nil || rec.lastSeenTime.Before(*maxAgeTime)) {
+        if rec.lastSeenTime == nil || rec.lastSeenTime.Before(*maxAgeTime) {
             continue
         }
         
