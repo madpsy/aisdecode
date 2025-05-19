@@ -329,6 +329,14 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vess
 	return report.String()
 }
 
+// FailedReport represents a report that failed to send
+type FailedReport struct {
+	ReceiverID   int
+	ReceiverName string
+	Email        string
+	Error        string
+}
+
 // sendWeeklyStatisticsReports sends weekly statistics reports to all eligible receivers
 func sendWeeklyStatisticsReports() {
 	// Check if statistics reporting is enabled
@@ -338,6 +346,9 @@ func sendWeeklyStatisticsReports() {
 	}
 	
 	log.Println("Starting weekly statistics report generation")
+	
+	// Record overall start time for total processing duration
+	overallStartTime := time.Now()
 
 	// Fetch vessel type mappings
 	vesselTypeMap, err := fetchVesselTypeMap(settings.StatisticsBaseURL)
@@ -360,8 +371,10 @@ func sendWeeklyStatisticsReports() {
 	// Number of days to include in the report
 	days := 7
 
-	// Track how many reports were sent
+	// Track statistics
 	reportsSent := 0
+	reportsSuccessful := 0
+	failedReports := []FailedReport{}
 
 	for _, receiver := range receivers {
 		// Skip receivers with notifications disabled or no email
@@ -393,6 +406,12 @@ func sendWeeklyStatisticsReports() {
 		stats, err := fetchReceiverStatistics(settings.StatisticsBaseURL, receiver.ID, days)
 		if err != nil {
 			log.Printf("Error fetching statistics for receiver %d: %v", receiver.ID, err)
+			failedReports = append(failedReports, FailedReport{
+				ReceiverID:   receiver.ID,
+				ReceiverName: receiver.Name,
+				Email:        receiver.Email,
+				Error:        fmt.Sprintf("Error fetching statistics: %v", err),
+			})
 			continue
 		}
 
@@ -406,20 +425,79 @@ func sendWeeklyStatisticsReports() {
 		emailSentTo, err := sendEmail("statistics_report", receiverCopy, reportBody)
 		if err != nil {
 			log.Printf("Error sending statistics report for receiver %d: %v", receiver.ID, err)
+			failedReports = append(failedReports, FailedReport{
+				ReceiverID:   receiver.ID,
+				ReceiverName: receiver.Name,
+				Email:        receiver.Email,
+				Error:        fmt.Sprintf("Error sending email: %v", err),
+			})
 			continue
 		}
 
 		// Log the alert
-		if err := logAlert("statistics_report", receiver.ID, emailSentTo, 
+		if err := logAlert("statistics_report", receiver.ID, emailSentTo,
 			fmt.Sprintf("Weekly statistics report sent for receiver %s (ID: %d)", receiver.Name, receiver.ID)); err != nil {
 			log.Printf("Error logging statistics report alert for receiver %d: %v", receiver.ID, err)
 		}
 
 		reportsSent++
+		reportsSuccessful++
 		log.Printf("Sent statistics report for receiver %d (%s)", receiver.ID, receiver.Name)
 	}
 
-	log.Printf("Weekly statistics report generation complete. Sent %d reports.", reportsSent)
+	// Calculate total processing time
+	totalProcessingTime := time.Since(overallStartTime)
+
+	// Send summary email to admins
+	sendReportSummaryToAdmins(reportsSent, reportsSuccessful, failedReports, totalProcessingTime)
+
+	log.Printf("Weekly statistics report generation complete. Sent %d reports (%d successful, %d failed) in %.2f seconds.",
+		reportsSent, reportsSuccessful, len(failedReports), totalProcessingTime.Seconds())
+}
+
+// sendReportSummaryToAdmins sends a summary of the report processing to site admins
+func sendReportSummaryToAdmins(totalReports, successfulReports int, failedReports []FailedReport, processingTime time.Duration) {
+	if settings.ToAddresses == "" {
+		log.Println("No admin email addresses configured, skipping report summary")
+		return
+	}
+
+	subject := fmt.Sprintf("Weekly Statistics Report Summary - %s", time.Now().Format("Jan 2, 2006"))
+	
+	var body strings.Builder
+	body.WriteString(fmt.Sprintf("Weekly Statistics Report Processing Summary\n\n"))
+	body.WriteString(fmt.Sprintf("Total reports processed: %d\n", totalReports))
+	body.WriteString(fmt.Sprintf("Successful reports: %d\n", successfulReports))
+	body.WriteString(fmt.Sprintf("Failed reports: %d\n", len(failedReports)))
+	body.WriteString(fmt.Sprintf("Total processing time: %.2f seconds\n\n", processingTime.Seconds()))
+	
+	if len(failedReports) > 0 {
+		body.WriteString("Failed Reports Details:\n")
+		for i, report := range failedReports {
+			body.WriteString(fmt.Sprintf("%d. Receiver ID: %d, Name: %s, Email: %s\n   Error: %s\n\n",
+				i+1, report.ReceiverID, report.ReceiverName, report.Email, report.Error))
+		}
+	}
+	
+	body.WriteString(fmt.Sprintf("\nGenerated on: %s\n", time.Now().Format("January 2, 2006 at 15:04:05 (UTC)")))
+	body.WriteString(fmt.Sprintf("\nAIS Decoder Team\nhttps://%s/\n", settings.SiteDomain))
+	
+	// Split the comma-separated list of admin emails
+	adminEmails := strings.Split(settings.ToAddresses, ",")
+	
+	for _, email := range adminEmails {
+		email = strings.TrimSpace(email)
+		if email == "" {
+			continue
+		}
+		
+		err := sendSingleEmail(subject, body.String(), email)
+		if err != nil {
+			log.Printf("Error sending report summary to admin (%s): %v", email, err)
+		} else {
+			log.Printf("Sent report summary to admin: %s", email)
+		}
+	}
 }
 
 // startStatisticsReportScheduler starts the scheduler for weekly statistics reports
