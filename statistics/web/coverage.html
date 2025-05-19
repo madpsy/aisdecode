@@ -1030,6 +1030,7 @@
     let replayIndex = 0;
     let replayInterval = null;
     let isReplaying = false;
+    let replayReceivers = null; // Store receivers data for replay
     
     // Fetch replay data for day (hourly for past 24 hours)
     async function fetchDayReplayData() {
@@ -1173,6 +1174,14 @@
       isReplaying = true;
       isPaused = false;
       
+      // Fetch receivers once at the start of replay
+      const receiverId = document.getElementById('receiver-select').value;
+      if (receiverId) {
+        fetch('/receivers').then(r => r.json()).then(receivers => {
+          replayReceivers = receivers;
+        });
+      }
+      
       // Show controls and info
       document.getElementById('replay-controls').style.display = 'flex !important';
       document.getElementById('replay-controls').setAttribute('style', 'display: flex !important');
@@ -1288,6 +1297,7 @@
       
       isReplaying = false;
       isPaused = false;
+      replayReceivers = null; // Clear stored receivers when stopping replay
       
       // Hide controls and info
       document.getElementById('replay-controls').setAttribute('style', 'display: none !important');
@@ -1338,17 +1348,15 @@
       
       // Update statistics if we have a receiver selected
       const receiverId = document.getElementById('receiver-select').value;
-      if (receiverId) {
-        // Load all receivers
-        fetch('/receivers').then(r => r.json()).then(receivers => {
-          const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
-          if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
-            const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
-            const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
-            const stats = calculateCoverageStats(heatData, receiverLatLng, maxDistance);
-            updateStatsDisplay(stats, true);
-          }
-        });
+      if (receiverId && replayReceivers) {
+        // Use the already fetched receivers instead of fetching again
+        const selectedReceiver = replayReceivers.find(r => r.id === parseInt(receiverId));
+        if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
+          const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
+          const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
+          const stats = calculateCoverageStats(heatData, receiverLatLng, maxDistance);
+          updateStatsDisplay(stats, true);
+        }
       }
     }
     
