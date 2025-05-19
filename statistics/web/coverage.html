@@ -358,6 +358,23 @@
         </div>
       </div>
     </div>
+    
+    <!-- CSV Download Buttons -->
+    <div id="csv-buttons" class="mt-3">
+      <button id="data-csv-btn" class="btn btn-sm btn-outline-secondary me-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-file-earmark-arrow-down" viewBox="0 0 16 16">
+          <path d="M8.5 6.5a.5.5 0 0 0-1 0v3.793L6.354 9.146a.5.5 0 1 0-.708.708l2 2a.5.5 0 0 0 .708 0l2-2a.5.5 0 0 0-.708-.708L8.5 10.293V6.5z"/>
+          <path d="M14 14V4.5L9.5 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2zM9.5 3A1.5 1.5 0 0 0 11 4.5h2V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h5.5v2z"/>
+        </svg>
+        Data CSV
+      </button>
+      <button id="table-csv-btn" class="btn btn-sm btn-outline-secondary">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-table" viewBox="0 0 16 16">
+          <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm15 2h-4v3h4V4zm0 4h-4v3h4V8zm0 4h-4v3h3a1 1 0 0 0 1-1v-2zm-5 3v-3H6v3h4zm-5 0v-3H1v2a1 1 0 0 0 1 1h3zm-4-4h4V8H1v3zm0-4h4V4H1v3zm5-3v3h4V4H6zm4 4H6v3h4V8z"/>
+        </svg>
+        Table CSV
+      </button>
+    </div>
   </div>
   
   <script>
@@ -1162,6 +1179,9 @@
       document.getElementById('replay-info').style.display = 'block';
       document.getElementById('replay-datetime-overlay').style.display = 'block';
       
+      // Hide CSV buttons during replay
+      updateCSVButtonsVisibility();
+      
       // Set button states (keep day/week buttons enabled)
       document.getElementById('replay-pause-btn').style.display = 'inline-block';
       document.getElementById('replay-play-btn').style.display = 'none';
@@ -1274,6 +1294,9 @@
       document.getElementById('replay-info').style.display = 'none';
       document.getElementById('replay-datetime-overlay').style.display = 'none';
       
+      // Show CSV buttons
+      updateCSVButtonsVisibility();
+      
       // No need to re-enable replay buttons as they're always enabled
       
       // Restore original state
@@ -1329,6 +1352,117 @@
       }
     }
     
+    // Function to generate and download CSV
+    function downloadCSV(data, filename) {
+      // Create CSV content
+      const csvContent = "data:text/csv;charset=utf-8," + data;
+      
+      // Create download link
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      
+      // Trigger download
+      link.click();
+      
+      // Clean up
+      document.body.removeChild(link);
+    }
+    
+    // Generate raw data CSV
+    function generateDataCSV() {
+      if (isReplaying) return; // Don't allow during replay
+      
+      // Get current data
+      const receiverId = document.getElementById('receiver-select').value;
+      const isDateRange = document.getElementById('dateRangeRadio').checked;
+      let url;
+      
+      if (isDateRange) {
+        const fromDate = document.getElementById('from-date').value;
+        const toDate = document.getElementById('to-date').value;
+        
+        try {
+          const fromDateObj = new Date(fromDate);
+          const toDateObj = new Date(toDate);
+          url = `/statistics/stats/coverage-map?from=${formatDateForAPI(fromDateObj)}&to=${formatDateForAPI(toDateObj)}`;
+          if (receiverId) {
+            url += `&receiver_id=${receiverId}`;
+          }
+        } catch (e) {
+          console.error('Date formatting error:', e);
+          alert('Invalid date format. Please check your date inputs.');
+          return;
+        }
+      } else {
+        const days = document.getElementById('days-select').value;
+        url = `/statistics/stats/coverage-map?days=${days}`;
+        if (receiverId) {
+          url += `&receiver_id=${receiverId}`;
+        }
+      }
+      
+      // Add CSV format parameter
+      url += '&format=csv';
+      
+      // Fetch data and download
+      fetch(url)
+        .then(response => response.text())
+        .then(data => {
+          downloadCSV(data, 'coverage_data.csv');
+        })
+        .catch(error => {
+          console.error('Error fetching CSV data:', error);
+          alert('Failed to download CSV data');
+        });
+    }
+    
+    // Generate table CSV from current statistics
+    function generateTableCSV() {
+      if (isReplaying) return; // Don't allow during replay
+      
+      // Check if stats are displayed
+      if (document.getElementById('coverage-stats').style.display === 'none') {
+        alert('No statistics available to export');
+        return;
+      }
+      
+      let csvContent = 'Category,Range,Count,Percentage\n';
+      
+      // Get distance stats
+      const distanceRows = document.getElementById('distance-stats').querySelectorAll('tr');
+      distanceRows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length === 3) {
+          csvContent += `Distance,${cells[0].textContent},${cells[1].textContent},${cells[2].textContent}\n`;
+        }
+      });
+      
+      // Get direction stats if available
+      const directionRows = document.getElementById('direction-stats').querySelectorAll('tr');
+      directionRows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length === 3) {
+          csvContent += `Direction,${cells[0].textContent},${cells[1].textContent},${cells[2].textContent}\n`;
+        }
+      });
+      
+      // Download the CSV
+      downloadCSV(csvContent, 'coverage_statistics.csv');
+    }
+    
+    // Update CSV button visibility based on replay state
+    function updateCSVButtonsVisibility() {
+      const buttons = document.getElementById('csv-buttons');
+      if (isReplaying) {
+        buttons.style.display = 'none';
+      } else {
+        buttons.style.display = 'block';
+      }
+    }
+    
     // Function to update receiver visibility
     function updateReceiverVisibility() {
       // Get current state of checkbox
@@ -1367,6 +1501,13 @@
       
       // Add event listener for receivers checkbox
       document.getElementById('show-receivers-checkbox').addEventListener('change', updateReceiverVisibility);
+      
+      // Add event listeners for CSV buttons
+      document.getElementById('data-csv-btn').addEventListener('click', generateDataCSV);
+      document.getElementById('table-csv-btn').addEventListener('click', generateTableCSV);
+      
+      // Initialize CSV buttons visibility
+      updateCSVButtonsVisibility();
       
       // Set up date range toggle
       document.getElementById('fixedWindowRadio').addEventListener('change', function() {
