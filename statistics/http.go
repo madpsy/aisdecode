@@ -1221,7 +1221,6 @@ func fetchVesselTimeSeries(period TimeSeriesPeriod, days int, receiverID int) ([
 				AND m.receiver_id = %d
 			LEFT JOIN
 				state s ON m.user_id = s.user_id
-			WHERE m.user_id IS NOT NULL
 			GROUP BY
 				ts.ts, s.ais_class
 			ORDER BY
@@ -1249,7 +1248,6 @@ func fetchVesselTimeSeries(period TimeSeriesPeriod, days int, receiverID int) ([
 				messages m ON DATE_TRUNC('%s', m.timestamp) = ts.ts
 			LEFT JOIN
 				state s ON m.user_id = s.user_id
-			WHERE m.user_id IS NOT NULL
 			GROUP BY
 				ts.ts, s.ais_class
 			ORDER BY

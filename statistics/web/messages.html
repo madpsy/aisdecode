@@ -481,7 +481,7 @@
           }
         });
         
-        // Get all unique AIS classes
+        // Get all unique AIS classes across all time periods
         const aisClasses = new Set();
         data.data_points.forEach(point => {
           Object.keys(point.values).forEach(cls => aisClasses.add(cls));
@@ -490,31 +490,29 @@
         // Sort AIS classes alphabetically
         const sortedAisClasses = Array.from(aisClasses).sort();
         
-        // Create datasets
-        const datasets = sortedAisClasses.map((cls, index) => {
+        // Create datasets - one for each AIS class
+        const datasets = [];
+        
+        // Process each AIS class
+        for (const cls of sortedAisClasses) {
           // Format class name
           const className = cls === 'UNKNOWN' ? 'Unknown' : `Class ${cls}`;
           
           // Get data points for this AIS class
           const dataPoints = data.data_points.map(point => point.values[cls] || 0);
           
-          return {
-            label: className,
-            data: dataPoints,
-            backgroundColor: colorPalette[index % colorPalette.length],
-            borderColor: 'rgba(255, 255, 255, 0.5)',
-            borderWidth: 1,
-            // Store the sum to filter out zero datasets later
-            _sum: dataPoints.reduce((a, b) => a + b, 0)
-          };
-        })
-        // Filter out datasets with all zeros
-        .filter(dataset => dataset._sum > 0)
-        // Remove the _sum property as it's no longer needed
-        .map(dataset => {
-          const { _sum, ...rest } = dataset;
-          return rest;
-        });
+          // Only include classes that have at least one non-zero value
+          const sum = dataPoints.reduce((a, b) => a + b, 0);
+          if (sum > 0) {
+            datasets.push({
+              label: className,
+              data: dataPoints,
+              backgroundColor: colorPalette[datasets.length % colorPalette.length],
+              borderColor: 'rgba(255, 255, 255, 0.5)',
+              borderWidth: 1
+            });
+          }
+        }
         
         // Update chart
         vesselChart.data.labels = labels;
