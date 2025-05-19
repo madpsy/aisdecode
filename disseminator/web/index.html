@@ -1560,6 +1560,8 @@ function calculateMaxDistance(receiverLatLng) {
   if (!receiverLatLng) return 0;
   
   let maxDistance = 0;
+  let vesselCount = 0;
+  console.log("Calculating max distance for receiver at", receiverLatLng);
   
   // Loop through all vessels to find the maximum distance
   for (const UserID in vesselData) {
@@ -1568,13 +1570,26 @@ function calculateMaxDistance(receiverLatLng) {
     
     const vessel = vesselData[UserID];
     
-    // Only consider vessels that were received by the selected receiver
-    if (selectedReceiverId &&
-        (!vessel.ReceiverIDs ||
-         !Array.isArray(vessel.ReceiverIDs) ||
-         !vessel.ReceiverIDs.includes(parseInt(selectedReceiverId)))) {
-      continue;
+    // Check if we should filter by receiver
+    let includeVessel = true;
+    if (selectedReceiverId) {
+      // Try different ways the receiver ID might be stored
+      if (vessel.ReceiverIDs && Array.isArray(vessel.ReceiverIDs)) {
+        // Check if the selected receiver is in the array
+        includeVessel = vessel.ReceiverIDs.includes(parseInt(selectedReceiverId));
+      } else if (vessel.receiver_id !== undefined) {
+        // Check if the vessel's receiver_id matches
+        includeVessel = vessel.receiver_id == selectedReceiverId;
+      } else if (vessel.ReceiverID !== undefined) {
+        // Check if the vessel's ReceiverID matches
+        includeVessel = vessel.ReceiverID == selectedReceiverId;
+      } else {
+        // If we can't determine the receiver, include all vessels
+        includeVessel = true;
+      }
     }
+    
+    if (!includeVessel) continue;
     
     const lat = vessel.Latitude;
     const lon = vessel.Longitude;
@@ -1588,6 +1603,15 @@ function calculateMaxDistance(receiverLatLng) {
     if (distance > maxDistance) {
       maxDistance = distance;
     }
+    vesselCount++;
+  }
+  
+  console.log(`Found ${vesselCount} vessels for receiver, max distance: ${maxDistance} km`);
+  
+  // If no vessels found, use a default distance
+  if (maxDistance === 0) {
+    maxDistance = 10; // Default to 10 km if no vessels found
+    console.log("No vessels found, using default distance of 10 km");
   }
   
   return maxDistance;
