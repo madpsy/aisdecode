@@ -784,7 +784,7 @@ function startReceiverUpdates(receiverId) {
     if (!receiverId) return;
     
     // Fetch the latest receiver information
-    fetch(`/receivers?id=${encodeURIComponent(receiverId)}`)
+    fetch(`/receivers?id=${encodeURIComponent(receiverId)}&maxage=24`)
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -1126,7 +1126,7 @@ function loadReceivers() {
   // Clear any previous receivers
   receiversList = [];
 
-  fetch('/receivers')
+  fetch('/receivers?maxage=24')
     .then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
@@ -1201,7 +1201,7 @@ function loadReceivers() {
           }
 
           // Fetch this receiver's details via ?id=<id>
-          fetch(`/receivers?id=${encodeURIComponent(r.id)}`)
+          fetch(`/receivers?id=${encodeURIComponent(r.id)}&maxage=24`)
             .then(res => {
               if (!res.ok) throw new Error(res.status);
               return res.json();
@@ -1692,7 +1692,7 @@ socket.on("metrics/bysource", function(data) {
 
   // ** Fetch receivers only once and only if we have an IP to use **
   if (!receivedReceivers && currentIp) {
-    fetchReceivers(currentIp); // Fetch receivers using current IP
+    fetchReceivers(currentIp); // Fetch receivers using current IP with maxage=24
     receivedReceivers = true;  // Set the flag to true after fetching
   }
   
@@ -1761,7 +1761,7 @@ socket.on("metrics/bysource", function(data) {
   // ** Handle messages and fetch receivers if necessary **
   if (data.messages > 0 && !receivedReceivers && currentIp) {
     receivedReceivers = true;
-    fetchReceivers(currentIp); // Use IP to fetch receivers, but only if we have an IP
+    fetchReceivers(currentIp); // Use IP to fetch receivers with maxage=24, but only if we have an IP
   }
   
   // Debug log to track autoFit state after processing data
@@ -1828,7 +1828,7 @@ function fetchMetrics() {
 }
 
 function fetchReceiversById(receiverId) {
-  fetch(`/receivers?id=${encodeURIComponent(receiverId)}`)
+  fetch(`/receivers?id=${encodeURIComponent(receiverId)}&maxage=24`)
     .then(res => res.ok ? res.json() : Promise.reject(res.status))
     .then(data => {
       // Handle the case where no receivers are found
