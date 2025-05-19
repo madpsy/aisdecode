@@ -1431,18 +1431,13 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         
         // Add the lastseen field if available
         portLastSeenMutex.RLock()
-        var anonymousLastSeen *time.Time
         if lastSeen, ok := portLastSeenMap[udpListenPort]; ok {
             anonymousReceiver["lastseen"] = lastSeen
-            anonymousLastSeen = &lastSeen
         }
         portLastSeenMutex.RUnlock()
         
-        // Only add the anonymous receiver if it meets the maxage criteria
-        if anonymousLastSeen != nil && !anonymousLastSeen.Before(*maxAgeTime) {
-            // Add the anonymous receiver first
-            response = append(response, anonymousReceiver)
-        }
+        // Always add the anonymous receiver (ID 0) regardless of maxage criteria
+        response = append(response, anonymousReceiver)
     }
     
     // Add all the regular receivers that meet the maxage criteria
