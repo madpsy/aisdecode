@@ -206,6 +206,25 @@
           ">
             <span id="replay-datetime-text"></span>
           </div>
+          <!-- Receivers toggle checkbox -->
+          <div style="
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 5px 10px;
+            border-radius: 5px;
+            z-index: 1000;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+          ">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="show-receivers-checkbox" checked>
+              <label class="form-check-label" for="show-receivers-checkbox">
+                Receivers
+              </label>
+            </div>
+          </div>
           <!-- Nautical Mile Scale -->
           <div id="nm-scale" style="
             position: absolute;
@@ -357,6 +376,7 @@
     let receiverTooltip = null;
     let rangeCircles = []; // Array to store the range circles
     let rangeLabels = []; // Array to store the range labels
+    let showReceivers = true; // Flag to control receiver marker visibility
     
     // Function to clear all previous map layers
     function clearMapLayers() {
@@ -810,21 +830,23 @@
           const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
           
           if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
-            // Add marker with popup and store reference
-            receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
-              .addTo(map)
-              .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
-            
-            // Add permanent tooltip with receiver name and store reference
-            receiverTooltip = L.tooltip({
-              permanent: true,
-              direction: 'top',
-              className: 'receiver-tooltip',
-              offset: [0, -10]
-            })
-            .setContent(`<b>${selectedReceiver.name}</b>`)
-            .setLatLng([selectedReceiver.latitude, selectedReceiver.longitude])
-            .addTo(map);
+            // Add marker with popup and store reference if receivers should be shown
+            if (showReceivers) {
+              receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
+                .addTo(map)
+                .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
+              
+              // Add permanent tooltip with receiver name and store reference
+              receiverTooltip = L.tooltip({
+                permanent: true,
+                direction: 'top',
+                className: 'receiver-tooltip',
+                offset: [0, -10]
+              })
+              .setContent(`<b>${selectedReceiver.name}</b>`)
+              .setLatLng([selectedReceiver.latitude, selectedReceiver.longitude])
+              .addTo(map);
+            }
             
             // Calculate maximum distance and draw range circles
             const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
@@ -838,24 +860,27 @@
           // "All" receivers selected - show markers for all receivers but no range circles
           receivers.forEach(receiver => {
             if (receiver.latitude && receiver.longitude) {
-              // Add marker with popup
-              L.marker([receiver.latitude, receiver.longitude], {icon: receiverIcon})
-                .addTo(map)
-                .bindPopup(`<b>Receiver:</b> ${receiver.name}`);
-              
-              // Add tooltip with receiver name
-              L.tooltip({
-                permanent: true,
-                direction: 'top',
-                className: 'receiver-tooltip',
-                offset: [0, -10]
-              })
-              .setContent(`<b>${receiver.name}</b>`)
-              .setLatLng([receiver.latitude, receiver.longitude])
-              .addTo(map);
-              
               // Add receiver location to points for bounds calculation
               points.push([receiver.latitude, receiver.longitude]);
+              
+              // Only add markers if receivers should be shown
+              if (showReceivers) {
+                // Add marker with popup
+                L.marker([receiver.latitude, receiver.longitude], {icon: receiverIcon})
+                  .addTo(map)
+                  .bindPopup(`<b>Receiver:</b> ${receiver.name}`);
+                
+                // Add tooltip with receiver name
+                L.tooltip({
+                  permanent: true,
+                  direction: 'top',
+                  className: 'receiver-tooltip',
+                  offset: [0, -10]
+                })
+                .setContent(`<b>${receiver.name}</b>`)
+                .setLatLng([receiver.latitude, receiver.longitude])
+                .addTo(map);
+              }
             }
           });
         }
@@ -1304,6 +1329,12 @@
       document.getElementById('replay-pause-btn').addEventListener('click', pauseReplay);
       document.getElementById('replay-play-btn').addEventListener('click', resumeReplay);
       document.getElementById('replay-stop-btn').addEventListener('click', stopReplay);
+      
+      // Add event listener for receivers checkbox
+      document.getElementById('show-receivers-checkbox').addEventListener('change', function() {
+        showReceivers = this.checked;
+        loadCoverageData(); // Reload the map with the new setting
+      });
       
       // Set up date range toggle
       document.getElementById('fixedWindowRadio').addEventListener('change', function() {
