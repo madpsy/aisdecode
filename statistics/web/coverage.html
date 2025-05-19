@@ -895,12 +895,10 @@
               .addTo(map);
             }
             
-            // Calculate maximum distance and draw range circles only if receivers are shown
+            // Calculate maximum distance and draw range circles
             const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
             const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
-            if (showReceivers) {
-              drawRangeCircles(receiverLatLng, maxDistance);
-            }
+            drawRangeCircles(receiverLatLng, maxDistance);
             
             // Add receiver location to points for bounds calculation
             points.push([selectedReceiver.latitude, selectedReceiver.longitude]);
@@ -1334,12 +1332,10 @@
               .addTo(map);
             }
             
-            // Calculate maximum distance and draw range circles only if receivers are shown
+            // Calculate maximum distance and draw range circles
             const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
             const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
-            if (showReceivers) {
-              drawRangeCircles(receiverLatLng, maxDistance);
-            }
+            drawRangeCircles(receiverLatLng, maxDistance);
             
             // Add receiver location to points for bounds calculation
             points.push([selectedReceiver.latitude, selectedReceiver.longitude]);
