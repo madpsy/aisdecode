@@ -1016,9 +1016,14 @@
         
         // Get data for each hour in the past 24 hours
         for (let i = 0; i < 24; i++) {
+          // Create date for current hour and set to exact hour (09:00:00)
           const hourDate = new Date(now);
           hourDate.setHours(now.getHours() - i);
+          hourDate.setMinutes(0);
+          hourDate.setSeconds(0);
+          hourDate.setMilliseconds(0);
           
+          // Create from date (previous hour, also on the hour)
           const fromDate = new Date(hourDate);
           fromDate.setHours(hourDate.getHours() - 1);
           
@@ -1072,15 +1077,17 @@
         
         // Get data for each day in the past 7 days
         for (let i = 0; i < 7; i++) {
+          // Create date for current day and set to midnight
           const dayDate = new Date(now);
           dayDate.setDate(now.getDate() - i);
           
-          // Set to start of day
+          // Set to start of day (00:00:00)
           dayDate.setHours(0, 0, 0, 0);
           
+          // Create from and to dates for the full day
           const fromDate = new Date(dayDate);
           const toDate = new Date(dayDate);
-          toDate.setHours(23, 59, 59, 999);
+          toDate.setHours(23, 0, 0, 0); // Use 23:00:00 instead of 23:59:59 for better cache hits
           
           // Format dates for API
           const fromFormatted = formatDateForAPI(fromDate);
@@ -1277,7 +1284,8 @@
       // Update info text
       document.getElementById('replay-info').textContent = `Showing data for: ${frameData.label}`;
       
-      // Update datetime overlay
+      // Ensure datetime overlay is visible and update its content
+      document.getElementById('replay-datetime-overlay').style.display = 'block';
       document.getElementById('replay-datetime-text').textContent = frameData.timestamp instanceof Date ?
         frameData.timestamp.toLocaleString() : frameData.label;
       
