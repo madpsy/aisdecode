@@ -1198,29 +1198,32 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     ipParam := r.URL.Query().Get("ip_address")
     maxAgeParam := r.URL.Query().Get("maxage")
     
-    // Parse maxage parameter (in hours)
-    // Default to 7 days (168 hours) if not specified
-    // Maximum allowed value is 90 days (2160 hours)
-    var maxAgeHours float64 = 168 // Default to 7 days
+    // Only apply maxage filtering if no specific receiver ID is requested
     var maxAgeTime *time.Time
-    
-    if maxAgeParam != "" {
-        var err error
-        maxAgeHours, err = strconv.ParseFloat(maxAgeParam, 64)
-        if err != nil || maxAgeHours < 0 {
-            http.Error(w, "Invalid maxage parameter: must be a positive number of hours", http.StatusBadRequest)
-            return
+    if idParam == "" {
+        // Parse maxage parameter (in hours)
+        // Default to 7 days (168 hours) if not specified
+        // Maximum allowed value is 90 days (2160 hours)
+        var maxAgeHours float64 = 168 // Default to 7 days
+        
+        if maxAgeParam != "" {
+            var err error
+            maxAgeHours, err = strconv.ParseFloat(maxAgeParam, 64)
+            if err != nil || maxAgeHours < 0 {
+                http.Error(w, "Invalid maxage parameter: must be a positive number of hours", http.StatusBadRequest)
+                return
+            }
+            
+            // Cap at maximum allowed value (90 days = 2160 hours)
+            if maxAgeHours > 2160 {
+                maxAgeHours = 2160
+            }
         }
         
-        // Cap at maximum allowed value (90 days = 2160 hours)
-        if maxAgeHours > 2160 {
-            maxAgeHours = 2160
-        }
+        // Calculate the cutoff time
+        cutoffTime := time.Now().Add(-time.Duration(maxAgeHours * float64(time.Hour)))
+        maxAgeTime = &cutoffTime
     }
-    
-    // Calculate the cutoff time
-    cutoffTime := time.Now().Add(-time.Duration(maxAgeHours * float64(time.Hour)))
-    maxAgeTime = &cutoffTime
 
     // Build the query based on filters - only filter by ID, not by IP address
     baseQuery := `
@@ -1437,13 +1440,15 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         portLastSeenMutex.RUnlock()
         
         // Always add the anonymous receiver (ID 0) regardless of maxage criteria
+        // or if a specific receiver is requested by ID
         response = append(response, anonymousReceiver)
     }
     
-    // Add all the regular receivers that meet the maxage criteria
+    // Add all the regular receivers that meet the maxage criteria (if applicable)
     for _, rec := range list {
-        // Skip receivers that don't meet the maxage criteria
-        if rec.lastSeenTime == nil || rec.lastSeenTime.Before(*maxAgeTime) {
+        // Skip receivers that don't meet the maxage criteria, but only if maxAgeTime is set
+        // (which means we're not requesting a specific receiver by ID)
+        if maxAgeTime != nil && (rec.lastSeenTime == nil || rec.lastSeenTime.Before(*maxAgeTime)) {
             continue
         }
         
