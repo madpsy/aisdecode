@@ -175,7 +175,10 @@
                   <input type="datetime-local" id="to-date" class="form-control">
                 </div>
               </div>
-              <div id="date-range-error" class="text-danger mt-2" style="display: none;"></div>
+              <div class="mt-2">
+                <button id="date-range-go" class="btn btn-primary">Go</button>
+                <div id="date-range-error" class="text-danger mt-2" style="display: none;"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -630,13 +633,14 @@
     }
     
     // Toggle between fixed window and date range
-    function toggleTimeRangeType(triggerUpdate = true) {
+    function toggleTimeRangeType(triggerUpdate = false) {
       const isDateRange = document.getElementById('dateRangeRadio').checked;
       document.getElementById('fixedWindowContainer').style.display = isDateRange ? 'none' : 'block';
       document.getElementById('dateRangeContainer').style.display = isDateRange ? 'block' : 'none';
       
-      // Trigger data update if requested
-      if (triggerUpdate) {
+      // For fixed window, trigger update automatically
+      // For date range, user will click the Go button
+      if (!isDateRange && triggerUpdate) {
         updateURL();
         loadCoverageData();
       }
@@ -915,8 +919,12 @@
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
       
       // Set up date range toggle
-      document.getElementById('fixedWindowRadio').addEventListener('change', toggleTimeRangeType);
-      document.getElementById('dateRangeRadio').addEventListener('change', toggleTimeRangeType);
+      document.getElementById('fixedWindowRadio').addEventListener('change', function() {
+        toggleTimeRangeType(true); // Trigger update when switching to fixed window
+      });
+      document.getElementById('dateRangeRadio').addEventListener('change', function() {
+        toggleTimeRangeType(false); // Don't trigger update when switching to date range
+      });
       
       // Set default values for date inputs (today and yesterday)
       const today = new Date();
@@ -931,18 +939,23 @@
       document.getElementById('to-date').value = formatDateForInput(today);
       document.getElementById('from-date').value = formatDateForInput(yesterday);
       
-      // Add event listeners for date inputs
+      // Add event listeners for date inputs - only validate, don't trigger update
       document.getElementById('from-date').addEventListener('change', function() {
-        if (validateDateRange(
+        validateDateRange(
           document.getElementById('from-date').value,
           document.getElementById('to-date').value
-        )) {
-          updateURL();
-          loadCoverageData();
-        }
+        );
       });
       
       document.getElementById('to-date').addEventListener('change', function() {
+        validateDateRange(
+          document.getElementById('from-date').value,
+          document.getElementById('to-date').value
+        );
+      });
+      
+      // Add event listener for the Go button
+      document.getElementById('date-range-go').addEventListener('click', function() {
         if (validateDateRange(
           document.getElementById('from-date').value,
           document.getElementById('to-date').value
