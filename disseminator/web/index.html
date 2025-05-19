@@ -785,7 +785,10 @@
 
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
-	let userLatLng = null;
+ let userLatLng = null;
+ 
+ // Store the selected receiver coordinates
+ let selectedReceiverCoords = null;
 
 	let messageTypeNames = {};
 
@@ -1496,8 +1499,10 @@ function refreshReceivers() {
                 const selectedIcon = createReceiverIcon('blue');
                 marker.setIcon(selectedIcon);
                 
-                // Draw concentric radius circles around the selected receiver
-                drawRadiusCircles([lat, lng]);
+                // Store the receiver coordinates for later use
+                selectedReceiverCoords = [lat, lng];
+                
+                // Note: We'll draw the circles after receiving data from the server
                 
                 // Show a notification that filter is applied
                 const notification = document.createElement('div');
@@ -1562,6 +1567,15 @@ function calculateMaxDistance(receiverLatLng) {
     if (UserID.length !== 9 || vesselData[UserID].isReceiver) continue;
     
     const vessel = vesselData[UserID];
+    
+    // Only consider vessels that were received by the selected receiver
+    if (selectedReceiverId &&
+        (!vessel.ReceiverIDs ||
+         !Array.isArray(vessel.ReceiverIDs) ||
+         !vessel.ReceiverIDs.includes(parseInt(selectedReceiverId)))) {
+      continue;
+    }
+    
     const lat = vessel.Latitude;
     const lon = vessel.Longitude;
     
@@ -3525,6 +3539,13 @@ socket.on("summaryData", (data) => {
       }
     }
   }
+  
+  // Redraw radius circles after receiving new data if a receiver is selected
+  if (selectedReceiverId && selectedReceiverCoords) {
+    const receiverLatLng = L.latLng(selectedReceiverCoords[0], selectedReceiverCoords[1]);
+    drawRadiusCircles(selectedReceiverCoords);
+  }
+  
   localStorage.setItem('vesselData', JSON.stringify(vesselData));
 });
 
