@@ -442,13 +442,25 @@
           // Get message name from message types or use ID if not found
           const messageName = messageTypes[id] || `Message ${id}`;
           
+          // Get data points for this message ID
+          const dataPoints = data.data_points.map(point => point.values[id] || 0);
+          
           return {
             label: messageName,
-            data: data.data_points.map(point => point.values[id] || 0),
+            data: dataPoints,
             backgroundColor: colorPalette[index % colorPalette.length],
             borderColor: 'rgba(255, 255, 255, 0.5)',
-            borderWidth: 1
+            borderWidth: 1,
+            // Store the sum to filter out zero datasets later
+            _sum: dataPoints.reduce((a, b) => a + b, 0)
           };
+        })
+        // Filter out datasets with all zeros
+        .filter(dataset => dataset._sum > 0)
+        // Remove the _sum property as it's no longer needed
+        .map(dataset => {
+          const { _sum, ...rest } = dataset;
+          return rest;
         });
         
         // Update chart
@@ -487,13 +499,25 @@
           // Format class name
           const className = cls === 'UNKNOWN' ? 'Unknown' : `Class ${cls}`;
           
+          // Get data points for this AIS class
+          const dataPoints = data.data_points.map(point => point.values[cls] || 0);
+          
           return {
             label: className,
-            data: data.data_points.map(point => point.values[cls] || 0),
+            data: dataPoints,
             backgroundColor: colorPalette[index % colorPalette.length],
             borderColor: 'rgba(255, 255, 255, 0.5)',
-            borderWidth: 1
+            borderWidth: 1,
+            // Store the sum to filter out zero datasets later
+            _sum: dataPoints.reduce((a, b) => a + b, 0)
           };
+        })
+        // Filter out datasets with all zeros
+        .filter(dataset => dataset._sum > 0)
+        // Remove the _sum property as it's no longer needed
+        .map(dataset => {
+          const { _sum, ...rest } = dataset;
+          return rest;
         });
         
         // Update chart
