@@ -73,9 +73,43 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+    /* Global loading overlay */
+    .global-loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(255, 255, 255, 0.9);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000; /* Higher than other elements */
+      flex-direction: column;
+    }
+    .global-loading-spinner {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #3498db;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      animation: spin 1.5s linear infinite;
+      margin-bottom: 20px;
+    }
+    .global-loading-text {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #333;
+    }
   </style>
 </head>
 <body>
+  <!-- Global loading overlay -->
+  <div class="global-loading-overlay" id="globalLoadingOverlay">
+    <div class="global-loading-spinner"></div>
+    <div class="global-loading-text">Loading data...</div>
+  </div>
+
   <div class="container-fluid">
     <!-- Header + Time Selector -->
     <div class="d-flex justify-content-between align-items-center mb-4 flex-column flex-sm-row">
@@ -179,6 +213,7 @@
       let vesselChart = null;
       let receivers = [];
       let messageTypes = {};
+      let activeRequests = 0; // Track active API requests
       
       // Color palette for message types and vessel classes
       const colorPalette = [
@@ -327,6 +362,7 @@
       
       // Load receivers
       async function loadReceivers() {
+        showGlobalLoading();
         try {
           receivers = await fetch('/receivers').then(r => r.json());
           const select = $('#receiver-select');
@@ -343,11 +379,14 @@
           });
         } catch (e) {
           console.error('Failed to load receivers:', e);
+        } finally {
+          hideGlobalLoading();
         }
       }
       
       // Load message types
       async function loadMessageTypes() {
+        showGlobalLoading();
         try {
           // Try to load from different possible locations
           try {
@@ -390,6 +429,8 @@
           }
         } catch (e) {
           console.error('Failed to load message types:', e);
+        } finally {
+          hideGlobalLoading();
         }
       }
       
@@ -404,13 +445,29 @@
         loadChartData('vessels', vesselPeriod);
       }
       
+      // Show global loading overlay
+      function showGlobalLoading() {
+        activeRequests++;
+        document.getElementById('globalLoadingOverlay').style.display = 'flex';
+      }
+      
+      // Hide global loading overlay if no active requests
+      function hideGlobalLoading() {
+        activeRequests--;
+        if (activeRequests <= 0) {
+          activeRequests = 0;
+          document.getElementById('globalLoadingOverlay').style.display = 'none';
+        }
+      }
+      
       // Load chart data
       async function loadChartData(type, period) {
-        // Show loading overlay
+        // Show loading overlays
         const loadingOverlay = document.getElementById(`${type}ChartLoading`);
         if (loadingOverlay) {
           loadingOverlay.style.display = 'flex';
         }
+        showGlobalLoading();
         
         // Set days based on period
         let days;
@@ -450,10 +507,11 @@
         } catch (e) {
           console.error(`Failed to load ${type} data:`, e);
         } finally {
-          // Hide loading overlay
+          // Hide loading overlays
           if (loadingOverlay) {
             loadingOverlay.style.display = 'none';
           }
+          hideGlobalLoading();
         }
       }
       
