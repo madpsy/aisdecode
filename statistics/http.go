@@ -1225,7 +1225,7 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
                     AND (packet->>'Longitude')::float IS NOT NULL
                     AND (packet->>'Latitude')::float BETWEEN -90 AND 90
                     AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-                    AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
+                    AND distance IS NOT NULL AND distance <= %d -- Only include points with valid distances <= configured distance
                 GROUP BY
                     ST_SnapToGrid(
                         ST_SetSRID(ST_MakePoint(
@@ -1234,7 +1234,7 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
                         ), 4326),
                         %f
                     )
-            `, gridSize, gridSize, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), gridSize)
+            `, gridSize, gridSize, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), conf.MaxDistanceMeters, gridSize)
         } else {
             qry = fmt.Sprintf(`
                 SELECT
@@ -1260,7 +1260,7 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
                     AND (packet->>'Longitude')::float IS NOT NULL
                     AND (packet->>'Latitude')::float BETWEEN -90 AND 90
                     AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-                    AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
+                    AND distance IS NOT NULL AND distance <= %d -- Only include points with valid distances <= configured distance
                 GROUP BY
                     ST_SnapToGrid(
                         ST_SetSRID(ST_MakePoint(
@@ -1269,7 +1269,7 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
                         ), 4326),
                         %f
                     )
-            `, gridSize, gridSize, days, gridSize)
+            `, gridSize, gridSize, days, conf.MaxDistanceMeters, gridSize)
         }
     } else {
         // Query for a specific receiver
@@ -1300,7 +1300,7 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
                     AND (packet->>'Longitude')::float IS NOT NULL
                     AND (packet->>'Latitude')::float BETWEEN -90 AND 90
                     AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-                    AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
+                    AND distance IS NOT NULL AND distance <= %d -- Only include points with valid distances <= configured distance
                 GROUP BY
                     ST_SnapToGrid(
                         ST_SetSRID(ST_MakePoint(
@@ -1309,7 +1309,7 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
                         ), 4326),
                         %f
                     )
-            `, gridSize, gridSize, receiverId, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), gridSize)
+            `, gridSize, gridSize, receiverId, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), conf.MaxDistanceMeters, gridSize)
         } else {
             qry = fmt.Sprintf(`
                 SELECT
@@ -1336,7 +1336,7 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
                     AND (packet->>'Longitude')::float IS NOT NULL
                     AND (packet->>'Latitude')::float BETWEEN -90 AND 90
                     AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-                    AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
+                    AND distance IS NOT NULL AND distance <= %d -- Only include points with valid distances <= configured distance
                 GROUP BY
                     ST_SnapToGrid(
                         ST_SetSRID(ST_MakePoint(
@@ -1345,7 +1345,7 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
                         ), 4326),
                         %f
                     )
-            `, gridSize, gridSize, receiverId, days, gridSize)
+            `, gridSize, gridSize, receiverId, days, conf.MaxDistanceMeters, gridSize)
         }
     }
     
