@@ -471,14 +471,14 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     respondJSON(w, ps)
 }
 
-// parseDaysParam reads 'days' query param, defaults to 1, max 90.
+// parseDaysParam reads 'days' query param, defaults to 1, max 30.
 func parseDaysParam(r *http.Request) int {
     days := 1
     if d := r.URL.Query().Get("days"); d != "" {
         if n, err := strconv.Atoi(d); err == nil && n > 0 {
-            if n > 90 {
-                // Cap at 90 days to prevent excessive queries
-                days = 90
+            if n > 30 {
+                // Cap at 30 days to prevent excessive queries
+                days = 30
             } else {
                 days = n
             }
@@ -781,21 +781,21 @@ func userCountsHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, users)
 }
 
-// coverageMapHandler generates a grid-based coverage map for a specific receiver
-// Required parameter: receiver_id
-// Optional parameter: days (default: 7)
+// coverageMapHandler generates a grid-based coverage map for a specific receiver or all receivers
+// Optional parameters:
+// - receiver_id (default: all receivers)
+// - days (default: 7)
 func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     receiverId := parseReceiverIDParam(r)
     
-    // Require a specific receiver ID
-    if receiverId < 0 {
-        http.Error(w, "receiver_id parameter is required", http.StatusBadRequest)
-        return
-    }
-    
     // Define cache key
-    cacheKey := fmt.Sprintf("coverage-map:%dd:r%d", days, receiverId)
+    var cacheKey string
+    if receiverId < 0 {
+        cacheKey = fmt.Sprintf("coverage-map:%dd:all", days)
+    } else {
+        cacheKey = fmt.Sprintf("coverage-map:%dd:r%d", days, receiverId)
+    }
     
     // Define the response structure
     type GridCell struct {
@@ -816,41 +816,81 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
     const gridSize = 0.01
     
     // Build query with PostGIS functions
-    qry := fmt.Sprintf(`
-        SELECT
-            ST_Y(ST_Centroid(ST_SnapToGrid(
-                ST_SetSRID(ST_MakePoint(
-                    (packet->>'Longitude')::float,
-                    (packet->>'Latitude')::float
-                ), 4326),
-                %f
-            ))) AS lat,
-            ST_X(ST_Centroid(ST_SnapToGrid(
-                ST_SetSRID(ST_MakePoint(
-                    (packet->>'Longitude')::float,
-                    (packet->>'Latitude')::float
-                ), 4326),
-                %f
-            ))) AS lon,
-            COUNT(*) AS count
-        FROM messages
-        WHERE message_id IN (1,2,3,18,19)
-            AND receiver_id = %d
-            AND timestamp >= now() - INTERVAL '%d days'
-            AND (packet->>'Latitude')::float IS NOT NULL
-            AND (packet->>'Longitude')::float IS NOT NULL
-            AND (packet->>'Latitude')::float BETWEEN -90 AND 90
-            AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-            AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
-        GROUP BY
-            ST_SnapToGrid(
-                ST_SetSRID(ST_MakePoint(
-                    (packet->>'Longitude')::float,
-                    (packet->>'Latitude')::float
-                ), 4326),
-                %f
-            )
-    `, gridSize, gridSize, receiverId, days, gridSize)
+    var qry string
+    if receiverId < 0 {
+        // Query for all receivers
+        qry = fmt.Sprintf(`
+            SELECT
+                ST_Y(ST_Centroid(ST_SnapToGrid(
+                    ST_SetSRID(ST_MakePoint(
+                        (packet->>'Longitude')::float,
+                        (packet->>'Latitude')::float
+                    ), 4326),
+                    %f
+                ))) AS lat,
+                ST_X(ST_Centroid(ST_SnapToGrid(
+                    ST_SetSRID(ST_MakePoint(
+                        (packet->>'Longitude')::float,
+                        (packet->>'Latitude')::float
+                    ), 4326),
+                    %f
+                ))) AS lon,
+                COUNT(*) AS count
+            FROM messages
+            WHERE message_id IN (1,2,3,18,19)
+                AND timestamp >= now() - INTERVAL '%d days'
+                AND (packet->>'Latitude')::float IS NOT NULL
+                AND (packet->>'Longitude')::float IS NOT NULL
+                AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+                AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+                AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
+            GROUP BY
+                ST_SnapToGrid(
+                    ST_SetSRID(ST_MakePoint(
+                        (packet->>'Longitude')::float,
+                        (packet->>'Latitude')::float
+                    ), 4326),
+                    %f
+                )
+        `, gridSize, gridSize, days, gridSize)
+    } else {
+        // Query for a specific receiver
+        qry = fmt.Sprintf(`
+            SELECT
+                ST_Y(ST_Centroid(ST_SnapToGrid(
+                    ST_SetSRID(ST_MakePoint(
+                        (packet->>'Longitude')::float,
+                        (packet->>'Latitude')::float
+                    ), 4326),
+                    %f
+                ))) AS lat,
+                ST_X(ST_Centroid(ST_SnapToGrid(
+                    ST_SetSRID(ST_MakePoint(
+                        (packet->>'Longitude')::float,
+                        (packet->>'Latitude')::float
+                    ), 4326),
+                    %f
+                ))) AS lon,
+                COUNT(*) AS count
+            FROM messages
+            WHERE message_id IN (1,2,3,18,19)
+                AND receiver_id = %d
+                AND timestamp >= now() - INTERVAL '%d days'
+                AND (packet->>'Latitude')::float IS NOT NULL
+                AND (packet->>'Longitude')::float IS NOT NULL
+                AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+                AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+                AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
+            GROUP BY
+                ST_SnapToGrid(
+                    ST_SetSRID(ST_MakePoint(
+                        (packet->>'Longitude')::float,
+                        (packet->>'Latitude')::float
+                    ), 4326),
+                    %f
+                )
+        `, gridSize, gridSize, receiverId, days, gridSize)
+    }
     
     // Query all shards
     shardResults, err := QueryDatabasesForAllShards(qry)

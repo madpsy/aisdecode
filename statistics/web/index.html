@@ -400,8 +400,11 @@
           // Sort receivers by name
           receivers.sort((a, b) => a.name.localeCompare(b.name));
           
-          // Add receivers to dropdown
+          // Add receivers to dropdown (excluding receiver ID 0)
           receivers.forEach(receiver => {
+            // Skip receiver ID 0
+            if (receiver.id === 0) return;
+            
             select.append(`<option value="${receiver.id}">${receiver.name}</option>`);
           });
         } catch (e) {
