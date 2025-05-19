@@ -20,24 +20,27 @@ import (
 
 // Settings holds configuration for the alerts service.
 type Settings struct {
-	ListenPort          int    `json:"listen_port"`
-	SMTPHost            string `json:"smtp_host"`
-	SMTPPort            int    `json:"smtp_port"`
-	SMTPUser            string `json:"smtp_user"`
-	SMTPPass            string `json:"smtp_pass"`
-	SMTPUseTLS          bool   `json:"smtp_use_tls"`
-	SMTPTLSSkipVerify   bool   `json:"smtp_tls_skip_verify"`
-	FromAddress         string `json:"from_address"`
-	FromName            string `json:"from_name"`
-	ToAddresses         string `json:"to_addresses"`
-	SiteDomain          string `json:"site_domain"` // Domain for password reset links
-	ReceiversBaseURL    string `json:"receivers_base_url"`
-	DBHost              string `json:"db_host"`
-	DBPort              int    `json:"db_port"`
-	DBUser              string `json:"db_user"`
-	DBPass              string `json:"db_pass"`
-	DBName              string `json:"db_name"`
-	ReceiverOfflineHours int    `json:"receiver_offline_hours"` // Hours before a receiver is considered offline
+	ListenPort            int    `json:"listen_port"`
+	SMTPHost              string `json:"smtp_host"`
+	SMTPPort              int    `json:"smtp_port"`
+	SMTPUser              string `json:"smtp_user"`
+	SMTPPass              string `json:"smtp_pass"`
+	SMTPUseTLS            bool   `json:"smtp_use_tls"`
+	SMTPTLSSkipVerify     bool   `json:"smtp_tls_skip_verify"`
+	FromAddress           string `json:"from_address"`
+	FromName              string `json:"from_name"`
+	ToAddresses           string `json:"to_addresses"`
+	SiteDomain            string `json:"site_domain"` // Domain for password reset links
+	ReceiversBaseURL      string `json:"receivers_base_url"`
+	DBHost                string `json:"db_host"`
+	DBPort                int    `json:"db_port"`
+	DBUser                string `json:"db_user"`
+	DBPass                string `json:"db_pass"`
+	DBName                string `json:"db_name"`
+	ReceiverOfflineHours  int    `json:"receiver_offline_hours"` // Hours before a receiver is considered offline
+	StatisticsBaseURL     string `json:"statistics_base_url"`    // Base URL for statistics API
+	StatisticsReportEnabled bool  `json:"statistics_report_enabled"` // Whether to send statistics reports
+	StatisticsReportTime  string `json:"statistics_report_time"` // When to send statistics reports (day,hour:minute)
 }
 
 // Receiver represents the payload sent by the receivers service.
@@ -92,6 +95,17 @@ func loadSettings() {
 	if settings.ReceiverOfflineHours <= 0 {
 		settings.ReceiverOfflineHours = 24 // Default to 24 hours if not specified
 		log.Println("ReceiverOfflineHours not specified in settings.json, using default value of 24 hours")
+	}
+	
+	// Log statistics report settings
+	if settings.StatisticsReportEnabled {
+		if settings.StatisticsBaseURL == "" {
+			log.Println("Warning: Statistics reporting is enabled but statistics_base_url is not set")
+		} else if settings.StatisticsReportTime == "" {
+			log.Println("Warning: Statistics reporting is enabled but statistics_report_time is not set")
+		} else {
+			log.Printf("Statistics reporting enabled, scheduled for %s", settings.StatisticsReportTime)
+		}
 	}
 }
 
@@ -546,6 +560,29 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 				body = adminBody
 			}
 		}
+	case "statistics_report":
+		subject = fmt.Sprintf("Weekly AIS Statistics Report for %s", rec.Name)
+		
+		// For statistics reports, send only to the receiver's email address
+		if rec.Email != "" {
+			toAddresses = rec.Email
+		} else {
+			// If no receiver email, don't send the report
+			return "", fmt.Errorf("no email address for receiver %d", rec.ID)
+		}
+		
+		// Use the custom body provided for the report
+		if customBody != "" {
+			body = customBody
+		} else {
+			body = fmt.Sprintf(
+				"Weekly AIS Statistics Report for %s\n\n"+
+				"This is your weekly AIS statistics report. No data is available at this time.\n\n"+
+				"Thank you for contributing to our AIS network!\n\n"+
+				"AIS Decoder Team\nhttps://%s/",
+				rec.Name, settings.SiteDomain,
+			)
+		}
 	default:
 		subject = alertType
 		body = fmt.Sprintf("Alert type: %s\nReceiver ID: %d\nName: %s\nDescription: %s\n",
@@ -963,10 +1000,17 @@ func main() {
 	}
 	defer db.Close()
 	
-	// Start receiver monitoring in a goroutine
+	// Create a context for all background goroutines
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	
+	// Start receiver monitoring in a goroutine
 	go startReceiverMonitoring(ctx)
+	
+	// Start statistics report scheduler if enabled
+	if settings.StatisticsReportEnabled && settings.StatisticsBaseURL != "" && settings.StatisticsReportTime != "" {
+		go startStatisticsReportScheduler(ctx)
+	}
 	
 	// Start HTTP server
 	addr := fmt.Sprintf(":%d", settings.ListenPort)
