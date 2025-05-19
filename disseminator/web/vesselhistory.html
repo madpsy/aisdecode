@@ -2673,26 +2673,10 @@
             setTimeout(async () => {
               console.log('Fetching vessel history with dateRangeAdjusted =', dateRangeAdjusted);
               const historyData = await fetchVesselHistory();
-              
-              // Store the original history data if it exists
               if (historyData) {
-                window.originalHistoryData = historyData;
-                window.currentHistoryData = historyData;
-              }
-              
-              // Always call displayVesselTrack, even if historyData is null or empty
-              displayVesselTrack(historyData);
-              
-              // Only call these functions if we have history data
-              if (historyData && historyData.length > 0) {
+                displayVesselTrack(historyData);
                 displayMessageHistogram(historyData);
                 trackChanges(historyData);
-              } else {
-                // If no history data is returned, ensure the histogram is cleared
-                document.getElementById('message-histogram').innerHTML = '<div style="padding: 10px; text-align: center; color: #666;">No position messages available</div>';
-                document.querySelector('#destination-changes tbody').innerHTML = '';
-                document.querySelector('#status-changes tbody').innerHTML = '';
-              }
                 
                 // Check if warning is still visible after processing
                 console.log('After processing, warning text =', document.getElementById('error').textContent);
@@ -2713,29 +2697,17 @@
         
         // If no adjustment was needed, fetch history data normally
         const historyData = await fetchVesselHistory();
-        
-        // Store the original history data if it exists
         if (historyData) {
+          // Store the original history data
           window.originalHistoryData = historyData;
           window.currentHistoryData = historyData;
-        }
-        
-        // Always call displayVesselTrack, even if historyData is null or empty
-        // This will use the last known location from currentVesselData if no history data
-        displayVesselTrack(historyData);
-        
-        // Only call these functions if we have history data
-        if (historyData && historyData.length > 0) {
+          
+          displayVesselTrack(historyData);
           displayMessageHistogram(historyData);
           trackChanges(historyData);
           
           // Check for filter parameters in URL and restore if present
           checkForTimeFilterInUrl(historyData);
-        } else {
-          // Clear histogram and tables if no history data
-          document.getElementById('message-histogram').innerHTML = '<div style="padding: 10px; text-align: center; color: #666;">No position messages available</div>';
-          document.querySelector('#destination-changes tbody').innerHTML = '';
-          document.querySelector('#status-changes tbody').innerHTML = '';
         }
       }, 1000); // Small delay to ensure vessel data is loaded first
       
@@ -2832,25 +2804,13 @@
         };
         
         const historyData = await fetchVesselHistory();
-        
-        // Store the original history data if it exists
         if (historyData) {
-          window.originalHistoryData = historyData;
-          window.currentHistoryData = historyData;
-        }
-        
-        // Always call displayVesselTrack, even if historyData is null or empty
-        displayVesselTrack(historyData);
-        
-        // Only call these functions if we have history data
-        if (historyData && historyData.length > 0) {
+          displayVesselTrack(historyData);
           displayMessageHistogram(historyData);
           trackChanges(historyData);
         } else {
           // If no history data is returned, ensure the histogram is cleared
           document.getElementById('message-histogram').innerHTML = '<div style="padding: 10px; text-align: center; color: #666;">No position messages available</div>';
-          document.querySelector('#destination-changes tbody').innerHTML = '';
-          document.querySelector('#status-changes tbody').innerHTML = '';
         }
       });
       
@@ -2890,25 +2850,10 @@
         }
         
         const historyData = await fetchVesselHistory();
-        
-        // Store the original history data if it exists
         if (historyData) {
-          window.originalHistoryData = historyData;
-          window.currentHistoryData = historyData;
-        }
-        
-        // Always call displayVesselTrack, even if historyData is null or empty
-        displayVesselTrack(historyData);
-        
-        // Only call these functions if we have history data
-        if (historyData && historyData.length > 0) {
+          displayVesselTrack(historyData);
           displayMessageHistogram(historyData);
           trackChanges(historyData);
-        } else {
-          // If no history data is returned, ensure the histogram is cleared
-          document.getElementById('message-histogram').innerHTML = '<div style="padding: 10px; text-align: center; color: #666;">No position messages available</div>';
-          document.querySelector('#destination-changes tbody').innerHTML = '';
-          document.querySelector('#status-changes tbody').innerHTML = '';
         }
       });
       
