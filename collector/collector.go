@@ -883,6 +883,24 @@ func createIndexesIfNotExist(db *sql.DB) {
         // Add index for the Type field to optimize the new type filter
         `CREATE INDEX IF NOT EXISTS idx_state_type
             ON state (CAST(packet->>'Type' AS FLOAT));`,
+            
+        // Indexes for time series statistics
+        `CREATE INDEX IF NOT EXISTS idx_messages_timestamp
+            ON messages(timestamp);`,
+            
+        `CREATE INDEX IF NOT EXISTS idx_messages_receiver_id
+            ON messages(receiver_id);`,
+            
+        `CREATE INDEX IF NOT EXISTS idx_messages_message_id
+            ON messages(message_id);`,
+            
+        // Combined index for the most common query pattern in time series statistics
+        `CREATE INDEX IF NOT EXISTS idx_messages_timestamp_receiver_message
+            ON messages(timestamp, receiver_id, message_id);`,
+            
+        // Index for efficient COUNT(DISTINCT user_id) operations
+        `CREATE INDEX IF NOT EXISTS idx_messages_timestamp_receiver_user
+            ON messages(timestamp, receiver_id, user_id);`,
     }
 
     for _, s := range stmts {
