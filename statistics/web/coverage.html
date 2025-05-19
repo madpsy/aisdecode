@@ -153,50 +153,6 @@
             <span>Loading...</span>
           </div>
           <!-- Nautical Mile Scale -->
-          <div id="coverage-stats" style="display: none; margin-top: 20px;">
-            <h4>Coverage Statistics</h4>
-            <div class="row">
-              <div class="col-md-6">
-                <div class="card">
-                  <div class="card-header">Vessels by Distance</div>
-                  <div class="card-body">
-                    <table class="table table-sm">
-                      <thead>
-                        <tr>
-                          <th>Range</th>
-                          <th>Vessel Count</th>
-                          <th>Percentage</th>
-                        </tr>
-                      </thead>
-                      <tbody id="distance-stats">
-                        <!-- Will be populated dynamically -->
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <div class="card">
-                  <div class="card-header">Vessels by Direction</div>
-                  <div class="card-body">
-                    <table class="table table-sm">
-                      <thead>
-                        <tr>
-                          <th>Direction</th>
-                          <th>Vessel Count</th>
-                          <th>Percentage</th>
-                        </tr>
-                      </thead>
-                      <tbody id="direction-stats">
-                        <!-- Will be populated dynamically -->
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          
           <div id="nm-scale" style="
             position: absolute;
             top: 20px;
@@ -238,6 +194,52 @@
           </div>
             <div id="scale-label">0 NM</div>
           </div>
+        </div>
+        
+        <!-- Coverage Statistics Section -->
+        <div id="coverage-stats" style="display: none; margin-top: 20px;">
+          <h4>Coverage Statistics</h4>
+          <div class="row">
+            <div class="col-md-6">
+              <div class="card">
+                <div class="card-header">Vessels by Distance</div>
+                <div class="card-body">
+                  <table class="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>Range</th>
+                        <th>Vessel Count</th>
+                        <th>Percentage</th>
+                      </tr>
+                    </thead>
+                    <tbody id="distance-stats">
+                      <!-- Will be populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card">
+                <div class="card-header">Vessels by Direction</div>
+                <div class="card-body">
+                  <table class="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>Direction</th>
+                        <th>Vessel Count</th>
+                        <th>Percentage</th>
+                      </tr>
+                    </thead>
+                    <tbody id="direction-stats">
+                      <!-- Will be populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
