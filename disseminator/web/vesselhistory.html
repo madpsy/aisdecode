@@ -1632,7 +1632,7 @@
         } else if (usedFallbackLocation) {
           // If we used fallback location, show a warning
           const warningDiv = document.getElementById('error');
-          warningDiv.textContent = 'Warning: Using last known location from vessel state as fallback due to API error.';
+          warningDiv.textContent = 'Using last known location as no history found in the time frame';
           warningDiv.style.display = 'block';
         } else if (dateRangeAdjusted) {
           // If date range was adjusted, keep the warning message
