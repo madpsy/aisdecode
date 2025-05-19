@@ -153,6 +153,50 @@
             <span>Loading...</span>
           </div>
           <!-- Nautical Mile Scale -->
+          <div id="coverage-stats" style="display: none; margin-top: 20px;">
+            <h4>Coverage Statistics</h4>
+            <div class="row">
+              <div class="col-md-6">
+                <div class="card">
+                  <div class="card-header">Vessels by Distance</div>
+                  <div class="card-body">
+                    <table class="table table-sm">
+                      <thead>
+                        <tr>
+                          <th>Range</th>
+                          <th>Vessel Count</th>
+                          <th>Percentage</th>
+                        </tr>
+                      </thead>
+                      <tbody id="distance-stats">
+                        <!-- Will be populated dynamically -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="card">
+                  <div class="card-header">Vessels by Direction</div>
+                  <div class="card-body">
+                    <table class="table table-sm">
+                      <thead>
+                        <tr>
+                          <th>Direction</th>
+                          <th>Vessel Count</th>
+                          <th>Percentage</th>
+                        </tr>
+                      </thead>
+                      <tbody id="direction-stats">
+                        <!-- Will be populated dynamically -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <div id="nm-scale" style="
             position: absolute;
             top: 20px;
@@ -318,6 +362,160 @@
       return L.latLng(center.lat, center.lng + radiusLng);
     }
     
+    // Calculate bearing between two points
+    function calculateBearing(lat1, lon1, lat2, lon2) {
+      const toRad = value => value * Math.PI / 180;
+      const toDeg = value => value * 180 / Math.PI;
+      
+      const dLon = toRad(lon2 - lon1);
+      const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+      const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+                Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+      let bearing = toDeg(Math.atan2(y, x));
+      
+      // Normalize to 0-360
+      bearing = (bearing + 360) % 360;
+      return bearing;
+    }
+    
+    // Convert bearing to cardinal direction
+    function bearingToDirection(bearing) {
+      const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+      return directions[Math.round(bearing / 45) % 8];
+    }
+    
+    // Calculate coverage statistics
+    function calculateCoverageStats(heatData, receiverLatLng, maxDistance) {
+      if (!receiverLatLng) return null;
+      
+      // Initialize statistics objects
+      const distanceStats = {
+        ring1: 0,
+        ring2: 0,
+        ring3: 0,
+        beyond: 0
+      };
+      
+      const directionStats = {
+        'N': 0, 'NE': 0, 'E': 0, 'SE': 0,
+        'S': 0, 'SW': 0, 'W': 0, 'NW': 0
+      };
+      
+      let totalPoints = 0;
+      
+      // Calculate ring boundaries
+      const ring1 = maxDistance / 3;
+      const ring2 = maxDistance * 2 / 3;
+      const ring3 = maxDistance;
+      
+      // Process each point
+      heatData.forEach(point => {
+        const pointLatLng = L.latLng(point[0], point[1]);
+        const distance = receiverLatLng.distanceTo(pointLatLng);
+        const bearing = calculateBearing(
+          receiverLatLng.lat, receiverLatLng.lng,
+          pointLatLng.lat, pointLatLng.lng
+        );
+        const direction = bearingToDirection(bearing);
+        
+        // Count by distance
+        if (distance <= ring1) {
+          distanceStats.ring1++;
+        } else if (distance <= ring2) {
+          distanceStats.ring2++;
+        } else if (distance <= ring3) {
+          distanceStats.ring3++;
+        } else {
+          distanceStats.beyond++;
+        }
+        
+        // Count by direction
+        directionStats[direction]++;
+        
+        totalPoints++;
+      });
+      
+      return {
+        distanceStats,
+        directionStats,
+        totalPoints,
+        rings: {
+          ring1: ring1,
+          ring2: ring2,
+          ring3: ring3
+        }
+      };
+    }
+    
+    // Update the statistics display
+    function updateStatsDisplay(stats, showDirectionStats) {
+      const statsContainer = document.getElementById('coverage-stats');
+      const distanceStatsTable = document.getElementById('distance-stats');
+      const directionStatsTable = document.getElementById('direction-stats');
+      const directionStatsCard = directionStatsTable.closest('.card').parentElement;
+      
+      if (!stats) {
+        statsContainer.style.display = 'none';
+        return;
+      }
+      
+      // Show the stats container
+      statsContainer.style.display = 'block';
+      
+      // Show/hide direction stats based on parameter
+      directionStatsCard.style.display = showDirectionStats ? 'block' : 'none';
+      
+      // Clear previous stats
+      distanceStatsTable.innerHTML = '';
+      directionStatsTable.innerHTML = '';
+      
+      // Format distance stats
+      const { distanceStats, directionStats, totalPoints, rings } = stats;
+      
+      // Add distance stats rows
+      const ring1NM = (rings.ring1 / 1852).toFixed(1);
+      const ring2NM = (rings.ring2 / 1852).toFixed(1);
+      const ring3NM = (rings.ring3 / 1852).toFixed(1);
+      
+      distanceStatsTable.innerHTML += `
+        <tr>
+          <td>0 - ${ring1NM} NM</td>
+          <td>${distanceStats.ring1}</td>
+          <td>${((distanceStats.ring1 / totalPoints) * 100).toFixed(1)}%</td>
+        </tr>
+        <tr>
+          <td>${ring1NM} - ${ring2NM} NM</td>
+          <td>${distanceStats.ring2}</td>
+          <td>${((distanceStats.ring2 / totalPoints) * 100).toFixed(1)}%</td>
+        </tr>
+        <tr>
+          <td>${ring2NM} - ${ring3NM} NM</td>
+          <td>${distanceStats.ring3}</td>
+          <td>${((distanceStats.ring3 / totalPoints) * 100).toFixed(1)}%</td>
+        </tr>
+      `;
+      
+      // Only add direction stats if we're showing them
+      if (showDirectionStats) {
+        // Sort directions by count (descending)
+        const sortedDirections = Object.entries(directionStats)
+          .sort((a, b) => b[1] - a[1]);
+        
+        // Add direction stats rows
+        sortedDirections.forEach(([direction, count]) => {
+          if (count > 0) {
+            directionStatsTable.innerHTML += `
+              <tr>
+                <td>${direction}</td>
+                <td>${count}</td>
+                <td>${((count / totalPoints) * 100).toFixed(1)}%</td>
+              </tr>
+            `;
+          }
+        });
+      }
+    }
+    
     // Load receivers
     async function loadReceivers() {
       try {
@@ -479,6 +677,23 @@
         // Fit bounds to include all points (heatmap + receivers)
         const bounds = L.latLngBounds(points);
         map.fitBounds(bounds, { padding: [50, 50] });
+        
+        // Calculate and display statistics
+        if (receiverId) {
+          // For specific receiver, show both distance and direction stats
+          const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
+          if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
+            const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
+            const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
+            const stats = calculateCoverageStats(heatData, receiverLatLng, maxDistance);
+            updateStatsDisplay(stats, true); // Show direction stats for specific receiver
+          } else {
+            updateStatsDisplay(null, false);
+          }
+        } else {
+          // For "All" receivers, don't show direction stats as they wouldn't be meaningful
+          updateStatsDisplay(null, false);
+        }
       } catch (e) {
         console.error('Failed to load coverage data:', e);
         alert('Failed to load coverage data. Please try again later.');
