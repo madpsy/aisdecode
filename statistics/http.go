@@ -138,13 +138,31 @@ func registerHandlers(mux *http.ServeMux) {
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     receiverID := parseReceiverIDParam(r)
+    timeRange, err := parseTimeRangeParams(r)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
     
-    // Include receiver_id in cache key if specified
+    // Include receiver_id and time range in cache key if specified
     var cacheKey string
-    if receiverID > 0 {
-        cacheKey = fmt.Sprintf("top-sog:%dd:r%d", days, receiverID)
+    if timeRange.UseRange {
+        if receiverID > 0 {
+            cacheKey = fmt.Sprintf("top-sog:%s-%s:r%d",
+                timeRange.From.Format("2006-01-02T15:04:05Z"),
+                timeRange.To.Format("2006-01-02T15:04:05Z"),
+                receiverID)
+        } else {
+            cacheKey = fmt.Sprintf("top-sog:%s-%s",
+                timeRange.From.Format("2006-01-02T15:04:05Z"),
+                timeRange.To.Format("2006-01-02T15:04:05Z"))
+        }
     } else {
-        cacheKey = fmt.Sprintf("top-sog:%dd", days)
+        if receiverID > 0 {
+            cacheKey = fmt.Sprintf("top-sog:%dd:r%d", days, receiverID)
+        } else {
+            cacheKey = fmt.Sprintf("top-sog:%dd", days)
+        }
     }
 
     var vs []vessel
@@ -154,37 +172,72 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Build query with optional receiver_id filter
+    // Build query with optional receiver_id filter and time range
     var qry string
     if receiverID > 0 {
-        qry = fmt.Sprintf(`
-            SELECT DISTINCT ON (m.user_id)
-                   m.user_id,
-                   (m.packet->>'Sog')::float       AS max_sog,
-                   m.timestamp,
-                   (m.packet->>'Latitude')::float  AS lat,
-                   (m.packet->>'Longitude')::float AS lon
-              FROM messages m
-             WHERE m.message_id IN (1,2,3,18,19)
-               AND (m.packet->>'Sog')::float <> 102.3
-               AND m.timestamp >= now() - INTERVAL '%d days'
-               AND m.receiver_id = %d
-             ORDER BY m.user_id, max_sog DESC
-        `, days, receiverID)
+        if timeRange.UseRange {
+            qry = fmt.Sprintf(`
+                SELECT DISTINCT ON (m.user_id)
+                       m.user_id,
+                       (m.packet->>'Sog')::float       AS max_sog,
+                       m.timestamp,
+                       (m.packet->>'Latitude')::float  AS lat,
+                       (m.packet->>'Longitude')::float AS lon
+                  FROM messages m
+                 WHERE m.message_id IN (1,2,3,18,19)
+                   AND (m.packet->>'Sog')::float <> 102.3
+                   AND m.timestamp >= '%s'
+                   AND m.timestamp <= '%s'
+                   AND m.receiver_id = %d
+                 ORDER BY m.user_id, max_sog DESC
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT DISTINCT ON (m.user_id)
+                       m.user_id,
+                       (m.packet->>'Sog')::float       AS max_sog,
+                       m.timestamp,
+                       (m.packet->>'Latitude')::float  AS lat,
+                       (m.packet->>'Longitude')::float AS lon
+                  FROM messages m
+                 WHERE m.message_id IN (1,2,3,18,19)
+                   AND (m.packet->>'Sog')::float <> 102.3
+                   AND m.timestamp >= now() - INTERVAL '%d days'
+                   AND m.receiver_id = %d
+                 ORDER BY m.user_id, max_sog DESC
+            `, days, receiverID)
+        }
     } else {
-        qry = fmt.Sprintf(`
-            SELECT DISTINCT ON (m.user_id)
-                   m.user_id,
-                   (m.packet->>'Sog')::float       AS max_sog,
-                   m.timestamp,
-                   (m.packet->>'Latitude')::float  AS lat,
-                   (m.packet->>'Longitude')::float AS lon
-              FROM messages m
-             WHERE m.message_id IN (1,2,3,18,19)
-               AND (m.packet->>'Sog')::float <> 102.3
-               AND m.timestamp >= now() - INTERVAL '%d days'
-             ORDER BY m.user_id, max_sog DESC
-        `, days)
+        if timeRange.UseRange {
+            qry = fmt.Sprintf(`
+                SELECT DISTINCT ON (m.user_id)
+                       m.user_id,
+                       (m.packet->>'Sog')::float       AS max_sog,
+                       m.timestamp,
+                       (m.packet->>'Latitude')::float  AS lat,
+                       (m.packet->>'Longitude')::float AS lon
+                  FROM messages m
+                 WHERE m.message_id IN (1,2,3,18,19)
+                   AND (m.packet->>'Sog')::float <> 102.3
+                   AND m.timestamp >= '%s'
+                   AND m.timestamp <= '%s'
+                 ORDER BY m.user_id, max_sog DESC
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT DISTINCT ON (m.user_id)
+                       m.user_id,
+                       (m.packet->>'Sog')::float       AS max_sog,
+                       m.timestamp,
+                       (m.packet->>'Latitude')::float  AS lat,
+                       (m.packet->>'Longitude')::float AS lon
+                  FROM messages m
+                 WHERE m.message_id IN (1,2,3,18,19)
+                   AND (m.packet->>'Sog')::float <> 102.3
+                   AND m.timestamp >= now() - INTERVAL '%d days'
+                 ORDER BY m.user_id, max_sog DESC
+            `, days)
+        }
     }
 
     shardResults, err := QueryDatabasesForAllShards(qry)
@@ -244,13 +297,31 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
 func topTypesHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     receiverID := parseReceiverIDParam(r)
+    timeRange, err := parseTimeRangeParams(r)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
     
-    // Include receiver_id in cache key if specified
+    // Include receiver_id and time range in cache key if specified
     var cacheKey string
-    if receiverID > 0 {
-        cacheKey = fmt.Sprintf("top-types:%dd:r%d", days, receiverID)
+    if timeRange.UseRange {
+        if receiverID > 0 {
+            cacheKey = fmt.Sprintf("top-types:%s-%s:r%d",
+                timeRange.From.Format("2006-01-02T15:04:05Z"),
+                timeRange.To.Format("2006-01-02T15:04:05Z"),
+                receiverID)
+        } else {
+            cacheKey = fmt.Sprintf("top-types:%s-%s",
+                timeRange.From.Format("2006-01-02T15:04:05Z"),
+                timeRange.To.Format("2006-01-02T15:04:05Z"))
+        }
     } else {
-        cacheKey = fmt.Sprintf("top-types:%dd", days)
+        if receiverID > 0 {
+            cacheKey = fmt.Sprintf("top-types:%dd:r%d", days, receiverID)
+        } else {
+            cacheKey = fmt.Sprintf("top-types:%dd", days)
+        }
     }
 
     var counts []typeCount
@@ -259,29 +330,56 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Build query with optional receiver_id filter
+    // Build query with optional receiver_id filter and time range
     var qry string
     if receiverID > 0 {
-        qry = fmt.Sprintf(`
-            SELECT (packet->>'Type') AS vessel_type,
-                   COUNT(*)               AS cnt
-              FROM state
-             WHERE timestamp >= now() - INTERVAL '%d days'
-               AND (packet->>'Type') IS NOT NULL
-               AND TRIM((packet->>'Type')) <> ''
-               AND receiver_id = %d
-             GROUP BY vessel_type
-        `, days, receiverID)
+        if timeRange.UseRange {
+            qry = fmt.Sprintf(`
+                SELECT (packet->>'Type') AS vessel_type,
+                       COUNT(*)               AS cnt
+                  FROM state
+                 WHERE timestamp >= '%s'
+                   AND timestamp <= '%s'
+                   AND (packet->>'Type') IS NOT NULL
+                   AND TRIM((packet->>'Type')) <> ''
+                   AND receiver_id = %d
+                 GROUP BY vessel_type
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT (packet->>'Type') AS vessel_type,
+                       COUNT(*)               AS cnt
+                  FROM state
+                 WHERE timestamp >= now() - INTERVAL '%d days'
+                   AND (packet->>'Type') IS NOT NULL
+                   AND TRIM((packet->>'Type')) <> ''
+                   AND receiver_id = %d
+                 GROUP BY vessel_type
+            `, days, receiverID)
+        }
     } else {
-        qry = fmt.Sprintf(`
-            SELECT (packet->>'Type') AS vessel_type,
-                   COUNT(*)               AS cnt
-              FROM state
-             WHERE timestamp >= now() - INTERVAL '%d days'
-               AND (packet->>'Type') IS NOT NULL
-               AND TRIM((packet->>'Type')) <> ''
-             GROUP BY vessel_type
-        `, days)
+        if timeRange.UseRange {
+            qry = fmt.Sprintf(`
+                SELECT (packet->>'Type') AS vessel_type,
+                       COUNT(*)               AS cnt
+                  FROM state
+                 WHERE timestamp >= '%s'
+                   AND timestamp <= '%s'
+                   AND (packet->>'Type') IS NOT NULL
+                   AND TRIM((packet->>'Type')) <> ''
+                 GROUP BY vessel_type
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT (packet->>'Type') AS vessel_type,
+                       COUNT(*)               AS cnt
+                  FROM state
+                 WHERE timestamp >= now() - INTERVAL '%d days'
+                   AND (packet->>'Type') IS NOT NULL
+                   AND TRIM((packet->>'Type')) <> ''
+                 GROUP BY vessel_type
+            `, days)
+        }
     }
 
     shardResults, err := QueryDatabasesForAllShards(qry)
@@ -321,13 +419,31 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
 func topClassesHandler(w http.ResponseWriter, r *http.Request) {
         days := parseDaysParam(r)
         receiverID := parseReceiverIDParam(r)
+        timeRange, err := parseTimeRangeParams(r)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusBadRequest)
+            return
+        }
         
-        // Include receiver_id in cache key if specified
+        // Include receiver_id and time range in cache key if specified
         var cacheKey string
-        if receiverID > 0 {
-            cacheKey = fmt.Sprintf("top-classes:%dd:r%d", days, receiverID)
+        if timeRange.UseRange {
+            if receiverID > 0 {
+                cacheKey = fmt.Sprintf("top-classes:%s-%s:r%d",
+                    timeRange.From.Format("2006-01-02T15:04:05Z"),
+                    timeRange.To.Format("2006-01-02T15:04:05Z"),
+                    receiverID)
+            } else {
+                cacheKey = fmt.Sprintf("top-classes:%s-%s",
+                    timeRange.From.Format("2006-01-02T15:04:05Z"),
+                    timeRange.To.Format("2006-01-02T15:04:05Z"))
+            }
         } else {
-            cacheKey = fmt.Sprintf("top-classes:%dd", days)
+            if receiverID > 0 {
+                cacheKey = fmt.Sprintf("top-classes:%dd:r%d", days, receiverID)
+            } else {
+                cacheKey = fmt.Sprintf("top-classes:%dd", days)
+            }
         }
     
         var counts []classCount
@@ -336,29 +452,56 @@ func topClassesHandler(w http.ResponseWriter, r *http.Request) {
             return
         }
     
-        // Build query with optional receiver_id filter
+        // Build query with optional receiver_id filter and time range
         var qry string
         if receiverID > 0 {
-            qry = fmt.Sprintf(`
-                SELECT ais_class AS vessel_class,
-                       COUNT(*)  AS cnt
-                  FROM state
-                 WHERE timestamp >= now() - INTERVAL '%d days'
-                   AND ais_class IS NOT NULL
-                   AND TRIM(ais_class) <> ''
-                   AND receiver_id = %d
-                 GROUP BY vessel_class
-            `, days, receiverID)
+            if timeRange.UseRange {
+                qry = fmt.Sprintf(`
+                    SELECT ais_class AS vessel_class,
+                           COUNT(*)  AS cnt
+                      FROM state
+                     WHERE timestamp >= '%s'
+                       AND timestamp <= '%s'
+                       AND ais_class IS NOT NULL
+                       AND TRIM(ais_class) <> ''
+                       AND receiver_id = %d
+                     GROUP BY vessel_class
+                `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+            } else {
+                qry = fmt.Sprintf(`
+                    SELECT ais_class AS vessel_class,
+                           COUNT(*)  AS cnt
+                      FROM state
+                     WHERE timestamp >= now() - INTERVAL '%d days'
+                       AND ais_class IS NOT NULL
+                       AND TRIM(ais_class) <> ''
+                       AND receiver_id = %d
+                     GROUP BY vessel_class
+                `, days, receiverID)
+            }
         } else {
-            qry = fmt.Sprintf(`
-                SELECT ais_class AS vessel_class,
-                       COUNT(*)  AS cnt
-                  FROM state
-                 WHERE timestamp >= now() - INTERVAL '%d days'
-                   AND ais_class IS NOT NULL
-                   AND TRIM(ais_class) <> ''
-                 GROUP BY vessel_class
-            `, days)
+            if timeRange.UseRange {
+                qry = fmt.Sprintf(`
+                    SELECT ais_class AS vessel_class,
+                           COUNT(*)  AS cnt
+                      FROM state
+                     WHERE timestamp >= '%s'
+                       AND timestamp <= '%s'
+                       AND ais_class IS NOT NULL
+                       AND TRIM(ais_class) <> ''
+                     GROUP BY vessel_class
+                `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
+            } else {
+                qry = fmt.Sprintf(`
+                    SELECT ais_class AS vessel_class,
+                           COUNT(*)  AS cnt
+                      FROM state
+                     WHERE timestamp >= now() - INTERVAL '%d days'
+                       AND ais_class IS NOT NULL
+                       AND TRIM(ais_class) <> ''
+                     GROUP BY vessel_class
+                `, days)
+            }
         }
     
         shardResults, err := QueryDatabasesForAllShards(qry)
@@ -398,13 +541,31 @@ func topClassesHandler(w http.ResponseWriter, r *http.Request) {
 func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     receiverID := parseReceiverIDParam(r)
+    timeRange, err := parseTimeRangeParams(r)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
     
-    // Include receiver_id in cache key if specified
+    // Include receiver_id and time range in cache key if specified
     var cacheKey string
-    if receiverID > 0 {
-        cacheKey = fmt.Sprintf("top-positions:%dd:r%d", days, receiverID)
+    if timeRange.UseRange {
+        if receiverID > 0 {
+            cacheKey = fmt.Sprintf("top-positions:%s-%s:r%d",
+                timeRange.From.Format("2006-01-02T15:04:05Z"),
+                timeRange.To.Format("2006-01-02T15:04:05Z"),
+                receiverID)
+        } else {
+            cacheKey = fmt.Sprintf("top-positions:%s-%s",
+                timeRange.From.Format("2006-01-02T15:04:05Z"),
+                timeRange.To.Format("2006-01-02T15:04:05Z"))
+        }
     } else {
-        cacheKey = fmt.Sprintf("top-positions:%dd", days)
+        if receiverID > 0 {
+            cacheKey = fmt.Sprintf("top-positions:%dd:r%d", days, receiverID)
+        } else {
+            cacheKey = fmt.Sprintf("top-positions:%dd", days)
+        }
     }
 
     var ps []posVessel
@@ -413,27 +574,52 @@ func topPositionsHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Build query with optional receiver_id filter
+    // Build query with optional receiver_id filter and time range
     var qry string
     if receiverID > 0 {
-        qry = fmt.Sprintf(`
-            SELECT user_id,
-                   COUNT(*) AS cnt
-              FROM messages
-             WHERE message_id IN (1,2,3,18,19)
-               AND timestamp >= now() - INTERVAL '%d days'
-               AND receiver_id = %d
-             GROUP BY user_id
-        `, days, receiverID)
+        if timeRange.UseRange {
+            qry = fmt.Sprintf(`
+                SELECT user_id,
+                       COUNT(*) AS cnt
+                  FROM messages
+                 WHERE message_id IN (1,2,3,18,19)
+                   AND timestamp >= '%s'
+                   AND timestamp <= '%s'
+                   AND receiver_id = %d
+                 GROUP BY user_id
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT user_id,
+                       COUNT(*) AS cnt
+                  FROM messages
+                 WHERE message_id IN (1,2,3,18,19)
+                   AND timestamp >= now() - INTERVAL '%d days'
+                   AND receiver_id = %d
+                 GROUP BY user_id
+            `, days, receiverID)
+        }
     } else {
-        qry = fmt.Sprintf(`
-            SELECT user_id,
-                   COUNT(*) AS cnt
-              FROM messages
-             WHERE message_id IN (1,2,3,18,19)
-               AND timestamp >= now() - INTERVAL '%d days'
-             GROUP BY user_id
-        `, days)
+        if timeRange.UseRange {
+            qry = fmt.Sprintf(`
+                SELECT user_id,
+                       COUNT(*) AS cnt
+                  FROM messages
+                 WHERE message_id IN (1,2,3,18,19)
+                   AND timestamp >= '%s'
+                   AND timestamp <= '%s'
+                 GROUP BY user_id
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT user_id,
+                       COUNT(*) AS cnt
+                  FROM messages
+                 WHERE message_id IN (1,2,3,18,19)
+                   AND timestamp >= now() - INTERVAL '%d days'
+                 GROUP BY user_id
+            `, days)
+        }
     }
 
     shardResults, err := QueryDatabasesForAllShards(qry)
@@ -498,6 +684,75 @@ func parseReceiverIDParam(r *http.Request) int {
     return -1 // -1 indicates no receiver_id filter
 }
 
+// TimeRange represents a time range for queries
+type TimeRange struct {
+    From     time.Time
+    To       time.Time
+    UseRange bool // Whether to use the time range or fall back to days
+}
+
+// TimeRangeError represents an error with time range parameters
+type TimeRangeError struct {
+    Message string
+}
+
+func (e TimeRangeError) Error() string {
+    return e.Message
+}
+
+// parseTimeRangeParams reads 'from' and 'to' query params, validates them, and returns a TimeRange.
+// If both params are valid, UseRange will be true.
+// If there's an error with the parameters, it returns a TimeRangeError.
+func parseTimeRangeParams(r *http.Request) (TimeRange, error) {
+    var result TimeRange
+    
+    // Check if both parameters are provided
+    fromStr := r.URL.Query().Get("from")
+    toStr := r.URL.Query().Get("to")
+    
+    // If neither parameter is provided, just return with UseRange=false
+    if fromStr == "" && toStr == "" {
+        return result, nil
+    }
+    
+    // If only one parameter is provided, return an error
+    if fromStr == "" && toStr != "" {
+        return result, TimeRangeError{Message: "Missing 'from' parameter when 'to' is specified"}
+    }
+    if fromStr != "" && toStr == "" {
+        return result, TimeRangeError{Message: "Missing 'to' parameter when 'from' is specified"}
+    }
+    
+    // Parse 'from' parameter
+    fromTime, err := time.Parse(time.RFC3339, fromStr)
+    if err != nil {
+        return result, TimeRangeError{Message: "Invalid 'from' date format. Expected RFC3339 format (e.g., 2023-01-01T00:00:00Z)"}
+    }
+    
+    // Parse 'to' parameter
+    toTime, err := time.Parse(time.RFC3339, toStr)
+    if err != nil {
+        return result, TimeRangeError{Message: "Invalid 'to' date format. Expected RFC3339 format (e.g., 2023-01-01T00:00:00Z)"}
+    }
+    
+    // Validate the range
+    if fromTime.After(toTime) {
+        return result, TimeRangeError{Message: "'from' date must be before 'to' date"}
+    }
+    
+    // Check if range exceeds 30 days
+    maxDuration := 30 * 24 * time.Hour
+    if toTime.Sub(fromTime) > maxDuration {
+        return result, TimeRangeError{Message: "Time range cannot exceed 30 days"}
+    }
+    
+    result.From = fromTime
+    result.To = toTime
+    result.UseRange = true
+    
+    return result, nil
+}
+
 // respondJSON serializes v as JSON to the response.
 func respondJSON(w http.ResponseWriter, v interface{}) {
     w.Header().Set("Content-Type", "application/json")
@@ -512,13 +767,31 @@ func respondError(w http.ResponseWriter, err error) {
 func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     receiverID := parseReceiverIDParam(r)
+    timeRange, err := parseTimeRangeParams(r)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
     
-    // Include receiver_id in cache key if specified
+    // Include receiver_id and time range in cache key if specified
     var cacheKey string
-    if receiverID > 0 {
-        cacheKey = fmt.Sprintf("top-distance:%dd:r%d", days, receiverID)
+    if timeRange.UseRange {
+        if receiverID > 0 {
+            cacheKey = fmt.Sprintf("top-distance:%s-%s:r%d",
+                timeRange.From.Format("2006-01-02T15:04:05Z"),
+                timeRange.To.Format("2006-01-02T15:04:05Z"),
+                receiverID)
+        } else {
+            cacheKey = fmt.Sprintf("top-distance:%s-%s",
+                timeRange.From.Format("2006-01-02T15:04:05Z"),
+                timeRange.To.Format("2006-01-02T15:04:05Z"))
+        }
     } else {
-        cacheKey = fmt.Sprintf("top-distance:%dd", days)
+        if receiverID > 0 {
+            cacheKey = fmt.Sprintf("top-distance:%dd:r%d", days, receiverID)
+        } else {
+            cacheKey = fmt.Sprintf("top-distance:%dd", days)
+        }
     }
 
     var vs []distanceVessel
@@ -548,42 +821,85 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
     // Build query with optional receiver_id filter and exclude SAR vessels
     var qry string
     if receiverID > 0 {
-        qry = fmt.Sprintf(`
-            SELECT DISTINCT ON (m.user_id, m.receiver_id)
-                   m.user_id,
-                   m.distance,
-                   m.timestamp,
-                   (m.packet->>'Latitude')::float  AS lat,
-                   (m.packet->>'Longitude')::float AS lon,
-                   m.receiver_id,
-                   s.ais_class
-               FROM messages m
-               LEFT JOIN state s ON m.user_id = s.user_id
-              WHERE m.distance IS NOT NULL
-                AND m.distance <= 500000  -- Filter out spurious values over 500km
-                AND m.timestamp >= now() - INTERVAL '%d days'
-                AND m.receiver_id = %d
-                AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
-              ORDER BY m.user_id, m.receiver_id, m.distance DESC
-        `, days, receiverID)
+        if timeRange.UseRange {
+            qry = fmt.Sprintf(`
+                SELECT DISTINCT ON (m.user_id, m.receiver_id)
+                       m.user_id,
+                       m.distance,
+                       m.timestamp,
+                       (m.packet->>'Latitude')::float  AS lat,
+                       (m.packet->>'Longitude')::float AS lon,
+                       m.receiver_id,
+                       s.ais_class
+                   FROM messages m
+                   LEFT JOIN state s ON m.user_id = s.user_id
+                  WHERE m.distance IS NOT NULL
+                    AND m.distance <= 500000  -- Filter out spurious values over 500km
+                    AND m.timestamp >= '%s'
+                    AND m.timestamp <= '%s'
+                    AND m.receiver_id = %d
+                    AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
+                  ORDER BY m.user_id, m.receiver_id, m.distance DESC
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT DISTINCT ON (m.user_id, m.receiver_id)
+                       m.user_id,
+                       m.distance,
+                       m.timestamp,
+                       (m.packet->>'Latitude')::float  AS lat,
+                       (m.packet->>'Longitude')::float AS lon,
+                       m.receiver_id,
+                       s.ais_class
+                   FROM messages m
+                   LEFT JOIN state s ON m.user_id = s.user_id
+                  WHERE m.distance IS NOT NULL
+                    AND m.distance <= 500000  -- Filter out spurious values over 500km
+                    AND m.timestamp >= now() - INTERVAL '%d days'
+                    AND m.receiver_id = %d
+                    AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
+                  ORDER BY m.user_id, m.receiver_id, m.distance DESC
+            `, days, receiverID)
+        }
     } else {
-        qry = fmt.Sprintf(`
-            SELECT DISTINCT ON (m.user_id, m.receiver_id)
-                   m.user_id,
-                   m.distance,
-                   m.timestamp,
-                   (m.packet->>'Latitude')::float  AS lat,
-                   (m.packet->>'Longitude')::float AS lon,
-                   m.receiver_id,
-                   s.ais_class
-               FROM messages m
-               LEFT JOIN state s ON m.user_id = s.user_id
-              WHERE m.distance IS NOT NULL
-                AND m.distance <= 500000  -- Filter out spurious values over 1000km
-                AND m.timestamp >= now() - INTERVAL '%d days'
-                AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
-              ORDER BY m.user_id, m.receiver_id, m.distance DESC
-        `, days)
+        if timeRange.UseRange {
+            qry = fmt.Sprintf(`
+                SELECT DISTINCT ON (m.user_id, m.receiver_id)
+                       m.user_id,
+                       m.distance,
+                       m.timestamp,
+                       (m.packet->>'Latitude')::float  AS lat,
+                       (m.packet->>'Longitude')::float AS lon,
+                       m.receiver_id,
+                       s.ais_class
+                   FROM messages m
+                   LEFT JOIN state s ON m.user_id = s.user_id
+                  WHERE m.distance IS NOT NULL
+                    AND m.distance <= 500000  -- Filter out spurious values over 500km
+                    AND m.timestamp >= '%s'
+                    AND m.timestamp <= '%s'
+                    AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
+                  ORDER BY m.user_id, m.receiver_id, m.distance DESC
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT DISTINCT ON (m.user_id, m.receiver_id)
+                       m.user_id,
+                       m.distance,
+                       m.timestamp,
+                       (m.packet->>'Latitude')::float  AS lat,
+                       (m.packet->>'Longitude')::float AS lon,
+                       m.receiver_id,
+                       s.ais_class
+                   FROM messages m
+                   LEFT JOIN state s ON m.user_id = s.user_id
+                  WHERE m.distance IS NOT NULL
+                    AND m.distance <= 500000  -- Filter out spurious values over 500km
+                    AND m.timestamp >= now() - INTERVAL '%d days'
+                    AND (s.ais_class IS NULL OR (s.ais_class != 'SAR' AND s.ais_class != 'BASE' AND s.ais_class != 'AtoN'))
+                  ORDER BY m.user_id, m.receiver_id, m.distance DESC
+            `, days)
+        }
     }
 
     shardResults, err := QueryDatabasesForAllShards(qry)
@@ -674,13 +990,31 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
 func userCountsHandler(w http.ResponseWriter, r *http.Request) {
 	days := parseDaysParam(r)
 	receiverID := parseReceiverIDParam(r)
+	timeRange, err := parseTimeRangeParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	
-	// Include receiver_id in cache key if specified
+	// Include receiver_id and time range in cache key if specified
 	var cacheKey string
-	if receiverID > 0 {
-		cacheKey = fmt.Sprintf("user-counts:%dd:r%d", days, receiverID)
+	if timeRange.UseRange {
+		if receiverID > 0 {
+			cacheKey = fmt.Sprintf("user-counts:%s-%s:r%d",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"),
+				receiverID)
+		} else {
+			cacheKey = fmt.Sprintf("user-counts:%s-%s",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"))
+		}
 	} else {
-		cacheKey = fmt.Sprintf("user-counts:%dd", days)
+		if receiverID > 0 {
+			cacheKey = fmt.Sprintf("user-counts:%dd:r%d", days, receiverID)
+		} else {
+			cacheKey = fmt.Sprintf("user-counts:%dd", days)
+		}
 	}
 
 	var users []userCount
@@ -704,29 +1038,56 @@ func userCountsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build query with optional receiver_id filter
+	// Build query with optional receiver_id filter and time range
 	var qry string
 	if receiverID > 0 {
-		qry = fmt.Sprintf(`
-			SELECT user_id,
-				   COUNT(*) AS cnt
-			  FROM messages
-			 WHERE timestamp >= now() - INTERVAL '%d days'
-			   AND receiver_id = %d
-			 GROUP BY user_id
-			 ORDER BY cnt DESC
-			 LIMIT 100
-		`, days, receiverID)
+		if timeRange.UseRange {
+			qry = fmt.Sprintf(`
+				SELECT user_id,
+					   COUNT(*) AS cnt
+				  FROM messages
+				 WHERE timestamp >= '%s'
+				   AND timestamp <= '%s'
+				   AND receiver_id = %d
+				 GROUP BY user_id
+				 ORDER BY cnt DESC
+				 LIMIT 100
+			`, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+		} else {
+			qry = fmt.Sprintf(`
+				SELECT user_id,
+					   COUNT(*) AS cnt
+				  FROM messages
+				 WHERE timestamp >= now() - INTERVAL '%d days'
+				   AND receiver_id = %d
+				 GROUP BY user_id
+				 ORDER BY cnt DESC
+				 LIMIT 100
+			`, days, receiverID)
+		}
 	} else {
-		qry = fmt.Sprintf(`
-			SELECT user_id,
-				   COUNT(*) AS cnt
-			  FROM messages
-			 WHERE timestamp >= now() - INTERVAL '%d days'
-			 GROUP BY user_id
-			 ORDER BY cnt DESC
-			 LIMIT 100
-		`, days)
+		if timeRange.UseRange {
+			qry = fmt.Sprintf(`
+				SELECT user_id,
+					   COUNT(*) AS cnt
+				  FROM messages
+				 WHERE timestamp >= '%s'
+				   AND timestamp <= '%s'
+				 GROUP BY user_id
+				 ORDER BY cnt DESC
+				 LIMIT 100
+			`, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
+		} else {
+			qry = fmt.Sprintf(`
+				SELECT user_id,
+					   COUNT(*) AS cnt
+				  FROM messages
+				 WHERE timestamp >= now() - INTERVAL '%d days'
+				 GROUP BY user_id
+				 ORDER BY cnt DESC
+				 LIMIT 100
+			`, days)
+		}
 	}
 
 	shardResults, err := QueryDatabasesForAllShards(qry)
@@ -789,13 +1150,31 @@ func userCountsHandler(w http.ResponseWriter, r *http.Request) {
 func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
     days := parseDaysParam(r)
     receiverId := parseReceiverIDParam(r)
+    timeRange, err := parseTimeRangeParams(r)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
     
-    // Define cache key
+    // Define cache key with time range if provided
     var cacheKey string
-    if receiverId < 0 {
-        cacheKey = fmt.Sprintf("coverage-map:%dd:all", days)
+    if timeRange.UseRange {
+        if receiverId < 0 {
+            cacheKey = fmt.Sprintf("coverage-map:%s-%s:all",
+                timeRange.From.Format("2006-01-02T15:04:05Z"),
+                timeRange.To.Format("2006-01-02T15:04:05Z"))
+        } else {
+            cacheKey = fmt.Sprintf("coverage-map:%s-%s:r%d",
+                timeRange.From.Format("2006-01-02T15:04:05Z"),
+                timeRange.To.Format("2006-01-02T15:04:05Z"),
+                receiverId)
+        }
     } else {
-        cacheKey = fmt.Sprintf("coverage-map:%dd:r%d", days, receiverId)
+        if receiverId < 0 {
+            cacheKey = fmt.Sprintf("coverage-map:%dd:all", days)
+        } else {
+            cacheKey = fmt.Sprintf("coverage-map:%dd:r%d", days, receiverId)
+        }
     }
     
     // Define the response structure
@@ -820,77 +1199,154 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
     var qry string
     if receiverId < 0 {
         // Query for all receivers
-        qry = fmt.Sprintf(`
-            SELECT
-                ST_Y(ST_Centroid(ST_SnapToGrid(
-                    ST_SetSRID(ST_MakePoint(
-                        (packet->>'Longitude')::float,
-                        (packet->>'Latitude')::float
-                    ), 4326),
-                    %f
-                ))) AS lat,
-                ST_X(ST_Centroid(ST_SnapToGrid(
-                    ST_SetSRID(ST_MakePoint(
-                        (packet->>'Longitude')::float,
-                        (packet->>'Latitude')::float
-                    ), 4326),
-                    %f
-                ))) AS lon,
-                COUNT(*) AS count
-            FROM messages
-            WHERE message_id IN (1,2,3,18,19)
-                AND timestamp >= now() - INTERVAL '%d days'
-                AND (packet->>'Latitude')::float IS NOT NULL
-                AND (packet->>'Longitude')::float IS NOT NULL
-                AND (packet->>'Latitude')::float BETWEEN -90 AND 90
-                AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-                AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
-            GROUP BY
-                ST_SnapToGrid(
-                    ST_SetSRID(ST_MakePoint(
-                        (packet->>'Longitude')::float,
-                        (packet->>'Latitude')::float
-                    ), 4326),
-                    %f
-                )
-        `, gridSize, gridSize, days, gridSize)
+        if timeRange.UseRange {
+            qry = fmt.Sprintf(`
+                SELECT
+                    ST_Y(ST_Centroid(ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    ))) AS lat,
+                    ST_X(ST_Centroid(ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    ))) AS lon,
+                    COUNT(*) AS count
+                FROM messages
+                WHERE message_id IN (1,2,3,18,19)
+                    AND timestamp >= '%s'
+                    AND timestamp <= '%s'
+                    AND (packet->>'Latitude')::float IS NOT NULL
+                    AND (packet->>'Longitude')::float IS NOT NULL
+                    AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+                    AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+                    AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
+                GROUP BY
+                    ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    )
+            `, gridSize, gridSize, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), gridSize)
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT
+                    ST_Y(ST_Centroid(ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    ))) AS lat,
+                    ST_X(ST_Centroid(ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    ))) AS lon,
+                    COUNT(*) AS count
+                FROM messages
+                WHERE message_id IN (1,2,3,18,19)
+                    AND timestamp >= now() - INTERVAL '%d days'
+                    AND (packet->>'Latitude')::float IS NOT NULL
+                    AND (packet->>'Longitude')::float IS NOT NULL
+                    AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+                    AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+                    AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
+                GROUP BY
+                    ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    )
+            `, gridSize, gridSize, days, gridSize)
+        }
     } else {
         // Query for a specific receiver
-        qry = fmt.Sprintf(`
-            SELECT
-                ST_Y(ST_Centroid(ST_SnapToGrid(
-                    ST_SetSRID(ST_MakePoint(
-                        (packet->>'Longitude')::float,
-                        (packet->>'Latitude')::float
-                    ), 4326),
-                    %f
-                ))) AS lat,
-                ST_X(ST_Centroid(ST_SnapToGrid(
-                    ST_SetSRID(ST_MakePoint(
-                        (packet->>'Longitude')::float,
-                        (packet->>'Latitude')::float
-                    ), 4326),
-                    %f
-                ))) AS lon,
-                COUNT(*) AS count
-            FROM messages
-            WHERE message_id IN (1,2,3,18,19)
-                AND receiver_id = %d
-                AND timestamp >= now() - INTERVAL '%d days'
-                AND (packet->>'Latitude')::float IS NOT NULL
-                AND (packet->>'Longitude')::float IS NOT NULL
-                AND (packet->>'Latitude')::float BETWEEN -90 AND 90
-                AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-                AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
-            GROUP BY
-                ST_SnapToGrid(
-                    ST_SetSRID(ST_MakePoint(
-                        (packet->>'Longitude')::float,
-                        (packet->>'Latitude')::float
-                    ), 4326),
-                    %f
-                )
-        `, gridSize, gridSize, receiverId, days, gridSize)
+        if timeRange.UseRange {
+            qry = fmt.Sprintf(`
+                SELECT
+                    ST_Y(ST_Centroid(ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    ))) AS lat,
+                    ST_X(ST_Centroid(ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    ))) AS lon,
+                    COUNT(*) AS count
+                FROM messages
+                WHERE message_id IN (1,2,3,18,19)
+                    AND receiver_id = %d
+                    AND timestamp >= '%s'
+                    AND timestamp <= '%s'
+                    AND (packet->>'Latitude')::float IS NOT NULL
+                    AND (packet->>'Longitude')::float IS NOT NULL
+                    AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+                    AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+                    AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
+                GROUP BY
+                    ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    )
+            `, gridSize, gridSize, receiverId, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), gridSize)
+        } else {
+            qry = fmt.Sprintf(`
+                SELECT
+                    ST_Y(ST_Centroid(ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    ))) AS lat,
+                    ST_X(ST_Centroid(ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    ))) AS lon,
+                    COUNT(*) AS count
+                FROM messages
+                WHERE message_id IN (1,2,3,18,19)
+                    AND receiver_id = %d
+                    AND timestamp >= now() - INTERVAL '%d days'
+                    AND (packet->>'Latitude')::float IS NOT NULL
+                    AND (packet->>'Longitude')::float IS NOT NULL
+                    AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+                    AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+                    AND distance IS NOT NULL AND distance <= 500000 -- Only include points with valid distances <= 500km
+                GROUP BY
+                    ST_SnapToGrid(
+                        ST_SetSRID(ST_MakePoint(
+                            (packet->>'Longitude')::float,
+                            (packet->>'Latitude')::float
+                        ), 4326),
+                        %f
+                    )
+            `, gridSize, gridSize, receiverId, days, gridSize)
+        }
     }
     
     // Query all shards
