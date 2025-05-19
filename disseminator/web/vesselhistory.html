@@ -1929,6 +1929,12 @@
         if (distanceOverlay) {
           distanceOverlay.textContent = `${metersToNauticalMiles(pathDistance)} NM`;
         }
+      } else if (pts.length === 1) {
+        // When there's only one point (last known location), show '0 NM'
+        const distanceOverlay = document.getElementById('distance-overlay');
+        if (distanceOverlay) {
+          distanceOverlay.textContent = '0 NM';
+        }
       }
       
       // Create colored track based on speed
