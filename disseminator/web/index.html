@@ -778,6 +778,10 @@
 	let lastReceiverUpdateTime = 0;
 	const RECEIVER_UPDATE_THROTTLE = 250; // ms - reduced from 500ms to be more responsive
 	let receiverUpdateInterval = null; // For periodic updates
+	
+	// Variables for concentric radius circles
+	let radiusCircles = [];
+	let radiusLabels = [];
 
         // Flag to track if the user manually hid the details overlay.
         let detailsOverlayHidden = false;
@@ -884,6 +888,9 @@ map.on('click', () => {
   if (selectedReceiverId && receiverMarkers[selectedReceiverId]) {
     receiverMarkers[selectedReceiverId].setIcon(createReceiverIcon());
     selectedReceiverId = null;
+    
+    // Clear any radius circles
+    clearRadiusCircles();
     
     // Show a notification that filter is removed
     const notification = document.createElement('div');
@@ -1489,6 +1496,9 @@ function refreshReceivers() {
                 const selectedIcon = createReceiverIcon('blue');
                 marker.setIcon(selectedIcon);
                 
+                // Draw concentric radius circles around the selected receiver
+                drawRadiusCircles([lat, lng]);
+                
                 // Show a notification that filter is applied
                 const notification = document.createElement('div');
                 notification.textContent = `Filtering by receiver: ${receiver.name}`;
@@ -1540,6 +1550,120 @@ function refreshReceivers() {
     });
 }
 
+// Function to calculate maximum distance from receiver to any vessel
+function calculateMaxDistance(receiverLatLng) {
+  if (!receiverLatLng) return 0;
+  
+  let maxDistance = 0;
+  
+  // Loop through all vessels to find the maximum distance
+  for (const UserID in vesselData) {
+    // Skip non-vessel entries
+    if (UserID.length !== 9 || vesselData[UserID].isReceiver) continue;
+    
+    const vessel = vesselData[UserID];
+    const lat = vessel.Latitude;
+    const lon = vessel.Longitude;
+    
+    if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+    
+    // Calculate distance using Leaflet's built-in method
+    const vesselLatLng = L.latLng(lat, lon);
+    const distance = receiverLatLng.distanceTo(vesselLatLng) / 1000; // Convert to km
+    
+    if (distance > maxDistance) {
+      maxDistance = distance;
+    }
+  }
+  
+  return maxDistance;
+}
+
+// Function to convert kilometers to nautical miles
+function kmToNM(km) {
+  return km * 0.539957;
+}
+
+// Function to clear radius circles and labels
+function clearRadiusCircles() {
+  radiusCircles.forEach(circle => {
+    if (circle) map.removeLayer(circle);
+  });
+  radiusCircles = [];
+  
+  radiusLabels.forEach(label => {
+    if (label) map.removeLayer(label);
+  });
+  radiusLabels = [];
+}
+
+// Function to calculate position for radius label (east of center)
+function calculateLabelPosition(center, radiusKm) {
+  // Validate center coordinates
+  if (!center || typeof center.lat !== 'number' || typeof center.lng !== 'number' ||
+      isNaN(center.lat) || isNaN(center.lng)) {
+    console.warn('Invalid center coordinates for label position');
+    return null;
+  }
+  
+  // Convert radius from km to degrees longitude (approximate)
+  // This is a simplified calculation that works for small distances
+  const radiusLng = radiusKm / (111.32 * Math.cos(center.lat * Math.PI / 180));
+  
+  // Position the label to the east of the center
+  return L.latLng(center.lat, center.lng + radiusLng);
+}
+
+// Function to draw concentric radius circles around a receiver
+function drawRadiusCircles(receiverCoords) {
+  // Clear any existing circles and labels
+  clearRadiusCircles();
+  
+  const receiverLatLng = L.latLng(receiverCoords[0], receiverCoords[1]);
+  
+  // Calculate maximum distance from receiver to any vessel
+  const maxDistanceKm = calculateMaxDistance(receiverLatLng);
+  if (maxDistanceKm <= 0) return;
+  
+  // Create 3 evenly spaced circles
+  for (let i = 1; i <= 3; i++) {
+    const radiusKm = maxDistanceKm * i / 3;
+    const radiusMeters = radiusKm * 1000; // Leaflet uses meters for circle radius
+    
+    // Create circle
+    const circle = L.circle(receiverLatLng, {
+      radius: radiusMeters,
+      color: 'grey',
+      fillColor: 'transparent',
+      weight: 1.5,
+      opacity: 0.7,
+      dashArray: '5, 5'  // Makes the line dashed
+    }).addTo(map);
+    
+    radiusCircles.push(circle);
+    
+    // Convert to nautical miles for the label
+    const radiusNM = kmToNM(radiusKm).toFixed(1);
+    
+    // Calculate position for the label (east of the center)
+    const labelLatLng = calculateLabelPosition(receiverLatLng, radiusKm);
+    
+    // Only create label if we have valid coordinates
+    if (labelLatLng) {
+      // Create label
+      const label = L.tooltip({
+        permanent: true,
+        direction: 'center',
+        className: 'distance-tooltip'
+      })
+      .setLatLng(labelLatLng)
+      .setContent(`${radiusNM} NM`)
+      .addTo(map);
+      
+      radiusLabels.push(label);
+    }
+  }
+}
 
 function getColorForVesselTypeConsistent(type) {
   if (!type) return "blue";
