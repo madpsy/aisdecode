@@ -168,7 +168,7 @@ func fetchVesselTypeMap(baseURL string) (VesselTypeMap, error) {
 	vesselTypeMap := make(VesselTypeMap)
 	
 	// Fetch vessel type mappings
-	vesselTypesURL := fmt.Sprintf("%s/vessel_types.json", baseURL)
+	vesselTypesURL := fmt.Sprintf("%s/statistics/vessel_types.json", baseURL)
 	if err := fetchJSON(vesselTypesURL, &vesselTypeMap); err != nil {
 		return nil, fmt.Errorf("error fetching vessel type mappings: %w", err)
 	}
@@ -231,16 +231,13 @@ func fetchJSON(url string, target interface{}) error {
 }
 
 // generateStatisticsReport generates a weekly statistics report for a receiver
-func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vesselTypeMap VesselTypeMap) string {
-	// Record start time for report generation duration
-	startTime := time.Now()
-	
+func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vesselTypeMap VesselTypeMap, startTime time.Time) string {
 	var report strings.Builder
 
 	// Header
 	report.WriteString(fmt.Sprintf("Weekly Statistics Report for %s (ID: %d)\n", rec.Name, rec.ID))
 	report.WriteString(fmt.Sprintf("Report Period: Last %d days\n", days))
-	report.WriteString(fmt.Sprintf("Generated on: %s\n\n", startTime.Format("January 2, 2006 at 15:04:05 (UTC)")))
+	report.WriteString(fmt.Sprintf("Generated on: %s\n\n", time.Now().Format("January 2, 2006 at 15:04:05 (UTC)")))
 
 	// Coverage Statistics (now first)
 	report.WriteString("=== Coverage Statistics ===\n")
@@ -316,7 +313,7 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vess
 	}
 	report.WriteString("\n")
 
-	// Calculate report generation duration
+	// Calculate report generation duration (including API fetch time)
 	duration := time.Since(startTime)
 	
 	// Footer with links
@@ -339,7 +336,7 @@ func sendWeeklyStatisticsReports() {
 		log.Println("Statistics reporting is disabled or base URL not set")
 		return
 	}
-
+	
 	log.Println("Starting weekly statistics report generation")
 
 	// Fetch vessel type mappings
@@ -389,6 +386,9 @@ func sendWeeklyStatisticsReports() {
 			continue
 		}
 
+		// Record start time for this specific report's generation duration
+		reportStartTime := time.Now()
+
 		// Fetch statistics for this receiver
 		stats, err := fetchReceiverStatistics(settings.StatisticsBaseURL, receiver.ID, days)
 		if err != nil {
@@ -397,7 +397,7 @@ func sendWeeklyStatisticsReports() {
 		}
 
 		// Generate the report
-		reportBody := generateStatisticsReport(receiver, stats, days, vesselTypeMap)
+		reportBody := generateStatisticsReport(receiver, stats, days, vesselTypeMap, reportStartTime)
 
 		// Create a copy of the receiver for sendEmail
 		receiverCopy := receiver
