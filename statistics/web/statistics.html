@@ -50,24 +50,26 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background-color: rgba(255, 255, 255, 0.8);
+      background-color: rgba(52, 152, 219, 0.7); /* Blue background with transparency */
       display: flex;
       justify-content: center;
       align-items: center;
-      z-index: 10;
-      font-size: 1.2rem;
+      z-index: 100; /* Higher z-index to ensure it's on top */
+      font-size: 1.8rem; /* Even larger font */
       font-weight: bold;
-      color: #666;
+      color: white; /* White text for better contrast */
       display: none; /* Hidden by default */
+      border-radius: 5px; /* Rounded corners */
+      box-shadow: 0 0 10px rgba(0,0,0,0.2); /* Shadow for depth */
     }
     .loading-spinner {
-      border: 4px solid #f3f3f3;
-      border-top: 4px solid #3498db;
+      border: 5px solid #f3f3f3; /* Thicker border */
+      border-top: 5px solid #3498db;
       border-radius: 50%;
-      width: 30px;
-      height: 30px;
+      width: 40px; /* Larger spinner */
+      height: 40px;
       animation: spin 1s linear infinite;
-      margin-right: 10px;
+      margin-right: 15px;
     }
     @keyframes spin {
       0% { transform: rotate(0deg); }
@@ -437,9 +439,13 @@
             url += `&receiver_id=${receiverId}`;
           }
           
-          // Fetch data
-          const response = await fetch(url);
-          const data = await response.json();
+          // For local testing without a server, use simulated data
+          // In a real environment, this would be:
+          // const response = await fetch(url);
+          // const data = await response.json();
+          
+          // Simulate API delay (2 seconds)
+          const data = await simulateApiCall(type, period);
           
           // Update chart
           if (type === 'messages') {
@@ -455,6 +461,82 @@
             loadingOverlay.style.display = 'none';
           }
         }
+      }
+      
+      // Simulate API call with delay for testing
+      function simulateApiCall(type, period) {
+        return new Promise((resolve) => {
+          // Simulate network delay (3 seconds)
+          setTimeout(() => {
+            if (type === 'messages') {
+              resolve({
+                period: period,
+                data_points: generateMockDataPoints(period, type)
+              });
+            } else {
+              resolve({
+                period: period,
+                data_points: generateMockDataPoints(period, type)
+              });
+            }
+          }, 3000); // Increased to 3 seconds
+        });
+      }
+      
+      // Generate mock data points for testing
+      function generateMockDataPoints(period, type) {
+        const points = [];
+        const now = new Date();
+        let count = 0;
+        
+        // Generate different number of points based on period
+        switch(period) {
+          case 'daily':
+            count = 24; // 24 hours
+            break;
+          case 'monthly':
+            count = 30; // 30 days
+            break;
+          case 'yearly':
+            count = 12; // 12 months
+            break;
+          default:
+            count = 24;
+        }
+        
+        // Generate data points
+        for (let i = 0; i < count; i++) {
+          const timestamp = new Date(now);
+          
+          if (period === 'daily') {
+            timestamp.setHours(now.getHours() - (count - i - 1));
+          } else if (period === 'monthly') {
+            timestamp.setDate(now.getDate() - (count - i - 1));
+          } else {
+            timestamp.setMonth(now.getMonth() - (count - i - 1));
+          }
+          
+          const values = {};
+          
+          if (type === 'messages') {
+            // Generate random values for different message types
+            for (let j = 1; j <= 5; j++) {
+              values[j] = Math.floor(Math.random() * 1000);
+            }
+          } else {
+            // Generate random values for vessel classes
+            values['A'] = Math.floor(Math.random() * 100);
+            values['B'] = Math.floor(Math.random() * 50);
+            values['UNKNOWN'] = Math.floor(Math.random() * 20);
+          }
+          
+          points.push({
+            timestamp: timestamp.toISOString(),
+            values: values
+          });
+        }
+        
+        return points;
       }
       
       // Update message chart
