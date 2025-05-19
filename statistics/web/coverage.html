@@ -75,43 +75,9 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
-    /* Global loading overlay */
-    .global-loading-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(255, 255, 255, 0.9);
-      display: none;
-      justify-content: center;
-      align-items: center;
-      z-index: 2000; /* Higher than all other overlays */
-      flex-direction: column;
-    }
-    .global-loading-spinner {
-      border: 6px solid #f3f3f3;
-      border-top: 6px solid #3498db;
-      border-radius: 50%;
-      width: 60px;
-      height: 60px;
-      animation: spin 1.5s linear infinite;
-      margin-bottom: 20px;
-    }
-    .global-loading-text {
-      font-size: 1.5rem;
-      font-weight: bold;
-      color: #333;
-    }
   </style>
 </head>
 <body>
-  <!-- Global loading overlay -->
-  <div class="global-loading-overlay" id="globalLoadingOverlay">
-    <div class="global-loading-spinner"></div>
-    <div class="global-loading-text">Loading data...</div>
-  </div>
-
   <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h1>Coverage Map</h1>
@@ -725,14 +691,16 @@
       }
     }
     
-    // Show global loading overlay
+    // Show global loading overlay - now just uses map loading overlay
     function showGlobalLoading() {
-      document.getElementById('globalLoadingOverlay').style.display = 'flex';
+      // Use map loading overlay instead
+      showMapLoading();
     }
     
-    // Hide global loading overlay
+    // Hide global loading overlay - now just uses map loading overlay
     function hideGlobalLoading() {
-      document.getElementById('globalLoadingOverlay').style.display = 'none';
+      // Use map loading overlay instead
+      hideMapLoading();
     }
     
     // Show map loading overlay
@@ -809,7 +777,6 @@
       try {
         // Show loading state
         showGlobalLoading();
-        showMapLoading();
         
         let url;
         
@@ -820,7 +787,6 @@
           // Validate date range
           if (!validateDateRange(fromDate, toDate)) {
             hideGlobalLoading();
-            hideMapLoading();
             return; // Stop if validation fails
           }
           
@@ -851,7 +817,6 @@
             console.error('Date formatting error:', e);
             alert('Invalid date format. Please check your date inputs.');
             hideGlobalLoading();
-            hideMapLoading();
             return;
           }
         } else {
@@ -991,9 +956,8 @@
         console.error('Failed to load coverage data:', e);
         alert('Failed to load coverage data. Please try again later.');
       } finally {
-        // Hide loading overlays
+        // Hide loading overlay
         hideGlobalLoading();
-        hideMapLoading();
       }
     }
     
