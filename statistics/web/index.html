@@ -185,13 +185,13 @@
             <div class="form-check me-3">
               <input class="form-check-input" type="radio" name="timeRangeType" id="fixedWindowRadio" value="fixed" checked>
               <label class="form-check-label" for="fixedWindowRadio">
-                Fixed window
+                Fixed time window
               </label>
             </div>
             <div class="form-check">
               <input class="form-check-input" type="radio" name="timeRangeType" id="dateRangeRadio" value="dateRange">
               <label class="form-check-label" for="dateRangeRadio">
-                Custom range
+                Custom date range
               </label>
             </div>
           </div>
@@ -210,20 +210,20 @@
           
           <!-- Date Range -->
           <div id="dateRangeContainer" style="display: none;">
-            <div class="d-flex align-items-center">
-              <div class="me-2">
-                <label for="from-date" class="form-label me-1">From:</label>
-                <input type="datetime-local" id="from-date" class="form-control form-control-sm">
+            <div class="row">
+              <div class="col-md-6">
+                <label for="from-date" class="form-label">From:</label>
+                <input type="datetime-local" id="from-date" class="form-control">
               </div>
-              <div class="me-2">
-                <label for="to-date" class="form-label me-1">To:</label>
-                <input type="datetime-local" id="to-date" class="form-control form-control-sm">
-              </div>
-              <div>
-                <button id="date-range-go" class="btn btn-primary btn-sm">Go</button>
+              <div class="col-md-6">
+                <label for="to-date" class="form-label">To:</label>
+                <input type="datetime-local" id="to-date" class="form-control">
               </div>
             </div>
-            <div id="date-range-error" class="text-danger mt-1" style="display: none; font-size: 0.875rem;"></div>
+            <div class="mt-2">
+              <button id="date-range-go" class="btn btn-primary">Go</button>
+              <div id="date-range-error" class="text-danger mt-2" style="display: none;"></div>
+            </div>
           </div>
         </div>
       </div>
