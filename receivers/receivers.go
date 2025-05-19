@@ -1196,6 +1196,23 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
     // Extract query parameters
     idParam := r.URL.Query().Get("id")
     ipParam := r.URL.Query().Get("ip_address")
+    maxAgeParam := r.URL.Query().Get("maxage")
+    
+    // Parse maxage parameter (in hours) if provided
+    var maxAgeHours float64
+    var maxAgeTime *time.Time
+    if maxAgeParam != "" {
+        var err error
+        maxAgeHours, err = strconv.ParseFloat(maxAgeParam, 64)
+        if err != nil || maxAgeHours < 0 {
+            http.Error(w, "Invalid maxage parameter: must be a positive number of hours", http.StatusBadRequest)
+            return
+        }
+        
+        // Calculate the cutoff time
+        cutoffTime := time.Now().Add(-time.Duration(maxAgeHours * float64(time.Hour)))
+        maxAgeTime = &cutoffTime
+    }
 
     // Build the query based on filters - only filter by ID, not by IP address
     baseQuery := `
@@ -1406,17 +1423,27 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
         
         // Add the lastseen field if available
         portLastSeenMutex.RLock()
+        var anonymousLastSeen *time.Time
         if lastSeen, ok := portLastSeenMap[udpListenPort]; ok {
             anonymousReceiver["lastseen"] = lastSeen
+            anonymousLastSeen = &lastSeen
         }
         portLastSeenMutex.RUnlock()
         
-        // Add the anonymous receiver first
-        response = append(response, anonymousReceiver)
+        // Only add the anonymous receiver if it meets the maxage criteria
+        if maxAgeTime == nil || (anonymousLastSeen != nil && !anonymousLastSeen.Before(*maxAgeTime)) {
+            // Add the anonymous receiver first
+            response = append(response, anonymousReceiver)
+        }
     }
     
-    // Add all the regular receivers
+    // Add all the regular receivers that meet the maxage criteria
     for _, rec := range list {
+        // Skip receivers that don't meet the maxage criteria
+        if maxAgeTime != nil && (rec.lastSeenTime == nil || rec.lastSeenTime.Before(*maxAgeTime)) {
+            continue
+        }
+        
         // Convert PublicReceiver to map to ensure all fields are included in the JSON
         recBytes, _ := json.Marshal(rec)
         var recMap map[string]interface{}
