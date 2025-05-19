@@ -1126,7 +1126,7 @@ function loadReceivers() {
   // Clear any previous receivers
   receiversList = [];
 
-  fetch('/receivers')
+  fetch('/receivers?maxage=24')
     .then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
