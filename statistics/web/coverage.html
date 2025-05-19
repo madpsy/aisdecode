@@ -269,18 +269,37 @@
           </div>
         </div>
         
-        <!-- Date Range Navigation Section -->
-        <div id="date-range-navigation" class="mt-3 mb-2" style="display: none;">
+        <!-- Date Range Navigation Section - Hourly -->
+        <div id="date-range-navigation-hour" class="mt-3 mb-2" style="display: none;">
           <div class="d-flex align-items-center justify-content-center">
-            <button id="date-range-prev-btn" class="btn btn-sm btn-outline-primary me-2">
+            <button id="date-range-prev-hour-btn" class="btn btn-sm btn-outline-primary me-2">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left" viewBox="0 0 16 16">
                 <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
               </svg>
-              <span id="prev-step-text">Previous</span>
+              <span>Previous hour</span>
             </button>
-            <div id="current-time-display" class="mx-3 fw-bold"></div>
-            <button id="date-range-next-btn" class="btn btn-sm btn-outline-primary ms-2">
-              <span id="next-step-text">Next</span>
+            <div id="current-hour-display" class="mx-3 fw-bold"></div>
+            <button id="date-range-next-hour-btn" class="btn btn-sm btn-outline-primary ms-2">
+              <span>Next hour</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-right" viewBox="0 0 16 16">
+                <path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        
+        <!-- Date Range Navigation Section - Daily -->
+        <div id="date-range-navigation-day" class="mt-2 mb-2" style="display: none;">
+          <div class="d-flex align-items-center justify-content-center">
+            <button id="date-range-prev-day-btn" class="btn btn-sm btn-outline-secondary me-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left" viewBox="0 0 16 16">
+                <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+              </svg>
+              <span>Previous day</span>
+            </button>
+            <div id="current-day-display" class="mx-3 fw-bold"></div>
+            <button id="date-range-next-day-btn" class="btn btn-sm btn-outline-secondary ms-2">
+              <span>Next day</span>
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-right" viewBox="0 0 16 16">
                 <path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
               </svg>
@@ -765,7 +784,8 @@
       document.getElementById('dateRangeContainer').style.display = isDateRange ? 'block' : 'none';
       
       // Hide date range navigation when switching to fixed window
-      document.getElementById('date-range-navigation').style.display = 'none';
+      document.getElementById('date-range-navigation-hour').style.display = 'none';
+      document.getElementById('date-range-navigation-day').style.display = 'none';
       document.getElementById('replay-datetime-overlay').style.display = 'none';
       
       // For fixed window, trigger update automatically
@@ -1046,132 +1066,151 @@
       const originalFromDate = new Date(fromDateInput);
       const originalToDate = new Date(toDateInput);
       
+      // Determine if we should show day navigation (if range > 24 hours)
+      const diffTime = Math.abs(originalToDate - originalFromDate);
+      const diffHours = diffTime / (1000 * 60 * 60);
+      showDayNavigation = diffHours > 24;
+      
       // Determine step size based on date range
       dateRangeStepSize = determineDateRangeStepSize(originalFromDate, originalToDate);
       
-      // Set the initial date range based on step size
-      if (dateRangeStepSize === 'hour') {
-        // For hour steps, start with the first hour of the selected range
-        currentFromDate = new Date(originalFromDate);
-        currentToDate = new Date(currentFromDate);
-        currentToDate.setHours(currentToDate.getHours() + 1);
-      } else {
-        // For day steps, start with the first day of the selected range
-        currentFromDate = new Date(originalFromDate);
-        currentFromDate.setHours(0, 0, 0, 0); // Start of the day
-        
-        currentToDate = new Date(currentFromDate);
-        currentToDate.setHours(23, 59, 59, 999); // End of the day
-      }
+      // Set the initial date range for hourly navigation
+      currentFromDate = new Date(originalFromDate);
+      currentToDate = new Date(currentFromDate);
+      currentToDate.setHours(currentToDate.getHours() + 1);
       
-      // Update button labels based on step size
-      document.getElementById('prev-step-text').textContent = `Previous ${dateRangeStepSize}`;
-      document.getElementById('next-step-text').textContent = `Next ${dateRangeStepSize}`;
+      // Show the appropriate navigation controls
+      document.getElementById('date-range-navigation-hour').style.display = 'block';
+      document.getElementById('date-range-navigation-day').style.display = showDayNavigation ? 'block' : 'none';
       
-      // Show the navigation controls
-      document.getElementById('date-range-navigation').style.display = 'block';
-      
-      // Update the current time display
-      updateCurrentTimeDisplay();
+      // Update the current time displays
+      updateTimeDisplays();
     }
     
-    // Update the current time display
-    function updateCurrentTimeDisplay() {
-      const currentTimeDisplay = document.getElementById('current-time-display');
+    // Update both time displays
+    function updateTimeDisplays() {
+      // Update hour display
+      const hourEndTime = new Date(currentFromDate);
+      hourEndTime.setHours(hourEndTime.getHours() + 1);
       
-      if (dateRangeStepSize === 'hour') {
-        // For hour steps, show the current hour and the next hour
-        const endHour = new Date(currentFromDate);
-        endHour.setHours(endHour.getHours() + 1);
+      const hourDisplay = document.getElementById('current-hour-display');
+      hourDisplay.textContent = `${currentFromDate.toLocaleDateString()} ${currentFromDate.getHours()}:00 - ${hourEndTime.getHours()}:00`;
+      
+      // Update day display if showing
+      if (showDayNavigation) {
+        const currentDay = new Date(currentFromDate);
+        currentDay.setHours(0, 0, 0, 0); // Start of the day
         
-        currentTimeDisplay.textContent = `${currentFromDate.toLocaleDateString()} ${currentFromDate.getHours()}:00 - ${endHour.getHours()}:00`;
-      } else {
-        // For day steps, show the current day
-        currentTimeDisplay.textContent = `${currentFromDate.toLocaleDateString()}`;
+        const dayDisplay = document.getElementById('current-day-display');
+        dayDisplay.textContent = currentDay.toLocaleDateString();
       }
       
       // Also update the date/time overlay on the map
       document.getElementById('replay-datetime-overlay').style.display = 'block';
-      document.getElementById('replay-datetime-text').textContent = currentTimeDisplay.textContent;
+      document.getElementById('replay-datetime-text').textContent = hourDisplay.textContent;
     }
     
-    // Step to previous time period
-    function stepToPreviousTimePeriod() {
+    // Step to previous hour
+    function stepToPreviousHour() {
       if (!currentFromDate || !currentToDate) return;
       
-      if (dateRangeStepSize === 'hour') {
-        // For hour steps, move back one hour and set range to exactly one hour
-        const newFromDate = new Date(currentFromDate);
-        newFromDate.setHours(newFromDate.getHours() - 1);
-        
-        const newToDate = new Date(newFromDate);
-        newToDate.setHours(newToDate.getHours() + 1);
-        
-        currentFromDate = newFromDate;
-        currentToDate = newToDate;
-      } else {
-        // For day steps, move back one day and set range to exactly one day
-        const newFromDate = new Date(currentFromDate);
-        newFromDate.setDate(newFromDate.getDate() - 1);
-        
-        const newToDate = new Date(newFromDate);
-        newToDate.setHours(23, 59, 59, 999); // End of the day
-        
-        currentFromDate = newFromDate;
-        currentToDate = newToDate;
-      }
+      // Move back one hour and set range to exactly one hour
+      const newFromDate = new Date(currentFromDate);
+      newFromDate.setHours(newFromDate.getHours() - 1);
       
-      updateCurrentTimeDisplay();
+      const newToDate = new Date(newFromDate);
+      newToDate.setHours(newToDate.getHours() + 1);
+      
+      currentFromDate = newFromDate;
+      currentToDate = newToDate;
+      
+      updateTimeDisplays();
       loadDateRangeData();
     }
     
-    // Step to next time period
-    function stepToNextTimePeriod() {
+    // Step to next hour
+    function stepToNextHour() {
       if (!currentFromDate || !currentToDate) return;
       
       // Don't allow navigating beyond current time
       const now = new Date();
       
-      if (dateRangeStepSize === 'hour') {
-        // For hour steps, move forward one hour and set range to exactly one hour
-        const newFromDate = new Date(currentFromDate);
-        newFromDate.setHours(newFromDate.getHours() + 1);
-        
-        // Check if we'd be going beyond current time
-        if (newFromDate > now) return;
-        
-        const newToDate = new Date(newFromDate);
-        newToDate.setHours(newToDate.getHours() + 1);
-        
-        // If end time would be beyond now, cap it at now
-        if (newToDate > now) {
-          newToDate.setTime(now.getTime());
-        }
-        
-        currentFromDate = newFromDate;
-        currentToDate = newToDate;
-      } else {
-        // For day steps, move forward one day and set range to exactly one day
-        const newFromDate = new Date(currentFromDate);
-        newFromDate.setDate(newFromDate.getDate() + 1);
-        newFromDate.setHours(0, 0, 0, 0); // Start of the day
-        
-        // Check if we'd be going beyond current time
-        if (newFromDate > now) return;
-        
-        const newToDate = new Date(newFromDate);
-        newToDate.setHours(23, 59, 59, 999); // End of the day
-        
-        // If end time would be beyond now, cap it at now
-        if (newToDate > now) {
-          newToDate.setTime(now.getTime());
-        }
-        
-        currentFromDate = newFromDate;
-        currentToDate = newToDate;
+      // Move forward one hour and set range to exactly one hour
+      const newFromDate = new Date(currentFromDate);
+      newFromDate.setHours(newFromDate.getHours() + 1);
+      
+      // Check if we'd be going beyond current time
+      if (newFromDate > now) return;
+      
+      const newToDate = new Date(newFromDate);
+      newToDate.setHours(newToDate.getHours() + 1);
+      
+      // If end time would be beyond now, cap it at now
+      if (newToDate > now) {
+        newToDate.setTime(now.getTime());
       }
       
-      updateCurrentTimeDisplay();
+      currentFromDate = newFromDate;
+      currentToDate = newToDate;
+      
+      updateTimeDisplays();
+      loadDateRangeData();
+    }
+    
+    // Step to previous day
+    function stepToPreviousDay() {
+      if (!currentFromDate || !currentToDate) return;
+      
+      // Get current day and move to start of day
+      const currentDay = new Date(currentFromDate);
+      currentDay.setHours(0, 0, 0, 0);
+      
+      // Move back one day
+      const previousDay = new Date(currentDay);
+      previousDay.setDate(previousDay.getDate() - 1);
+      
+      // Set from date to start of previous day
+      currentFromDate = new Date(previousDay);
+      
+      // Set to date to current hour in previous day
+      currentToDate = new Date(currentFromDate);
+      currentToDate.setHours(currentToDate.getHours() + 1);
+      
+      updateTimeDisplays();
+      loadDateRangeData();
+    }
+    
+    // Step to next day
+    function stepToNextDay() {
+      if (!currentFromDate || !currentToDate) return;
+      
+      // Don't allow navigating beyond current time
+      const now = new Date();
+      
+      // Get current day and move to start of day
+      const currentDay = new Date(currentFromDate);
+      currentDay.setHours(0, 0, 0, 0);
+      
+      // Move forward one day
+      const nextDay = new Date(currentDay);
+      nextDay.setDate(nextDay.getDate() + 1);
+      
+      // Check if we'd be going beyond current time
+      if (nextDay > now) return;
+      
+      // Set from date to start of next day
+      currentFromDate = new Date(nextDay);
+      
+      // Set to date to current hour in next day
+      currentToDate = new Date(currentFromDate);
+      currentToDate.setHours(currentToDate.getHours() + 1);
+      
+      // If end time would be beyond now, cap it at now
+      if (currentToDate > now) {
+        currentToDate.setTime(now.getTime());
+      }
+      
+      updateTimeDisplays();
       loadDateRangeData();
     }
     
@@ -1350,6 +1389,7 @@
     let currentFromDate = null;
     let currentToDate = null;
     let dateRangeStepSize = 'hour'; // 'hour' or 'day'
+    let showDayNavigation = false; // Flag to show/hide day navigation
     
     // Replay functionality
     let replayData = [];
@@ -1952,8 +1992,10 @@
       document.getElementById('replay-week-btn').addEventListener('click', fetchWeekReplayData);
       
       // Add event listeners for date range navigation
-      document.getElementById('date-range-prev-btn').addEventListener('click', stepToPreviousTimePeriod);
-      document.getElementById('date-range-next-btn').addEventListener('click', stepToNextTimePeriod);
+      document.getElementById('date-range-prev-hour-btn').addEventListener('click', stepToPreviousHour);
+      document.getElementById('date-range-next-hour-btn').addEventListener('click', stepToNextHour);
+      document.getElementById('date-range-prev-day-btn').addEventListener('click', stepToPreviousDay);
+      document.getElementById('date-range-next-day-btn').addEventListener('click', stepToNextDay);
       
       // Update the scale whenever the map is zoomed or moved
       map.on('zoomend moveend', updateNauticalScale);
