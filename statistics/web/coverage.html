@@ -233,6 +233,19 @@
           </div>
         </div>
         
+        <!-- Replay Section -->
+        <div class="mt-4 mb-3">
+          <h4>Replay</h4>
+          <div class="btn-group">
+            <button id="replay-day-btn" class="btn btn-outline-primary">Day</button>
+            <button id="replay-week-btn" class="btn btn-outline-primary">Week</button>
+          </div>
+          <div id="replay-progress" class="progress mt-2" style="display: none;">
+            <div id="replay-progress-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+          </div>
+          <div id="replay-info" class="mt-2 small text-muted" style="display: none;"></div>
+        </div>
+        
         <!-- Coverage Statistics Section -->
         <div id="coverage-stats" style="display: none; margin-top: 20px;">
           <h4>Coverage Statistics</h4>
@@ -913,6 +926,233 @@
       scaleLabel.textContent = `${Math.round(distanceNM)} NM`;
     }
     
+    // Replay functionality
+    let replayData = [];
+    let replayIndex = 0;
+    let replayInterval = null;
+    let isReplaying = false;
+    
+    // Fetch replay data for day (hourly for past 24 hours)
+    async function fetchDayReplayData() {
+      showGlobalLoading();
+      const receiverId = document.getElementById('receiver-select').value;
+      
+      try {
+        // Create array to store data for each hour
+        const hourlyData = [];
+        const now = new Date();
+        
+        // Get data for each hour in the past 24 hours
+        for (let i = 0; i < 24; i++) {
+          const hourDate = new Date(now);
+          hourDate.setHours(now.getHours() - i);
+          
+          const fromDate = new Date(hourDate);
+          fromDate.setHours(hourDate.getHours() - 1);
+          
+          // Format dates for API
+          const fromFormatted = formatDateForAPI(fromDate);
+          const toFormatted = formatDateForAPI(hourDate);
+          
+          // Build URL
+          let url = `/statistics/stats/coverage-map?from=${fromFormatted}&to=${toFormatted}`;
+          if (receiverId) {
+            url += `&receiver_id=${receiverId}`;
+          }
+          
+          // Fetch data for this hour
+          const data = await fetch(url).then(r => r.json());
+          
+          // Add to hourly data with timestamp
+          hourlyData.push({
+            timestamp: hourDate,
+            data: data,
+            label: `${hourDate.toLocaleTimeString()}`
+          });
+        }
+        
+        // Reverse so we go from oldest to newest
+        replayData = hourlyData.reverse();
+        
+        // Start replay if we have data
+        if (replayData.length > 0) {
+          startReplay();
+        } else {
+          alert('No data available for replay');
+        }
+      } catch (e) {
+        console.error('Failed to fetch replay data:', e);
+        alert('Failed to fetch replay data. Please try again later.');
+      } finally {
+        hideGlobalLoading();
+      }
+    }
+    
+    // Fetch replay data for week (daily for past 7 days)
+    async function fetchWeekReplayData() {
+      showGlobalLoading();
+      const receiverId = document.getElementById('receiver-select').value;
+      
+      try {
+        // Create array to store data for each day
+        const dailyData = [];
+        const now = new Date();
+        
+        // Get data for each day in the past 7 days
+        for (let i = 0; i < 7; i++) {
+          const dayDate = new Date(now);
+          dayDate.setDate(now.getDate() - i);
+          
+          // Set to start of day
+          dayDate.setHours(0, 0, 0, 0);
+          
+          const fromDate = new Date(dayDate);
+          const toDate = new Date(dayDate);
+          toDate.setHours(23, 59, 59, 999);
+          
+          // Format dates for API
+          const fromFormatted = formatDateForAPI(fromDate);
+          const toFormatted = formatDateForAPI(toDate);
+          
+          // Build URL
+          let url = `/statistics/stats/coverage-map?from=${fromFormatted}&to=${toFormatted}`;
+          if (receiverId) {
+            url += `&receiver_id=${receiverId}`;
+          }
+          
+          // Fetch data for this day
+          const data = await fetch(url).then(r => r.json());
+          
+          // Add to daily data with timestamp
+          dailyData.push({
+            timestamp: dayDate,
+            data: data,
+            label: `${dayDate.toLocaleDateString()}`
+          });
+        }
+        
+        // Reverse so we go from oldest to newest
+        replayData = dailyData.reverse();
+        
+        // Start replay if we have data
+        if (replayData.length > 0) {
+          startReplay();
+        } else {
+          alert('No data available for replay');
+        }
+      } catch (e) {
+        console.error('Failed to fetch replay data:', e);
+        alert('Failed to fetch replay data. Please try again later.');
+      } finally {
+        hideGlobalLoading();
+      }
+    }
+    
+    // Start replay of data
+    function startReplay() {
+      // If already replaying, stop it first
+      if (isReplaying) {
+        stopReplay();
+      }
+      
+      // Reset index
+      replayIndex = 0;
+      isReplaying = true;
+      
+      // Show progress bar
+      document.getElementById('replay-progress').style.display = 'flex';
+      document.getElementById('replay-info').style.display = 'block';
+      
+      // Disable replay buttons during replay
+      document.getElementById('replay-day-btn').disabled = true;
+      document.getElementById('replay-week-btn').disabled = true;
+      
+      // Calculate time per frame (total 10 seconds divided by number of frames)
+      const timePerFrame = 10000 / replayData.length;
+      
+      // Update map with first frame
+      updateMapWithReplayFrame(0);
+      
+      // Start interval for replay
+      replayInterval = setInterval(() => {
+        replayIndex++;
+        
+        // Update progress bar
+        const progress = (replayIndex / (replayData.length - 1)) * 100;
+        document.getElementById('replay-progress-bar').style.width = `${progress}%`;
+        
+        // Update map with current frame
+        updateMapWithReplayFrame(replayIndex);
+        
+        // Check if we're done
+        if (replayIndex >= replayData.length - 1) {
+          stopReplay();
+        }
+      }, timePerFrame);
+    }
+    
+    // Stop replay
+    function stopReplay() {
+      if (replayInterval) {
+        clearInterval(replayInterval);
+        replayInterval = null;
+      }
+      
+      isReplaying = false;
+      
+      // Hide progress bar
+      document.getElementById('replay-progress').style.display = 'none';
+      document.getElementById('replay-info').style.display = 'none';
+      
+      // Re-enable replay buttons
+      document.getElementById('replay-day-btn').disabled = false;
+      document.getElementById('replay-week-btn').disabled = false;
+    }
+    
+    // Update map with replay frame
+    function updateMapWithReplayFrame(index) {
+      if (!replayData[index]) return;
+      
+      const frameData = replayData[index];
+      const heatData = frameData.data.map(point => {
+        // Intensity based on logarithmic scale of count, but amplified for better visibility
+        const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
+        return [point.lat, point.lon, intensity];
+      });
+      
+      // Update info text
+      document.getElementById('replay-info').textContent = `Showing data for: ${frameData.label}`;
+      
+      // Clear previous heat layer
+      if (heatLayer) {
+        map.removeLayer(heatLayer);
+      }
+      
+      // Create new heat layer
+      heatLayer = L.heatLayer(heatData, {
+        radius: 20,
+        blur: 15,
+        maxZoom: 17,
+        minOpacity: 0.4,
+        gradient: {0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}
+      }).addTo(map);
+      
+      // Update statistics if we have a receiver selected
+      const receiverId = document.getElementById('receiver-select').value;
+      if (receiverId) {
+        // Load all receivers
+        fetch('/receivers').then(r => r.json()).then(receivers => {
+          const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
+          if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
+            const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
+            const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
+            const stats = calculateCoverageStats(heatData, receiverLatLng, maxDistance);
+            updateStatsDisplay(stats, true);
+          }
+        });
+      }
+    }
+    
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
       // Add event listeners
@@ -1022,10 +1262,9 @@
         setTimeout(() => hideMapLoading(), 500); // Hide after a short delay if no data is loaded
       }
       
-      // Update the scale whenever the map is zoomed or moved
-      map.on('zoomend moveend', updateNauticalScale);
-      // Call once to set the initial scale
-      updateNauticalScale();
+      // Add event listeners for replay buttons
+      document.getElementById('replay-day-btn').addEventListener('click', fetchDayReplayData);
+      document.getElementById('replay-week-btn').addEventListener('click', fetchWeekReplayData);
       
       // Update the scale whenever the map is zoomed or moved
       map.on('zoomend moveend', updateNauticalScale);
