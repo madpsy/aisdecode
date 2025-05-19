@@ -86,6 +86,9 @@ type coveragePoint struct {
 	Count int     `json:"count"`
 }
 
+// VesselTypeMap maps vessel type IDs to descriptions
+type VesselTypeMap map[string]string
+
 // parseReportTime parses the report time string into a day of week and hour/minute
 func parseReportTime(timeStr string) (time.Weekday, int, int, error) {
 	parts := strings.Split(timeStr, ",")
@@ -160,15 +163,24 @@ func isTimeToSendReport(lastReportTime time.Time, reportTimeStr string) (bool, e
 	return true, nil
 }
 
+// fetchVesselTypeMap fetches the vessel type mapping from the statistics API
+func fetchVesselTypeMap(baseURL string) (VesselTypeMap, error) {
+	vesselTypeMap := make(VesselTypeMap)
+	
+	// Fetch vessel type mappings
+	vesselTypesURL := fmt.Sprintf("%s/vessel_types.json", baseURL)
+	if err := fetchJSON(vesselTypesURL, &vesselTypeMap); err != nil {
+		return nil, fmt.Errorf("error fetching vessel type mappings: %w", err)
+	}
+	
+	return vesselTypeMap, nil
+}
+
 // fetchReceiverStatistics fetches statistics for a specific receiver
 func fetchReceiverStatistics(baseURL string, receiverID int, days int) (*ReceiverStats, error) {
 	stats := &ReceiverStats{}
 
-	// Fetch top SOG
-	topSogURL := fmt.Sprintf("%s/statistics/stats/top-sog?receiver_id=%d&days=%d", baseURL, receiverID, days)
-	if err := fetchJSON(topSogURL, &stats.TopSOG); err != nil {
-		return nil, fmt.Errorf("error fetching top SOG: %w", err)
-	}
+	// We no longer fetch top SOG as per requirements
 
 	// Fetch top types
 	topTypesURL := fmt.Sprintf("%s/statistics/stats/top-types?receiver_id=%d&days=%d", baseURL, receiverID, days)
@@ -219,96 +231,18 @@ func fetchJSON(url string, target interface{}) error {
 }
 
 // generateStatisticsReport generates a weekly statistics report for a receiver
-func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int) string {
+func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vesselTypeMap VesselTypeMap) string {
+	// Record start time for report generation duration
+	startTime := time.Now()
+	
 	var report strings.Builder
 
 	// Header
 	report.WriteString(fmt.Sprintf("Weekly Statistics Report for %s (ID: %d)\n", rec.Name, rec.ID))
 	report.WriteString(fmt.Sprintf("Report Period: Last %d days\n", days))
-	report.WriteString(fmt.Sprintf("Generated on: %s\n\n", time.Now().Format("January 2, 2006 at 15:04:05 (UTC)")))
+	report.WriteString(fmt.Sprintf("Generated on: %s\n\n", startTime.Format("January 2, 2006 at 15:04:05 (UTC)")))
 
-	// Top Speed Over Ground (SOG)
-	report.WriteString("=== Top Vessels by Speed ===\n")
-	if len(stats.TopSOG) > 0 {
-		for i, v := range stats.TopSOG {
-			vesselType := v.Type
-			if vesselType == "" {
-				vesselType = "Unknown"
-			}
-			report.WriteString(fmt.Sprintf("%d. %s (%s): %.1f knots on %s\n", 
-				i+1, 
-				v.Name, 
-				vesselType,
-				v.MaxSog, 
-				v.Timestamp.Format("Jan 2, 15:04")))
-		}
-	} else {
-		report.WriteString("No speed data available\n")
-	}
-	report.WriteString("\n")
-
-	// Top Vessel Types
-	report.WriteString("=== Top Vessel Types ===\n")
-	if len(stats.TopTypes) > 0 {
-		for i, t := range stats.TopTypes {
-			report.WriteString(fmt.Sprintf("%d. %s: %d vessels\n", i+1, t.Type, t.Count))
-		}
-	} else {
-		report.WriteString("No vessel type data available\n")
-	}
-	report.WriteString("\n")
-
-	// Top AIS Classes
-	report.WriteString("=== Top AIS Classes ===\n")
-	if len(stats.TopClasses) > 0 {
-		for i, c := range stats.TopClasses {
-			report.WriteString(fmt.Sprintf("%d. Class %s: %d vessels\n", i+1, c.Class, c.Count))
-		}
-	} else {
-		report.WriteString("No AIS class data available\n")
-	}
-	report.WriteString("\n")
-
-	// Top Vessels by Position Reports
-	report.WriteString("=== Top Vessels by Position Reports ===\n")
-	if len(stats.TopPositions) > 0 {
-		for i, v := range stats.TopPositions {
-			vesselType := v.Type
-			if vesselType == "" {
-				vesselType = "Unknown"
-			}
-			report.WriteString(fmt.Sprintf("%d. %s (%s): %d reports\n", 
-				i+1, 
-				v.Name, 
-				vesselType,
-				v.Count))
-		}
-	} else {
-		report.WriteString("No position report data available\n")
-	}
-	report.WriteString("\n")
-
-	// Top Vessels by Distance
-	report.WriteString("=== Top Vessels by Distance ===\n")
-	if len(stats.TopDistance) > 0 {
-		for i, v := range stats.TopDistance {
-			vesselType := v.Type
-			if vesselType == "" {
-				vesselType = "Unknown"
-			}
-			report.WriteString(fmt.Sprintf("%d. %s (%s): %d km on %s\n", 
-				i+1, 
-				v.Name, 
-				vesselType,
-				v.Distance/1000, // Convert meters to kilometers
-				v.Timestamp.Format("Jan 2, 15:04")))
-		}
-	} else {
-		report.WriteString("No distance data available\n")
-	}
-	report.WriteString("\n")
-
-	// Coverage Statistics
+	// Coverage Statistics (now first)
 	report.WriteString("=== Coverage Statistics ===\n")
 	if len(stats.Coverage) > 0 {
 		totalPoints := len(stats.Coverage)
@@ -316,7 +250,6 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int) stri
 		for _, p := range stats.Coverage {
 			totalReports += p.Count
 		}
-		report.WriteString(fmt.Sprintf("Coverage area: %d grid cells\n", totalPoints))
 		report.WriteString(fmt.Sprintf("Total position reports: %d\n", totalReports))
 		
 		// Calculate approximate coverage area (very rough estimate)
@@ -327,8 +260,68 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int) stri
 	}
 	report.WriteString("\n")
 
+	// Top Vessels by Distance (now second)
+	report.WriteString("=== Top Vessels by Distance ===\n")
+	if len(stats.TopDistance) > 0 {
+		for i, v := range stats.TopDistance {
+			report.WriteString(fmt.Sprintf("%d. %s: %d km on %s\n",
+				i+1,
+				v.Name,
+				v.Distance/1000, // Convert meters to kilometers
+				v.Timestamp.Format("Jan 2, 15:04")))
+		}
+	} else {
+		report.WriteString("No distance data available\n")
+	}
+	report.WriteString("\n")
+
+	// Top Vessels by Position Reports (now third)
+	report.WriteString("=== Top Vessels by Position Reports ===\n")
+	if len(stats.TopPositions) > 0 {
+		for i, v := range stats.TopPositions {
+			report.WriteString(fmt.Sprintf("%d. %s: %d reports\n",
+				i+1,
+				v.Name,
+				v.Count))
+		}
+	} else {
+		report.WriteString("No position report data available\n")
+	}
+	report.WriteString("\n")
+
+	// Top AIS Classes (now fourth)
+	report.WriteString("=== Top AIS Classes ===\n")
+	if len(stats.TopClasses) > 0 {
+		for i, c := range stats.TopClasses {
+			report.WriteString(fmt.Sprintf("%d. Class %s: %d vessels\n", i+1, c.Class, c.Count))
+		}
+	} else {
+		report.WriteString("No AIS class data available\n")
+	}
+	report.WriteString("\n")
+
+	// Top Vessel Types (now fifth)
+	report.WriteString("=== Top Vessel Types ===\n")
+	if len(stats.TopTypes) > 0 {
+		for i, t := range stats.TopTypes {
+			// Try to translate the vessel type ID to a description
+			typeDescription := t.Type
+			if description, ok := vesselTypeMap[t.Type]; ok && description != "" {
+				typeDescription = description
+			}
+			report.WriteString(fmt.Sprintf("%d. %s: %d vessels\n", i+1, typeDescription, t.Count))
+		}
+	} else {
+		report.WriteString("No vessel type data available\n")
+	}
+	report.WriteString("\n")
+
+	// Calculate report generation duration
+	duration := time.Since(startTime)
+	
 	// Footer with links
 	receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, rec.ID)
+	report.WriteString(fmt.Sprintf("Report generated in %.2f seconds\n\n", duration.Seconds()))
 	report.WriteString(fmt.Sprintf("View detailed statistics: %s\n\n", receiverURL))
 	report.WriteString(fmt.Sprintf("Thank you for contributing to our AIS network!\n\n"))
 	report.WriteString(fmt.Sprintf("AIS Decoder Team\nhttps://%s/\n", settings.SiteDomain))
@@ -348,6 +341,14 @@ func sendWeeklyStatisticsReports() {
 	}
 
 	log.Println("Starting weekly statistics report generation")
+
+	// Fetch vessel type mappings
+	vesselTypeMap, err := fetchVesselTypeMap(settings.StatisticsBaseURL)
+	if err != nil {
+		log.Printf("Error fetching vessel type mappings: %v", err)
+		// Continue with empty map, we'll use raw type IDs
+		vesselTypeMap = make(VesselTypeMap)
+	}
 
 	// Fetch all receivers
 	receivers, err := fetchReceivers()
@@ -396,7 +397,7 @@ func sendWeeklyStatisticsReports() {
 		}
 
 		// Generate the report
-		reportBody := generateStatisticsReport(receiver, stats, days)
+		reportBody := generateStatisticsReport(receiver, stats, days, vesselTypeMap)
 
 		// Create a copy of the receiver for sendEmail
 		receiverCopy := receiver
