@@ -42,6 +42,38 @@
         height: auto;
       }
     }
+    /* Global loading overlay */
+    .global-loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(255, 255, 255, 0.9);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000; /* Higher than other elements */
+      flex-direction: column;
+    }
+    .global-loading-spinner {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #3498db;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      animation: spin 1.5s linear infinite;
+      margin-bottom: 20px;
+    }
+    .global-loading-text {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #333;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
     /* Image overlay */
     #img-overlay {
       display: none;
@@ -119,6 +151,11 @@
   </style>
 </head>
 <body>
+  <!-- Global loading overlay -->
+  <div class="global-loading-overlay" id="globalLoadingOverlay">
+    <div class="global-loading-spinner"></div>
+    <div class="global-loading-text">Loading data...</div>
+  </div>
 
   <div class="container-fluid">
     <!-- Header + Time Selector -->
@@ -328,6 +365,17 @@
 
   <script>
     $(function() {
+      // Show global loading overlay during initial data fetch
+      const globalLoadingOverlay = document.getElementById('globalLoadingOverlay');
+      
+      // Helper functions to show/hide loading overlay
+      function showGlobalLoading() {
+        globalLoadingOverlay.style.display = 'flex';
+      }
+      
+      function hideGlobalLoading() {
+        globalLoadingOverlay.style.display = 'none';
+      }
       // Add event listener for copy link button
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
       
@@ -491,16 +539,23 @@
       }
       
       async function fetchAll() {
+        showGlobalLoading();
         const days = $('#days-select').val();
         const receiverId = $('#receiver-select').val();
-        await Promise.all([
-          fetchTopPositions(days, receiverId),
-          fetchTopSog(days, receiverId),
-          fetchTopTypes(days, receiverId),
-          fetchTopClasses(days, receiverId),
-          fetchTopDistance(days, receiverId),
-          fetchUserCounts(days, receiverId)
-        ]);
+        try {
+          await Promise.all([
+            fetchTopPositions(days, receiverId),
+            fetchTopSog(days, receiverId),
+            fetchTopTypes(days, receiverId),
+            fetchTopClasses(days, receiverId),
+            fetchTopDistance(days, receiverId),
+            fetchUserCounts(days, receiverId)
+          ]);
+        } catch (error) {
+          console.error('Error fetching data:', error);
+        } finally {
+          hideGlobalLoading();
+        }
       }
 
       async function fetchTopPositions(days, receiverId) {
