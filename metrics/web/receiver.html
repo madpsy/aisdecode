@@ -1001,13 +1001,10 @@ window.addEventListener('DOMContentLoaded', () => {
 map.on('click', e => {
   const tgt = e.originalEvent.target;
 
-  // if the click came from a marker icon, popup, or tooltip, ignore it
-  // but allow clicks on the distance line (polyline) to clear it
+  // Only ignore clicks on marker icons and popups
+  // This will allow clicks anywhere else on the map to clear the distance line
   if (
     tgt.classList.contains('leaflet-marker-icon') ||
-    (tgt.classList.contains('leaflet-interactive') &&
-     distancePolyline &&
-     !distancePolyline._path.contains(tgt)) ||  // Check if it's not our distance line
     tgt.closest('.leaflet-popup') ||
     tgt.closest('.distance-tooltip')
   ) {
