@@ -355,28 +355,61 @@ type Config struct {
     DownsampleMessageTypes []string `json:"downsample_message_types"`
     BlockedIPs 		   []string `json:"blocked_ips"`
     FailedDecodeLog        string   `json:"failed_decode_log"`
+    ReceiversBaseURL       string   `json:"receivers_base_url"`
 }
 
 var (
-    udpPort               int
-    destinations          string
-    metricWindowSize      time.Duration
-    downsampleWindow      time.Duration
-    deduplicationWindowMs int
-    httpPort              int
-    numWorkers            int
-    webPath               string
-    debugFlag             bool
-    includeSource         bool
-    streamPort            int
-    streamShards          int
-    mqttServer            string
-    mqttTLS               bool
-    mqttAuth              string
-    mqttTopic             string
-    dedupWindow 	  time.Duration
-    windowSize  	  int
-    blockedIPs 		  map[string]struct{}
+	udpPort               int
+	destinations          string
+	metricWindowSize      time.Duration
+	downsampleWindow      time.Duration
+	deduplicationWindowMs int
+	httpPort              int
+	numWorkers            int
+	webPath               string
+	debugFlag             bool
+	includeSource         bool
+	streamPort            int
+	streamShards          int
+	mqttServer            string
+	mqttTLS               bool
+	mqttAuth              string
+	mqttTopic             string
+	dedupWindow 	  time.Duration
+	windowSize  	  int
+	blockedIPs 		  map[string]struct{}
+	receiversBaseURL      string
+)
+
+// Receiver represents a receiver from the /admin/receivers endpoint
+type Receiver struct {
+	ID           int                       `json:"id"`
+	LastUpdated  time.Time                 `json:"lastupdated"`
+	Description  string                    `json:"description"`
+	Latitude     float64                   `json:"latitude"`
+	Longitude    float64                   `json:"longitude"`
+	Name         string                    `json:"name"`
+	URL          *string                   `json:"url,omitempty"`
+	IPAddress    string                    `json:"ip_address,omitempty"`
+	Email        string                    `json:"email"`
+	Notifications bool                     `json:"notifications"`
+	Messages     int                       `json:"messages"`
+	UDPPort      *int                      `json:"udp_port,omitempty"`
+	MessageStats map[string]MessageStat    `json:"message_stats"`
+	LastSeen     *time.Time                `json:"lastseen,omitempty"`
+}
+
+// MessageStat represents message statistics for a receiver
+type MessageStat struct {
+	FirstSeen    time.Time `json:"first_seen"`
+	LastSeen     time.Time `json:"last_seen"`
+	MessageCount int       `json:"message_count"`
+}
+
+var (
+	receiversMutex sync.RWMutex
+	receiversMap   = make(map[int]Receiver)      // Map of receiver ID to Receiver
+	portToIDMap    = make(map[int]int)           // Map of UDP port to receiver ID
 )
 
 
@@ -855,6 +888,14 @@ func main() {
     mqttTLS    = cfg.MQTTTLS
     mqttAuth   = cfg.MQTTAuth
     mqttTopic  = cfg.MQTTTopic
+    
+    // Receivers
+    receiversBaseURL = cfg.ReceiversBaseURL
+    
+    // Start polling receivers if base URL is configured
+    if receiversBaseURL != "" {
+        go pollReceivers()
+    }
 
 
    if mqttServer != "" {
@@ -1513,7 +1554,17 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 
         // ── MQTT ───────────────────────────────────────────────────────────────
         if mqttClient != nil && mqttClient.IsConnected() {
-            topic := fmt.Sprintf("%s/%d/%s/%s/message", mqttTopic, shardID, userID, msgID)
+            // Get receiver ID for this UDP port
+            receiverID := 0
+            if pkt.port != udpPort { // Only look up non-default ports
+                receiversMutex.RLock()
+                if id, ok := portToIDMap[pkt.port]; ok {
+                    receiverID = id
+                }
+                receiversMutex.RUnlock()
+            }
+            
+            topic := fmt.Sprintf("%s/%d/%s/%d/%s/message", mqttTopic, shardID, userID, receiverID, msgID)
             // make a private copy of the buffer bytes to avoid mutation races
             payload := make([]byte, len(out))
             copy(payload, out)
@@ -1868,4 +1919,66 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(resp)
+}
+
+// pollReceivers polls the receivers endpoint every 5 seconds
+func pollReceivers() {
+    ticker := time.NewTicker(5 * time.Second)
+    defer ticker.Stop()
+    
+    for {
+        updateReceivers()
+        <-ticker.C
+    }
+}
+
+// updateReceivers fetches the receivers list from the admin endpoint
+// If the fetch fails, it preserves the previously known values
+func updateReceivers() {
+    if receiversBaseURL == "" {
+        return
+    }
+    
+    url := fmt.Sprintf("%s/admin/receivers", receiversBaseURL)
+    client := &http.Client{Timeout: 2 * time.Second}
+    
+    resp, err := client.Get(url)
+    if err != nil {
+        log.Printf("Warning: Failed to fetch receivers: %v", err)
+        log.Printf("Using previously cached receiver values")
+        return
+    }
+    defer resp.Body.Close()
+    
+    if resp.StatusCode != http.StatusOK {
+        log.Printf("Warning: Received non-OK response from receivers endpoint: %v", resp.Status)
+        log.Printf("Using previously cached receiver values")
+        return
+    }
+    
+    var receivers []Receiver
+    if err := json.NewDecoder(resp.Body).Decode(&receivers); err != nil {
+        log.Printf("Warning: Failed to decode receivers response: %v", err)
+        log.Printf("Using previously cached receiver values")
+        return
+    }
+    
+    // Update the receivers map and port-to-ID map
+    receiversMutex.Lock()
+    defer receiversMutex.Unlock()
+    
+    // Clear the port-to-ID map
+    portToIDMap = make(map[int]int)
+    
+    // Update the maps with the new receivers
+    for _, receiver := range receivers {
+        receiversMap[receiver.ID] = receiver
+        if receiver.UDPPort != nil {
+            portToIDMap[*receiver.UDPPort] = receiver.ID
+        }
+    }
+    
+    if debugFlag {
+        log.Printf("[DEBUG] Updated receivers map with %d receivers", len(receivers))
+    }
 }
