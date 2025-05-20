@@ -578,7 +578,7 @@
     Map Overlay
   </label>
         <label style="margin-bottom: 1px; display: block;">
-    <input type="checkbox" id="met-data-overlay">
+    <input type="checkbox" id="met-data-overlay" checked>
     Met Data
   </label>
   <label style="margin-bottom: 1px; display: block;">
@@ -3387,6 +3387,25 @@ function applyLogFilters() {
 	});
 	
 	// Function to create a formatted table from met_data object
+	// Helper function to get AtoN name from summary data
+	async function getAtoNName(userId) {
+	  try {
+	    console.log(`Fetching AtoN name for userId: ${userId}`);
+	    const response = await fetch(`/summary?UserID=${userId}`);
+	    const data = await response.json();
+	    if (data && data[userId] && data[userId].Name) {
+	      console.log(`Found AtoN name: ${data[userId].Name} for userId: ${userId}`);
+	      return data[userId].Name;
+	    }
+	    console.log(`No name found for userId: ${userId}`);
+	    return '';
+	  } catch (error) {
+	    console.error(`Error fetching AtoN name for userId: ${userId}:`, error);
+	    return '';
+	  }
+	}
+	
+	// Create met data table with AtoN name
 	function createMetDataTable(metData, lastUpdated, userId) {
 	  if (!metData) return '';
 	  
@@ -3405,31 +3424,10 @@ function applyLogFilters() {
 	  const leftEntries = entries.slice(0, midpoint);
 	  const rightEntries = entries.slice(midpoint);
 	  
-	  // Get the AtoN name from vesselData using the userId
-	  let atonName = '';
-	  if (userId) {
-	    console.log(`Looking up AtoN name for userId: ${userId}`);
-	    // Try to get the name from the summary data directly
-	    fetch(`/summary?UserID=${userId}`)
-	      .then(response => response.json())
-	      .then(data => {
-	        if (data && data[userId] && data[userId].Name) {
-	          atonName = data[userId].Name;
-	          console.log(`Found AtoN name: ${atonName}`);
-	          // Update the name in the popup after it's fetched
-	          const popupElement = document.querySelector(`.met-data-popup .leaflet-popup-content div:first-child`);
-	          if (popupElement) {
-	            popupElement.innerHTML = `Last Updated: ${localLastUpdated} | AtoN Name: ${atonName}`;
-	          }
-	        }
-	      })
-	      .catch(error => console.error('Error fetching AtoN name:', error));
-	  }
-	  
 	  // Create the HTML structure with two tables side by side
 	  let tableHtml = `
 	    <div style="width: 450px; overflow: hidden;">
-	      <div style="font-weight: bold; margin-bottom: 5px; text-align: left; font-size: 11px;">Last Updated: ${localLastUpdated}${atonName ? ' | AtoN Name: ' + atonName : ''}</div>
+	      <div style="font-weight: bold; margin-bottom: 5px; text-align: left; font-size: 11px;" id="met-header-${userId}">Last Updated: ${localLastUpdated}</div>
 	      <div style="display: flex; gap: 3px;">
 	        <!-- Left Table -->
 	        <div style="flex: 1; min-width: 0; max-width: 220px;">
@@ -3647,6 +3645,21 @@ function applyLogFilters() {
 	  
 	  // Create a popup with the complete met data table
 	  const popupContent = createMetDataTable(metData, lastUpdated, userId);
+	  
+	  // Fetch and update the AtoN name asynchronously
+	  if (userId) {
+	    getAtoNName(userId).then(name => {
+	      if (name) {
+	        // Update the header when the popup is opened
+	        marker.on('popupopen', () => {
+	          const headerElement = document.getElementById(`met-header-${userId}`);
+	          if (headerElement) {
+	            headerElement.innerHTML = `Last Updated: ${lastUpdated ? new Date(lastUpdated).toLocaleString() : 'Unknown'} | AtoN Name: ${name}`;
+	          }
+	        });
+	      }
+	    });
+	  }
 	  marker.bindPopup(popupContent, {
 	    maxWidth: 450,
 	    minWidth: 450,
@@ -4734,9 +4747,10 @@ window.addEventListener('load', () => {
     filterInput.dispatchEvent(new Event('input'));
   }
   
-  // Check if the met data checkbox is checked on page load
+  // Enable met data overlay by default
   const metDataCheckbox = document.getElementById('met-data-overlay');
-  if (metDataCheckbox && metDataCheckbox.checked) {
+  if (metDataCheckbox) {
+    metDataCheckbox.checked = true;
     metDataEnabled = true;
     // Fetch data immediately
     fetchMetData();
