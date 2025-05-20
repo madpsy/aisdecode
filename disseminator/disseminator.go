@@ -1489,6 +1489,113 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
     w.Write(blob)
 }
 
+// metSummaryHandler handles requests to the /met-summary endpoint
+// It fetches meteorological data from all collectors' met_state tables
+func metSummaryHandler(w http.ResponseWriter, r *http.Request) {
+    // Parse maxage parameter (in hours)
+    maxAgeStr := r.URL.Query().Get("maxage")
+    maxAge := 24 // Default to 24 hours
+    
+    if maxAgeStr != "" {
+        parsedMaxAge, err := strconv.Atoi(maxAgeStr)
+        if err != nil || parsedMaxAge <= 0 {
+            http.Error(w, "Invalid maxage value", http.StatusBadRequest)
+            return
+        }
+        
+        // Maximum allowed is 7 days (168 hours)
+        if parsedMaxAge > 168 {
+            maxAge = 168
+        } else {
+            maxAge = parsedMaxAge
+        }
+    }
+    
+    // Get meteorological data from all collectors
+    results, err := getMetSummaryResults(maxAge)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Error generating met summary: %v", err), http.StatusInternalServerError)
+        return
+    }
+    
+    // Return results as JSON
+    w.Header().Set("Content-Type", "application/json")
+    if err := json.NewEncoder(w).Encode(results); err != nil {
+        http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
+        return
+    }
+}
+
+// getMetSummaryResults fetches meteorological data from all collectors' met_state tables
+func getMetSummaryResults(maxAge int) (map[string]interface{}, error) {
+    // Build query to select data from met_state table
+    query := `
+        SELECT user_id, receiver_id, last_updated, met_data
+        FROM met_state
+    `
+    
+    // Add time filter if maxAge is specified
+    if maxAge > 0 {
+        cutoff := time.Now().Add(-time.Duration(maxAge) * time.Hour).UTC().Format(time.RFC3339Nano)
+        query += fmt.Sprintf(" WHERE last_updated >= '%s'", cutoff)
+    }
+    
+    // Query all collectors
+    results, err := QueryDatabasesForAllShards(query)
+    if err != nil {
+        return nil, fmt.Errorf("Error querying database: %v", err)
+    }
+    
+    // Process results
+    metSummary := make(map[string]interface{})
+    
+    for _, shardData := range results {
+        for _, row := range shardData {
+            // Extract user_id
+            userID, ok := row["user_id"]
+            if !ok {
+                continue
+            }
+            
+            var userIDStr string
+            switch v := userID.(type) {
+            case int:
+                userIDStr = fmt.Sprintf("%d", v)
+            case int64:
+                userIDStr = fmt.Sprintf("%d", v)
+            default:
+                continue
+            }
+            
+            // Create entry for this user_id
+            entry := make(map[string]interface{})
+            
+            // Add receiver_id if available
+            if receiverID, ok := row["receiver_id"]; ok {
+                entry["receiver_id"] = receiverID
+            }
+            
+            // Add last_updated timestamp if available
+            if lastUpdated, ok := row["last_updated"].(time.Time); ok {
+                entry["last_updated"] = lastUpdated.UTC().Format(time.RFC3339)
+            }
+            
+            // Extract and add met_data
+            if metDataRaw, ok := row["met_data"].([]byte); ok {
+                var metData map[string]interface{}
+                if err := json.Unmarshal(metDataRaw, &metData); err == nil {
+                    entry["met_data"] = metData
+                }
+            }
+            
+            // Add entry to summary
+            metSummary[userIDStr] = entry
+        }
+    }
+    
+    return metSummary, nil
+}
+
 func searchHandler(w http.ResponseWriter, r *http.Request) {
     var requestBody struct {
         Query      string `json:"query"`
@@ -2251,6 +2358,8 @@ func setupServer(settings *Settings) {
     mux.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
     	summaryHandler(w, r, conf)
     })
+    
+    mux.HandleFunc("/met-summary", metSummaryHandler)
     mux.HandleFunc("/state", userStateHandler)
     mux.HandleFunc("/history/", historyHandler)
     mux.HandleFunc("/search", searchHandler)
