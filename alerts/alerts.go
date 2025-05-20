@@ -295,6 +295,11 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 					log.Printf("Error sending user email for receiver %d: %v", rec.ID, err)
 				}
 				
+				// Log the alert for the user email
+				if err := logAlert(alertType, rec.ID, rec.Email, fmt.Sprintf("Alert type: %s for receiver %s (ID: %d) - user email", alertType, rec.Name, rec.ID)); err != nil {
+					log.Printf("Error logging user alert to database: %v", err)
+				}
+				
 				// Then prepare the admin version with IP info
 				body = adminBody
 				toAddresses = settings.ToAddresses
@@ -368,6 +373,11 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 				err := sendSingleEmail(subject, body, rec.Email)
 				if err != nil {
 					log.Printf("Error sending user email for deleted receiver %d: %v", rec.ID, err)
+				}
+				
+				// Log the alert for the user email
+				if err := logAlert(alertType, rec.ID, rec.Email, fmt.Sprintf("Alert type: %s for receiver %s (ID: %d) - user email", alertType, rec.Name, rec.ID)); err != nil {
+					log.Printf("Error logging user alert to database: %v", err)
 				}
 				
 				// Then prepare the admin version with IP info
@@ -552,6 +562,11 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 					log.Printf("Error sending user email for updated receiver %d: %v", rec.ID, err)
 				}
 				
+				// Log the alert for the user email
+				if err := logAlert(alertType, rec.ID, rec.Email, fmt.Sprintf("Alert type: %s for receiver %s (ID: %d) - user email", alertType, rec.Name, rec.ID)); err != nil {
+					log.Printf("Error logging user alert to database: %v", err)
+				}
+				
 				// Then prepare the admin version with IP info
 				body = adminBody
 				toAddresses = settings.ToAddresses
@@ -675,6 +690,16 @@ func logAlert(alertType string, receiverID int, email string, message string) er
 		alertType, receiverID, email, message,
 	)
 	return err
+}
+
+// logAlertMultipleEmails records an alert in the database for each email address
+func logAlertMultipleEmails(alertType string, receiverID int, emails []string, message string) error {
+	for _, email := range emails {
+		if err := logAlert(alertType, receiverID, email, message); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // shouldSendNotification determines if we should send a notification for a receiver

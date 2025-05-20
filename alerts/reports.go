@@ -434,10 +434,27 @@ func sendWeeklyStatisticsReports() {
 			continue
 		}
 
-		// Log the alert
-		if err := logAlert("statistics_report", receiver.ID, emailSentTo,
-			fmt.Sprintf("Weekly statistics report sent for receiver %s (ID: %d)", receiver.Name, receiver.ID)); err != nil {
-			log.Printf("Error logging statistics report alert for receiver %d: %v", receiver.ID, err)
+		// Log the alert - ensure we log each email separately if multiple recipients
+		if strings.Contains(emailSentTo, ",") {
+			// Split the comma-separated list of emails
+			emailList := strings.Split(emailSentTo, ",")
+			for _, email := range emailList {
+				email = strings.TrimSpace(email)
+				if email == "" {
+					continue
+				}
+				
+				if err := logAlert("statistics_report", receiver.ID, email,
+					fmt.Sprintf("Weekly statistics report sent for receiver %s (ID: %d)", receiver.Name, receiver.ID)); err != nil {
+					log.Printf("Error logging statistics report alert for receiver %d to %s: %v", receiver.ID, email, err)
+				}
+			}
+		} else {
+			// Single email recipient
+			if err := logAlert("statistics_report", receiver.ID, emailSentTo,
+				fmt.Sprintf("Weekly statistics report sent for receiver %s (ID: %d)", receiver.Name, receiver.ID)); err != nil {
+				log.Printf("Error logging statistics report alert for receiver %d: %v", receiver.ID, err)
+			}
 		}
 
 		reportsSent++
@@ -496,6 +513,13 @@ func sendReportSummaryToAdmins(totalReports, successfulReports int, failedReport
 			log.Printf("Error sending report summary to admin (%s): %v", email, err)
 		} else {
 			log.Printf("Sent report summary to admin: %s", email)
+			
+			// Log the alert for each admin email
+			if err := logAlert("report_summary", -1, email,
+				fmt.Sprintf("Weekly statistics report summary sent with %d total reports (%d successful, %d failed)",
+					totalReports, successfulReports, len(failedReports))); err != nil {
+				log.Printf("Error logging report summary alert for %s: %v", email, err)
+			}
 		}
 	}
 }
@@ -609,14 +633,16 @@ func sendWeeklyOfflineReceiversReport() {
 			log.Printf("Error sending offline receivers report to admin (%s): %v", email, err)
 		} else {
 			log.Printf("Sent offline receivers report to admin: %s", email)
+			
+			// Log the alert for each admin email
+			if err := logAlert("offline_receivers_report", -1, email,
+				fmt.Sprintf("Weekly offline receivers report sent with %d receivers", len(offlineReceivers))); err != nil {
+				log.Printf("Error logging offline receivers report alert for %s: %v", email, err)
+			}
 		}
 	}
 	
-	// Log the alert
-	if err := logAlert("offline_receivers_report", -1, settings.ToAddresses,
-		fmt.Sprintf("Weekly offline receivers report sent with %d receivers", len(offlineReceivers))); err != nil {
-		log.Printf("Error logging offline receivers report alert: %v", err)
-	}
+	// Alert logging is now done for each individual email above
 	
 	log.Printf("Weekly offline receivers report generation complete. Reported %d offline receivers.", len(offlineReceivers))
 }
