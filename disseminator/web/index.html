@@ -3389,8 +3389,8 @@ function applyLogFilters() {
 	// Function to create a marker for met data with water temperature
 	function createMetDataMarker(lat, lon, waterTemp) {
 	  // Apply a small offset to the south-east to prevent overlapping with AtoN markers
-	  const offsetLat = lat - 0.0008; // Offset south (increased)
-	  const offsetLon = lon + 0.0012; // Offset east (increased)
+	  const offsetLat = lat - 0.0015; // Offset south (increased further)
+	  const offsetLon = lon + 0.0020; // Offset east (increased further)
 	  
 	  // Add a custom style for transparent tooltip background
 	  const style = document.createElement('style');
@@ -4504,6 +4504,16 @@ window.addEventListener('load', () => {
   const filterInput = document.getElementById('vessel-filter');
   if (filterInput.value.trim().length >= 3) {
     filterInput.dispatchEvent(new Event('input'));
+  }
+  
+  // Check if the met data checkbox is checked on page load
+  const metDataCheckbox = document.getElementById('met-data-overlay');
+  if (metDataCheckbox && metDataCheckbox.checked) {
+    metDataEnabled = true;
+    // Fetch data immediately
+    fetchMetData();
+    // Set up polling every 60 seconds
+    metDataInterval = setInterval(fetchMetData, 60000);
   }
 
   // Check for receiver based on user's IP
