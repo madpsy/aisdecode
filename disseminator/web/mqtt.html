@@ -84,6 +84,24 @@
             margin-left: 15px;
             display: inline-block;
         }
+        .filter-container {
+            margin-top: 10px;
+            display: none; /* Hidden by default */
+        }
+        .filter-container.visible {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .filter-container input {
+            width: 100px;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .filter-container label {
+            margin-right: 5px;
+        }
         button {
             padding: 8px 16px;
             background-color: #4CAF50;
@@ -137,6 +155,13 @@
         </div>
     </div>
     
+    <div class="filter-container" id="filterContainer">
+        <label for="messageIdFilter">MessageID:</label>
+        <input type="text" id="messageIdFilter" placeholder="Filter by MessageID">
+        <label for="userIdFilter">UserID:</label>
+        <input type="text" id="userIdFilter" placeholder="Filter by UserID">
+    </div>
+    
     <div id="messages"></div>
 
     <script>
@@ -153,6 +178,8 @@
         let receiversMap = {}; // Map of receiver IDs to receiver names
         let isPaused = false; // Track if message updates are paused
         let displayMode = localStorage.getItem('mqttDisplayMode') || 'sentences'; // Get from localStorage or default
+        let messageIdFilter = ''; // Filter for MessageID
+        let userIdFilter = ''; // Filter for UserID
         
         // Fetch receivers data from the server
         async function fetchReceivers() {
@@ -236,8 +263,13 @@
                     if (displayMode === 'sentences' && payload.raw_sentence) {
                         addMessage(payload.raw_sentence, payload.timestamp, false);
                     } else if (displayMode === 'decoded' && payload.message && payload.message.packet) {
-                        // Pretty print the packet JSON
-                        addMessage(JSON.stringify(payload.message.packet, null, 2), payload.timestamp, true);
+                        const packet = payload.message.packet;
+                        
+                        // Apply filters if in decoded mode
+                        if (shouldDisplayMessage(packet)) {
+                            // Pretty print the packet JSON
+                            addMessage(JSON.stringify(packet, null, 2), payload.timestamp, true);
+                        }
                     }
                 } catch (e) {
                     console.error('Error parsing message:', e);
@@ -328,6 +360,30 @@
             }
         });
         
+        // Function to check if a message should be displayed based on filters
+        function shouldDisplayMessage(packet) {
+            // If no filters are set, show all messages
+            if (!messageIdFilter && !userIdFilter) {
+                return true;
+            }
+            
+            // Check MessageID filter
+            if (messageIdFilter && packet.MessageID !== undefined) {
+                if (packet.MessageID.toString() !== messageIdFilter) {
+                    return false;
+                }
+            }
+            
+            // Check UserID filter
+            if (userIdFilter && packet.UserID !== undefined) {
+                if (packet.UserID.toString() !== userIdFilter) {
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+        
         // Set initial radio button state based on stored preference
         document.querySelectorAll('input[name="displayMode"]').forEach(radio => {
             if (radio.value === displayMode) {
@@ -340,7 +396,33 @@
                 localStorage.setItem('mqttDisplayMode', displayMode);
                 // Clear messages when switching display modes
                 messagesDiv.innerHTML = '';
+                
+                // Show/hide filter container based on display mode
+                const filterContainer = document.getElementById('filterContainer');
+                if (displayMode === 'decoded') {
+                    filterContainer.classList.add('visible');
+                } else {
+                    filterContainer.classList.remove('visible');
+                }
             });
+        });
+        
+        // Initialize filter visibility
+        if (displayMode === 'decoded') {
+            document.getElementById('filterContainer').classList.add('visible');
+        }
+        
+        // Filter input event listeners
+        document.getElementById('messageIdFilter').addEventListener('input', function() {
+            messageIdFilter = this.value.trim();
+            // Clear messages when filter changes
+            messagesDiv.innerHTML = '';
+        });
+        
+        document.getElementById('userIdFilter').addEventListener('input', function() {
+            userIdFilter = this.value.trim();
+            // Clear messages when filter changes
+            messagesDiv.innerHTML = '';
         });
         
         // Initialize by fetching receivers first, then MQTT config
