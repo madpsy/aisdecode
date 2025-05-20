@@ -4529,7 +4529,10 @@ function focusOnVessel(UserID, initialFocus = true) {
   const utTypeText = utMapping[vessel.Type] || vessel.Type;
   const line2 = buildTooltipLine(
     utTypeText,
-    (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
+    // For SAR class vessels, show Altitude if available, otherwise don't show draught at all
+    (vessel.AISClass === "SAR")
+      ? (vessel.Altitude != null ? `Alt: ${vessel.Altitude} m` : null)
+      : (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
     // Always show speed regardless of vessel class
     (vessel.Sog != null ? `${vessel.Sog} kn` : null),
     (vessel.TrueHeading != null && vessel.TrueHeading < 360
