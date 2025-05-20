@@ -946,6 +946,11 @@ map.on('click', () => {
     
     focusedVessel = null;
     unsubscribeInstantUpdates();
+    
+    // Remove UserID from URL when vessel focus is removed
+    const url = new URL(window.location);
+    url.searchParams.delete('UserID');
+    window.history.pushState({}, '', url);
 
     // Hide detail overlay and all related buttons when no vessel is focused.
     document.getElementById('vessel-detail').style.display = 'none';
@@ -4067,6 +4072,15 @@ function focusOnVessel(UserID, initialFocus = true) {
   
   // Set the new focused vessel.
   focusedVessel = UserID;
+  
+  // Update URL with UserID parameter without reloading the page
+  const url = new URL(window.location);
+  url.searchParams.set('UserID', UserID);
+  // Keep ReceiverID parameter if it exists
+  if (selectedReceiverId) {
+    url.searchParams.set('ReceiverID', selectedReceiverId);
+  }
+  window.history.pushState({}, '', url);
 
   for (const userid in vesselTracks) {
     if (userid !== focusedVessel && map.hasLayer(vesselTracks[userid])) {
@@ -4193,10 +4207,7 @@ function focusOnVessel(UserID, initialFocus = true) {
       const currentUrl = window.location.href.split('?')[0];
       let copyUrl = `${currentUrl}?UserID=${vesselData[UserID].UserID}`;
       
-      // If a receiver is selected, include it in the URL
-      if (selectedReceiverId) {
-        copyUrl += `&ReceiverID=${selectedReceiverId}`;
-      }
+      // The 'Link' button should only include the UserID, not the ReceiverID
       function updateLinkText(newText) {
         copyLinkEl.textContent = newText;
         setTimeout(() => {
