@@ -160,6 +160,8 @@
         <input type="text" id="messageIdFilter" placeholder="Filter by MessageID">
         <label for="userIdFilter">UserID:</label>
         <input type="text" id="userIdFilter" placeholder="Filter by UserID">
+        <label for="fieldFilter">Field:</label>
+        <input type="text" id="fieldFilter" placeholder="Show only this field">
     </div>
     
     <div id="messages"></div>
@@ -180,6 +182,7 @@
         let displayMode = localStorage.getItem('mqttDisplayMode') || 'decoded'; // Get from localStorage or default
         let messageIdFilter = ''; // Filter for MessageID
         let userIdFilter = ''; // Filter for UserID
+        let fieldFilter = ''; // Filter to show only a specific field
         
         // Fetch receivers data from the server
         async function fetchReceivers() {
@@ -267,8 +270,22 @@
                         
                         // Apply filters if in decoded mode
                         if (shouldDisplayMessage(packet)) {
-                            // Pretty print the packet JSON
-                            addMessage(JSON.stringify(packet, null, 2), payload.timestamp, true);
+                            // If field filter is set, only show that field
+                            if (fieldFilter) {
+                                // Case-insensitive field search
+                                const fieldKey = findFieldCaseInsensitive(packet, fieldFilter);
+                                if (fieldKey !== null) {
+                                    // Show only the specified field
+                                    const fieldValue = packet[fieldKey];
+                                    addMessage(`${fieldKey}: ${JSON.stringify(fieldValue, null, 2)}`, payload.timestamp, true);
+                                } else {
+                                    // Field not found in this message
+                                    addMessage(`Field "${fieldFilter}" not found in message`, payload.timestamp, false);
+                                }
+                            } else {
+                                // No field filter, show the entire packet
+                                addMessage(JSON.stringify(packet, null, 2), payload.timestamp, true);
+                            }
                         }
                     }
                 } catch (e) {
@@ -384,6 +401,17 @@
             return true;
         }
         
+        // Helper function to find a field in an object case-insensitively
+        function findFieldCaseInsensitive(obj, fieldName) {
+            const lowerFieldName = fieldName.toLowerCase();
+            for (const key in obj) {
+                if (key.toLowerCase() === lowerFieldName) {
+                    return key;
+                }
+            }
+            return null;
+        }
+        
         // Set initial radio button state based on stored preference
         document.querySelectorAll('input[name="displayMode"]').forEach(radio => {
             if (radio.value === displayMode) {
@@ -421,6 +449,13 @@
         
         document.getElementById('userIdFilter').addEventListener('input', function() {
             userIdFilter = this.value.trim();
+            // Clear messages when filter changes
+            messagesDiv.innerHTML = '';
+        });
+        
+        // Field filter input event listener
+        document.getElementById('fieldFilter').addEventListener('input', function() {
+            fieldFilter = this.value.trim();
             // Clear messages when filter changes
             messagesDiv.innerHTML = '';
         });
