@@ -159,6 +159,19 @@
             border-radius: 4px;
             width: 100px;
         }
+        
+        #fieldFilter {
+            width: 200px; /* Make the Show Field input longer */
+        }
+        
+        #clearFiltersBtn {
+            margin-left: 10px;
+            background-color: #ff9800; /* Orange */
+        }
+        
+        #clearFiltersBtn:hover {
+            background-color: #e68a00; /* Darker orange */
+        }
     </style>
 </head>
 <body>
@@ -192,6 +205,7 @@
         <div class="filter-row">
             <label for="fieldFilter">Show Field:</label>
             <input type="text" id="fieldFilter" placeholder="Field Name">
+            <button id="clearFiltersBtn">Clear Filters</button>
         </div>
     </div>
     
@@ -596,6 +610,22 @@
         document.getElementById('fieldFilter').addEventListener('input', function() {
             fieldFilter = this.value.trim();
             // Clear messages when filter changes
+            messagesDiv.innerHTML = '';
+        });
+        
+        // Clear Filters button event listener
+        document.getElementById('clearFiltersBtn').addEventListener('click', function() {
+            // Clear all filter inputs
+            document.getElementById('messageIdFilter').value = '';
+            document.getElementById('userIdFilter').value = '';
+            document.getElementById('fieldFilter').value = '';
+            
+            // Reset filter variables
+            messageIdFilter = '';
+            userIdFilter = '';
+            fieldFilter = '';
+            
+            // Clear messages
             messagesDiv.innerHTML = '';
         });
         
