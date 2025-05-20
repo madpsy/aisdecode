@@ -577,6 +577,10 @@
     <input type="checkbox" id="openseamap-overlay" checked>
     Map Overlay
   </label>
+        <label style="margin-bottom: 1px; display: block;">
+    <input type="checkbox" id="met-data-overlay">
+    Met Data
+  </label>
   <label style="margin-bottom: 1px; display: block;">
     <input type="checkbox" id="show-paths">
     History
@@ -723,6 +727,11 @@
     <script>
   // Clear vessel data from localStorage immediately
   localStorage.removeItem('vesselData');
+  
+  // Variables for Met Data overlay
+  let metDataInterval = null;
+  let metDataMarkers = {};
+  let metDataEnabled = false;
   
   // Check if this is the first visit
   document.addEventListener('DOMContentLoaded', function() {
@@ -3368,12 +3377,104 @@ function applyLogFilters() {
 	    if (!map.hasLayer(openSeaMapLayer)) {
 	      map.addLayer(openSeaMapLayer);
 	    }
-	    // Bring it to the front after it’s added.
+	    // Bring it to the front after it's added.
 	    openSeaMapLayer.bringToFront();
 	  } else {
 	    if (map.hasLayer(openSeaMapLayer)) {
 	      map.removeLayer(openSeaMapLayer);
 	    }
+	  }
+	});
+	
+	// Function to create a marker for met data with water temperature
+	function createMetDataMarker(lat, lon, waterTemp) {
+	  // Create a circle marker with the water temperature value
+	  const marker = L.circleMarker([lat, lon], {
+	    radius: 15,
+	    color: '#0078ff',
+	    fillColor: '#0078ff',
+	    fillOpacity: 0.6,
+	    weight: 2
+	  });
+	  
+	  // Add a tooltip with the water temperature
+	  if (waterTemp !== null && waterTemp !== undefined) {
+	    const tempText = `${Math.round(waterTemp)}°C`;
+	    marker.bindTooltip(tempText, {
+	      permanent: true,
+	      direction: 'center',
+	      className: 'vessel-tooltip',
+	      offset: [0, 0]
+	    }).openTooltip();
+	  }
+	  
+	  return marker;
+	}
+	
+	// Function to fetch met data
+	function fetchMetData() {
+	  const maxAge = parseInt(document.getElementById("age-slider").value, 10);
+	  
+	  fetch(`/met-summary?maxage=${maxAge}`)
+	    .then(response => {
+	      if (!response.ok) {
+	        throw new Error(`Failed to fetch met data: ${response.status}`);
+	      }
+	      return response.json();
+	    })
+	    .then(data => {
+	      // Clear existing markers
+	      for (const id in metDataMarkers) {
+	        map.removeLayer(metDataMarkers[id]);
+	      }
+	      metDataMarkers = {};
+	      
+	      // Process the met data
+	      for (const id in data) {
+	        const metItem = data[id];
+	        if (metItem.met_data &&
+	            typeof metItem.met_data.Latitude_deg === 'number' &&
+	            typeof metItem.met_data.Longitude_deg === 'number') {
+	          
+	          const lat = metItem.met_data.Latitude_deg;
+	          const lon = metItem.met_data.Longitude_deg;
+	          const waterTemp = metItem.met_data.Water_Temp_C;
+	          
+	          if (waterTemp !== null && waterTemp !== undefined) {
+	            const marker = createMetDataMarker(lat, lon, waterTemp);
+	            marker.addTo(map);
+	            metDataMarkers[id] = marker;
+	          }
+	        }
+	      }
+	    })
+	    .catch(error => {
+	      console.error('Error fetching met data:', error);
+	    });
+	}
+	
+	// Event listener for the Met Data checkbox
+	document.getElementById('met-data-overlay').addEventListener('change', () => {
+	  metDataEnabled = document.getElementById('met-data-overlay').checked;
+	  
+	  if (metDataEnabled) {
+	    // Fetch data immediately
+	    fetchMetData();
+	    
+	    // Set up polling every 60 seconds
+	    metDataInterval = setInterval(fetchMetData, 60000);
+	  } else {
+	    // Clear the polling interval
+	    if (metDataInterval) {
+	      clearInterval(metDataInterval);
+	      metDataInterval = null;
+	    }
+	    
+	    // Remove all met data markers
+	    for (const id in metDataMarkers) {
+	      map.removeLayer(metDataMarkers[id]);
+	    }
+	    metDataMarkers = {};
 	  }
 	});
 
