@@ -500,30 +500,165 @@ func sendReportSummaryToAdmins(totalReports, successfulReports int, failedReport
 	}
 }
 
-// startStatisticsReportScheduler starts the scheduler for weekly statistics reports
+// sendWeeklyOfflineReceiversReport sends a weekly report of all receivers that have been offline for over a week
+func sendWeeklyOfflineReceiversReport() {
+	log.Println("Starting weekly offline receivers report generation")
+	
+	// Record start time for processing duration
+	startTime := time.Now()
+	
+	// Fetch all receivers
+	receivers, err := fetchReceivers()
+	if err != nil {
+		log.Printf("Error fetching receivers for offline report: %v", err)
+		return
+	}
+	
+	// Get current time
+	now := time.Now()
+	
+	// Filter receivers that have been offline for over a week (7 days)
+	var offlineReceivers []Receiver
+	for _, receiver := range receivers {
+		// Skip receivers with no LastSeen value
+		if receiver.LastSeen == "" {
+			continue
+		}
+		
+		// Parse LastSeen time
+		lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
+		if err != nil {
+			log.Printf("Error parsing LastSeen time for receiver %d: %v", receiver.ID, err)
+			continue
+		}
+		
+		// Check if receiver has been offline for over a week
+		if now.Sub(lastSeen) > 7*24*time.Hour {
+			offlineReceivers = append(offlineReceivers, receiver)
+		}
+	}
+	
+	// If no offline receivers, log and return
+	if len(offlineReceivers) == 0 {
+		log.Println("No receivers offline for over a week, skipping report")
+		return
+	}
+	
+	// Generate the report
+	var report strings.Builder
+	
+	// Header
+	report.WriteString(fmt.Sprintf("Weekly Offline Receivers Report\n"))
+	report.WriteString(fmt.Sprintf("Generated on: %s\n\n", time.Now().Format("January 2, 2006 at 15:04:05 (UTC)")))
+	report.WriteString(fmt.Sprintf("The following %d receivers have been offline for over a week:\n\n", len(offlineReceivers)))
+	
+	// List all offline receivers
+	for i, receiver := range offlineReceivers {
+		// Parse the LastSeen time to format it in a human-readable way
+		lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
+		lastSeenStr := receiver.LastSeen
+		if err == nil {
+			lastSeenStr = lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
+		}
+		
+		// Calculate how long the receiver has been offline
+		offlineDuration := now.Sub(lastSeen)
+		offlineDays := int(offlineDuration.Hours() / 24)
+		
+		// Prepare UDP port display
+		udpPortDisplay := "Not set"
+		if receiver.UDPPort != nil {
+			udpPortDisplay = strconv.Itoa(*receiver.UDPPort)
+		}
+		
+		// Create a link to the receiver
+		receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, receiver.ID)
+		
+		report.WriteString(fmt.Sprintf("%d. Receiver: %s (ID: %d)\n", i+1, receiver.Name, receiver.ID))
+		report.WriteString(fmt.Sprintf("   Description: %s\n", receiver.Description))
+		report.WriteString(fmt.Sprintf("   Email: %s\n", receiver.Email))
+		report.WriteString(fmt.Sprintf("   UDP Port: %s\n", udpPortDisplay))
+		report.WriteString(fmt.Sprintf("   Last seen: %s (%d days ago)\n", lastSeenStr, offlineDays))
+		report.WriteString(fmt.Sprintf("   Receiver URL: %s\n\n", receiverURL))
+	}
+	
+	// Footer
+	report.WriteString(fmt.Sprintf("\nTotal offline receivers: %d\n", len(offlineReceivers)))
+	report.WriteString(fmt.Sprintf("Report generated in %.2f seconds\n\n", time.Since(startTime).Seconds()))
+	report.WriteString(fmt.Sprintf("AIS Decoder Team\nhttps://%s/\n", settings.SiteDomain))
+	
+	// Send the report to site admins
+	if settings.ToAddresses == "" {
+		log.Println("No admin email addresses configured, skipping offline receivers report")
+		return
+	}
+	
+	subject := fmt.Sprintf("Weekly Offline Receivers Report - %s", time.Now().Format("Jan 2, 2006"))
+	
+	// Split the comma-separated list of admin emails
+	adminEmails := strings.Split(settings.ToAddresses, ",")
+	
+	for _, email := range adminEmails {
+		email = strings.TrimSpace(email)
+		if email == "" {
+			continue
+		}
+		
+		err := sendSingleEmail(subject, report.String(), email)
+		if err != nil {
+			log.Printf("Error sending offline receivers report to admin (%s): %v", email, err)
+		} else {
+			log.Printf("Sent offline receivers report to admin: %s", email)
+		}
+	}
+	
+	// Log the alert
+	if err := logAlert("offline_receivers_report", -1, settings.ToAddresses,
+		fmt.Sprintf("Weekly offline receivers report sent with %d receivers", len(offlineReceivers))); err != nil {
+		log.Printf("Error logging offline receivers report alert: %v", err)
+	}
+	
+	log.Printf("Weekly offline receivers report generation complete. Reported %d offline receivers.", len(offlineReceivers))
+}
+
+// startStatisticsReportScheduler starts the scheduler for weekly statistics reports and offline receivers reports
 func startStatisticsReportScheduler(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	// Initialize the last run time
-	lastReportTime := time.Now().Add(-24 * time.Hour)
+	// Initialize the last run times
+	lastStatisticsReportTime := time.Now().Add(-24 * time.Hour)
+	lastOfflineReportTime := time.Now().Add(-24 * time.Hour)
+	
+	// Configure offline receivers report time (Saturday at 09:00)
+	offlineReportTime := "saturday,09:00"
 
 	for {
 		select {
 		case <-ticker.C:
-			// Check if it's time to send reports
+			// Check if it's time to send statistics reports
 			if settings.StatisticsReportEnabled && settings.StatisticsBaseURL != "" && settings.StatisticsReportTime != "" {
-				shouldSend, err := isTimeToSendReport(lastReportTime, settings.StatisticsReportTime)
+				shouldSend, err := isTimeToSendReport(lastStatisticsReportTime, settings.StatisticsReportTime)
 				if err != nil {
-					log.Printf("Error checking report time: %v", err)
+					log.Printf("Error checking statistics report time: %v", err)
 				} else if shouldSend {
 					log.Println("It's time to send weekly statistics reports")
 					sendWeeklyStatisticsReports()
-					lastReportTime = time.Now()
+					lastStatisticsReportTime = time.Now()
 				}
 			}
+			
+			// Check if it's time to send offline receivers report
+			shouldSend, err := isTimeToSendReport(lastOfflineReportTime, offlineReportTime)
+			if err != nil {
+				log.Printf("Error checking offline report time: %v", err)
+			} else if shouldSend {
+				log.Println("It's time to send weekly offline receivers report")
+				sendWeeklyOfflineReceiversReport()
+				lastOfflineReportTime = time.Now()
+			}
 		case <-ctx.Done():
-			log.Println("Statistics report scheduler stopped")
+			log.Println("Report scheduler stopped")
 			return
 		}
 	}
