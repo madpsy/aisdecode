@@ -469,8 +469,8 @@
       let emailsMatch = true;
       let validEmail = true;
       
-      // Basic email validation regex
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      // More robust email validation regex that properly handles domain parts
+      const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*(\.[a-zA-Z]{2,})$/;
       
       if (email || emailConfirm) {
         if (email !== emailConfirm) {

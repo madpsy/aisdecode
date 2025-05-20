@@ -2746,8 +2746,8 @@ window.addEventListener('beforeunload', stopReceiverUpdates);
             const emailField = document.getElementById('edit-receiver-email');
             const email = emailField.value.trim();
             if (email) {
-              // Basic email validation regex
-              const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+              // More robust email validation regex that properly handles domain parts
+              const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*(\.[a-zA-Z]{2,})$/;
               if (!emailRegex.test(email)) {
                 errorElement.textContent = 'Please enter a valid email address';
                 errorElement.style.display = 'block';
@@ -2837,8 +2837,8 @@ window.addEventListener('beforeunload', stopReceiverUpdates);
               return; // User cancelled or didn't enter an email
             }
             
-            // Basic email validation
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            // More robust email validation
+            const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*(\.[a-zA-Z]{2,})$/;
             if (!emailRegex.test(email)) {
               alert('Please enter a valid email address');
               return;

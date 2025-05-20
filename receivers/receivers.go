@@ -2481,8 +2481,8 @@ func validateReceiver(r Receiver) error {
 
 // isValidEmail validates email format using a simple regex pattern
 func isValidEmail(email string) bool {
-    // Simple email validation regex
-    emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+    // More robust email validation regex that properly handles domain parts
+    emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*(\.[a-zA-Z]{2,})$`)
     return emailRegex.MatchString(email)
 }
 

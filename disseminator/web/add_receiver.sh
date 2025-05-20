@@ -202,7 +202,7 @@ if [[ -z "$EMAIL" ]]; then
     read -p "Email address: " EMAIL
     if [[ -z "$EMAIL" ]]; then
       echo "Email address is required."
-    elif ! [[ "$EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+    elif ! [[ "$EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*(\.[a-zA-Z]{2,})$ ]]; then
       echo "Invalid email format."
     else
       break
