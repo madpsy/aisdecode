@@ -1767,10 +1767,12 @@ function getCustomIcon(vesselState, iconUrl) {
   // Check if this is an AtoN class vessel with water temperature data
   let waterTempHtml = '';
   if (vesselState.AISClass === 'AtoN' && vesselState.Water_Temp_C !== undefined) {
+    // Round the temperature to a whole number
+    const roundedTemp = Math.round(vesselState.Water_Temp_C);
     waterTempHtml = `
       <div style="
         position: absolute;
-        top: -10px;
+        bottom: -10px;
         right: -10px;
         background-color: white;
         border-radius: 50%;
@@ -1781,7 +1783,7 @@ function getCustomIcon(vesselState, iconUrl) {
         line-height: 20px;
         text-align: center;
         box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-      ">${vesselState.Water_Temp_C}°C</div>
+      ">${roundedTemp}°C</div>
     `;
   }
   
