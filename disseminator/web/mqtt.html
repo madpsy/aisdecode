@@ -311,7 +311,7 @@
                                     addMessage(`${fieldKey}: ${JSON.stringify(fieldValue, null, 2)}`, payload.timestamp, true);
                                 } else {
                                     // Field not found in this message
-                                    addMessage(`Field "${fieldFilter}" not found in message`, payload.timestamp, false);
+                                    // addMessage(`Field "${fieldFilter}" not found in message`, payload.timestamp, false);
                                 }
                             } else {
                                 // No field filter, show the entire packet as a table
