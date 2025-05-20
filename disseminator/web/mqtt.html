@@ -402,8 +402,8 @@
             const table = document.createElement('table');
             table.className = 'message-table';
             
-            // Add rows for each property
-            for (const key in packet) {
+            // Function to create a table row for a key-value pair
+            function createTableRow(key, value) {
                 const row = document.createElement('tr');
                 
                 // Key cell
@@ -413,18 +413,57 @@
                 
                 // Value cell
                 const valueCell = document.createElement('td');
-                const value = packet[key];
                 
                 if (typeof value === 'object' && value !== null) {
                     // For nested objects, use JSON.stringify with formatting
                     valueCell.textContent = JSON.stringify(value, null, 2);
+                } else if (key === 'UserID' || key === 'MessageID') {
+                    // Make UserID and MessageID values clickable
+                    const link = document.createElement('a');
+                    link.href = '#';
+                    link.textContent = value;
+                    link.style.textDecoration = 'underline';
+                    link.style.cursor = 'pointer';
+                    link.style.color = '#0066cc';
+                    
+                    // Add click event to populate the corresponding filter
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const filterId = key === 'UserID' ? 'userIdFilter' : 'messageIdFilter';
+                        const filterInput = document.getElementById(filterId);
+                        filterInput.value = value.toString();
+                        
+                        // Trigger the input event to apply the filter
+                        const event = new Event('input', { bubbles: true });
+                        filterInput.dispatchEvent(event);
+                    });
+                    
+                    valueCell.appendChild(link);
                 } else {
                     // For simple values, just show the value
                     valueCell.textContent = value;
                 }
                 
                 row.appendChild(valueCell);
-                table.appendChild(row);
+                return row;
+            }
+            
+            // First add MessageID if it exists
+            if ('MessageID' in packet) {
+                table.appendChild(createTableRow('MessageID', packet.MessageID));
+            }
+            
+            // Then add UserID if it exists
+            if ('UserID' in packet) {
+                table.appendChild(createTableRow('UserID', packet.UserID));
+            }
+            
+            // Add rows for all other properties
+            for (const key in packet) {
+                // Skip MessageID and UserID as they've already been added
+                if (key !== 'MessageID' && key !== 'UserID') {
+                    table.appendChild(createTableRow(key, packet[key]));
+                }
             }
             
             messageElement.appendChild(table);
