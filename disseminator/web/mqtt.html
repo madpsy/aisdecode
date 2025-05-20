@@ -33,6 +33,12 @@
             display: inline-block;
             margin-right: 10px;
             min-width: 80px;
+            vertical-align: top;
+        }
+        .message-content {
+            display: inline-block;
+            width: calc(100% - 100px); /* Adjust based on timestamp width + margin */
+            word-break: break-all; /* Break words at any character */
         }
         .status {
             margin-bottom: 10px;
@@ -233,6 +239,7 @@
             }
             
             const contentElement = document.createElement('span');
+            contentElement.className = 'message-content';
             contentElement.textContent = message;
             messageElement.appendChild(contentElement);
             
