@@ -3387,7 +3387,7 @@ function applyLogFilters() {
 	});
 	
 	// Function to create a formatted table from met_data object
-	function createMetDataTable(metData, lastUpdated) {
+	function createMetDataTable(metData, lastUpdated, userId) {
 	  if (!metData) return '';
 	  
 	  // Format the last_updated time in user's local format
@@ -3405,20 +3405,10 @@ function applyLogFilters() {
 	  const leftEntries = entries.slice(0, midpoint);
 	  const rightEntries = entries.slice(midpoint);
 	  
-	  // Get the user_id from the met data (Latitude_deg and Longitude_deg)
+	  // Get the AtoN name from vesselData using the userId
 	  let atonName = '';
-	  if (metData.Latitude_deg && metData.Longitude_deg) {
-	    // Find the vessel in vesselData that matches this location
-	    for (const userId in vesselData) {
-	      const vessel = vesselData[userId];
-	      if (vessel &&
-	          vessel.AISClass === 'AtoN' &&
-	          vessel.Latitude === metData.Latitude_deg &&
-	          vessel.Longitude === metData.Longitude_deg) {
-	        atonName = vessel.Name || '';
-	        break;
-	      }
-	    }
+	  if (userId && vesselData[userId] && vesselData[userId].Name) {
+	    atonName = vesselData[userId].Name;
 	  }
 	  
 	  // Create the HTML structure with two tables side by side
@@ -3601,7 +3591,7 @@ function applyLogFilters() {
 	}
 
 	// Function to create a marker for met data with water temperature
-	function createMetDataMarker(lat, lon, waterTemp, metData, lastUpdated) {
+	function createMetDataMarker(lat, lon, waterTemp, metData, lastUpdated, userId) {
 	  // Apply a small offset to the south-east to prevent overlapping with AtoN markers
 	  const offsetLat = lat - 0.0015; // Offset south (increased further)
 	  const offsetLon = lon + 0.0020; // Offset east (increased further)
@@ -3641,7 +3631,7 @@ function applyLogFilters() {
 	  }
 	  
 	  // Create a popup with the complete met data table
-	  const popupContent = createMetDataTable(metData, lastUpdated);
+	  const popupContent = createMetDataTable(metData, lastUpdated, userId);
 	  marker.bindPopup(popupContent, {
 	    maxWidth: 450,
 	    minWidth: 450,
@@ -3682,14 +3672,7 @@ function applyLogFilters() {
 	          const waterTemp = metItem.met_data.Water_Temp_C;
 	          
 	          if (waterTemp !== null && waterTemp !== undefined) {
-	            // Get the AtoN name from vesselData
-	            let atonName = '';
-	            const userId = id; // The id is the user_id/MMSI
-	            if (vesselData[userId] && vesselData[userId].Name) {
-	              atonName = vesselData[userId].Name;
-	            }
-	            
-	            const marker = createMetDataMarker(lat, lon, waterTemp, metItem.met_data, metItem.last_updated);
+	            const marker = createMetDataMarker(lat, lon, waterTemp, metItem.met_data, metItem.last_updated, id);
 	            marker.addTo(map);
 	            metDataMarkers[id] = marker;
 	          }
