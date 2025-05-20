@@ -155,6 +155,21 @@
             <div class="loading-spinner"></div>
             <span>Loading...</span>
           </div>
+          <!-- Coverage Area Display -->
+          <div id="coverage-area-display" style="
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 5px 10px;
+            border-radius: 5px;
+            z-index: 1000;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+          ">
+            <span id="coverage-area-text">Coverage: 0 sq km</span>
+          </div>
           <!-- Date/Time overlay for replay -->
           <div id="replay-datetime-overlay" style="
             position: absolute;
@@ -534,6 +549,52 @@
       return directions[Math.round(bearing / 45) % 8];
     }
     
+    // Calculate approximate coverage area in square kilometers
+    function calculateCoverageArea(heatData) {
+      if (!heatData || heatData.length === 0) return 0;
+      
+      // Create a grid to track covered cells
+      const gridSize = 0.01; // Grid cell size in degrees (roughly 1km at equator)
+      const coveredCells = new Set();
+      
+      // Track each cell that contains at least one data point
+      heatData.forEach(point => {
+        const lat = point[0];
+        const lon = point[1];
+        
+        // Calculate grid cell coordinates
+        const latCell = Math.floor(lat / gridSize);
+        const lonCell = Math.floor(lon / gridSize);
+        
+        // Create a unique key for this cell
+        const cellKey = `${latCell},${lonCell}`;
+        
+        // Add to set of covered cells
+        coveredCells.add(cellKey);
+      });
+      
+      // Calculate approximate area
+      // Each cell is approximately gridSize × gridSize degrees
+      // Convert to square kilometers (very approximate, varies by latitude)
+      let totalAreaSqKm = 0;
+      
+      coveredCells.forEach(cellKey => {
+        const [latCell, lonCell] = cellKey.split(',').map(Number);
+        const centerLat = (latCell * gridSize) + (gridSize / 2);
+        
+        // Area of a 0.01° × 0.01° cell varies by latitude
+        // At the equator, 1° latitude ≈ 111 km, 1° longitude ≈ 111 km
+        // At higher latitudes, longitude degrees become shorter
+        const latLengthKm = 111 * gridSize;
+        const lonLengthKm = 111 * gridSize * Math.cos(centerLat * Math.PI / 180);
+        
+        const cellAreaSqKm = latLengthKm * lonLengthKm;
+        totalAreaSqKm += cellAreaSqKm;
+      });
+      
+      return Math.round(totalAreaSqKm);
+    }
+    
     // Calculate coverage statistics
     function calculateCoverageStats(heatData, receiverLatLng, maxDistance) {
       if (!receiverLatLng) return null;
@@ -846,6 +907,10 @@
           const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
           return [point.lat, point.lon, intensity];
         });
+        
+        // Calculate and display coverage area
+        const coverageAreaSqKm = calculateCoverageArea(heatData);
+        document.getElementById('coverage-area-text').textContent = `Coverage: ${coverageAreaSqKm} sq km`;
         
         // Clear all previous map layers
         clearMapLayers();
@@ -1282,6 +1347,10 @@
           const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
           return [point.lat, point.lon, intensity];
         });
+        
+        // Calculate and display coverage area
+        const coverageAreaSqKm = calculateCoverageArea(heatData);
+        document.getElementById('coverage-area-text').textContent = `Coverage: ${coverageAreaSqKm} sq km`;
         
         // Clear all previous map layers
         clearMapLayers();
@@ -1727,6 +1796,10 @@
         const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
         return [point.lat, point.lon, intensity];
       });
+      
+      // Calculate and display coverage area
+      const coverageAreaSqKm = calculateCoverageArea(heatData);
+      document.getElementById('coverage-area-text').textContent = `Coverage: ${coverageAreaSqKm} sq km`;
       
       // Update info text
       document.getElementById('replay-info').textContent = `Showing data for: ${frameData.label}`;
