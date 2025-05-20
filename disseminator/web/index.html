@@ -3407,11 +3407,11 @@ function applyLogFilters() {
 	  
 	  // Create the HTML structure with two tables side by side
 	  let tableHtml = `
-	    <div style="width: 350px; overflow: hidden;">
+	    <div style="width: 450px; overflow: hidden;">
 	      <div style="font-weight: bold; margin-bottom: 5px; text-align: left; font-size: 11px;">Last Updated: ${localLastUpdated}</div>
 	      <div style="display: flex; gap: 3px;">
 	        <!-- Left Table -->
-	        <div style="flex: 1; min-width: 0; max-width: 170px;">
+	        <div style="flex: 1; min-width: 0; max-width: 220px;">
 	          <table style="border-collapse: collapse; font-size: 11px; width: 100%; table-layout: fixed;">
 	            <tbody>
 	  `;
@@ -3473,8 +3473,8 @@ function applyLogFilters() {
 	          
 	          tableHtml += `
 	            <tr>
-	              <td style="padding: 1px 2px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis;">${formattedKey}</td>
-	              <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 60px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
+	              <td style="padding: 1px 2px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis;">${formattedKey}</td>
+	              <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 70px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
 	            </tr>
 	          `;
 	        }
@@ -3483,8 +3483,8 @@ function applyLogFilters() {
 	    
 	    tableHtml += `
 	      <tr>
-	        <td style="padding: 1px 2px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis;">${formattedKey}</td>
-	        <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 60px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
+	        <td style="padding: 1px 2px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis;">${formattedKey}</td>
+	        <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 70px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
 	      </tr>
 	    `;
 	  }
@@ -3495,7 +3495,7 @@ function applyLogFilters() {
 	        </div>
 	        
 	        <!-- Right Table -->
-	        <div style="flex: 1; min-width: 0; max-width: 170px;">
+	        <div style="flex: 1; min-width: 0; max-width: 220px;">
 	          <table style="border-collapse: collapse; font-size: 11px; width: 100%; table-layout: fixed;">
 	            <tbody>
 	  `;
@@ -3528,8 +3528,8 @@ function applyLogFilters() {
 	    
 	    tableHtml += `
 	      <tr>
-	        <td style="padding: 1px 2px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis;">${formattedKey}</td>
-	        <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 60px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
+	        <td style="padding: 1px 2px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis;">${formattedKey}</td>
+	        <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 70px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
 	      </tr>
 	    `;
 	  }
@@ -3565,8 +3565,8 @@ function applyLogFilters() {
 	        
 	        tableHtml += `
 	          <tr>
-	            <td style="padding: 1px 2px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis;">${formattedKey}</td>
-	            <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 60px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
+	            <td style="padding: 1px 2px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis;">${formattedKey}</td>
+	            <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 70px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
 	          </tr>
 	        `;
 	      }
@@ -3627,8 +3627,8 @@ function applyLogFilters() {
 	  // Create a popup with the complete met data table
 	  const popupContent = createMetDataTable(metData, lastUpdated);
 	  marker.bindPopup(popupContent, {
-	    maxWidth: 350,
-	    minWidth: 350,
+	    maxWidth: 450,
+	    minWidth: 450,
 	    className: 'met-data-popup',
 	    autoPan: false
 	  });
