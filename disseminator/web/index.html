@@ -3390,11 +3390,11 @@ function applyLogFilters() {
 	// Helper function to get AtoN name from summary data
 	async function getAtoNName(userId) {
 	  try {
-	    console.log(`Fetching AtoN name for userId: ${userId}`);
+	    //console.log(`Fetching AtoN name for userId: ${userId}`);
 	    const response = await fetch(`/summary?UserID=${userId}`);
 	    const data = await response.json();
 	    if (data && data[userId] && data[userId].Name) {
-	      console.log(`Found AtoN name: ${data[userId].Name} for userId: ${userId}`);
+	      //console.log(`Found AtoN name: ${data[userId].Name} for userId: ${userId}`);
 	      return data[userId].Name;
 	    }
 	    console.log(`No name found for userId: ${userId}`);
