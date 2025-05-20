@@ -1775,6 +1775,11 @@
           if (!isLastFieldWithData) {
             html += '<br/>';
           }
+          
+          // Add Altitude after Speed if AIS class is SAR and Altitude is available
+          if (field === 'Sog' && vesselAisClass === 'SAR' && pt.data.Altitude != null) {
+            html += `<br/><strong>Altitude:</strong> ${escapeHtml(pt.data.Altitude)} m`;
+          }
         }
       });
       
@@ -1836,6 +1841,11 @@
           
           if (!isLastFieldWithData) {
             html += '<br/>';
+          }
+          
+          // Add Altitude after Speed if AIS class is SAR and Altitude is available
+          if (field === 'Sog' && vesselAisClass === 'SAR' && pt.data.Altitude != null) {
+            html += `<br/><strong>Altitude:</strong> ${escapeHtml(pt.data.Altitude)} m`;
           }
         }
       });
