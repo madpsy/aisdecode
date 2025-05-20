@@ -86,12 +86,14 @@
         }
         .radio-group label {
             margin-right: 10px;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             cursor: pointer;
         }
         .radio-group input[type="radio"] {
-            margin-right: 2px; /* Reduce space between radio button and text */
+            margin: 0;
+            margin-right: 2px;
+            vertical-align: middle;
         }
         button {
             padding: 8px 16px;
@@ -134,12 +136,8 @@
         <button id="clearMessages">Clear Messages</button>
         <button id="pauseMessages">Pause</button>
         <div class="radio-group">
-            <label>
-                <input type="radio" name="displayMode" value="sentences" checked> Sentences
-            </label>
-            <label>
-                <input type="radio" name="displayMode" value="decoded"> Decoded
-            </label>
+            <label><input type="radio" name="displayMode" value="sentences" checked>Sentences</label>
+            <label><input type="radio" name="displayMode" value="decoded">Decoded</label>
         </div>
     </div>
     
