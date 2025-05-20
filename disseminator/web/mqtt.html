@@ -14,7 +14,7 @@
         #messages {
             border: 1px solid #ccc;
             padding: 10px;
-            height: 400px;
+            height: calc(100vh - 150px); /* Adjust to extend to bottom of window */
             overflow-y: auto;
             margin-top: 20px;
             font-family: monospace;
@@ -89,6 +89,7 @@
     
     <div class="controls">
         <button id="clearMessages">Clear Messages</button>
+        <button id="pauseMessages">Pause</button>
     </div>
     
     <div id="messages"></div>
@@ -105,6 +106,7 @@
         let client = null;
         let currentSubscription = null;
         let receiversMap = {}; // Map of receiver IDs to receiver names
+        let isPaused = false; // Track if message updates are paused
         
         // Fetch receivers data from the server
         async function fetchReceivers() {
@@ -228,6 +230,9 @@
         
         // Add a message to the display
         function addMessage(message, timestamp = null) {
+            // Skip adding messages if paused
+            if (isPaused) return;
+            
             const messageElement = document.createElement('div');
             messageElement.className = 'message';
             
@@ -257,6 +262,13 @@
         // Event listeners
         document.getElementById('clearMessages').addEventListener('click', function() {
             messagesDiv.innerHTML = '';
+        });
+        
+        // Pause/Resume button functionality
+        const pauseButton = document.getElementById('pauseMessages');
+        pauseButton.addEventListener('click', function() {
+            isPaused = !isPaused;
+            pauseButton.textContent = isPaused ? 'Resume' : 'Pause';
         });
         
         // Initialize by fetching receivers first, then MQTT config
