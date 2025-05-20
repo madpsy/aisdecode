@@ -72,6 +72,22 @@
         }
         .controls {
             margin: 20px 0;
+            display: flex;
+            align-items: center;
+        }
+        .radio-group {
+            margin-left: 15px;
+            display: flex;
+            align-items: center;
+        }
+        .radio-group label {
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .radio-group input[type="radio"] {
+            margin-right: 5px;
         }
         button {
             padding: 8px 16px;
@@ -113,6 +129,14 @@
     <div class="controls">
         <button id="clearMessages">Clear Messages</button>
         <button id="pauseMessages">Pause</button>
+        <div class="radio-group">
+            <label>
+                <input type="radio" name="displayMode" value="sentences" checked> Sentences
+            </label>
+            <label>
+                <input type="radio" name="displayMode" value="decoded"> Decoded
+            </label>
+        </div>
     </div>
     
     <div id="messages"></div>
@@ -130,6 +154,7 @@
         let currentSubscription = null;
         let receiversMap = {}; // Map of receiver IDs to receiver names
         let isPaused = false; // Track if message updates are paused
+        let displayMode = 'sentences'; // Default display mode
         
         // Fetch receivers data from the server
         async function fetchReceivers() {
@@ -209,8 +234,12 @@
             client.on('message', function(topic, message) {
                 try {
                     const payload = JSON.parse(message.toString());
-                    if (payload.raw_sentence) {
+                    
+                    if (displayMode === 'sentences' && payload.raw_sentence) {
                         addMessage(payload.raw_sentence, payload.timestamp);
+                    } else if (displayMode === 'decoded' && payload.message && payload.message.packet) {
+                        // Pretty print the packet JSON
+                        addMessage(JSON.stringify(payload.message.packet, null, 2), payload.timestamp);
                     }
                 } catch (e) {
                     console.error('Error parsing message:', e);
@@ -299,6 +328,15 @@
             } else {
                 pauseButton.classList.remove('paused');
             }
+        });
+        
+        // Radio button event listeners
+        document.querySelectorAll('input[name="displayMode"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                displayMode = this.value;
+                // Clear messages when switching display modes
+                messagesDiv.innerHTML = '';
+            });
         });
         
         // Initialize by fetching receivers first, then MQTT config
