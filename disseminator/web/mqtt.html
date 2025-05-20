@@ -49,6 +49,10 @@
             width: calc(100% - 100px); /* Adjust based on timestamp width + margin */
             word-break: break-all; /* Break words at any character */
         }
+        .json-content {
+            white-space: pre; /* Preserve whitespace for JSON formatting */
+            font-family: monospace;
+        }
         .status {
             margin-bottom: 10px;
             padding: 10px;
@@ -87,7 +91,7 @@
             cursor: pointer;
         }
         .radio-group input[type="radio"] {
-            margin-right: 5px;
+            margin-right: 2px; /* Reduce space between radio button and text */
         }
         button {
             padding: 8px 16px;
@@ -236,10 +240,10 @@
                     const payload = JSON.parse(message.toString());
                     
                     if (displayMode === 'sentences' && payload.raw_sentence) {
-                        addMessage(payload.raw_sentence, payload.timestamp);
+                        addMessage(payload.raw_sentence, payload.timestamp, false);
                     } else if (displayMode === 'decoded' && payload.message && payload.message.packet) {
                         // Pretty print the packet JSON
-                        addMessage(JSON.stringify(payload.message.packet, null, 2), payload.timestamp);
+                        addMessage(JSON.stringify(payload.message.packet, null, 2), payload.timestamp, true);
                     }
                 } catch (e) {
                     console.error('Error parsing message:', e);
@@ -281,7 +285,7 @@
         }
         
         // Add a message to the display
-        function addMessage(message, timestamp = null) {
+        function addMessage(message, timestamp = null, isJson = false) {
             // Skip adding messages if paused
             if (isPaused) return;
             
@@ -296,7 +300,7 @@
             }
             
             const contentElement = document.createElement('span');
-            contentElement.className = 'message-content';
+            contentElement.className = isJson ? 'message-content json-content' : 'message-content';
             contentElement.textContent = message;
             messageElement.appendChild(contentElement);
             
