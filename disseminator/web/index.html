@@ -4170,10 +4170,8 @@ function focusOnVessel(UserID, initialFocus = true) {
   const line2 = buildTooltipLine(
     utTypeText,
     (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
-    // For AtoN class vessels, show Water Temp instead of Speed if available
-    (vessel.AISClass === "AtoN" && vessel.Water_Temp_C != null)
-      ? `Water Temp: ${Math.round(vessel.Water_Temp_C)}°C`
-      : (vessel.Sog != null ? `${vessel.Sog} kn` : null),
+    // Always show speed regardless of vessel class
+    (vessel.Sog != null ? `${vessel.Sog} kn` : null),
     (vessel.TrueHeading != null && vessel.TrueHeading < 360
       ? `${vessel.TrueHeading}°`
       : `${vessel.Cog}°`)
