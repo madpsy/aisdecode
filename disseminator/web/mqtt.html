@@ -90,6 +90,11 @@
         }
         .filter-container.visible {
             display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .filter-row {
+            display: flex;
             gap: 10px;
             align-items: center;
         }
@@ -156,12 +161,16 @@
     </div>
     
     <div class="filter-container" id="filterContainer">
-        <label for="messageIdFilter">MessageID:</label>
-        <input type="text" id="messageIdFilter" placeholder="Filter by MessageID">
-        <label for="userIdFilter">UserID:</label>
-        <input type="text" id="userIdFilter" placeholder="Filter by UserID">
-        <label for="fieldFilter">Field:</label>
-        <input type="text" id="fieldFilter" placeholder="Show only this field">
+        <div class="filter-row">
+            <label for="messageIdFilter">MessageID:</label>
+            <input type="text" id="messageIdFilter" placeholder="Filter by MessageID">
+            <label for="userIdFilter">UserID:</label>
+            <input type="text" id="userIdFilter" placeholder="Filter by UserID">
+        </div>
+        <div class="filter-row">
+            <label for="fieldFilter">Field:</label>
+            <input type="text" id="fieldFilter" placeholder="Show only this field">
+        </div>
     </div>
     
     <div id="messages"></div>
