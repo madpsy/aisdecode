@@ -53,6 +53,24 @@
             white-space: pre; /* Preserve whitespace for JSON formatting */
             font-family: monospace;
         }
+        .message-table {
+            border-collapse: collapse;
+            width: 100%;
+            font-family: monospace;
+        }
+        .message-table td {
+            padding: 2px 8px;
+            vertical-align: top;
+        }
+        .message-table td:first-child {
+            font-weight: bold;
+            text-align: right;
+            white-space: nowrap;
+            color: #555;
+        }
+        .message-table td:last-child {
+            width: 100%;
+        }
         .status {
             margin-bottom: 10px;
             padding: 10px;
@@ -292,8 +310,8 @@
                                     addMessage(`Field "${fieldFilter}" not found in message`, payload.timestamp, false);
                                 }
                             } else {
-                                // No field filter, show the entire packet
-                                addMessage(JSON.stringify(packet, null, 2), payload.timestamp, true);
+                                // No field filter, show the entire packet as a table
+                                addMessageAsTable(packet, payload.timestamp);
                             }
                         }
                     }
@@ -355,6 +373,57 @@
             contentElement.className = isJson ? 'message-content json-content' : 'message-content';
             contentElement.textContent = message;
             messageElement.appendChild(contentElement);
+            
+            // Insert at the beginning (newest at top)
+            messagesDiv.insertBefore(messageElement, messagesDiv.firstChild);
+            messagesDiv.scrollTop = 0;
+        }
+        
+        // Add a message as a formatted table
+        function addMessageAsTable(packet, timestamp = null) {
+            // Skip adding messages if paused
+            if (isPaused) return;
+            
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message';
+            
+            if (timestamp) {
+                const timeElement = document.createElement('span');
+                timeElement.className = 'timestamp';
+                timeElement.textContent = new Date(timestamp).toLocaleTimeString();
+                messageElement.appendChild(timeElement);
+            }
+            
+            // Create table
+            const table = document.createElement('table');
+            table.className = 'message-table';
+            
+            // Add rows for each property
+            for (const key in packet) {
+                const row = document.createElement('tr');
+                
+                // Key cell
+                const keyCell = document.createElement('td');
+                keyCell.textContent = key + ':';
+                row.appendChild(keyCell);
+                
+                // Value cell
+                const valueCell = document.createElement('td');
+                const value = packet[key];
+                
+                if (typeof value === 'object' && value !== null) {
+                    // For nested objects, use JSON.stringify with formatting
+                    valueCell.textContent = JSON.stringify(value, null, 2);
+                } else {
+                    // For simple values, just show the value
+                    valueCell.textContent = value;
+                }
+                
+                row.appendChild(valueCell);
+                table.appendChild(row);
+            }
+            
+            messageElement.appendChild(table);
             
             // Insert at the beginning (newest at top)
             messagesDiv.insertBefore(messageElement, messagesDiv.firstChild);
