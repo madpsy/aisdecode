@@ -168,7 +168,7 @@
             font-size: 14px;
             font-weight: bold;
           ">
-            <span id="coverage-area-text">Coverage: 0 sq km</span>
+            <span id="coverage-area-text">0 sq km</span>
           </div>
           <!-- Date/Time overlay for replay -->
           <div id="replay-datetime-overlay" style="
@@ -910,7 +910,7 @@
         
         // Calculate and display coverage area
         const coverageAreaSqKm = calculateCoverageArea(heatData);
-        document.getElementById('coverage-area-text').textContent = `Coverage: ${coverageAreaSqKm} sq km`;
+        document.getElementById('coverage-area-text').textContent = `${coverageAreaSqKm} sq km`;
         
         // Clear all previous map layers
         clearMapLayers();
@@ -1350,7 +1350,7 @@
         
         // Calculate and display coverage area
         const coverageAreaSqKm = calculateCoverageArea(heatData);
-        document.getElementById('coverage-area-text').textContent = `Coverage: ${coverageAreaSqKm} sq km`;
+        document.getElementById('coverage-area-text').textContent = `${coverageAreaSqKm} sq km`;
         
         // Clear all previous map layers
         clearMapLayers();
@@ -1799,7 +1799,7 @@
       
       // Calculate and display coverage area
       const coverageAreaSqKm = calculateCoverageArea(heatData);
-      document.getElementById('coverage-area-text').textContent = `Coverage: ${coverageAreaSqKm} sq km`;
+      document.getElementById('coverage-area-text').textContent = `${coverageAreaSqKm} sq km`;
       
       // Update info text
       document.getElementById('replay-info').textContent = `Showing data for: ${frameData.label}`;
