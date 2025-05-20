@@ -84,15 +84,20 @@
             display: flex;
             align-items: center;
         }
-        .radio-group label {
+        /* Custom radio button styling */
+        .radio-option {
+            display: inline-block;
             margin-right: 10px;
-            display: inline-flex;
-            align-items: center;
             cursor: pointer;
         }
-        .radio-group input[type="radio"] {
+        .radio-option input[type="radio"] {
+            position: relative;
+            top: 2px;
             margin: 0;
-            margin-right: 2px;
+            padding: 0;
+        }
+        .radio-option span {
+            padding-left: 1px; /* Minimal space between radio and text */
             vertical-align: middle;
         }
         button {
@@ -136,8 +141,14 @@
         <button id="clearMessages">Clear Messages</button>
         <button id="pauseMessages">Pause</button>
         <div class="radio-group">
-            <label><input type="radio" name="displayMode" value="sentences" checked>Sentences</label>
-            <label><input type="radio" name="displayMode" value="decoded">Decoded</label>
+            <div class="radio-option">
+                <input type="radio" id="sentencesRadio" name="displayMode" value="sentences" checked>
+                <span>Sentences</span>
+            </div>
+            <div class="radio-option">
+                <input type="radio" id="decodedRadio" name="displayMode" value="decoded">
+                <span>Decoded</span>
+            </div>
         </div>
     </div>
     
