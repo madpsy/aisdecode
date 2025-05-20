@@ -3405,10 +3405,26 @@ function applyLogFilters() {
 	  const leftEntries = entries.slice(0, midpoint);
 	  const rightEntries = entries.slice(midpoint);
 	  
+	  // Get the user_id from the met data (Latitude_deg and Longitude_deg)
+	  let atonName = '';
+	  if (metData.Latitude_deg && metData.Longitude_deg) {
+	    // Find the vessel in vesselData that matches this location
+	    for (const userId in vesselData) {
+	      const vessel = vesselData[userId];
+	      if (vessel &&
+	          vessel.AISClass === 'AtoN' &&
+	          vessel.Latitude === metData.Latitude_deg &&
+	          vessel.Longitude === metData.Longitude_deg) {
+	        atonName = vessel.Name || '';
+	        break;
+	      }
+	    }
+	  }
+	  
 	  // Create the HTML structure with two tables side by side
 	  let tableHtml = `
 	    <div style="width: 450px; overflow: hidden;">
-	      <div style="font-weight: bold; margin-bottom: 5px; text-align: left; font-size: 11px;">Last Updated: ${localLastUpdated}</div>
+	      <div style="font-weight: bold; margin-bottom: 5px; text-align: left; font-size: 11px;">Last Updated: ${localLastUpdated}${atonName ? ' | AtoN Name: ' + atonName : ''}</div>
 	      <div style="display: flex; gap: 3px;">
 	        <!-- Left Table -->
 	        <div style="flex: 1; min-width: 0; max-width: 220px;">
@@ -3666,6 +3682,13 @@ function applyLogFilters() {
 	          const waterTemp = metItem.met_data.Water_Temp_C;
 	          
 	          if (waterTemp !== null && waterTemp !== undefined) {
+	            // Get the AtoN name from vesselData
+	            let atonName = '';
+	            const userId = id; // The id is the user_id/MMSI
+	            if (vesselData[userId] && vesselData[userId].Name) {
+	              atonName = vesselData[userId].Name;
+	            }
+	            
 	            const marker = createMetDataMarker(lat, lon, waterTemp, metItem.met_data, metItem.last_updated);
 	            marker.addTo(map);
 	            metDataMarkers[id] = marker;
