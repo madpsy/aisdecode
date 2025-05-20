@@ -2985,7 +2985,7 @@
       histogramContainer.innerHTML = '';
       
       // Filter for position messages only
-      const positionMessageTypes = ['1', '2', '3', '18', '19'];
+      const positionMessageTypes = ['1', '2', '3', '9', '18', '19'];
       const positionMessages = historyData.filter(msg =>
         positionMessageTypes.includes(msg.MessageID.toString())
       );
