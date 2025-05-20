@@ -1229,7 +1229,7 @@ function loadReceivers() {
                     <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Top Lists</button>
                     <button onclick="window.open('/statistics/statistics.html?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
                     <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=1', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Coverage</button>
-                    <button onclick="window.open('/disseminator/web/mqtt.html?receiver=${receiver.id}', '_blank', 'width=600,height=800')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">MQTT</button>
+                    <button onclick="window.open('/mqtt.html?receiver=${receiver.id}', '_blank', 'width=600,height=800')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">MQTT</button>
                   </div>
                 </div>
                 <div id="receiver-map"></div> <!-- Receiver map will go here -->
@@ -1923,7 +1923,7 @@ function fetchReceiversById(receiverId) {
             <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Top Lists</button>
             <button onclick="window.open('/statistics/statistics.html?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
             <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=1', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Coverage</button>
-            <button onclick="window.open('/disseminator/web/mqtt.html?receiver=${receiver.id}', '_blank', 'width=600,height=800')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">MQTT</button>
+            <button onclick="window.open('/mqtt.html?receiver=${receiver.id}', '_blank', 'width=600,height=800')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">MQTT</button>
           </div>
         </div>
         <div id="receiver-map"></div> <!-- Receiver map will go here -->
@@ -2130,7 +2130,7 @@ async function fetchReceivers(ip) {
         <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
         <button onclick="window.open('/statistics/?receiver_id=${receiver.id}', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Statistics</button>
         <button onclick="window.open('/statistics/coverage.html?receiver_id=${receiver.id}&days=1', '_blank')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Coverage</button>
-        <button onclick="window.open('/disseminator/web/mqtt.html?receiver=${receiver.id}', '_blank', 'width=600,height=800')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">MQTT</button>
+        <button onclick="window.open('/mqtt.html?receiver=${receiver.id}', '_blank', 'width=600,height=800')" style="background-color: #28a745; color: white; border: none; padding: 4px 8px; cursor: pointer;">MQTT</button>
       </div>
       <div id="receiver-map"></div> <!-- Receiver map will go here -->
     `;
