@@ -3393,18 +3393,31 @@ function applyLogFilters() {
 	  // Format the last_updated time in user's local format
 	  const localLastUpdated = lastUpdated ? new Date(lastUpdated).toLocaleString() : 'Unknown';
 	  
+	  // Get all valid entries (non-null, non-undefined)
+	  const entries = Object.entries(metData).filter(([_, value]) =>
+	    value !== null && value !== undefined
+	  );
+	  
+	  // Calculate the midpoint to split the data evenly
+	  const midpoint = Math.ceil(entries.length / 2);
+	  
+	  // Split the entries into two arrays
+	  const leftEntries = entries.slice(0, midpoint);
+	  const rightEntries = entries.slice(midpoint);
+	  
+	  // Create the HTML structure with two tables side by side
 	  let tableHtml = `
-	    <div style="max-width: 300px; overflow-x: auto;">
-	      <div style="font-weight: bold; margin-bottom: 5px;">Last Updated: ${localLastUpdated}</div>
-	      <table style="border-collapse: collapse; font-size: 12px; width: 100%;">
-	        <tbody>
+	    <div style="max-width: 500px;">
+	      <div style="font-weight: bold; margin-bottom: 10px; text-align: left;">Last Updated: ${localLastUpdated}</div>
+	      <div style="display: flex; gap: 10px;">
+	        <!-- Left Table -->
+	        <div style="flex: 1;">
+	          <table style="border-collapse: collapse; font-size: 12px; width: 100%;">
+	            <tbody>
 	  `;
 	  
-	  // Add each key/value pair to the table
-	  for (const [key, value] of Object.entries(metData)) {
-	    // Skip if value is null or undefined
-	    if (value === null || value === undefined) continue;
-	    
+	  // Add entries to the left table
+	  for (const [key, value] of leftEntries) {
 	    // Format the key by replacing underscores with spaces
 	    const formattedKey = key.replace(/_/g, ' ');
 	    
@@ -3418,15 +3431,49 @@ function applyLogFilters() {
 	    
 	    tableHtml += `
 	      <tr>
-	        <td style="padding: 2px 5px; border-bottom: 1px solid #eee; font-weight: bold;">${formattedKey}</td>
+	        <td style="padding: 2px 5px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap;">${formattedKey}</td>
 	        <td style="padding: 2px 5px; border-bottom: 1px solid #eee;">${formattedValue}</td>
 	      </tr>
 	    `;
 	  }
 	  
 	  tableHtml += `
-	        </tbody>
-	      </table>
+	            </tbody>
+	          </table>
+	        </div>
+	        
+	        <!-- Right Table -->
+	        <div style="flex: 1;">
+	          <table style="border-collapse: collapse; font-size: 12px; width: 100%;">
+	            <tbody>
+	  `;
+	  
+	  // Add entries to the right table
+	  for (const [key, value] of rightEntries) {
+	    // Format the key by replacing underscores with spaces
+	    const formattedKey = key.replace(/_/g, ' ');
+	    
+	    // Format the value based on its type
+	    let formattedValue = value;
+	    
+	    // Handle nested objects (like Sea_State)
+	    if (typeof value === 'object' && value !== null) {
+	      formattedValue = JSON.stringify(value);
+	    }
+	    
+	    tableHtml += `
+	      <tr>
+	        <td style="padding: 2px 5px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap;">${formattedKey}</td>
+	        <td style="padding: 2px 5px; border-bottom: 1px solid #eee;">${formattedValue}</td>
+	      </tr>
+	    `;
+	  }
+	  
+	  tableHtml += `
+	            </tbody>
+	          </table>
+	        </div>
+	      </div>
 	    </div>
 	  `;
 	  
