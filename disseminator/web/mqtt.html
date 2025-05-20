@@ -145,11 +145,11 @@
         <div class="radio-group">
             <!-- Use inline styles to force proper spacing -->
             <span style="white-space: nowrap; margin-right: 10px;">
-                <input type="radio" name="displayMode" value="sentences" checked style="margin: 0; vertical-align: middle;">
+                <input type="radio" name="displayMode" value="sentences" style="margin: 0; vertical-align: middle;">
                 <span style="vertical-align: middle; margin-left: 0;">Sentences</span>
             </span>
             <span style="white-space: nowrap;">
-                <input type="radio" name="displayMode" value="decoded" style="margin: 0; vertical-align: middle;">
+                <input type="radio" name="displayMode" value="decoded" checked style="margin: 0; vertical-align: middle;">
                 <span style="vertical-align: middle; margin-left: 0;">Decoded</span>
             </span>
         </div>
@@ -177,7 +177,7 @@
         let currentSubscription = null;
         let receiversMap = {}; // Map of receiver IDs to receiver names
         let isPaused = false; // Track if message updates are paused
-        let displayMode = localStorage.getItem('mqttDisplayMode') || 'sentences'; // Get from localStorage or default
+        let displayMode = localStorage.getItem('mqttDisplayMode') || 'decoded'; // Get from localStorage or default
         let messageIdFilter = ''; // Filter for MessageID
         let userIdFilter = ''; // Filter for UserID
         
