@@ -2401,7 +2401,7 @@ function renderSearchResults(data) {
   
   // Update the count to reflect search results.
   document.getElementById('vessel-count').innerHTML =
-    `${data.length} of ${data.length} entries`; // or customize based on your needs
+    `${data.length} search results`; // Clearly indicate these are search results
   
   // Attach click event listeners for each overlay entry.
   document.querySelectorAll('.vessel-entry').forEach(entry => {
@@ -2759,8 +2759,14 @@ function updateStationaryMarkers() {
         // Update the known vessels overlay.
 function updateOverlay() {
   const filterText = document.getElementById('vessel-filter').value.trim().toLowerCase();
-  // Removed: Do not skip updates when searching; allow showing receivers on search
-
+  
+  // If we have search results and the filter text is 3 or more characters, use the stored search results
+  if (lastSearchResults && filterText.length >= 3) {
+    // Use the stored search results instead of filtering the vessel data
+    renderSearchResults(lastSearchResults);
+    return;
+  }
+  
   const maxAgeHours = parseInt(document.getElementById('age-slider').value, 10);
   const now = Date.now();
 
@@ -3548,9 +3554,15 @@ socket.on("summaryData", (data) => {
       }
     }
   }
+  
   // Update UI elements but avoid triggering vessel-receiver connection updates
   // This helps prevent flickering when summary data arrives
-  updateOverlay();
+  
+  // Only update the overlay if there's no active search with results
+  const filterText = document.getElementById('vessel-filter').value.trim();
+  if (!(lastSearchResults && filterText.length >= 3)) {
+    updateOverlay();
+  }
   
   // Don't call these functions as they might trigger vessel-receiver connection updates
   // updateFocussedVisibility();
@@ -3580,9 +3592,10 @@ socket.on("summaryData", (data) => {
 });
 
 // Use a debounced function to limit the frequency of requests:
-// Global variables to store the current search query and the interval timer.
+// Global variables to store the current search query, interval timer, and search results.
 let currentSearchQuery = '';
 let searchInterval = null;
+let lastSearchResults = null; // Store the last search results
 
 document.getElementById('vessel-filter').addEventListener('input', function(event) {
   // Update current search query with trimmed value.
@@ -3590,11 +3603,12 @@ document.getElementById('vessel-filter').addEventListener('input', function(even
 
   // Check if the query meets the length threshold.
   if (currentSearchQuery.length < 3) {
-    // If below threshold, clear any active search interval.
+    // If below threshold, clear any active search interval and search results.
     if (searchInterval) {
       clearInterval(searchInterval);
       searchInterval = null;
     }
+    lastSearchResults = null; // Clear stored search results
     // Update the overlay normally.
     updateOverlay();
     return;
@@ -3604,7 +3618,7 @@ document.getElementById('vessel-filter').addEventListener('input', function(even
   // Call the search function immediately.
   performSearch(currentSearchQuery);
 
-  // If no interval is already running, set one up for every 5 seconds.
+  // If no interval is already running, set one up for every 10 seconds.
   if (!searchInterval) {
     searchInterval = setInterval(() => {
       // Use the latest query value in case the user modifies it.
@@ -3661,12 +3675,14 @@ function performSearch(query) {
       );
     });
 
-    // Merge the two arrays and render the results.
+    // Merge the two arrays and store the results
     const combinedResults = searchResults.concat(receiverResults);
+    lastSearchResults = combinedResults; // Store the search results
     renderSearchResults(combinedResults);
   })
   .catch(err => {
     console.error('Search request failed:', err);
+    lastSearchResults = null; // Clear stored results on error
     updateOverlay();
   });
 }
