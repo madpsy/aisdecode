@@ -228,6 +228,8 @@
         let messageIdFilter = ''; // Filter for MessageID
         let userIdFilter = ''; // Filter for UserID
         let fieldFilter = ''; // Filter to show only a specific field
+        let messageCount = 0; // Counter for displayed messages
+        const MAX_MESSAGES = 500; // Maximum number of messages to display
         
         // Fetch receivers data from the server
         async function fetchReceivers() {
@@ -395,6 +397,18 @@
             // Insert at the beginning (newest at top)
             messagesDiv.insertBefore(messageElement, messagesDiv.firstChild);
             messagesDiv.scrollTop = 0;
+            
+            // Increment message count
+            messageCount++;
+            
+            // Remove oldest messages if we exceed the maximum
+            if (messageCount > MAX_MESSAGES) {
+                // Remove the last child (oldest message)
+                if (messagesDiv.lastChild) {
+                    messagesDiv.removeChild(messagesDiv.lastChild);
+                }
+                messageCount = MAX_MESSAGES;
+            }
         }
         
         // Add a message as a formatted table
@@ -503,6 +517,18 @@
             // Insert at the beginning (newest at top)
             messagesDiv.insertBefore(messageElement, messagesDiv.firstChild);
             messagesDiv.scrollTop = 0;
+            
+            // Increment message count
+            messageCount++;
+            
+            // Remove oldest messages if we exceed the maximum
+            if (messageCount > MAX_MESSAGES) {
+                // Remove the last child (oldest message)
+                if (messagesDiv.lastChild) {
+                    messagesDiv.removeChild(messagesDiv.lastChild);
+                }
+                messageCount = MAX_MESSAGES;
+            }
         }
         
         // Update connection status display
@@ -514,6 +540,7 @@
         // Event listeners
         document.getElementById('clearMessages').addEventListener('click', function() {
             messagesDiv.innerHTML = '';
+            messageCount = 0; // Reset message counter when clearing
         });
         
         // Pause/Resume button functionality
@@ -577,6 +604,7 @@
                 localStorage.setItem('mqttDisplayMode', displayMode);
                 // Clear messages when switching display modes
                 messagesDiv.innerHTML = '';
+                messageCount = 0; // Reset message counter
                 
                 // Show/hide filter container based on display mode
                 const filterContainer = document.getElementById('filterContainer');
@@ -598,12 +626,14 @@
             messageIdFilter = this.value.trim();
             // Clear messages when filter changes
             messagesDiv.innerHTML = '';
+            messageCount = 0; // Reset message counter
         });
         
         document.getElementById('userIdFilter').addEventListener('input', function() {
             userIdFilter = this.value.trim();
             // Clear messages when filter changes
             messagesDiv.innerHTML = '';
+            messageCount = 0; // Reset message counter
         });
         
         // Field filter input event listener
@@ -611,6 +641,7 @@
             fieldFilter = this.value.trim();
             // Clear messages when filter changes
             messagesDiv.innerHTML = '';
+            messageCount = 0; // Reset message counter
         });
         
         // Clear Filters button event listener
@@ -627,6 +658,7 @@
             
             // Clear messages
             messagesDiv.innerHTML = '';
+            messageCount = 0; // Reset message counter
         });
         
         // Initialize by fetching receivers first, then MQTT config
