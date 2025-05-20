@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT Raw Sentences by Receiver</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        #messages {
+            border: 1px solid #ccc;
+            padding: 10px;
+            height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+            font-family: monospace;
+            background-color: #f5f5f5;
+        }
+        .message {
+            border-bottom: 1px solid #eee;
+            padding: 5px 0;
+        }
+        .message:nth-child(odd) {
+            background-color: #f9f9f9;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 0.8em;
+        }
+        .status {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        h1 {
+            color: #333;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 100px;
+        }
+    </style>
+</head>
+<body>
+    <h1>MQTT Raw Sentences by Receiver</h1>
+    
+    <div id="statusDisplay" class="status connecting">Connecting to MQTT broker...</div>
+    
+    <div class="controls">
+        <label for="receiverId">Receiver ID:</label>
+        <input type="number" id="receiverId" min="0" value="0">
+        <button id="changeReceiver">Change Receiver</button>
+        <button id="clearMessages">Clear Messages</button>
+    </div>
+    
+    <div id="messages"></div>
+
+    <script>
+        // Get receiver ID from query parameter or default to 0
+        const urlParams = new URLSearchParams(window.location.search);
+        let receiverId = parseInt(urlParams.get('receiver') || '0', 10);
+        document.getElementById('receiverId').value = receiverId;
+        
+        // MQTT connection settings
+        const mqttServer = 'wss://hydros.link9.net:8183';
+        let client = null;
+        let currentSubscription = null;
+        
+        // Message display element
+        const messagesDiv = document.getElementById('messages');
+        const statusDisplay = document.getElementById('statusDisplay');
+        
+        // Connect to MQTT broker
+        function connectMQTT() {
+            updateStatus('connecting', 'Connecting to MQTT broker...');
+            
+            // Create MQTT client
+            client = mqtt.connect(mqttServer, {
+                clientId: 'web_client_' + Math.random().toString(16).substr(2, 8),
+                clean: true
+            });
+            
+            // Handle connection events
+            client.on('connect', function() {
+                updateStatus('connected', 'Connected to MQTT broker');
+                subscribeToReceiver(receiverId);
+            });
+            
+            client.on('error', function(error) {
+                updateStatus('disconnected', 'Connection error: ' + error.message);
+                console.error('MQTT error:', error);
+            });
+            
+            client.on('offline', function() {
+                updateStatus('disconnected', 'Disconnected from MQTT broker');
+            });
+            
+            client.on('message', function(topic, message) {
+                try {
+                    const payload = JSON.parse(message.toString());
+                    if (payload.raw_sentence) {
+                        addMessage(payload.raw_sentence, payload.timestamp);
+                    }
+                } catch (e) {
+                    console.error('Error parsing message:', e);
+                    addMessage('Error parsing message: ' + e.message);
+                }
+            });
+        }
+        
+        // Subscribe to messages for a specific receiver
+        function subscribeToReceiver(id) {
+            if (!client || !client.connected) {
+                updateStatus('disconnected', 'Not connected to MQTT broker');
+                return;
+            }
+            
+            // Unsubscribe from previous topic if any
+            if (currentSubscription) {
+                client.unsubscribe(currentSubscription);
+            }
+            
+            // Subscribe to all messages for this receiver ID
+            // The + wildcards match any shard_id, user_id, and message_id
+            const topic = `ais/+/+/${id}/+/message`;
+            client.subscribe(topic, function(err) {
+                if (err) {
+                    updateStatus('disconnected', 'Failed to subscribe: ' + err.message);
+                    console.error('Subscription error:', err);
+                } else {
+                    updateStatus('connected', `Subscribed to receiver ID: ${id}`);
+                    currentSubscription = topic;
+                    
+                    // Update URL without reloading the page
+                    const url = new URL(window.location);
+                    url.searchParams.set('receiver', id);
+                    window.history.pushState({}, '', url);
+                }
+            });
+        }
+        
+        // Add a message to the display
+        function addMessage(message, timestamp = null) {
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message';
+            
+            if (timestamp) {
+                const timeElement = document.createElement('div');
+                timeElement.className = 'timestamp';
+                timeElement.textContent = new Date(timestamp).toLocaleTimeString();
+                messageElement.appendChild(timeElement);
+            }
+            
+            const contentElement = document.createElement('div');
+            contentElement.textContent = message;
+            messageElement.appendChild(contentElement);
+            
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        // Update connection status display
+        function updateStatus(status, message) {
+            statusDisplay.className = `status ${status}`;
+            statusDisplay.textContent = message;
+        }
+        
+        // Event listeners
+        document.getElementById('changeReceiver').addEventListener('click', function() {
+            const newReceiverId = parseInt(document.getElementById('receiverId').value, 10);
+            if (!isNaN(newReceiverId) && newReceiverId >= 0) {
+                receiverId = newReceiverId;
+                subscribeToReceiver(receiverId);
+            }
+        });
+        
+        document.getElementById('clearMessages').addEventListener('click', function() {
+            messagesDiv.innerHTML = '';
+        });
+        
+        // Initialize connection
+        connectMQTT();
+    </script>
+</body>
+</html>
