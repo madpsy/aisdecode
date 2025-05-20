@@ -284,6 +284,21 @@ func main() {
     if err != nil {
         log.Fatal("Error creating state table: ", err)
     }
+    
+    // Create met_state table for meteorological data
+    _, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS met_state (
+            id SERIAL PRIMARY KEY,
+            user_id INT UNIQUE,
+            receiver_id INT,
+            last_updated TIMESTAMP,
+            met_data JSONB
+        );
+        CREATE INDEX IF NOT EXISTS idx_met_state_user_id ON met_state(user_id);
+    `)
+    if err != nil {
+        log.Fatal("Error creating met_state table: ", err)
+    }
     createIndexesIfNotExist(db)
     
     // Create indexes for the new udp_port column
@@ -1301,6 +1316,50 @@ func storeState(db *sql.DB, packetJSON []byte, shardID int, timestamp string, us
     `, packetJSON, shardID, timestamp, userID, existingAisClass, existingCount, "", "", existingLookupComplete, sourceIP, receiverID, udpPort)
     if err != nil {
         return fmt.Errorf("Error inserting or updating state table: %v", err)
+    }
+
+    // Check if this is a meteorological message from an AtoN
+    // Criteria: ais_class is AtoN, ApplicationID->Valid is true,
+    // ApplicationID->DesignatedAreaCode is 1, ApplicationID->FunctionIdentifier is 31,
+    // and DecodedBinary exists
+    if existingAisClass == "AtoN" {
+        var packet map[string]interface{}
+        if err := json.Unmarshal(packetJSON, &packet); err == nil {
+            // Check for ApplicationID
+            if appID, ok := packet["ApplicationID"].(map[string]interface{}); ok {
+                // Explicitly check if Valid is true
+                if valid, ok := appID["Valid"].(bool); ok && valid {
+                    // Check for DesignatedAreaCode = 1
+                    if dac, ok := appID["DesignatedAreaCode"].(float64); ok && int(dac) == 1 {
+                        // Check for FunctionIdentifier = 31
+                        if fi, ok := appID["FunctionIdentifier"].(float64); ok && int(fi) == 31 {
+                            // Check for DecodedBinary
+                            if decodedBinary, ok := packet["DecodedBinary"].(map[string]interface{}); ok {
+                                // Convert DecodedBinary to JSON
+                                metDataJSON, err := json.Marshal(decodedBinary)
+                                if err == nil {
+                                    // Insert or update met_state table
+                                    _, err = db.Exec(`
+                                        INSERT INTO met_state (user_id, receiver_id, last_updated, met_data)
+                                        VALUES ($1, $2, $3, $4)
+                                        ON CONFLICT (user_id) DO UPDATE SET
+                                            receiver_id = EXCLUDED.receiver_id,
+                                            last_updated = EXCLUDED.last_updated,
+                                            met_data = EXCLUDED.met_data
+                                    `, userID, receiverID, timestamp, metDataJSON)
+                                    
+                                    if err != nil && settings.Debug {
+                                        log.Printf("Error inserting meteorological data: %v", err)
+                                    } else if settings.Debug {
+                                        log.Printf("Inserted meteorological data for user_id %d", userID)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     uidStr := strconv.Itoa(userID)
