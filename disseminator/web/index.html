@@ -909,6 +909,11 @@ map.on('click', () => {
     document.body.appendChild(notification);
     setTimeout(() => document.body.removeChild(notification), 2000);
     
+    // Remove ReceiverID from URL when filter is removed
+    const url = new URL(window.location);
+    url.searchParams.delete('ReceiverID');
+    window.history.pushState({}, '', url);
+    
     sendSummaryRequest();
   }
   
@@ -1515,6 +1520,11 @@ function refreshReceivers() {
                 notification.style.zIndex = '1000';
                 document.body.appendChild(notification);
                 setTimeout(() => document.body.removeChild(notification), 2000);
+                
+                // Update URL with ReceiverID parameter without reloading the page
+                const url = new URL(window.location);
+                url.searchParams.set('ReceiverID', id);
+                window.history.pushState({}, '', url);
               }
               
               // Request updated data with or without the receiver filter
@@ -4181,7 +4191,12 @@ function focusOnVessel(UserID, initialFocus = true) {
         e.stopPropagation();
       }
       const currentUrl = window.location.href.split('?')[0];
-      const copyUrl = `${currentUrl}?UserID=${vesselData[UserID].UserID}`;
+      let copyUrl = `${currentUrl}?UserID=${vesselData[UserID].UserID}`;
+      
+      // If a receiver is selected, include it in the URL
+      if (selectedReceiverId) {
+        copyUrl += `&ReceiverID=${selectedReceiverId}`;
+      }
       function updateLinkText(newText) {
         copyLinkEl.textContent = newText;
         setTimeout(() => {
@@ -4321,10 +4336,11 @@ map.on('moveend zoomend', function() {
        });
 
 window.addEventListener('load', () => {
-  // Get URL parameters and check for the UserID parameter.
+  // Get URL parameters and check for the UserID and ReceiverID parameters.
   const params = new URLSearchParams(window.location.search);
   const UserIDParam = params.get('UserID');
-  const skipUserZoom = Boolean(UserIDParam);
+  const ReceiverIDParam = params.get('ReceiverID');
+  const skipUserZoom = Boolean(UserIDParam) || Boolean(ReceiverIDParam);
 
   const filterInput = document.getElementById('vessel-filter');
   if (filterInput.value.trim().length >= 3) {
@@ -4387,6 +4403,68 @@ window.addEventListener('load', () => {
       });
   };
 
+  // If ReceiverID is provided, fetch the receiver and center the map accordingly.
+  if (ReceiverIDParam) {
+    // Delay to ensure receiver markers are loaded
+    setTimeout(() => {
+      // Convert to string to ensure proper comparison
+      const receiverId = String(ReceiverIDParam);
+      
+      // Fetch the receiver data to get its location
+      fetch(`/receivers?id=${receiverId}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`Failed to get receiver: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(receivers => {
+          if (Array.isArray(receivers) && receivers.length > 0) {
+            const receiver = receivers[0];
+            const lat = parseFloat(receiver.latitude);
+            const lng = parseFloat(receiver.longitude);
+            
+            if (!isNaN(lat) && !isNaN(lng)) {
+              // Center the map on the receiver
+              map.setView([lat, lng], 10);
+              
+              // Set the selected receiver ID
+              selectedReceiverId = receiverId;
+              
+              // Update the receiver marker to show it's selected
+              if (receiverMarkers[receiverId]) {
+                receiverMarkers[receiverId].setIcon(createReceiverIcon('blue'));
+                selectedReceiverCoords = [lat, lng];
+                
+                // Draw radius circles around the receiver
+                drawRadiusCircles([lat, lng]);
+                
+                // Show a notification that filter is applied
+                const notification = document.createElement('div');
+                notification.textContent = `Filtering by receiver: ${receiver.name}`;
+                notification.style.position = 'absolute';
+                notification.style.top = '100px';
+                notification.style.left = '50%';
+                notification.style.transform = 'translateX(-50%)';
+                notification.style.background = 'rgba(255,255,255,0.8)';
+                notification.style.padding = '10px';
+                notification.style.borderRadius = '5px';
+                notification.style.zIndex = '1000';
+                document.body.appendChild(notification);
+                setTimeout(() => document.body.removeChild(notification), 2000);
+                
+                // Request updated data with the receiver filter
+                sendSummaryRequest();
+              }
+            }
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching receiver:', error);
+        });
+    }, 1000);
+  }
+  
   // If UserID is provided, fetch the state and center the map accordingly.
   if (UserIDParam) {
     fetch(`/state?UserID=${UserIDParam}`)
@@ -4410,8 +4488,8 @@ window.addEventListener('load', () => {
       .catch(error => {
         console.error('Error fetching summary:', error);
       });
-  } else {
-    // Only check for user receiver if no UserID parameter is provided
+  } else if (!ReceiverIDParam) {
+    // Only check for user receiver if no UserID or ReceiverID parameter is provided
     checkForUserReceiver();
   }
 
