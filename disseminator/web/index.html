@@ -3389,8 +3389,22 @@ function applyLogFilters() {
 	// Function to create a marker for met data with water temperature
 	function createMetDataMarker(lat, lon, waterTemp) {
 	  // Apply a small offset to the south-east to prevent overlapping with AtoN markers
-	  const offsetLat = lat - 0.0005; // Offset south
-	  const offsetLon = lon + 0.0008; // Offset east
+	  const offsetLat = lat - 0.0008; // Offset south (increased)
+	  const offsetLon = lon + 0.0012; // Offset east (increased)
+	  
+	  // Add a custom style for transparent tooltip background
+	  const style = document.createElement('style');
+	  style.innerHTML = `
+	    .temp-tooltip {
+	      background-color: transparent !important;
+	      border: none !important;
+	      box-shadow: none !important;
+	      font-weight: bold;
+	      color: white;
+	      text-shadow: 1px 1px 1px black;
+	    }
+	  `;
+	  document.head.appendChild(style);
 	  
 	  // Create a circle marker with the water temperature value at the offset position
 	  const marker = L.circleMarker([offsetLat, offsetLon], {
@@ -3407,7 +3421,7 @@ function applyLogFilters() {
 	    marker.bindTooltip(tempText, {
 	      permanent: true,
 	      direction: 'center',
-	      className: 'vessel-tooltip',
+	      className: 'temp-tooltip',
 	      offset: [0, 0]
 	    }).openTooltip();
 	  }
