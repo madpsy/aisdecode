@@ -2492,7 +2492,8 @@ function createPopupContent(data) {
   addLine(lines, "Last Update", data.lastUpdate ? timeAgo(data.lastUpdate) : null);
   addLine(lines, "MMSI", data.UserID);
 
-  if (data.UserID) {
+  // Only show Flag for non-SAR vessels
+  if (data.UserID && data.AISClass !== "SAR") {
     const midData = lookupMidByUserID(data.UserID);
     addLine(lines, "Flag", midData.country);
   }
