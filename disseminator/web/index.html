@@ -1265,13 +1265,13 @@ const vesselTypeGroups = {
 
 // Map each group to a distinct color with maximum contrast
 const vesselGroupColors = {
-  "Not available": "#808080",  // Gray
+  "Not available": "#0000FF",  // Blue
   "Wing in ground": "#FF4500", // Orange Red
   "Fishing": "#006400",        // Dark Green
   "Towing": "#8B4513",         // Saddle Brown
   "Dredging": "#00FFFF",       // Cyan
   "Diving": "#000080",         // Navy Blue
-  "Military": "#8A2BE2",       // Blue Violet
+  "Military": "#808080",       // Gray
   "Sailing": "#0082C8",        // Vibrant Blue
   "Pleasure": "#FF1493",       // Deep Pink
   "High speed craft": "#E6194B", // Vibrant Red
@@ -1702,7 +1702,7 @@ function drawRadiusCircles(receiverCoords) {
 }
 
 function getColorForVesselTypeConsistent(type) {
-  if (!type) return "blue";
+  if (type === null || type === undefined) return "blue";
   
   // Find which group this vessel type belongs to
   for (const [groupName, typeArray] of Object.entries(vesselTypeGroups)) {
@@ -2023,7 +2023,7 @@ function updateLegend() {
   // Count vessels in each group
   for (const UserID in vesselData) {
     const vessel = vesselData[UserID];
-    if (vessel.Type) {
+    if (vessel.Type != null) {
       // Find which group this vessel type belongs to
       let foundGroup = false;
       for (const [groupName, typeArray] of Object.entries(vesselTypeGroups)) {
