@@ -288,13 +288,11 @@ func main() {
     // Create met_state table for meteorological data
     _, err = db.Exec(`
         CREATE TABLE IF NOT EXISTS met_state (
-            id SERIAL PRIMARY KEY,
-            user_id INT UNIQUE,
+            user_id INT PRIMARY KEY,
             receiver_id INT,
             last_updated TIMESTAMP,
             met_data JSONB
         );
-        CREATE INDEX IF NOT EXISTS idx_met_state_user_id ON met_state(user_id);
     `)
     if err != nil {
         log.Fatal("Error creating met_state table: ", err)
