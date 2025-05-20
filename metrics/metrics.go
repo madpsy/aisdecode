@@ -423,7 +423,7 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
                 // We found a cached IP, which means the receiver exists
                 receiverExists = true
                 filterIP = cached
-                log.Printf("Found cached IP for receiver %s: '%s'", receiverID, filterIP)
+                // log.Printf("Found cached IP for receiver %s: '%s'", receiverID, filterIP)
                 
                 // Only consider it as having no IP if the IP is actually empty
                 receiverHasEmptyIP = (filterIP == "")
@@ -463,8 +463,8 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
                 }
             }
             
-            log.Printf("Receiver %s: exists=%v, hasNoIP=%v, filterIP='%s'",
-                       receiverID, receiverExists, receiverHasEmptyIP, filterIP)
+            // log.Printf("Receiver %s: exists=%v, hasNoIP=%v, filterIP='%s'",
+            //           receiverID, receiverExists, receiverHasEmptyIP, filterIP)
             
             // If the receiver doesn't exist, return early with a clear message
             // instead of falling back to the requestor's IP
