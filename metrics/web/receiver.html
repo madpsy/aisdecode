@@ -1252,7 +1252,7 @@ function loadReceivers() {
               }).addTo(rxMap);
               L.marker([receiver.latitude, receiver.longitude])
                 .addTo(rxMap)
-                .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
+                .bindPopup(`${receiver.latitude}<br>${receiver.longitude}`)
                 .openPopup();
             })
             .catch(err => console.error('Error fetching single receiver:', err));
@@ -1950,7 +1950,7 @@ function fetchReceiversById(receiverId) {
         }).addTo(rxMap);
         L.marker([receiver.latitude, receiver.longitude])
           .addTo(rxMap)
-          .bindPopup(`Lat: ${receiver.latitude}<br>Lon: ${receiver.longitude}`)
+          .bindPopup(`${receiver.latitude}<br>${receiver.longitude}`)
           .openPopup();
       } else {
         console.warn('Cannot initialize receiver map: Invalid coordinates', receiver);
