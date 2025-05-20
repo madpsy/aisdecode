@@ -1767,6 +1767,12 @@
           
           html += `<strong>${displayField}:</strong> ${escapeHtml(value)}`;
           
+          // Add Altitude right after Speed if AIS class is SAR and Altitude is available
+          if (field === 'Sog' && vesselAisClass === 'SAR' && pt.data.Altitude != null) {
+            html += '<br/>';
+            html += `<strong>Altitude:</strong> ${escapeHtml(pt.data.Altitude)} m`;
+          }
+          
           // Add line break after each field except the last one
           // Only add a line break if this isn't the last field with data
           const isLastFieldWithData = index === filteredFields.length - 1 ||
@@ -1774,11 +1780,6 @@
           
           if (!isLastFieldWithData) {
             html += '<br/>';
-          }
-          
-          // Add Altitude after Speed if AIS class is SAR and Altitude is available
-          if (field === 'Sog' && vesselAisClass === 'SAR' && pt.data.Altitude != null) {
-            html += `<br/><strong>Altitude:</strong> ${escapeHtml(pt.data.Altitude)} m`;
           }
         }
       });
@@ -1834,6 +1835,12 @@
           
           html += `<strong>${displayField}:</strong> ${escapeHtml(value)}`;
           
+          // Add Altitude right after Speed if AIS class is SAR and Altitude is available
+          if (field === 'Sog' && vesselAisClass === 'SAR' && pt.data.Altitude != null) {
+            html += '<br/>';
+            html += `<strong>Altitude:</strong> ${escapeHtml(pt.data.Altitude)} m`;
+          }
+          
           // Add line break after each field except the last one
           // Only add a line break if this isn't the last field with data
           const isLastFieldWithData = index === filteredFields.length - 1 ||
@@ -1841,11 +1848,6 @@
           
           if (!isLastFieldWithData) {
             html += '<br/>';
-          }
-          
-          // Add Altitude after Speed if AIS class is SAR and Altitude is available
-          if (field === 'Sog' && vesselAisClass === 'SAR' && pt.data.Altitude != null) {
-            html += `<br/><strong>Altitude:</strong> ${escapeHtml(pt.data.Altitude)} m`;
           }
         }
       });
