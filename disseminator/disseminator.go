@@ -809,6 +809,17 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 
             if aisClass, ok := row["ais_class"].(string); ok {
                 summary["AISClass"] = aisClass
+                
+                // For AtoN class vessels, check if water temperature is available
+                if aisClass == "AtoN" {
+                    // Get the DecodedBinary field from the packet
+                    if decodedBinary, ok := packetMap["DecodedBinary"].(map[string]interface{}); ok {
+                        // Check if Water_Temp_C exists in DecodedBinary
+                        if waterTemp, ok := decodedBinary["Water_Temp_C"].(float64); ok {
+                            summary["Water_Temp_C"] = waterTemp
+                        }
+                    }
+                }
             }
             if timestamp, ok := row["timestamp"].(time.Time); ok {
                 summary["LastUpdated"] = timestamp.UTC().Format(time.RFC3339Nano)
