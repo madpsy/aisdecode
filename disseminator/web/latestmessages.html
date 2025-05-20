@@ -706,7 +706,7 @@ resultsAs.onchange = () => {
         }
         mapLayerGroup.clearLayers();
       
-        // prepare points
+        // prepare points, filtering out invalid lat/lng
         const pts = rangeData.map(r => {
           const flat = flatten(r.Packet);
           return {
@@ -715,7 +715,7 @@ resultsAs.onchange = () => {
             record: r,
             data: flat
           };
-        });
+        }).filter(p => p.lat !== 91 && p.lng !== 181);
         if (!pts.length) return;
       
         // get array of latlngs
