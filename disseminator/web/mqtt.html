@@ -57,10 +57,14 @@
             border-collapse: collapse;
             width: 100%;
             font-family: monospace;
+            line-height: 1.2; /* Reduce line height */
         }
         .message-table td {
-            padding: 2px 8px;
+            padding: 0 8px; /* Reduce vertical padding to 0 */
             vertical-align: top;
+        }
+        .message-table tr {
+            margin: 0; /* Remove any margin */
         }
         .message-table td:first-child {
             font-weight: bold;
