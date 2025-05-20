@@ -2841,13 +2841,14 @@ window.addEventListener('beforeunload', stopReceiverUpdates);
               return;
             }
             
-            // Send password reset request
+            // Send password reset request with both ID and email
             fetch('/password-reset', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
+                id: parseInt(receiverId),
                 email: email
               })
             })
