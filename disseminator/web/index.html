@@ -1764,15 +1764,41 @@ function getCustomIcon(vesselState, iconUrl) {
         ? vesselState.Cog
         : 0;
   
+  // Check if this is an AtoN class vessel with water temperature data
+  let waterTempHtml = '';
+  if (vesselState.AISClass === 'AtoN' && vesselState.Water_Temp_C !== undefined) {
+    waterTempHtml = `
+      <div style="
+        position: absolute;
+        top: -10px;
+        right: -10px;
+        background-color: white;
+        border-radius: 50%;
+        padding: 3px;
+        width: 20px;
+        height: 20px;
+        font-size: 10px;
+        line-height: 20px;
+        text-align: center;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      ">${vesselState.Water_Temp_C}°C</div>
+    `;
+  }
+  
   return L.divIcon({
-    html: `<div class="non-vessel-icon-image" style="
-              width: 30px;
-              height: 30px;
-              background-image: url('${iconUrl}');
-              background-size: contain;
-              background-repeat: no-repeat;
-              transform: rotate(${heading}deg);
-            "></div>`,
+    html: `
+      <div style="position: relative;">
+        <div class="non-vessel-icon-image" style="
+          width: 30px;
+          height: 30px;
+          background-image: url('${iconUrl}');
+          background-size: contain;
+          background-repeat: no-repeat;
+          transform: rotate(${heading}deg);
+        "></div>
+        ${waterTempHtml}
+      </div>
+    `,
     className: 'non-vessel-icon', // still used for container styling if needed
     iconSize: [30, 30],
     iconAnchor: [15, 15], // center of the 30x30 div
