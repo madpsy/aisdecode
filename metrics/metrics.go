@@ -446,7 +446,7 @@ func handleMetricsBySource(w http.ResponseWriter, r *http.Request) {
                         var out struct{ IP string `json:"ip_address"` }
                         if json.Unmarshal(body, &out) == nil {
                             filterIP = out.IP
-                            log.Printf("Got IP from API for receiver %s: '%s'", receiverID, filterIP)
+                            // log.Printf("Got IP from API for receiver %s: '%s'", receiverID, filterIP)
                             
                             // Only consider it as having no IP if the IP is actually empty
                             receiverHasEmptyIP = (filterIP == "")
