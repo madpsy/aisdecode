@@ -122,7 +122,7 @@
     <div id="statusDisplay" class="status connecting">Connecting to MQTT broker...</div>
     
     <div class="controls">
-        <button id="clearMessages">Clear Messages</button>
+        <button id="clearMessages">Clear</button>
         <button id="pauseMessages">Pause</button>
         <div class="radio-group">
             <!-- Use inline styles to force proper spacing -->
@@ -152,7 +152,7 @@
         let currentSubscription = null;
         let receiversMap = {}; // Map of receiver IDs to receiver names
         let isPaused = false; // Track if message updates are paused
-        let displayMode = 'sentences'; // Default display mode
+        let displayMode = localStorage.getItem('mqttDisplayMode') || 'sentences'; // Get from localStorage or default
         
         // Fetch receivers data from the server
         async function fetchReceivers() {
@@ -328,10 +328,16 @@
             }
         });
         
-        // Radio button event listeners
+        // Set initial radio button state based on stored preference
         document.querySelectorAll('input[name="displayMode"]').forEach(radio => {
+            if (radio.value === displayMode) {
+                radio.checked = true;
+            }
+            
             radio.addEventListener('change', function() {
                 displayMode = this.value;
+                // Store the selection in localStorage
+                localStorage.setItem('mqttDisplayMode', displayMode);
                 // Clear messages when switching display modes
                 messagesDiv.innerHTML = '';
             });
