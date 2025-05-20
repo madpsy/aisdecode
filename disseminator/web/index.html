@@ -3407,8 +3407,23 @@ function applyLogFilters() {
 	  
 	  // Get the AtoN name from vesselData using the userId
 	  let atonName = '';
-	  if (userId && vesselData[userId] && vesselData[userId].Name) {
-	    atonName = vesselData[userId].Name;
+	  if (userId) {
+	    console.log(`Looking up AtoN name for userId: ${userId}`);
+	    // Try to get the name from the summary data directly
+	    fetch(`/summary?UserID=${userId}`)
+	      .then(response => response.json())
+	      .then(data => {
+	        if (data && data[userId] && data[userId].Name) {
+	          atonName = data[userId].Name;
+	          console.log(`Found AtoN name: ${atonName}`);
+	          // Update the name in the popup after it's fetched
+	          const popupElement = document.querySelector(`.met-data-popup .leaflet-popup-content div:first-child`);
+	          if (popupElement) {
+	            popupElement.innerHTML = `Last Updated: ${localLastUpdated} | AtoN Name: ${atonName}`;
+	          }
+	        }
+	      })
+	      .catch(error => console.error('Error fetching AtoN name:', error));
 	  }
 	  
 	  // Create the HTML structure with two tables side by side
