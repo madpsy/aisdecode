@@ -3242,7 +3242,7 @@
       if (!window.currentHistoryData) return 0;
       
       // Filter for position messages only
-      const positionMessageTypes = ['1', '2', '3', '18', '19'];
+      const positionMessageTypes = ['1', '2', '3', '9', '18', '19'];
       const messagesInRange = window.currentHistoryData.filter(msg => {
         const msgTime = new Date(msg.Timestamp);
         return msgTime >= start && msgTime <= end &&
