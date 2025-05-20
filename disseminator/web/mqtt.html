@@ -30,6 +30,9 @@
         .timestamp {
             color: #666;
             font-size: 0.8em;
+            display: inline-block;
+            margin-right: 10px;
+            min-width: 80px;
         }
         .status {
             margin-bottom: 10px;
@@ -79,9 +82,6 @@
     <div id="statusDisplay" class="status connecting">Connecting to MQTT broker...</div>
     
     <div class="controls">
-        <label for="receiverId">Receiver ID:</label>
-        <input type="number" id="receiverId" min="0" value="0">
-        <button id="changeReceiver">Change Receiver</button>
         <button id="clearMessages">Clear Messages</button>
     </div>
     
@@ -91,7 +91,6 @@
         // Get receiver ID from query parameter or default to 0
         const urlParams = new URLSearchParams(window.location.search);
         let receiverId = parseInt(urlParams.get('receiver') || '0', 10);
-        document.getElementById('receiverId').value = receiverId;
         
         // MQTT connection settings
         let mqttHost = '';
@@ -99,6 +98,31 @@
         let mqttTopic = '';
         let client = null;
         let currentSubscription = null;
+        let receiversMap = {}; // Map of receiver IDs to receiver names
+        
+        // Fetch receivers data from the server
+        async function fetchReceivers() {
+            try {
+                const response = await fetch('/receivers');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const receivers = await response.json();
+                
+                // Create a map of receiver IDs to names
+                receivers.forEach(receiver => {
+                    receiversMap[receiver.id] = receiver.name;
+                });
+                
+                console.log('Fetched receivers:', receiversMap);
+                
+                // After fetching receivers, get MQTT config
+                fetchMQTTConfig();
+            } catch (error) {
+                updateStatus('disconnected', `Failed to fetch receivers: ${error.message}`);
+                console.error('Error fetching receivers:', error);
+            }
+        }
         
         // Fetch MQTT configuration from the server
         async function fetchMQTTConfig() {
@@ -184,7 +208,8 @@
                     updateStatus('disconnected', 'Failed to subscribe: ' + err.message);
                     console.error('Subscription error:', err);
                 } else {
-                    updateStatus('connected', `Subscribed to receiver ID: ${id}`);
+                    const receiverName = receiversMap[id] || `Unknown (ID: ${id})`;
+                    updateStatus('connected', `Subscribed to receiver: ${receiverName}`);
                     currentSubscription = topic;
                     
                     // Update URL without reloading the page
@@ -201,18 +226,19 @@
             messageElement.className = 'message';
             
             if (timestamp) {
-                const timeElement = document.createElement('div');
+                const timeElement = document.createElement('span');
                 timeElement.className = 'timestamp';
                 timeElement.textContent = new Date(timestamp).toLocaleTimeString();
                 messageElement.appendChild(timeElement);
             }
             
-            const contentElement = document.createElement('div');
+            const contentElement = document.createElement('span');
             contentElement.textContent = message;
             messageElement.appendChild(contentElement);
             
-            messagesDiv.appendChild(messageElement);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            // Insert at the beginning (newest at top)
+            messagesDiv.insertBefore(messageElement, messagesDiv.firstChild);
+            messagesDiv.scrollTop = 0;
         }
         
         // Update connection status display
@@ -222,20 +248,12 @@
         }
         
         // Event listeners
-        document.getElementById('changeReceiver').addEventListener('click', function() {
-            const newReceiverId = parseInt(document.getElementById('receiverId').value, 10);
-            if (!isNaN(newReceiverId) && newReceiverId >= 0) {
-                receiverId = newReceiverId;
-                subscribeToReceiver(receiverId);
-            }
-        });
-        
         document.getElementById('clearMessages').addEventListener('click', function() {
             messagesDiv.innerHTML = '';
         });
         
-        // Initialize by fetching MQTT config first
-        fetchMQTTConfig();
+        // Initialize by fetching receivers first, then MQTT config
+        fetchReceivers();
     </script>
 </body>
 </html>
