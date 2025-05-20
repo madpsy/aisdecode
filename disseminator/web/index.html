@@ -3386,8 +3386,55 @@ function applyLogFilters() {
 	  }
 	});
 	
+	// Function to create a formatted table from met_data object
+	function createMetDataTable(metData, lastUpdated) {
+	  if (!metData) return '';
+	  
+	  // Format the last_updated time in user's local format
+	  const localLastUpdated = lastUpdated ? new Date(lastUpdated).toLocaleString() : 'Unknown';
+	  
+	  let tableHtml = `
+	    <div style="max-width: 300px; overflow-x: auto;">
+	      <div style="font-weight: bold; margin-bottom: 5px;">Last Updated: ${localLastUpdated}</div>
+	      <table style="border-collapse: collapse; font-size: 12px; width: 100%;">
+	        <tbody>
+	  `;
+	  
+	  // Add each key/value pair to the table
+	  for (const [key, value] of Object.entries(metData)) {
+	    // Skip if value is null or undefined
+	    if (value === null || value === undefined) continue;
+	    
+	    // Format the key by replacing underscores with spaces
+	    const formattedKey = key.replace(/_/g, ' ');
+	    
+	    // Format the value based on its type
+	    let formattedValue = value;
+	    
+	    // Handle nested objects (like Sea_State)
+	    if (typeof value === 'object' && value !== null) {
+	      formattedValue = JSON.stringify(value);
+	    }
+	    
+	    tableHtml += `
+	      <tr>
+	        <td style="padding: 2px 5px; border-bottom: 1px solid #eee; font-weight: bold;">${formattedKey}</td>
+	        <td style="padding: 2px 5px; border-bottom: 1px solid #eee;">${formattedValue}</td>
+	      </tr>
+	    `;
+	  }
+	  
+	  tableHtml += `
+	        </tbody>
+	      </table>
+	    </div>
+	  `;
+	  
+	  return tableHtml;
+	}
+
 	// Function to create a marker for met data with water temperature
-	function createMetDataMarker(lat, lon, waterTemp) {
+	function createMetDataMarker(lat, lon, waterTemp, metData, lastUpdated) {
 	  // Apply a small offset to the south-east to prevent overlapping with AtoN markers
 	  const offsetLat = lat - 0.0015; // Offset south (increased further)
 	  const offsetLon = lon + 0.0020; // Offset east (increased further)
@@ -3426,6 +3473,13 @@ function applyLogFilters() {
 	    }).openTooltip();
 	  }
 	  
+	  // Create a popup with the complete met data table
+	  const popupContent = createMetDataTable(metData, lastUpdated);
+	  marker.bindPopup(popupContent, {
+	    maxWidth: 350,
+	    className: 'met-data-popup'
+	  });
+	  
 	  return marker;
 	}
 	
@@ -3459,7 +3513,7 @@ function applyLogFilters() {
 	          const waterTemp = metItem.met_data.Water_Temp_C;
 	          
 	          if (waterTemp !== null && waterTemp !== undefined) {
-	            const marker = createMetDataMarker(lat, lon, waterTemp);
+	            const marker = createMetDataMarker(lat, lon, waterTemp, metItem.met_data, metItem.last_updated);
 	            marker.addTo(map);
 	            metDataMarkers[id] = marker;
 	          }
