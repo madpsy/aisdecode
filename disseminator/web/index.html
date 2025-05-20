@@ -5036,7 +5036,10 @@ function updateFocussedTooltip() {
    const ttTypeText = ttMapping[vessel.Type] || vessel.Type;
    const line2 = buildTooltipLine(
      ttTypeText,
-     (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
+     // For SAR class vessels, show Altitude if available, otherwise don't show draught at all
+     (vessel.AISClass === "SAR")
+       ? (vessel.Altitude != null ? `Alt: ${vessel.Altitude} m` : null)
+       : (vessel.MaximumStaticDraught != null ? `${vessel.MaximumStaticDraught} m` : null),
      // For AtoN class vessels, show Water Temp instead of Speed if available
      (vessel.AISClass === "AtoN" && vessel.Water_Temp_C != null)
        ? `Water Temp: ${Math.round(vessel.Water_Temp_C)}°C`
