@@ -767,7 +767,7 @@ func createSchema() {
         }
     }
     
-    // Check if email uniqueness constraint exists
+    // Check if email uniqueness constraint exists and remove it if it does
     var constraintExists bool
     err = db.QueryRow(`
         SELECT EXISTS (
@@ -778,17 +778,17 @@ func createSchema() {
     
     if err != nil {
         log.Printf("Error checking for email uniqueness constraint: %v", err)
-    } else if !constraintExists {
-        // Add unique constraint to email column
+    } else if constraintExists {
+        // Remove unique constraint from email column
         _, err = db.Exec(`
             ALTER TABLE receivers
-            ADD CONSTRAINT receivers_email_key UNIQUE (email);
+            DROP CONSTRAINT receivers_email_key;
         `)
         
         if err != nil {
-            log.Printf("Error adding unique constraint to email column: %v", err)
+            log.Printf("Error removing unique constraint from email column: %v", err)
         } else {
-            log.Printf("Added unique constraint to email column")
+            log.Printf("Removed unique constraint from email column")
         }
     }
     _, err = db.Exec(`
@@ -2474,24 +2474,7 @@ func validateReceiver(r Receiver) error {
         return fmt.Errorf("name '%s' is already in use by another receiver", r.Name)
     }
     
-    // Check if the email is already in use by another receiver
-    query = `SELECT COUNT(*) FROM receivers WHERE email = $1`
-    args = []interface{}{r.Email}
-    
-    // If we're updating an existing receiver, exclude it from the check
-    if r.ID > 0 {
-        query += ` AND id != $2`
-        args = append(args, r.ID)
-    }
-    
-    err = db.QueryRow(query, args...).Scan(&count)
-    if err != nil {
-        return fmt.Errorf("database error while checking email uniqueness: %v", err)
-    }
-    
-    if count > 0 {
-        return fmt.Errorf("email '%s' is already in use by another receiver", r.Email)
-    }
+    // Email uniqueness check removed as per requirements
     
     return nil
 }
@@ -3342,8 +3325,17 @@ func handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 
     // Determine if this is a reset request or a password reset
     if email, ok := requestBody["email"].(string); ok && email != "" {
+        // Check if ID is also provided for reset request
+        var receiverID int
+        if idFloat, ok := requestBody["id"].(float64); ok {
+            receiverID = int(idFloat)
+        } else {
+            http.Error(w, "Both ID and email are required for password reset", http.StatusBadRequest)
+            return
+        }
+        
         // This is a request for a password reset
-        handlePasswordResetRequest(w, email)
+        handlePasswordResetRequest(w, email, receiverID)
         return
     } else if token, ok := requestBody["token"].(string); ok && token != "" {
         // This is a password reset with token
@@ -3356,32 +3348,32 @@ func handlePasswordReset(w http.ResponseWriter, r *http.Request) {
         return
     } else {
         // Invalid request
-        http.Error(w, "Either email or token+new_password is required", http.StatusBadRequest)
+        http.Error(w, "Either id+email or token+new_password is required", http.StatusBadRequest)
         return
     }
 }
 
 // handlePasswordResetRequest handles the first part of the password reset process
 // It generates a token and sends an email with a reset link
-func handlePasswordResetRequest(w http.ResponseWriter, email string) {
+// Now requires both ID and email for better security
+func handlePasswordResetRequest(w http.ResponseWriter, email string, receiverID int) {
     // Ensure database connection
     if err := ensureConnection(); err != nil {
         http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
         return
     }
 
-    // Find receiver by email
-    var receiverID int
+    // Find receiver by both ID and email
     var receiverName string
     err := db.QueryRow(`
-        SELECT id, name FROM receivers WHERE email = $1
-    `, email).Scan(&receiverID, &receiverName)
+        SELECT name FROM receivers WHERE id = $1 AND email = $2
+    `, receiverID, email).Scan(&receiverName)
     
-    // Always return success even if email not found to prevent email enumeration attacks
+    // Always return success even if receiver not found to prevent enumeration attacks
     if err == sql.ErrNoRows {
         w.WriteHeader(http.StatusOK)
         json.NewEncoder(w).Encode(map[string]string{
-            "message": "If your email is registered, you will receive a password reset link",
+            "message": "If your account details are correct, you will receive a password reset link",
         })
         return
     } else if err != nil {
@@ -3403,7 +3395,7 @@ func handlePasswordResetRequest(w http.ResponseWriter, email string) {
         // Return success to prevent timing attacks
         w.WriteHeader(http.StatusOK)
         json.NewEncoder(w).Encode(map[string]string{
-            "message": "If your email is registered, you will receive a password reset link",
+            "message": "If your account details are correct, you will receive a password reset link",
         })
         return
     }
@@ -3450,6 +3442,7 @@ func handlePasswordResetRequest(w http.ResponseWriter, email string) {
             "custom": map[string]interface{}{
                 "reset_token": token,
                 "email":       email,
+                "id":          receiverID, // Include ID explicitly in custom fields
             },
         }
         
@@ -3477,10 +3470,10 @@ func handlePasswordResetRequest(w http.ResponseWriter, email string) {
         }
     }
 
-    // Return success response - same message whether email exists or not
+    // Return success response - same message whether account exists or not
     w.WriteHeader(http.StatusOK)
     json.NewEncoder(w).Encode(map[string]string{
-        "message": "If your email is registered, you will receive a password reset link",
+        "message": "If your account details are correct, you will receive a password reset link",
     })
 }
 
@@ -3531,7 +3524,7 @@ func handlePasswordResetWithToken(w http.ResponseWriter, token, newPassword stri
         return
     }
 
-    // Get receiver information
+    // Get receiver information - we don't need to verify email here since tokens are already tied to receiver ID
     var rec Receiver
     err = db.QueryRow(`
         SELECT id, name, email FROM receivers WHERE id = $1
