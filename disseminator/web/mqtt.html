@@ -406,9 +406,27 @@
             function createTableRow(key, value) {
                 const row = document.createElement('tr');
                 
-                // Key cell
+                // Key cell - make all field names clickable
                 const keyCell = document.createElement('td');
-                keyCell.textContent = key + ':';
+                const keyLink = document.createElement('a');
+                keyLink.href = '#';
+                keyLink.textContent = key + ':';
+                keyLink.style.textDecoration = 'underline';
+                keyLink.style.cursor = 'pointer';
+                keyLink.style.color = '#0066cc';
+                
+                // Add click event to populate the field filter
+                keyLink.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const fieldFilterInput = document.getElementById('fieldFilter');
+                    fieldFilterInput.value = key;
+                    
+                    // Trigger the input event to apply the filter
+                    const event = new Event('input', { bubbles: true });
+                    fieldFilterInput.dispatchEvent(event);
+                });
+                
+                keyCell.appendChild(keyLink);
                 row.appendChild(keyCell);
                 
                 // Value cell
