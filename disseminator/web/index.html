@@ -3421,21 +3421,62 @@ function applyLogFilters() {
 	    // Format the key by replacing underscores with spaces
 	    const formattedKey = key.replace(/_/g, ' ');
 	    
+	    // Handle nested objects (like Sea_State) by skipping them here
+	    // They will be processed separately below
+	    if (typeof value === 'object' && value !== null) {
+	      continue; // Skip this entry, we'll handle it separately
+	    }
+	    
 	    // Format the value based on its type
 	    let formattedValue = value;
 	    
-	    // Handle nested objects (like Sea_State)
-	    if (typeof value === 'object' && value !== null) {
-	      formattedValue = JSON.stringify(value);
-	    }
 	    // Limit numeric values to 4 decimal places
-	    else if (typeof value === 'number' && !Number.isInteger(value)) {
+	    if (typeof value === 'number' && !Number.isInteger(value)) {
 	      const decimalStr = value.toString();
 	      const decimalPos = decimalStr.indexOf('.');
 	      if (decimalPos !== -1) {
 	        const decimalPlaces = decimalStr.length - decimalPos - 1;
 	        if (decimalPlaces > 4) {
 	          formattedValue = value.toFixed(4);
+	        }
+	      }
+	    }
+	    
+	    // Process nested objects and add them as separate rows
+	    for (const [key, value] of leftEntries) {
+	      if (typeof value === 'object' && value !== null) {
+	        // Format the parent key by replacing underscores with spaces
+	        const parentKey = key.replace(/_/g, ' ');
+	        
+	        // Add each property of the nested object as a separate row
+	        for (const [nestedKey, nestedValue] of Object.entries(value)) {
+	          // Skip if nested value is null or undefined
+	          if (nestedValue === null || nestedValue === undefined) continue;
+	          
+	          // Format the nested key by replacing underscores with spaces and combining with parent key
+	          const formattedKey = `${parentKey} ${nestedKey.replace(/_/g, ' ')}`;
+	          
+	          // Format the nested value
+	          let formattedValue = nestedValue;
+	          
+	          // Limit numeric values to 4 decimal places
+	          if (typeof nestedValue === 'number' && !Number.isInteger(nestedValue)) {
+	            const decimalStr = nestedValue.toString();
+	            const decimalPos = decimalStr.indexOf('.');
+	            if (decimalPos !== -1) {
+	              const decimalPlaces = decimalStr.length - decimalPos - 1;
+	              if (decimalPlaces > 4) {
+	                formattedValue = nestedValue.toFixed(4);
+	              }
+	            }
+	          }
+	          
+	          tableHtml += `
+	            <tr>
+	              <td style="padding: 1px 2px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap; max-width: 75px; overflow: hidden; text-overflow: ellipsis;">${formattedKey}</td>
+	              <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 75px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
+	            </tr>
+	          `;
 	        }
 	      }
 	    }
@@ -3464,15 +3505,17 @@ function applyLogFilters() {
 	    // Format the key by replacing underscores with spaces
 	    const formattedKey = key.replace(/_/g, ' ');
 	    
+	    // Handle nested objects (like Sea_State) by skipping them here
+	    // They will be processed separately below
+	    if (typeof value === 'object' && value !== null) {
+	      continue; // Skip this entry, we'll handle it separately
+	    }
+	    
 	    // Format the value based on its type
 	    let formattedValue = value;
 	    
-	    // Handle nested objects (like Sea_State)
-	    if (typeof value === 'object' && value !== null) {
-	      formattedValue = JSON.stringify(value);
-	    }
 	    // Limit numeric values to 4 decimal places
-	    else if (typeof value === 'number' && !Number.isInteger(value)) {
+	    if (typeof value === 'number' && !Number.isInteger(value)) {
 	      const decimalStr = value.toString();
 	      const decimalPos = decimalStr.indexOf('.');
 	      if (decimalPos !== -1) {
@@ -3489,6 +3532,45 @@ function applyLogFilters() {
 	        <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 75px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
 	      </tr>
 	    `;
+	  }
+	  
+	  // Process nested objects and add them as separate rows
+	  for (const [key, value] of rightEntries) {
+	    if (typeof value === 'object' && value !== null) {
+	      // Format the parent key by replacing underscores with spaces
+	      const parentKey = key.replace(/_/g, ' ');
+	      
+	      // Add each property of the nested object as a separate row
+	      for (const [nestedKey, nestedValue] of Object.entries(value)) {
+	        // Skip if nested value is null or undefined
+	        if (nestedValue === null || nestedValue === undefined) continue;
+	        
+	        // Format the nested key by replacing underscores with spaces and combining with parent key
+	        const formattedKey = `${parentKey} ${nestedKey.replace(/_/g, ' ')}`;
+	        
+	        // Format the nested value
+	        let formattedValue = nestedValue;
+	        
+	        // Limit numeric values to 4 decimal places
+	        if (typeof nestedValue === 'number' && !Number.isInteger(nestedValue)) {
+	          const decimalStr = nestedValue.toString();
+	          const decimalPos = decimalStr.indexOf('.');
+	          if (decimalPos !== -1) {
+	            const decimalPlaces = decimalStr.length - decimalPos - 1;
+	            if (decimalPlaces > 4) {
+	              formattedValue = nestedValue.toFixed(4);
+	            }
+	          }
+	        }
+	        
+	        tableHtml += `
+	          <tr>
+	            <td style="padding: 1px 2px; border-bottom: 1px solid #eee; font-weight: bold; white-space: nowrap; max-width: 75px; overflow: hidden; text-overflow: ellipsis;">${formattedKey}</td>
+	            <td style="padding: 1px 2px; border-bottom: 1px solid #eee; max-width: 75px; overflow: hidden; text-overflow: ellipsis; word-break: break-all;">${formattedValue}</td>
+	          </tr>
+	        `;
+	      }
+	    }
 	  }
 	  
 	  tableHtml += `
