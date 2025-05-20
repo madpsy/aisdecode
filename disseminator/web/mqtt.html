@@ -6,15 +6,24 @@
     <title>MQTT</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
+        html, body {
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
         body {
             font-family: Arial, sans-serif;
-            margin: 20px;
+            padding: 20px;
             line-height: 1.6;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
         }
         #messages {
             border: 1px solid #ccc;
             padding: 10px;
-            height: calc(100vh - 150px); /* Adjust to extend to bottom of window */
+            flex: 1;
             overflow-y: auto;
             margin-top: 20px;
             font-family: monospace;
@@ -59,6 +68,7 @@
         }
         h1 {
             color: #333;
+            margin-top: 0;
         }
         .controls {
             margin: 20px 0;
