@@ -1215,6 +1215,7 @@ document.getElementById('class-aton').addEventListener('change', sendSummaryRequ
 
 // Direct mapping from vessel type groups to server group IDs
 const typeGroupMapping = {
+  "Not available": 0,
   "Wing in ground": 2,
   "Fishing": 3,
   "Towing": 4,
@@ -1239,6 +1240,7 @@ const typeGroupMapping = {
 
 // Define vessel type groups for better color differentiation
 const vesselTypeGroups = {
+  "Not available": [0],
   "Wing in ground": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
   "Fishing": [30],
   "Towing": [31, 32],
@@ -1263,6 +1265,7 @@ const vesselTypeGroups = {
 
 // Map each group to a distinct color with maximum contrast
 const vesselGroupColors = {
+  "Not available": "#808080",  // Gray
   "Wing in ground": "#FF4500", // Orange Red
   "Fishing": "#006400",        // Dark Green
   "Towing": "#8B4513",         // Saddle Brown
