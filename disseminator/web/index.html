@@ -2511,7 +2511,10 @@ function createPopupContent(data) {
     addLine(lines, "Type", typeDescription);
   }
 
-  addLine(lines, "Maximum Draught", (data.MaximumStaticDraught != null ? `${data.MaximumStaticDraught} m` : null));
+  // Only show Maximum Draught for non-SAR vessels
+  if (data.AISClass !== "SAR") {
+    addLine(lines, "Maximum Draught", (data.MaximumStaticDraught != null ? `${data.MaximumStaticDraught} m` : null));
+  }
 
   if (data.NavigationalStatus !== undefined) {
     const navStatusDescription = navigationalStatusMapping[data.NavigationalStatus] || data.NavigationalStatus;
