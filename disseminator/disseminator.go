@@ -70,6 +70,9 @@ type Settings struct {
         RedisHost string `json:"redis_host"`
         RedisPort int    `json:"redis_port"`
         CacheTime int    `json:"cache_time"`
+	PublicMQTTWebsocketsHost string `json:"public_mqtt_websockets_host"`
+	PublicMQTTPort int `json:"public_mqtt_port"`
+	PublicMQTTTopic string `json:"public_mqtt_topic"`
 }
 
 type ClientDatabaseSettings struct {
@@ -2180,6 +2183,26 @@ func startHTTPServer(port int, mux *http.ServeMux) {
 }
 
 // Set up the HTTP server with routes
+// mqttConfigHandler serves the MQTT configuration as JSON
+func mqttConfigHandler(w http.ResponseWriter, r *http.Request) {
+    // Create a response with the MQTT configuration
+    response := map[string]interface{}{
+        "mqtt_host": conf.PublicMQTTWebsocketsHost,
+        "mqtt_port": conf.PublicMQTTPort,
+        "mqtt_topic": conf.PublicMQTTTopic,
+    }
+    
+    // Set content type and write response
+    w.Header().Set("Content-Type", "application/json")
+    w.Header().Set("Access-Control-Allow-Origin", "*") // Allow cross-origin requests
+    
+    if err := json.NewEncoder(w).Encode(response); err != nil {
+        http.Error(w, "Failed to encode MQTT configuration", http.StatusInternalServerError)
+        log.Printf("Error encoding MQTT configuration: %v", err)
+        return
+    }
+}
+
 func setupServer(settings *Settings) {
     mux := http.NewServeMux()
 
@@ -2212,6 +2235,7 @@ func setupServer(settings *Settings) {
     // HTTP API endpoints
 
     mux.HandleFunc("/myip", myIPHandler)
+    mux.HandleFunc("/mqtt", mqttConfigHandler)
 
     mux.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
     	summaryHandler(w, r, conf)

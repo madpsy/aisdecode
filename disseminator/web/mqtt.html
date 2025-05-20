@@ -94,9 +94,32 @@
         document.getElementById('receiverId').value = receiverId;
         
         // MQTT connection settings
-        const mqttServer = 'wss://hydros.link9.net:8183';
+        let mqttHost = '';
+        let mqttPort = 0;
+        let mqttTopic = '';
         let client = null;
         let currentSubscription = null;
+        
+        // Fetch MQTT configuration from the server
+        async function fetchMQTTConfig() {
+            try {
+                const response = await fetch('/mqtt');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const config = await response.json();
+                mqttHost = config.mqtt_host;
+                mqttPort = config.mqtt_port;
+                mqttTopic = config.mqtt_topic;
+                updateStatus('connecting', `Fetched MQTT config: ${mqttHost}:${mqttPort}`);
+                
+                // Now that we have the config, connect to MQTT
+                connectMQTT();
+            } catch (error) {
+                updateStatus('disconnected', `Failed to fetch MQTT config: ${error.message}`);
+                console.error('Error fetching MQTT config:', error);
+            }
+        }
         
         // Message display element
         const messagesDiv = document.getElementById('messages');
@@ -104,10 +127,11 @@
         
         // Connect to MQTT broker
         function connectMQTT() {
-            updateStatus('connecting', 'Connecting to MQTT broker...');
+            updateStatus('connecting', `Connecting to MQTT broker at ${mqttHost}:${mqttPort}...`);
             
             // Create MQTT client
-            client = mqtt.connect(mqttServer, {
+            const serverUrl = `wss://${mqttHost}:${mqttPort}`;
+            client = mqtt.connect(serverUrl, {
                 clientId: 'web_client_' + Math.random().toString(16).substr(2, 8),
                 clean: true
             });
@@ -154,7 +178,7 @@
             
             // Subscribe to all messages for this receiver ID
             // The + wildcards match any shard_id, user_id, and message_id
-            const topic = `ais/+/+/${id}/+/message`;
+            const topic = `${mqttTopic}/+/+/${id}/+/message`;
             client.subscribe(topic, function(err) {
                 if (err) {
                     updateStatus('disconnected', 'Failed to subscribe: ' + err.message);
@@ -210,8 +234,8 @@
             messagesDiv.innerHTML = '';
         });
         
-        // Initialize connection
-        connectMQTT();
+        // Initialize by fetching MQTT config first
+        fetchMQTTConfig();
     </script>
 </body>
 </html>
