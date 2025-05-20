@@ -1897,7 +1897,7 @@ function updateVesselDetailHeader(UserID) {
   // Build header HTML: Name, Lookup, Link
   let headerHtml = `
     <h4 style="margin:0;padding:0;">
-      ${vesselData[UserID].AISClass === 'A' || vesselData[UserID].AISClass === 'B'
+      ${vesselData[UserID].AISClass === 'A' || vesselData[UserID].AISClass === 'B'  || vesselData[UserID].AISClass === 'SAR'
         ? `<a href="/vesselhistory.html?UserID=${UserID}" target="_blank" style="text-decoration: underline; color: inherit; font-size:1.2em;">${vesselData[UserID].Name}</a>`
         : `<span style="font-size:1.2em;">${vesselData[UserID].Name}</span>`}<br>
       ${vesselData[UserID].AISClass === 'A' || vesselData[UserID].AISClass === 'B'
