@@ -610,6 +610,11 @@
                     selectVesselsFromParams(window.vesselsToSelect);
                     // Clear the temporary storage
                     delete window.vesselsToSelect;
+                    
+                    // Update URL with selected vessels
+                    if (initialLoadComplete) {
+                        debouncedUpdateURL();
+                    }
                 }
                 
             } catch (error) {
