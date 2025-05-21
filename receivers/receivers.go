@@ -783,20 +783,7 @@ func createSchema() error {
         }
     }
     
-    // After adding password_hash and password_salt columns, make the password column nullable
-    // This is a separate step because we can't modify the column in the same transaction as adding columns
-    if columnCount == 2 {
-        _, err = db.Exec(`
-            ALTER TABLE receivers
-            ALTER COLUMN password DROP NOT NULL;
-        `)
-        
-        if err != nil {
-            log.Printf("Error making password column nullable: %v", err)
-        } else {
-            log.Printf("Made password column nullable")
-        }
-    }
+    // Password column is already nullable in the table definition
     
     // Check if email uniqueness constraint exists and remove it if it does
     var constraintExists bool
@@ -924,13 +911,68 @@ func createSchema() error {
         );
     `)
     if err != nil {
-        log.Fatalf("Error creating password_reset_tokens table: %v", err)
+        return fmt.Errorf("error creating password_reset_tokens table: %v", err)
     }
     
     // Create index on receiver_id
     _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_receiver_id ON password_reset_tokens(receiver_id);`)
     if err != nil {
         return fmt.Errorf("error creating index on receiver_id: %v", err)
+    }
+    
+    // Create blocked_signup_ips table
+    _, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS blocked_signup_ips (
+            id SERIAL PRIMARY KEY,
+            ip_address VARCHAR(45) NOT NULL UNIQUE,
+            blocked_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            unblock_at TIMESTAMP NOT NULL,
+            reason TEXT NOT NULL,
+            attempts INT NOT NULL DEFAULT 1,
+            last_attempt_email VARCHAR(255),
+            last_attempt_name VARCHAR(255),
+            last_attempt_description TEXT,
+            last_attempt_latitude DOUBLE PRECISION,
+            last_attempt_longitude DOUBLE PRECISION
+        );
+    `)
+    if err != nil {
+        return fmt.Errorf("error creating blocked_signup_ips table: %v", err)
+    }
+    
+    // Create index on ip_address for better performance
+    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_blocked_signup_ips_ip_address ON blocked_signup_ips(ip_address);`)
+    if err != nil {
+        return fmt.Errorf("error creating index on blocked_signup_ips.ip_address: %v", err)
+    }
+    
+    // Create failed_signup_attempts table
+    _, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS failed_signup_attempts (
+            id SERIAL PRIMARY KEY,
+            ip_address VARCHAR(45) NOT NULL,
+            attempt_time TIMESTAMP NOT NULL DEFAULT NOW(),
+            reason TEXT NOT NULL,
+            email VARCHAR(255),
+            name VARCHAR(255),
+            description TEXT,
+            latitude DOUBLE PRECISION,
+            longitude DOUBLE PRECISION
+        );
+    `)
+    if err != nil {
+        return fmt.Errorf("error creating failed_signup_attempts table: %v", err)
+    }
+    
+    // Create indexes for better performance on failed_signup_attempts
+    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_failed_signup_attempts_ip_address ON failed_signup_attempts(ip_address);`)
+    if err != nil {
+        return fmt.Errorf("error creating index on failed_signup_attempts.ip_address: %v", err)
+    }
+    
+    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_failed_signup_attempts_attempt_time ON failed_signup_attempts(attempt_time);`)
+    if err != nil {
+        return fmt.Errorf("error creating index on failed_signup_attempts.attempt_time: %v", err)
     }
     
     return nil
