@@ -986,12 +986,20 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
                 continue
             }
             
-            // Now get additional vessel data from the state table
+            // Now get additional vessel data from the state table and count positions
             stateQuery := fmt.Sprintf(`
-                SELECT packet, ais_class, count, name
-                FROM state
-                WHERE user_id = '%s'
-            `, userID)
+                SELECT
+                    s.packet,
+                    s.ais_class,
+                    s.count,
+                    s.name,
+                    (SELECT COUNT(*) FROM messages
+                     WHERE user_id = '%s'
+                     AND timestamp BETWEEN '%s' AND '%s'
+                     AND message_id IN (1,2,3,9,18,19)) as position_count
+                FROM state s
+                WHERE s.user_id = '%s'
+            `, userID, fromTime.Format(time.RFC3339Nano), toTime.Format(time.RFC3339Nano), userID)
             
             stateRows, err := QueryDatabaseForUser(userID, stateQuery)
             if err != nil {
@@ -1009,9 +1017,10 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
                 aisClass        string
                 count           int64
                 name            sql.NullString
+                positionCount   int64
             )
             
-            if err := stateRows.Scan(&statePacketData, &aisClass, &count, &name); err != nil {
+            if err := stateRows.Scan(&statePacketData, &aisClass, &count, &name, &positionCount); err != nil {
                 log.Printf("Error scanning state row: %v", err)
                 stateRows.Close()
                 continue
@@ -1058,6 +1067,7 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
             summary["AISClass"] = aisClass
             summary["LastUpdated"] = timestamp.UTC().Format(time.RFC3339Nano)
             summary["NumMessages"] = count
+            summary["Positions"] = positionCount
             
             // Override Name from DB if available
             if name.Valid && name.String != "" {

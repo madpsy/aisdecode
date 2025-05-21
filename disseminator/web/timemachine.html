@@ -566,6 +566,7 @@
                 const aisClass = vessel.AISClass || 'Unknown';
                 
                 const color = vessel.color || '#ccc';
+                const positions = vessel.Positions || '-';
                 
                 item.innerHTML = `
                     <div class="vessel-name">
@@ -576,7 +577,7 @@
                         MMSI: ${id}<br>
                         Type: ${typeName} (${typeId})<br>
                         Class: ${aisClass}<br>
-                        <span id="positions-${id}">Positions: -</span>
+                        Positions: ${positions}
                     </div>
                     <div class="vessel-live-data" id="live-data-${id}">
                         <span><span class="label">Speed:</span> <span id="sog-${id}">- knots</span></span>
@@ -685,12 +686,6 @@
                 positions.sort((a, b) => a.timestamp - b.timestamp);
                 
                 vesselPositions[id] = positions;
-                
-                // Update positions count in vessel details
-                const positionsElement = document.getElementById(`positions-${id}`);
-                if (positionsElement) {
-                    positionsElement.textContent = `Positions: ${positions.length}`;
-                }
                 
                 // Create initial marker and track
                 createVesselMarker(id);
