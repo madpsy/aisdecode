@@ -659,6 +659,14 @@
             stopBtn.disabled = true;
             timelineSlider.disabled = true;
             
+            // Clear histogram
+            histogramContainer.innerHTML = '';
+            histogramEarliest = null;
+            histogramLatest = null;
+            histogramBins = [];
+            histogramSelectionStart = null;
+            histogramSelectionEnd = null;
+            
             // Stop playback
             stopPlayback();
         }
