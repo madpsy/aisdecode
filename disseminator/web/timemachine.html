@@ -1784,9 +1784,53 @@
         }
         
         function setupHistogramSelectionEvents() {
+            // Flag to track if we're handling a click to clear selection
+            let isClearing = false;
+            
+            // Single click (not during drag) to reset selection - handle BEFORE mousedown
+            histogramContainer.addEventListener('click', (e) => {
+                // Only handle as a click if we're not dragging
+                if (isDragging) return;
+                
+                // Check if we clicked on the selection element
+                const selectionRect = histogramSelectionElement ? histogramSelectionElement.getBoundingClientRect() : null;
+                if (selectionRect &&
+                    e.clientX >= selectionRect.left &&
+                    e.clientX <= selectionRect.right &&
+                    e.clientY >= selectionRect.top &&
+                    e.clientY <= selectionRect.bottom) {
+                    // Clicked on selection, don't reset
+                    return;
+                }
+                
+                // This is a click outside the selection - clear selection and reset timeline
+                isClearing = true;
+                
+                // Important: Set these to null BEFORE calling updateHistogramSelection
+                histogramSelectionStart = null;
+                histogramSelectionEnd = null;
+                
+                // Update the UI to hide the selection
+                if (histogramSelectionElement) {
+                    histogramSelectionElement.style.display = 'none';
+                }
+                
+                // Reset to full timeline
+                resetTimelineToFullRange();
+                
+                // Prevent event propagation to avoid triggering mousedown
+                e.stopPropagation();
+                
+                // Reset the flag after a short delay
+                setTimeout(() => {
+                    isClearing = false;
+                }, 50);
+            }, { capture: true }); // Use capture phase to ensure this runs before mousedown
+            
             // Mouse down event to start selection
             histogramContainer.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) return; // Only left mouse button
+                if (isClearing) return; // Don't start selection if we're clearing
                 
                 // Check if we clicked on the selection element
                 const selectionRect = histogramSelectionElement ? histogramSelectionElement.getBoundingClientRect() : null;
@@ -1861,35 +1905,7 @@
                 e.stopPropagation();
             });
             
-            // Single click (not during drag) to reset selection
-            histogramContainer.addEventListener('click', (e) => {
-                // Only handle as a click if we're not dragging
-                if (isDragging) return;
-                
-                // Check if we clicked on the selection element
-                const selectionRect = histogramSelectionElement ? histogramSelectionElement.getBoundingClientRect() : null;
-                if (selectionRect &&
-                    e.clientX >= selectionRect.left &&
-                    e.clientX <= selectionRect.right &&
-                    e.clientY >= selectionRect.top &&
-                    e.clientY <= selectionRect.bottom) {
-                    // Clicked on selection, don't reset
-                    return;
-                }
-                
-                // This is a click outside the selection - clear selection and reset timeline
-                // Important: Set these to null BEFORE calling updateHistogramSelection
-                histogramSelectionStart = null;
-                histogramSelectionEnd = null;
-                
-                // Update the UI to hide the selection
-                if (histogramSelectionElement) {
-                    histogramSelectionElement.style.display = 'none';
-                }
-                
-                // Reset to full timeline
-                resetTimelineToFullRange();
-            });
+            // The click handler has been moved above the mousedown handler
         }
         
         function updateHistogramSelection() {
