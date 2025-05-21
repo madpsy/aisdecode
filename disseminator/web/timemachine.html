@@ -379,18 +379,25 @@
                 const lat = center.lat;
                 const lng = center.lng;
                 
-                // Calculate radius based on zoom level
-                const zoomLevel = map.getZoom();
+                // Calculate radius based on the visible map bounds
+                // Get the corners of the visible map
+                const northEast = bounds.getNorthEast();
+                const southWest = bounds.getSouthWest();
+                const northWest = L.latLng(northEast.lat, southWest.lng);
+                const southEast = L.latLng(southWest.lat, northEast.lng);
                 
-                // Formula to calculate radius based on zoom level:
-                // - At zoom level 10, radius is about 10km
-                // - Each zoom level halves the radius
-                const baseRadius = 10000; // 10km at zoom level 10
-                const zoomFactor = Math.pow(2, 10 - zoomLevel); // Factor based on zoom difference from 10
-                let radius = baseRadius * zoomFactor;
+                // Calculate distances from center to each corner
+                const distNE = center.distanceTo(northEast);
+                const distSW = center.distanceTo(southWest);
+                const distNW = center.distanceTo(northWest);
+                const distSE = center.distanceTo(southEast);
                 
-                // Cap the radius between 0.5km and 20km
-                radius = Math.min(Math.max(radius, 500), 20000);
+                // Use the maximum distance to ensure coverage of the entire visible area
+                // Add 10% margin to ensure complete coverage
+                let radius = Math.max(distNE, distSW, distNW, distSE) * 1.1;
+                
+                // Set a minimum radius of 500m to avoid too small searches
+                radius = Math.max(radius, 500);
                 
                 // Store calculated radius for reference
                 calculatedRadius = radius / 1000;
