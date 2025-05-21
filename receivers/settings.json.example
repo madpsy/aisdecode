@@ -10,6 +10,7 @@
   "listen_port": 5123,
   "public_add_receiver_enabled": true,
   "ip_address_timeout_minutes": 60,
+  "max_failed_signup_attempts": 5,
   "port_metrics_hours": 1,
   "webhook_url": "http://localhost:5135",
   "debug": false

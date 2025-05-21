@@ -234,6 +234,88 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 	toAddresses = settings.ToAddresses
 	
 	switch alertType {
+	case "blocked_ip_attempt", "blocked_ip_failed_attempts":
+		// This alert is sent when a blocked IP tries to sign up
+		subject = "Blocked IP Signup Attempt"
+		
+		// Only send to admin addresses
+		toAddresses = settings.ToAddresses
+		
+		// Extract information from custom fields
+		var reason string
+		var unblockAt string
+		var attempts int
+		var attemptedEmail string
+		var attemptedName string
+		var attemptedDescription string
+		var attemptedLatitude float64
+		var attemptedLongitude float64
+		
+		if rec.CustomFields != nil {
+			if r, ok := rec.CustomFields["reason"].(string); ok {
+				reason = r
+			}
+			if u, ok := rec.CustomFields["unblock_at"].(string); ok {
+				unblockAt = u
+			}
+			if a, ok := rec.CustomFields["attempts"].(float64); ok {
+				attempts = int(a)
+			}
+			if e, ok := rec.CustomFields["attempted_email"].(string); ok {
+				attemptedEmail = e
+			}
+			if n, ok := rec.CustomFields["attempted_name"].(string); ok {
+				attemptedName = n
+			}
+			if d, ok := rec.CustomFields["attempted_description"].(string); ok {
+				attemptedDescription = d
+			}
+			if lat, ok := rec.CustomFields["attempted_latitude"].(float64); ok {
+				attemptedLatitude = lat
+			}
+			if lon, ok := rec.CustomFields["attempted_longitude"].(float64); ok {
+				attemptedLongitude = lon
+			}
+		}
+		
+		// Format the unblock time in a human-readable way
+		unblockTime, err := time.Parse(time.RFC3339, unblockAt)
+		unblockTimeStr := unblockAt
+		if err == nil {
+			unblockTimeStr = unblockTime.Format("January 2, 2006 at 15:04:05 (UTC)")
+		}
+		
+		// Create a location link for Google Maps if we have coordinates
+		locationLink := ""
+		if attemptedLatitude != 0 || attemptedLongitude != 0 {
+			locationLink = fmt.Sprintf("https://maps.google.com/?q=%f,%f", attemptedLatitude, attemptedLongitude)
+		}
+		
+		// Create the email body
+		body = fmt.Sprintf(
+			"Alert: Blocked IP Address Attempted to Sign Up\n\n"+
+			"An IP address that is currently blocked attempted to create a new receiver.\n\n"+
+			"Block Details:\n"+
+			"- IP Address: %s\n"+
+			"- Reason for Block: %s\n"+
+			"- Block Expires: %s\n"+
+			"- Attempt Count: %d\n\n"+
+			"Attempted Signup Details:\n"+
+			"- Email: %s\n"+
+			"- Name: %s\n"+
+			"- Description: %s\n"+
+			"- Coordinates: %f, %f\n",
+			rec.RequestIPAddress, reason, unblockTimeStr, attempts,
+			attemptedEmail, attemptedName, attemptedDescription, attemptedLatitude, attemptedLongitude,
+		)
+		
+		// Add location link if available
+		if locationLink != "" {
+			body += fmt.Sprintf("- Location Map: %s\n", locationLink)
+		}
+		
+		body += "\nThis is an automated security alert.\n\n"+
+			"AIS Decoder Team\nhttps://" + settings.SiteDomain + "/"
 	case "receiver_added":
 		// Include the receiver's name in the subject
 		subject = fmt.Sprintf("New Receiver Added: %s", rec.Name)
