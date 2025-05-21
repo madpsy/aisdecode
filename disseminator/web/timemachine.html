@@ -439,7 +439,9 @@
                 
                 const response = await fetch(url);
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    // Get the response text for more detailed error information
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! Status: ${response.status}\nResponse: ${errorText}`);
                 }
                 
                 vessels = await response.json();
@@ -658,7 +660,9 @@
                 
                 const response = await fetch(url);
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    // Get the response text for more detailed error information
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! Status: ${response.status}\nResponse: ${errorText}`);
                 }
                 
                 const data = await response.json();
