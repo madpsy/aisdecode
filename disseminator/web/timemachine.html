@@ -912,6 +912,9 @@
             updateMarkersToTime(time);
         }
 
+        // Store non-selected markers during playback
+        let hiddenMarkers = {};
+        
         function startPlayback() {
             // Setup timeline if not already done
             if (timelineData.length === 0) {
@@ -921,10 +924,13 @@
             // Show timeline
             timeline.style.display = 'block';
             
-            // Hide non-selected vessel markers during playback
+            // Remove non-selected vessel markers from map during playback
+            hiddenMarkers = {};
             for (const id in vesselMarkers) {
                 if (!selectedVessels.has(id)) {
-                    vesselMarkers[id].setOpacity(0);
+                    hiddenMarkers[id] = vesselMarkers[id];
+                    map.removeLayer(vesselMarkers[id]);
+                    // Keep the reference in vesselMarkers for later
                 }
             }
             
@@ -975,10 +981,13 @@
                 updateMarkersToTime(time);
             }
             
-            // Show all vessel markers again after playback
-            for (const id in vesselMarkers) {
-                vesselMarkers[id].setOpacity(1);
+            // Add back all hidden vessel markers after playback
+            for (const id in hiddenMarkers) {
+                if (!map.hasLayer(hiddenMarkers[id])) {
+                    hiddenMarkers[id].addTo(map);
+                }
             }
+            hiddenMarkers = {};
         }
     </script>
 </body>
