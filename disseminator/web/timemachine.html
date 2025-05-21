@@ -921,6 +921,13 @@
             // Show timeline
             timeline.style.display = 'block';
             
+            // Hide non-selected vessel markers during playback
+            for (const id in vesselMarkers) {
+                if (!selectedVessels.has(id)) {
+                    vesselMarkers[id].setOpacity(0);
+                }
+            }
+            
             // Start playback
             togglePlayPause();
         }
@@ -966,6 +973,11 @@
                 const time = timelineData[0];
                 updateTimeDisplay(time);
                 updateMarkersToTime(time);
+            }
+            
+            // Show all vessel markers again after playback
+            for (const id in vesselMarkers) {
+                vesselMarkers[id].setOpacity(1);
             }
         }
     </script>
