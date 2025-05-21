@@ -268,7 +268,7 @@
         
         .map-time-overlay {
             position: absolute;
-            bottom: 40px;
+            bottom: 10px;
             left: 50%;
             transform: translateX(-50%);
             background-color: rgba(0, 0, 0, 0.6);
@@ -1821,25 +1821,51 @@
             });
             
             // Mouse up event to end selection
-            window.addEventListener('mouseup', () => {
+            window.addEventListener('mouseup', (e) => {
                 if (!isDragging) return;
+                
+                // Store the selection values before ending drag
+                const startVal = histogramSelectionStart;
+                const endVal = histogramSelectionEnd;
                 
                 isDragging = false;
                 
                 // Apply the selection to the timeline
                 applyHistogramSelection();
                 
-                // Keep the selection visible and persistent
-                updateHistogramSelection();
+                // Explicitly maintain the selection values
+                histogramSelectionStart = startVal;
+                histogramSelectionEnd = endVal;
                 
-                // Don't reset the selection - this is the key fix
-                // histogramSelectionStart and histogramSelectionEnd remain set
+                // Force the selection to remain visible
+                if (histogramSelectionElement) {
+                    const start = Math.min(startVal, endVal);
+                    const end = Math.max(startVal, endVal);
+                    histogramSelectionElement.style.display = 'block';
+                    histogramSelectionElement.style.left = `${start * 100}%`;
+                    histogramSelectionElement.style.width = `${(end - start) * 100}%`;
+                }
+                
+                // Prevent event from propagating
+                e.stopPropagation();
             });
             
             // Single click (not during drag) to reset selection
             histogramContainer.addEventListener('click', (e) => {
                 // Only handle as a click if we're not dragging
                 if (isDragging) return;
+                
+                // Check if we clicked on the selection element
+                const selectionRect = histogramSelectionElement ? histogramSelectionElement.getBoundingClientRect() : null;
+                if (selectionRect &&
+                    e.clientX >= selectionRect.left &&
+                    e.clientX <= selectionRect.right &&
+                    e.clientY >= selectionRect.top &&
+                    e.clientY <= selectionRect.bottom) {
+                    // Clicked on selection, don't reset
+                    return;
+                }
+                
                 histogramSelectionStart = null;
                 histogramSelectionEnd = null;
                 updateHistogramSelection();
@@ -1884,6 +1910,13 @@
             
             // Update timeline to only include positions within the selected range
             updateTimelineWithRange(startTime, endTime);
+            
+            // Force the selection to remain visible
+            if (histogramSelectionElement) {
+                histogramSelectionElement.style.display = 'block';
+                histogramSelectionElement.style.left = `${start * 100}%`;
+                histogramSelectionElement.style.width = `${(end - start) * 100}%`;
+            }
         }
         
         function updateTimelineWithRange(startTime, endTime) {
