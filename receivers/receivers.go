@@ -3023,7 +3023,7 @@ func trackFailedSignupAttempt(clientIP, reason, email, name, description string,
         }
         
         // Insert or update the blocked IP
-        result, err := db.Exec(`
+        _, err = db.Exec(`
             INSERT INTO blocked_signup_ips (
                 ip_address, blocked_at, unblock_at, reason,
                 last_attempt_email, last_attempt_name, last_attempt_description,
@@ -3249,7 +3249,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
             
             // Add this IP to the blocked_signup_ips table
             unblockTime := time.Now().Add(timeoutDuration)
-            result, err := db.Exec(`
+            _, err = db.Exec(`
                 INSERT INTO blocked_signup_ips (
                     ip_address, blocked_at, unblock_at, reason,
                     last_attempt_email, last_attempt_name, last_attempt_description,
@@ -3417,7 +3417,7 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
                 // Add this IP to the blocked_signup_ips table
                 timeoutDuration := time.Duration(settings.IPAddressTimeoutMinutes) * time.Minute
                 unblockTime := time.Now().Add(timeoutDuration)
-                result, err := db.Exec(`
+                _, err = db.Exec(`
                     INSERT INTO blocked_signup_ips (
                         ip_address, blocked_at, unblock_at, reason,
                         last_attempt_email, last_attempt_name, last_attempt_description,
