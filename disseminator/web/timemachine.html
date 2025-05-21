@@ -406,6 +406,7 @@
         // Global variables
         let vessels = {};
         let selectedVessels = new Set();
+        let hasPerformedSearch = false; // Track if a search has been performed
         let vesselMarkers = {};
         let vesselTracks = {};
         let vesselPositions = {};
@@ -560,13 +561,31 @@
         
         // Add event listeners for class checkboxes
         document.getElementById('class-a-checkbox').addEventListener('change', function() {
-            if (initialLoadComplete) debouncedUpdateURL();
+            if (initialLoadComplete) {
+                debouncedUpdateURL();
+                // Perform a new search if we've already done one
+                if (hasPerformedSearch) {
+                    searchVessels();
+                }
+            }
         });
         document.getElementById('class-b-checkbox').addEventListener('change', function() {
-            if (initialLoadComplete) debouncedUpdateURL();
+            if (initialLoadComplete) {
+                debouncedUpdateURL();
+                // Perform a new search if we've already done one
+                if (hasPerformedSearch) {
+                    searchVessels();
+                }
+            }
         });
         document.getElementById('sar-checkbox').addEventListener('change', function() {
-            if (initialLoadComplete) debouncedUpdateURL();
+            if (initialLoadComplete) {
+                debouncedUpdateURL();
+                // Perform a new search if we've already done one
+                if (hasPerformedSearch) {
+                    searchVessels();
+                }
+            }
         });
         
         toggleVesselsBtn.addEventListener('click', toggleVesselList);
@@ -1047,15 +1066,35 @@
                 const vesselLatLng = L.latLng(vesselLat, vesselLng);
                 const distance = mapCenter.distanceTo(vesselLatLng);
                 
+                // Check if this vessel is selected
+                const isSelected = selectedVessels.has(id);
+                
+                // Get vessel name for sorting
+                const name = vessel.Name || 'Unknown';
+                
                 return {
                     id,
                     vessel,
-                    distance
+                    distance,
+                    isSelected,
+                    name
                 };
             });
             
-            // Sort vessels by number of positions (highest to lowest), then by distance as a tiebreaker
+            // Sort vessels:
+            // 1. Selected vessels at the top, sorted alphanumerically by name
+            // 2. Non-selected vessels sorted by number of positions (highest to lowest), then by distance
             vesselsArray.sort((a, b) => {
+                // First, separate selected from non-selected
+                if (a.isSelected && !b.isSelected) return -1;
+                if (!a.isSelected && b.isSelected) return 1;
+                
+                // If both are selected, sort alphanumerically by name
+                if (a.isSelected && b.isSelected) {
+                    return a.name.localeCompare(b.name);
+                }
+                
+                // If neither is selected, sort by positions then distance
                 const positionsA = a.vessel.Positions || 0;
                 const positionsB = b.vessel.Positions || 0;
                 
@@ -1146,6 +1185,11 @@
                         selectedVessels.delete(id);
                         element.classList.remove('selected');
                         
+                        // Re-sort the vessel list to move this vessel back to its normal position
+                        populateVesselList(vessels);
+                        // Re-apply any active filter
+                        filterVesselList();
+                        
                         // Remove marker and track if they exist
                         // Remove triangle marker and track
                         if (vesselMarkers[id]) {
@@ -1226,6 +1270,11 @@
                     setupTimeline();
                 }
             }
+            
+            // Re-sort the vessel list to move this vessel to the top
+            populateVesselList(vessels);
+            // Re-apply any active filter
+            filterVesselList();
             
             // Enable/disable timeline controls based on selection
             const hasSelectedVessels = selectedVessels.size > 0;
