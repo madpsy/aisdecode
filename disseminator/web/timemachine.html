@@ -512,12 +512,12 @@
         function createVesselIcon(color) {
             return L.divIcon({
                 className: 'vessel-icon',
-                html: `<svg width="20" height="30" viewBox="0 0 20 30" xmlns="http://www.w3.org/2000/svg">
+                html: `<svg width="16" height="24" viewBox="0 0 20 30" xmlns="http://www.w3.org/2000/svg">
                         <polygon points="10,0 0,30 20,30" fill="${color}" stroke="#000" stroke-width="1" />
                       </svg>`,
-                iconSize: [20, 30],
-                iconAnchor: [10, 15],
-                popupAnchor: [0, -15]
+                iconSize: [16, 24],
+                iconAnchor: [8, 12],
+                popupAnchor: [0, -12]
             });
         }
 
@@ -545,7 +545,7 @@
             marker.bindTooltip(name, {
                 permanent: true,
                 direction: 'top',
-                offset: [0, -20],
+                offset: [0, -10],
                 className: 'vessel-tooltip'
             });
             
