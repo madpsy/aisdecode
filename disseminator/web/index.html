@@ -4316,7 +4316,7 @@ function updateVesselReceiverConnection(UserID) {
     }
     
     // Create or update the label with minimal DOM changes
-    const labelContent = `${distance} km<br>${bearing}°`;
+    const labelContent = `${distance} km`;
     
     try {
       if (!receiverDistanceLabel || !map.hasLayer(receiverDistanceLabel)) {
