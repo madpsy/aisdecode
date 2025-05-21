@@ -204,13 +204,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-rotatedmarker@0.2.0/leaflet.rotatedMarker.js"></script>
     <script>
-        // Initialize the timeline on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            // Ensure the timeline and playback controls are visible
-            document.getElementById('timeline').style.display = 'block';
-            document.getElementById('playback-controls').style.display = 'flex';
-            console.log("Timeline initialized on page load");
-        });
         // Map initialization
         const map = L.map('map').setView([55.9533, -3.1883], 10); // Default to Edinburgh
         
@@ -290,8 +283,7 @@
         // Fetch vessel types data from types.json
         async function fetchVesselTypes() {
             try {
-                // Use relative path to avoid CORS issues when running from file://
-                const response = await fetch('./message_types.json');
+                const response = await fetch('/types.json');
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -299,11 +291,6 @@
                 console.log('Vessel types loaded successfully');
             } catch (error) {
                 console.error('Error loading vessel types:', error);
-                // Create a default vessel types object to prevent errors
-                vesselTypes = {
-                    valueLookup: {},
-                    categories: []
-                };
             }
         }
 
@@ -618,68 +605,46 @@
         }
 
         function setupTimeline() {
-                    // Find earliest and latest timestamps across all vessels
-                    let earliest = new Date();
-                    let latest = new Date(0);
-                    
-                    // Check if we have any vessel positions
-                    let hasPositions = false;
-                    
-                    for (const id of selectedVessels) {
-                        const positions = vesselPositions[id];
-                        if (!positions || positions.length === 0) continue;
-                        
-                        hasPositions = true;
-                        const vesselEarliest = positions[0].timestamp;
-                        const vesselLatest = positions[positions.length - 1].timestamp;
-                        
-                        if (vesselEarliest < earliest) earliest = vesselEarliest;
-                        if (vesselLatest > latest) latest = vesselLatest;
-                    }
-                    
-                    // If no positions found, use default time range (current time +/- 30 minutes)
-                    if (!hasPositions) {
-                        const now = new Date();
-                        earliest = new Date(now.getTime() - 30 * 60 * 1000); // 30 minutes ago
-                        latest = new Date(now.getTime() + 30 * 60 * 1000);   // 30 minutes from now
-                        console.log("No vessel positions found, using default time range");
-                    }
-                    
-                    // Create timeline data with 100 steps
-                    const timeRange = latest - earliest;
-                    const stepSize = timeRange / 100;
-                    
-                    timelineData = Array.from({ length: 101 }, (_, i) => {
-                        return new Date(earliest.getTime() + i * stepSize);
-                    });
-                    
-                    // Always show timeline
-                    timeline.style.display = 'block';
-                    document.getElementById('playback-controls').style.display = 'flex';
-                    timelineSlider.value = 0;
-                    updateTimeDisplay(timelineData[0]);
-                    
-                    // Reset markers to initial position
-                    updateMarkersToTime(timelineData[0]);
-                }
+            // Find earliest and latest timestamps across all vessels
+            let earliest = new Date();
+            let latest = new Date(0);
+            
+            for (const id of selectedVessels) {
+                const positions = vesselPositions[id];
+                if (!positions || positions.length === 0) continue;
+                
+                const vesselEarliest = positions[0].timestamp;
+                const vesselLatest = positions[positions.length - 1].timestamp;
+                
+                if (vesselEarliest < earliest) earliest = vesselEarliest;
+                if (vesselLatest > latest) latest = vesselLatest;
+            }
+            
+            // Create timeline data with 100 steps
+            const timeRange = latest - earliest;
+            const stepSize = timeRange / 100;
+            
+            timelineData = Array.from({ length: 101 }, (_, i) => {
+                return new Date(earliest.getTime() + i * stepSize);
+            });
+            
+            // Show timeline
+            timeline.style.display = 'block';
+            timelineSlider.value = 0;
+            updateTimeDisplay(timelineData[0]);
+            
+            // Reset markers to initial position
+            updateMarkersToTime(timelineData[0]);
+        }
 
         function updateTimeDisplay(time) {
-                    if (time) {
-                        timeDisplay.textContent = time.toLocaleTimeString();
-                    } else {
-                        timeDisplay.textContent = "00:00:00";
-                    }
-                }
+            timeDisplay.textContent = time.toLocaleTimeString();
+        }
 
         function updateMarkersToTime(time) {
-                    // If no time provided or no vessels selected, do nothing
-                    if (!time || selectedVessels.size === 0) {
-                        return;
-                    }
-                    
-                    for (const id of selectedVessels) {
-                        const positions = vesselPositions[id];
-                        if (!positions || positions.length === 0) continue;
+            for (const id of selectedVessels) {
+                const positions = vesselPositions[id];
+                if (!positions || positions.length === 0) continue;
                 
                 // Find the position closest to the given time
                 let closestPos = positions[0];
@@ -761,18 +726,17 @@
         }
 
         function startPlayback() {
-                    // Setup timeline if not already done
-                    if (timelineData.length === 0) {
-                        setupTimeline();
-                    }
-                    
-                    // Always show timeline and playback controls
-                    timeline.style.display = 'block';
-                    document.getElementById('playback-controls').style.display = 'flex';
-                    
-                    // Start playback
-                    togglePlayPause();
-                }
+            // Setup timeline if not already done
+            if (timelineData.length === 0) {
+                setupTimeline();
+            }
+            
+            // Show timeline
+            timeline.style.display = 'block';
+            
+            // Start playback
+            togglePlayPause();
+        }
 
         function togglePlayPause() {
             if (isPlaying) {
