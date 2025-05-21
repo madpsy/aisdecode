@@ -625,6 +625,11 @@
                     // Clear the temporary storage
                     delete window.vesselsToSelect;
                     
+                    // Setup timeline for selected vessels
+                    if (selectedVessels.size > 0) {
+                        setupTimeline();
+                    }
+                    
                     // Update URL with selected vessels
                     if (initialLoadComplete) {
                         debouncedUpdateURL();
@@ -852,10 +857,9 @@
                     // If positions are already fetched and time range hasn't changed, just recreate the marker and track
                     createVesselMarker(id);
                     
-                    // Update timeline if this is the first vessel selected
-                    if (selectedVessels.size === 1) {
-                        setupTimeline();
-                    }
+                    // Always setup timeline when a vessel is selected
+                    // This ensures tracks are properly drawn even when selecting after deselecting all vessels
+                    setupTimeline();
                 }
             }
             
@@ -1040,6 +1044,14 @@
             timeline.style.display = 'block';
             timelineSlider.value = 0;
             updateTimeDisplay(timelineData[0]);
+            
+            // Ensure all selected vessels have their tracks drawn
+            for (const id of selectedVessels) {
+                // If the vessel has positions but no track, create the marker and track
+                if (vesselPositions[id] && !vesselTracks[id]) {
+                    createVesselMarker(id);
+                }
+            }
             
             // Reset markers to initial position
             updateMarkersToTime(timelineData[0]);
