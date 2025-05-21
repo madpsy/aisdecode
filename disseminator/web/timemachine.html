@@ -559,8 +559,23 @@
             if (initialLoadComplete) debouncedUpdateURL();
         });
         
+        // Function to check if at least one checkbox is checked
+        function ensureAtLeastOneChecked() {
+            const classAChecked = document.getElementById('class-a-checkbox').checked;
+            const classBChecked = document.getElementById('class-b-checkbox').checked;
+            const sarChecked = document.getElementById('sar-checkbox').checked;
+            
+            return classAChecked || classBChecked || sarChecked;
+        }
+        
         // Add event listeners for class checkboxes
-        document.getElementById('class-a-checkbox').addEventListener('change', function() {
+        document.getElementById('class-a-checkbox').addEventListener('change', function(e) {
+            // If this is being unchecked and no others are checked, prevent the change
+            if (!this.checked && !ensureAtLeastOneChecked()) {
+                this.checked = true;
+                return;
+            }
+            
             if (initialLoadComplete) {
                 debouncedUpdateURL();
                 // Perform a new search if we've already done one
@@ -569,7 +584,14 @@
                 }
             }
         });
-        document.getElementById('class-b-checkbox').addEventListener('change', function() {
+        
+        document.getElementById('class-b-checkbox').addEventListener('change', function(e) {
+            // If this is being unchecked and no others are checked, prevent the change
+            if (!this.checked && !ensureAtLeastOneChecked()) {
+                this.checked = true;
+                return;
+            }
+            
             if (initialLoadComplete) {
                 debouncedUpdateURL();
                 // Perform a new search if we've already done one
@@ -578,7 +600,14 @@
                 }
             }
         });
-        document.getElementById('sar-checkbox').addEventListener('change', function() {
+        
+        document.getElementById('sar-checkbox').addEventListener('change', function(e) {
+            // If this is being unchecked and no others are checked, prevent the change
+            if (!this.checked && !ensureAtLeastOneChecked()) {
+                this.checked = true;
+                return;
+            }
+            
             if (initialLoadComplete) {
                 debouncedUpdateURL();
                 // Perform a new search if we've already done one
