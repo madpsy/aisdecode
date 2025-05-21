@@ -153,6 +153,19 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        
+        #radius-warning {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(255, 0, 0, 0.7);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            font-weight: bold;
+            z-index: 1000;
+            display: none;
+        }
         .split-view {
             display: flex;
             flex: 1;
@@ -209,12 +222,14 @@
                 <label for="min-speed">Min Speed (knots):</label>
                 <input type="number" id="min-speed" min="0" value="0.5" step="0.5">
             </div>
-            <!-- Search now happens automatically when map is moved or zoomed -->
+            <button id="search-btn">Go!</button>
             <button id="toggle-vessels-btn" disabled>Show Vessels</button>
             <button id="reset-btn">Reset</button>
         </div>
         <div class="split-view">
-            <div id="map"></div>
+            <div id="map">
+                <div id="radius-warning">You need to zoom in</div>
+            </div>
             <div id="vessel-list"></div>
         </div>
         <div id="timeline" style="display: block !important;">
@@ -267,7 +282,7 @@
         // Radius is now calculated from zoom level
         let calculatedRadius = 10; // Default value in km
         const minSpeedInput = document.getElementById('min-speed');
-        // No longer using search button
+        const searchBtn = document.getElementById('search-btn');
         const toggleVesselsBtn = document.getElementById('toggle-vessels-btn');
         const resetBtn = document.getElementById('reset-btn');
         const vesselList = document.getElementById('vessel-list');
@@ -277,6 +292,7 @@
         const playPauseBtn = document.getElementById('play-pause-btn');
         const stopBtn = document.getElementById('stop-btn');
         const loadingIndicator = document.getElementById('loading');
+        const radiusWarning = document.getElementById('radius-warning');
 
         // Set default date/time values (1 hour ago to now)
         const now = new Date();
@@ -302,19 +318,54 @@
             };
         }
         
-        // Debounced search function
-        const debouncedSearch = debounce(searchVessels, 500);
-        
         // Debounced URL update function
         const debouncedUpdateURL = debounce(updateURLParameters, 500);
         
+        // Function to check radius and update UI accordingly
+        function checkRadiusAndUpdateUI() {
+            // Calculate radius based on the visible map bounds
+            const bounds = map.getBounds();
+            const center = bounds.getCenter();
+            
+            // Get the corners of the visible map
+            const northEast = bounds.getNorthEast();
+            const southWest = bounds.getSouthWest();
+            const northWest = L.latLng(northEast.lat, southWest.lng);
+            const southEast = L.latLng(southWest.lat, northEast.lng);
+            
+            // Calculate distances from center to each corner
+            const distNE = center.distanceTo(northEast);
+            const distSW = center.distanceTo(southWest);
+            const distNW = center.distanceTo(northWest);
+            const distSE = center.distanceTo(southEast);
+            
+            // Use the maximum distance to ensure coverage of the entire visible area
+            // Add 10% margin to ensure complete coverage
+            let radius = Math.max(distNE, distSW, distNW, distSE) * 1.1;
+            
+            // Set a minimum radius of 500m to avoid too small searches
+            radius = Math.max(radius, 500);
+            
+            // Store calculated radius for reference
+            calculatedRadius = radius / 1000;
+            
+            // Check if radius exceeds 400km (backend limit)
+            if (calculatedRadius > 400) {
+                searchBtn.disabled = true;
+                radiusWarning.style.display = 'block';
+            } else {
+                searchBtn.disabled = false;
+                radiusWarning.style.display = 'none';
+            }
+        }
+        
         // Add event listeners for map movement and zoom
         map.on('moveend', function() {
-            debouncedSearch();
+            checkRadiusAndUpdateUI();
             if (initialLoadComplete) debouncedUpdateURL();
         });
         map.on('zoomend', function() {
-            debouncedSearch();
+            checkRadiusAndUpdateUI();
             if (initialLoadComplete) debouncedUpdateURL();
         });
         
@@ -332,7 +383,6 @@
                 alert("To date has been adjusted to 24 hours after From date (backend limit)");
             }
             
-            debouncedSearch();
             if (initialLoadComplete) debouncedUpdateURL();
         });
         toDateInput.addEventListener('change', function() {
@@ -348,9 +398,11 @@
                 alert("Time range has been adjusted to 24 hours (backend limit)");
             }
             
-            debouncedSearch();
             if (initialLoadComplete) debouncedUpdateURL();
         });
+        
+        // Add event listener for search button
+        searchBtn.addEventListener('click', searchVessels);
         minSpeedInput.addEventListener('change', function() {
             debouncedSearch();
             if (initialLoadComplete) debouncedUpdateURL();
@@ -367,7 +419,7 @@
             loadParametersFromURL();
             // Small delay to ensure the map is fully loaded
             setTimeout(function() {
-                searchVessels();
+                checkRadiusAndUpdateUI();
                 initialLoadComplete = true;
             }, 500);
         });
@@ -376,7 +428,7 @@
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
             loadParametersFromURL();
             setTimeout(function() {
-                searchVessels();
+                checkRadiusAndUpdateUI();
                 initialLoadComplete = true;
             }, 500);
         }
@@ -597,28 +649,8 @@
                         const lat = center.lat;
                         const lng = center.lng;
                         
-                        // Calculate radius based on the visible map bounds
-                        // Get the corners of the visible map
-                        const northEast = bounds.getNorthEast();
-                        const southWest = bounds.getSouthWest();
-                        const northWest = L.latLng(northEast.lat, southWest.lng);
-                        const southEast = L.latLng(southWest.lat, northEast.lng);
-                        
-                        // Calculate distances from center to each corner
-                        const distNE = center.distanceTo(northEast);
-                        const distSW = center.distanceTo(southWest);
-                        const distNW = center.distanceTo(northWest);
-                        const distSE = center.distanceTo(southEast);
-                        
-                        // Use the maximum distance to ensure coverage of the entire visible area
-                        // Add 10% margin to ensure complete coverage
-                        let radius = Math.max(distNE, distSW, distNW, distSE) * 1.1;
-                        
-                        // Set a minimum radius of 500m to avoid too small searches
-                        radius = Math.max(radius, 500);
-                        
-                        // Store calculated radius for reference
-                        calculatedRadius = radius / 1000;
+                        // Use the already calculated radius from checkRadiusAndUpdateUI
+                        let radius = calculatedRadius * 1000; // Convert back to meters
                         
                         // Check if time range exceeds 24 hours (backend limit)
                         const timeDiffHours = (toDate - fromDate) / (1000 * 60 * 60);
@@ -633,12 +665,8 @@
                             alert("Time range has been adjusted to 24 hours (backend limit)");
                         }
                         
-                        // Check if radius exceeds 400km (backend limit)
-                        if (calculatedRadius > 400) {
-                            hideLoading();
-                            alert("The current view is too zoomed out. Please zoom in to reduce the search radius below 400km (backend limit).");
-                            return; // Don't send the request
-                        }
+                        // The radius check is now handled by the checkRadiusAndUpdateUI function
+                        // and the search button is disabled if radius exceeds 400km
                         
                         // No longer drawing the search area circle
                         
