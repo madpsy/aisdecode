@@ -393,6 +393,14 @@
                 // Fetch vessel positions if not already fetched
                 if (!vesselPositions[id]) {
                     fetchVesselPositions(id);
+                } else {
+                    // If positions are already fetched, just recreate the marker and track
+                    createVesselMarker(id);
+                    
+                    // Update timeline if this is the first vessel selected
+                    if (selectedVessels.size === 1) {
+                        setupTimeline();
+                    }
                 }
             }
             
