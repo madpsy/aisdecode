@@ -1149,14 +1149,18 @@
             // Show count of filtered vessels vs total
             const totalVessels = vesselsArray.length;
             const visibleVessels = displayedVesselsArray.length;
+            // Always show the vessel count with selected count
+            const infoElement = document.createElement('div');
+            infoElement.className = 'vessel-item vessel-info';
+            infoElement.style.fontStyle = 'italic';
+            infoElement.style.color = '#666';
+            infoElement.textContent = `${visibleVessels} vessels found`;
             if (visibleVessels < totalVessels) {
-                const infoElement = document.createElement('div');
-                infoElement.className = 'vessel-item vessel-info';
-                infoElement.style.fontStyle = 'italic';
-                infoElement.style.color = '#666';
-                infoElement.textContent = `${visibleVessels} vessels found`;
-                vesselItems.appendChild(infoElement);
+                infoElement.textContent += ` (${totalVessels} total)`;
             }
+            // Add selected vessels count
+            infoElement.textContent += ` • ${selectedVessels.size} selected`;
+            vesselItems.appendChild(infoElement);
             
             // Sort vessels:
             // 1. Selected vessels at the top, sorted alphanumerically by name
