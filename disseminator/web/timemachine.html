@@ -659,7 +659,7 @@
                             fillColor: vessel.color,
                             fillOpacity: 1,
                             weight: 1
-                        }).addTo(map);
+                        });
                         
                         // Add tooltip with vessel name
                         const name = vessel.Name || 'Unknown';
@@ -669,7 +669,9 @@
                             className: 'vessel-tooltip'
                         });
                         
+                        // Add to non-selected layer instead of directly to map
                         vesselMarkers[id] = dotMarker;
+                        nonSelectedLayer.addLayer(dotMarker);
                     }
                 }
                 if (vesselTracks[id]) {
