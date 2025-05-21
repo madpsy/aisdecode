@@ -883,6 +883,9 @@
                     clearVessels();
                     showLoading();
                     
+                    // Set flag indicating we've performed a search
+                    hasPerformedSearch = true;
+                    
                     try {
                         // Get search parameters
                         const fromDate = new Date(fromDateInput.value);
@@ -1108,9 +1111,9 @@
             });
             
             // Create list items for sorted vessels
-            for (const {id, vessel} of vesselsArray) {
+            for (const {id, vessel, isSelected} of vesselsArray) {
                 const item = document.createElement('div');
-                item.className = 'vessel-item';
+                item.className = isSelected ? 'vessel-item selected' : 'vessel-item';
                 item.dataset.id = id;
                 
                 const name = vessel.Name || 'Unknown';
