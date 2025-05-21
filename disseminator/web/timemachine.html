@@ -290,10 +290,27 @@
         // Add event listeners for map movement and zoom
         map.on('moveend', debouncedSearch);
         map.on('zoomend', debouncedSearch);
+        
+        // Add event listeners for date/time changes
+        fromDateInput.addEventListener('change', debouncedSearch);
+        toDateInput.addEventListener('change', debouncedSearch);
+        minSpeedInput.addEventListener('change', debouncedSearch);
+        
         toggleVesselsBtn.addEventListener('click', toggleVesselList);
         resetBtn.addEventListener('click', resetView);
         playPauseBtn.addEventListener('click', handlePlayPauseClick);
         timelineSlider.addEventListener('input', handleTimelineSliderChange);
+        
+        // Call searchVessels on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Small delay to ensure the map is fully loaded
+            setTimeout(searchVessels, 500);
+        });
+        
+        // If DOMContentLoaded has already fired, call searchVessels directly
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            setTimeout(searchVessels, 500);
+        }
         
         // Map click handler to get coordinates
         map.on('click', function(e) {
