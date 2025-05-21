@@ -514,10 +514,19 @@
             }
             
             // Store the current time range for comparison
-            window.lastTimeRange = {
+            // We'll check if it changed before updating it
+            const currentTimeRange = {
                 from: fromDateInput.value,
                 to: toDateInput.value
             };
+            
+            // Store whether the time range has changed for later use
+            window.timeRangeChanged = !window.lastTimeRange ||
+                window.lastTimeRange.from !== currentTimeRange.from ||
+                window.lastTimeRange.to !== currentTimeRange.to;
+            
+            // Update the last time range
+            window.lastTimeRange = currentTimeRange;
             
             vessels = {};
             selectedVessels.clear();
@@ -795,9 +804,12 @@
                 if (vesselItem && vessels[id]) {
                     // Use a flag to prevent URL updates during initial selection from URL params
                     const skipURLUpdate = true;
-                    toggleVesselSelection(id, vesselItem, skipURLUpdate);
+                    // Pass the time range change flag to avoid unnecessary refetching
+                    toggleVesselSelection(id, vesselItem, skipURLUpdate, window.timeRangeChanged);
                 }
             }
+            // Reset the flag after use
+            window.timeRangeChanged = false;
         }
         
         // Function to check if time range has changed
@@ -808,7 +820,7 @@
                    window.lastTimeRange.to !== toDateInput.value;
         }
         
-        function toggleVesselSelection(id, element, skipURLUpdate) {
+        function toggleVesselSelection(id, element, skipURLUpdate, forceRefetch = false) {
             if (selectedVessels.has(id)) {
                 selectedVessels.delete(id);
                 element.classList.remove('selected');
@@ -850,10 +862,14 @@
                 selectedVessels.add(id);
                 element.classList.add('selected');
                 
-                // Fetch vessel positions if not already fetched or if time range has changed
-                if (!vesselPositions[id] || hasTimeRangeChanged()) {
+                // Fetch vessel positions if:
+                // 1. We don't have positions yet, or
+                // 2. Time range has changed (passed via forceRefetch parameter)
+                if (!vesselPositions[id] || forceRefetch) {
+                    console.log(`Fetching positions for vessel ${id} (forceRefetch: ${forceRefetch})`);
                     fetchVesselPositions(id);
                 } else {
+                    console.log(`Using cached positions for vessel ${id}`);
                     // If positions are already fetched and time range hasn't changed, just recreate the marker and track
                     createVesselMarker(id);
                     
