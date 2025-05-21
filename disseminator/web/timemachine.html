@@ -201,7 +201,6 @@
             </div>
             <!-- Search now happens automatically when map is moved or zoomed -->
             <button id="toggle-vessels-btn" disabled>Show Vessels</button>
-            <button id="play-btn" disabled>Play</button>
             <button id="reset-btn">Reset</button>
         </div>
         <div class="split-view">
@@ -210,8 +209,8 @@
         </div>
         <div id="timeline" style="display: block !important;">
             <div id="playback-controls">
-                <button id="play-pause-btn">▶️</button>
-                <input type="range" id="timeline-slider" min="0" max="100" value="0">
+                <button id="play-pause-btn" disabled>▶️</button>
+                <input type="range" id="timeline-slider" min="0" max="100" value="0" disabled>
                 <span id="time-display">00:00:00</span>
             </div>
         </div>
@@ -253,7 +252,6 @@
         const minSpeedInput = document.getElementById('min-speed');
         // No longer using search button
         const toggleVesselsBtn = document.getElementById('toggle-vessels-btn');
-        const playBtn = document.getElementById('play-btn');
         const resetBtn = document.getElementById('reset-btn');
         const vesselList = document.getElementById('vessel-list');
         const timeline = document.getElementById('timeline');
@@ -293,9 +291,8 @@
         map.on('moveend', debouncedSearch);
         map.on('zoomend', debouncedSearch);
         toggleVesselsBtn.addEventListener('click', toggleVesselList);
-        playBtn.addEventListener('click', startPlayback);
         resetBtn.addEventListener('click', resetView);
-        playPauseBtn.addEventListener('click', togglePlayPause);
+        playPauseBtn.addEventListener('click', handlePlayPauseClick);
         timelineSlider.addEventListener('input', handleTimelineSliderChange);
         
         // Map click handler to get coordinates
@@ -370,8 +367,11 @@
             // Don't hide the timeline
             // timeline.style.display = 'none';
             toggleVesselsBtn.disabled = true;
-            playBtn.disabled = true;
             toggleVesselsBtn.textContent = 'Show Vessels';
+            
+            // Disable timeline controls
+            playPauseBtn.disabled = true;
+            timelineSlider.disabled = true;
             
             // Stop playback
             stopPlayback();
@@ -667,8 +667,14 @@
                 }
             }
             
-            // Enable/disable play button based on selection
-            playBtn.disabled = selectedVessels.size === 0;
+            // Enable/disable timeline controls based on selection
+            const hasSelectedVessels = selectedVessels.size > 0;
+            playPauseBtn.disabled = !hasSelectedVessels;
+            timelineSlider.disabled = !hasSelectedVessels;
+            
+            if (hasSelectedVessels) {
+                timeline.style.display = 'block';
+            }
         }
 
         async function fetchVesselPositions(id) {
@@ -921,33 +927,43 @@
             const index = parseInt(timelineSlider.value);
             currentTimeIndex = index;
             
+            // Hide non-selected vessels when manually adjusting timeline
+            map.removeLayer(nonSelectedLayer);
+            
             const time = timelineData[index];
             updateTimeDisplay(time);
             updateMarkersToTime(time);
         }
 
-        function startPlayback() {
+        function handlePlayPauseClick() {
             // Setup timeline if not already done
-            if (timelineData.length === 0) {
+            if (timelineData.length === 0 && selectedVessels.size > 0) {
                 setupTimeline();
             }
-            
-            // Show timeline
-            timeline.style.display = 'block';
             
             // Hide non-selected vessel markers during playback
             map.removeLayer(nonSelectedLayer);
             
-            // Start playback
+            // Toggle play/pause state
             togglePlayPause();
         }
 
         function togglePlayPause() {
             if (isPlaying) {
-                stopPlayback();
+                // Pause playback but keep nonSelectedLayer hidden
+                isPlaying = false;
+                playPauseBtn.textContent = '▶️';
+                
+                if (playbackInterval) {
+                    clearInterval(playbackInterval);
+                    playbackInterval = null;
+                }
             } else {
                 isPlaying = true;
                 playPauseBtn.textContent = '⏸️';
+                
+                // Hide non-selected vessel markers during playback
+                map.removeLayer(nonSelectedLayer);
                 
                 playbackInterval = setInterval(() => {
                     currentTimeIndex++;
@@ -974,6 +990,10 @@
                 playbackInterval = null;
             }
             
+            // Ensure play/pause button is enabled if vessels are selected
+            playPauseBtn.disabled = selectedVessels.size === 0;
+            timelineSlider.disabled = selectedVessels.size === 0;
+            
             // Reset the timeline index to allow replaying
             currentTimeIndex = 0;
             timelineSlider.value = 0;
@@ -985,7 +1005,7 @@
                 updateMarkersToTime(time);
             }
             
-            // Show all vessel markers again after playback
+            // Show all vessel markers again only when completely stopping playback
             map.addLayer(nonSelectedLayer);
         }
     </script>
