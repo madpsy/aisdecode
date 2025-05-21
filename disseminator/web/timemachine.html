@@ -247,6 +247,9 @@
         
         // Persistent storage for vessel colors by MMSI
         let vesselColorMap = {};
+        
+        // Flag to prevent URL updates during initial load
+        let initialLoadComplete = false;
 
         // DOM elements
         const fromDateInput = document.getElementById('from-date');
@@ -292,14 +295,32 @@
         // Debounced search function
         const debouncedSearch = debounce(searchVessels, 500);
         
+        // Debounced URL update function
+        const debouncedUpdateURL = debounce(updateURLParameters, 500);
+        
         // Add event listeners for map movement and zoom
-        map.on('moveend', debouncedSearch);
-        map.on('zoomend', debouncedSearch);
+        map.on('moveend', function() {
+            debouncedSearch();
+            if (initialLoadComplete) debouncedUpdateURL();
+        });
+        map.on('zoomend', function() {
+            debouncedSearch();
+            if (initialLoadComplete) debouncedUpdateURL();
+        });
         
         // Add event listeners for date/time changes
-        fromDateInput.addEventListener('change', debouncedSearch);
-        toDateInput.addEventListener('change', debouncedSearch);
-        minSpeedInput.addEventListener('change', debouncedSearch);
+        fromDateInput.addEventListener('change', function() {
+            debouncedSearch();
+            if (initialLoadComplete) debouncedUpdateURL();
+        });
+        toDateInput.addEventListener('change', function() {
+            debouncedSearch();
+            if (initialLoadComplete) debouncedUpdateURL();
+        });
+        minSpeedInput.addEventListener('change', function() {
+            debouncedSearch();
+            if (initialLoadComplete) debouncedUpdateURL();
+        });
         
         toggleVesselsBtn.addEventListener('click', toggleVesselList);
         resetBtn.addEventListener('click', resetView);
@@ -307,15 +328,23 @@
         stopBtn.addEventListener('click', stopPlayback);
         timelineSlider.addEventListener('input', handleTimelineSliderChange);
         
-        // Call searchVessels on page load
+        // Load parameters from URL and initialize the view
         document.addEventListener('DOMContentLoaded', function() {
+            loadParametersFromURL();
             // Small delay to ensure the map is fully loaded
-            setTimeout(searchVessels, 500);
+            setTimeout(function() {
+                searchVessels();
+                initialLoadComplete = true;
+            }, 500);
         });
         
-        // If DOMContentLoaded has already fired, call searchVessels directly
+        // If DOMContentLoaded has already fired, load parameters and search
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
-            setTimeout(searchVessels, 500);
+            loadParametersFromURL();
+            setTimeout(function() {
+                searchVessels();
+                initialLoadComplete = true;
+            }, 500);
         }
         
         // Map click handler to get coordinates
@@ -351,6 +380,60 @@
                 console.log('Vessel types loaded successfully');
             } catch (error) {
                 console.error('Error loading vessel types:', error);
+            }
+        }
+        
+        // Function to update URL parameters
+        function updateURLParameters() {
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            const fromDate = fromDateInput.value;
+            const toDate = toDateInput.value;
+            const minSpeed = minSpeedInput.value;
+            
+            const params = new URLSearchParams();
+            params.set('lat', center.lat.toFixed(6));
+            params.set('lng', center.lng.toFixed(6));
+            params.set('zoom', zoom);
+            params.set('from', fromDate);
+            params.set('to', toDate);
+            params.set('minSpeed', minSpeed);
+            
+            // Update URL without reloading the page
+            const newURL = window.location.pathname + '?' + params.toString();
+            window.history.replaceState({}, '', newURL);
+        }
+        
+        // Function to load parameters from URL
+        function loadParametersFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            
+            // Get map parameters
+            const lat = parseFloat(params.get('lat'));
+            const lng = parseFloat(params.get('lng'));
+            const zoom = parseInt(params.get('zoom'));
+            
+            // Get time parameters
+            const fromDate = params.get('from');
+            const toDate = params.get('to');
+            const minSpeed = params.get('minSpeed');
+            
+            // Apply map parameters if valid
+            if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
+                map.setView([lat, lng], zoom);
+            }
+            
+            // Apply time parameters if valid
+            if (fromDate) {
+                fromDateInput.value = fromDate;
+            }
+            
+            if (toDate) {
+                toDateInput.value = toDate;
+            }
+            
+            if (minSpeed && !isNaN(parseFloat(minSpeed))) {
+                minSpeedInput.value = minSpeed;
             }
         }
 
