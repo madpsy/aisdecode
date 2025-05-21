@@ -185,11 +185,7 @@
                 <label for="to-date">To:</label>
                 <input type="datetime-local" id="to-date">
             </div>
-            <div class="control-group">
-                <label for="radius">Radius (km):</label>
-                <input type="number" id="radius" min="1" max="20" value="10" disabled>
-                <span class="info-text">(Auto-calculated from zoom)</span>
-            </div>
+            <!-- Radius is now automatically calculated based on zoom level -->
             <div class="control-group">
                 <label for="min-speed">Min Speed (knots):</label>
                 <input type="number" id="min-speed" min="0" value="0.5" step="0.5">
@@ -239,7 +235,8 @@
         // DOM elements
         const fromDateInput = document.getElementById('from-date');
         const toDateInput = document.getElementById('to-date');
-        const radiusInput = document.getElementById('radius');
+        // Radius is now calculated from zoom level
+        let calculatedRadius = 10; // Default value in km
         const minSpeedInput = document.getElementById('min-speed');
         const searchBtn = document.getElementById('search-btn');
         const toggleVesselsBtn = document.getElementById('toggle-vessels-btn');
@@ -395,8 +392,8 @@
                 // Cap the radius between 0.5km and 20km
                 radius = Math.min(Math.max(radius, 500), 20000);
                 
-                // Update radius input to reflect calculated value
-                radiusInput.value = (radius / 1000).toFixed(1);
+                // Store calculated radius for reference
+                calculatedRadius = radius / 1000;
                 
                 // Draw search area circle
                 if (searchArea) {
