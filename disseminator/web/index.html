@@ -3740,14 +3740,23 @@ function applyLogFilters() {
 	    metDataMarkers = {};
 	  }
 	});
+	
+	// Add a zoom handler to refresh MET data circles immediately after zoom
+	map.on('zoomend', function() {
+	  // Only refresh if MET data overlay is enabled
+	  if (metDataEnabled) {
+	    // Use a very short timeout to ensure this happens after the zoom animation completes
+	    setTimeout(fetchMetData, 50);
+	  }
+	});
 
-        // Connect to the Socket.IO server.
-        const socket = io();
-        let instantChannel = null;
-        let instantHandler = null;
+	       // Connect to the Socket.IO server.
+	       const socket = io();
+	       let instantChannel = null;
+	       let instantHandler = null;
 
-        // Listen for the socket connection event.
-        socket.on('connect', () => {
+	       // Listen for the socket connection event.
+	       socket.on('connect', () => {
           document.getElementById('status-dot').style.background = 'green';
           document.getElementById('status-text').textContent = 'Connected';
 	  socket.emit("subscribe", "summaryData");
