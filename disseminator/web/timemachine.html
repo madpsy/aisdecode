@@ -932,6 +932,26 @@
                                     className: 'vessel-tooltip'
                                 });
                                 
+                                // Add click handler to select the vessel
+                                dotMarker.on('click', function() {
+                                    // Find the vessel item in the list
+                                    const vesselItem = document.querySelector(`.vessel-item[data-id="${id}"]`);
+                                    if (vesselItem) {
+                                        // Call toggleVesselSelection to select this vessel
+                                        // Don't force refetch if time range hasn't changed
+                                        const timeRangeChanged = hasTimeRangeChanged();
+                                        toggleVesselSelection(id, vesselItem, false, timeRangeChanged);
+                                        
+                                        // Make sure the vessel list is visible
+                                        if (vesselList.style.display === 'none' || vesselList.style.display === '') {
+                                            toggleVesselList();
+                                        }
+                                        
+                                        // Scroll the vessel into view in the list
+                                        vesselItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                    }
+                                });
+                                
                                 // Add to non-selected layer instead of directly to map
                                 vesselMarkers[id] = dotMarker;
                                 nonSelectedLayer.addLayer(dotMarker);
