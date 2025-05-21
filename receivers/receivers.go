@@ -220,34 +220,6 @@ func notifyWebhook(rec Receiver) {
     notifyWebhookWithType(rec, "receiver_added")
 }
 
-// cleanupExpiredIPBlocks periodically removes expired IP blocks from the blocked_signup_ips table
-func cleanupExpiredIPBlocks() {
-    for {
-        // Sleep for the configured interval
-        time.Sleep(time.Duration(settings.CleanupIntervalMinutes) * time.Minute)
-        
-        // Delete expired IP blocks
-        result, err := db.Exec(`
-            DELETE FROM blocked_signup_ips
-            WHERE unblock_at <= NOW()
-        `)
-        if err != nil {
-            log.Printf("Error cleaning up expired IP blocks: %v", err)
-            continue
-        }
-        
-        // Log how many blocks were removed
-        rowsAffected, err := result.RowsAffected()
-        if err != nil {
-            log.Printf("Error getting rows affected: %v", err)
-            continue
-        }
-        
-        if rowsAffected > 0 {
-            log.Printf("Cleaned up %d expired IP blocks", rowsAffected)
-        }
-    }
-}
 
 // notifyWebhookWithClientIP is used when we need to include the client IP address
 func notifyWebhookWithClientIP(rec Receiver, clientIP string) {
@@ -664,6 +636,9 @@ func main() {
 
     // Start collector tracking
     startCollectorTracking()
+    
+    // Start the cleanup routine for expired blocks and old failed signup attempts
+    startCleanupRoutine()
 
     // Public API: GET /receivers and POST /addreceiver
     http.HandleFunc("/receivers", func(w http.ResponseWriter, r *http.Request) {
@@ -2913,6 +2888,80 @@ func handleEditReceiver(w http.ResponseWriter, r *http.Request) {
 // This is a public endpoint that allows adding a new receiver
 // It requires name, description, lat, long
 // URL is optional, and password is automatically generated
+// cleanupExpiredBlocks removes expired entries from the blocked_signup_ips table
+func cleanupExpiredBlocks() {
+    // Ensure database connection
+    if err := ensureConnection(); err != nil {
+        log.Printf("Database connection error when cleaning up expired blocks: %v", err)
+        return
+    }
+    
+    // Delete expired blocks
+    result, err := db.Exec(`
+        DELETE FROM blocked_signup_ips
+        WHERE unblock_at < NOW()
+    `)
+    
+    if err != nil {
+        log.Printf("Failed to clean up expired IP blocks: %v", err)
+        return
+    }
+    
+    rowsAffected, _ := result.RowsAffected()
+    if rowsAffected > 0 {
+        log.Printf("Cleaned up %d expired IP blocks", rowsAffected)
+    }
+}
+
+// cleanupOldFailedAttempts removes old entries from the failed_signup_attempts table
+func cleanupOldFailedAttempts() {
+    // Ensure database connection
+    if err := ensureConnection(); err != nil {
+        log.Printf("Database connection error when cleaning up old failed attempts: %v", err)
+        return
+    }
+    
+    // Delete old failed attempts
+    result, err := db.Exec(`
+        DELETE FROM failed_signup_attempts
+        WHERE attempt_time < NOW() - INTERVAL '1 hour'
+    `)
+    
+    if err != nil {
+        log.Printf("Failed to clean up old failed signup attempts: %v", err)
+        return
+    }
+    
+    rowsAffected, _ := result.RowsAffected()
+    if rowsAffected > 0 {
+        log.Printf("Cleaned up %d old failed signup attempts", rowsAffected)
+    }
+}
+
+// startCleanupRoutine starts a background goroutine that periodically cleans up
+// expired blocks and old failed signup attempts
+func startCleanupRoutine() {
+    go func() {
+        // Run cleanup immediately on startup
+        cleanupExpiredBlocks()
+        cleanupOldFailedAttempts()
+        
+        // Then run every 15 minutes
+        ticker := time.NewTicker(15 * time.Minute)
+        defer ticker.Stop()
+        
+        for {
+            select {
+            case <-ticker.C:
+                cleanupExpiredBlocks()
+                cleanupOldFailedAttempts()
+            }
+        }
+    }()
+    
+    log.Printf("Started background cleanup routine for IP blocks and failed signup attempts")
+}
+
 // trackFailedSignupAttempt records a failed signup attempt in the database
 func trackFailedSignupAttempt(clientIP, reason, email, name, description string, latitude, longitude float64) {
     // Ensure database connection
@@ -2933,6 +2982,10 @@ func trackFailedSignupAttempt(clientIP, reason, email, name, description string,
         return
     }
     
+    // Clean up old failed attempts and expired blocks
+    go cleanupOldFailedAttempts()
+    go cleanupExpiredBlocks()
+    
     // Check if this IP has exceeded the maximum number of failed attempts
     var count int
     err = db.QueryRow(`
@@ -2952,7 +3005,25 @@ func trackFailedSignupAttempt(clientIP, reason, email, name, description string,
         timeoutDuration := time.Duration(settings.IPAddressTimeoutMinutes) * time.Minute
         unblockTime := time.Now().Add(timeoutDuration)
         
-        _, err = db.Exec(`
+        // Check if this IP is already blocked
+        var isAlreadyBlocked bool
+        var currentAttempts int
+        err = db.QueryRow(`
+            SELECT EXISTS (
+                SELECT 1 FROM blocked_signup_ips
+                WHERE ip_address = $1
+            ),
+            COALESCE((SELECT attempts FROM blocked_signup_ips WHERE ip_address = $1), 0)
+        `, clientIP).Scan(&isAlreadyBlocked, &currentAttempts)
+        
+        if err != nil {
+            log.Printf("Failed to check if IP is already blocked: %v", err)
+            isAlreadyBlocked = false // Assume not blocked if we can't check
+            currentAttempts = 0
+        }
+        
+        // Insert or update the blocked IP
+        result, err := db.Exec(`
             INSERT INTO blocked_signup_ips (
                 ip_address, blocked_at, unblock_at, reason,
                 last_attempt_email, last_attempt_name, last_attempt_description,
@@ -2978,29 +3049,33 @@ func trackFailedSignupAttempt(clientIP, reason, email, name, description string,
             return
         }
         
-        // Create a receiver object with the necessary information for the alert
-        alertRec := Receiver{
-            Name: "BLOCKED_IP_FAILED_ATTEMPTS",
-            Description: fmt.Sprintf("IP: %s blocked for too many failed signup attempts", clientIP),
-            RequestIPAddress: clientIP,
-            CustomFields: map[string]interface{}{
-                "reason": "Too many failed signup attempts",
-                "unblock_at": unblockTime.Format(time.RFC3339),
-                "attempts": count,
-                "attempted_email": email,
-                "attempted_name": name,
-                "attempted_description": description,
-                "attempted_latitude": latitude,
-                "attempted_longitude": longitude,
-            },
+        if !isAlreadyBlocked {
+            // This is a new block - send an alert
+            alertRec := Receiver{
+                Name: "BLOCKED_IP_FAILED_ATTEMPTS",
+                Description: fmt.Sprintf("IP: %s blocked for too many failed signup attempts", clientIP),
+                RequestIPAddress: clientIP,
+                CustomFields: map[string]interface{}{
+                    "reason": "Too many failed signup attempts",
+                    "unblock_at": unblockTime.Format(time.RFC3339),
+                    "attempts": count,
+                    "attempted_email": email,
+                    "attempted_name": name,
+                    "attempted_description": description,
+                    "attempted_latitude": latitude,
+                    "attempted_longitude": longitude,
+                },
+            }
+            
+            // Send an alert about the blocked IP
+            if settings.WebhookURL != "" {
+                go notifyWebhookWithType(alertRec, "blocked_ip_attempt")
+            }
+            
+            log.Printf("IP %s blocked for too many failed signup attempts (%d in the last hour)", clientIP, count)
+        } else {
+            log.Printf("IP %s remains blocked after additional failed signup attempts (total: %d in the last hour)", clientIP, count)
         }
-        
-        // Send an alert about the blocked IP
-        if settings.WebhookURL != "" {
-            go notifyWebhookWithType(alertRec, "blocked_ip_attempt")
-        }
-        
-        log.Printf("IP %s blocked for too many failed signup attempts (%d in the last hour)", clientIP, count)
     }
 }
 
@@ -3075,6 +3150,12 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     if err == nil {
         // Check if it's still within the block period
         if time.Now().Before(unblockAt) {
+            // Check if this is the first attempt after being blocked
+            var firstAttemptAfterBlock bool
+            if attempts == 1 {
+                firstAttemptAfterBlock = true
+            }
+            
             // IP is still blocked, increment the attempts counter and store signup details
             _, err = db.Exec(`
                 UPDATE blocked_signup_ips
@@ -3090,8 +3171,8 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
                 log.Printf("Failed to update blocked IP attempts: %v", err)
             }
             
-            // Send an alert about the blocked IP trying to sign up
-            if settings.WebhookURL != "" {
+            // Only send an alert if this is the first attempt after being blocked
+            if firstAttemptAfterBlock && settings.WebhookURL != "" {
                 // Create a receiver object with the necessary information for the alert
                 alertRec := Receiver{
                     Name: "BLOCKED_IP_SIGNUP_ATTEMPT",
@@ -3109,6 +3190,9 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
                     },
                 }
                 go notifyWebhookWithType(alertRec, "blocked_ip_attempt")
+                log.Printf("Sent alert for first attempt by blocked IP %s (attempt #%d)", clientIP, attempts+1)
+            } else {
+                log.Printf("Blocked IP %s attempted to sign up again (attempt #%d)", clientIP, attempts+1)
             }
             
             // Return an error to the client
@@ -3146,9 +3230,26 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         // Check if it was updated within the configured timeout period
         timeoutDuration := time.Duration(settings.IPAddressTimeoutMinutes) * time.Minute
         if time.Since(existingLastUpdated) < timeoutDuration {
+            // Check if this IP is already blocked
+            var isAlreadyBlocked bool
+            var currentAttempts int
+            err = db.QueryRow(`
+                SELECT EXISTS (
+                    SELECT 1 FROM blocked_signup_ips
+                    WHERE ip_address = $1
+                ),
+                COALESCE((SELECT attempts FROM blocked_signup_ips WHERE ip_address = $1), 0)
+            `, clientIP).Scan(&isAlreadyBlocked, &currentAttempts)
+            
+            if err != nil {
+                log.Printf("Failed to check if IP is already blocked: %v", err)
+                isAlreadyBlocked = false // Assume not blocked if we can't check
+                currentAttempts = 0
+            }
+            
             // Add this IP to the blocked_signup_ips table
             unblockTime := time.Now().Add(timeoutDuration)
-            _, err = db.Exec(`
+            result, err := db.Exec(`
                 INSERT INTO blocked_signup_ips (
                     ip_address, blocked_at, unblock_at, reason,
                     last_attempt_email, last_attempt_name, last_attempt_description,
@@ -3170,6 +3271,35 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
                input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
             if err != nil {
                 log.Printf("Failed to add IP to blocked_signup_ips table: %v", err)
+            }
+            
+            // Only send an alert if this is a new block (not already blocked)
+            if !isAlreadyBlocked && settings.WebhookURL != "" {
+                // Create a receiver object with the necessary information for the alert
+                alertRec := Receiver{
+                    Name: "BLOCKED_IP_RATE_LIMIT",
+                    Description: fmt.Sprintf("IP: %s blocked for adding receivers too frequently", clientIP),
+                    RequestIPAddress: clientIP,
+                    CustomFields: map[string]interface{}{
+                        "reason": "Rate limit: Added receiver too recently",
+                        "unblock_at": unblockTime.Format(time.RFC3339),
+                        "attempts": 1,
+                        "attempted_email": input.Email,
+                        "attempted_name": input.Name,
+                        "attempted_description": input.Description,
+                        "attempted_latitude": input.Latitude,
+                        "attempted_longitude": input.Longitude,
+                        "previous_receiver_id": existingID,
+                        "previous_receiver_time": existingLastUpdated.Format(time.RFC3339),
+                    },
+                }
+                
+                // Send an alert about the blocked IP
+                go notifyWebhookWithType(alertRec, "blocked_ip_attempt")
+                
+                log.Printf("IP %s blocked for adding receivers too frequently", clientIP)
+            } else {
+                log.Printf("IP %s remains blocked after attempting to add another receiver too soon", clientIP)
             }
             
             timeoutMessage := fmt.Sprintf("Client IP address has already added a receiver recently")
@@ -3267,10 +3397,27 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
             
             // If we found a receiver assigned to this port, block the new receiver
             if err == nil && receiverID.Valid {
+                // Check if this IP is already blocked
+                var isAlreadyBlocked bool
+                var currentAttempts int
+                err = db.QueryRow(`
+                    SELECT EXISTS (
+                        SELECT 1 FROM blocked_signup_ips
+                        WHERE ip_address = $1
+                    ),
+                    COALESCE((SELECT attempts FROM blocked_signup_ips WHERE ip_address = $1), 0)
+                `, clientIP).Scan(&isAlreadyBlocked, &currentAttempts)
+                
+                if err != nil {
+                    log.Printf("Failed to check if IP is already blocked: %v", err)
+                    isAlreadyBlocked = false // Assume not blocked if we can't check
+                    currentAttempts = 0
+                }
+                
                 // Add this IP to the blocked_signup_ips table
                 timeoutDuration := time.Duration(settings.IPAddressTimeoutMinutes) * time.Minute
                 unblockTime := time.Now().Add(timeoutDuration)
-                _, err = db.Exec(`
+                result, err := db.Exec(`
                     INSERT INTO blocked_signup_ips (
                         ip_address, blocked_at, unblock_at, reason,
                         last_attempt_email, last_attempt_name, last_attempt_description,
@@ -3292,6 +3439,36 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
                    input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
                 if err != nil {
                     log.Printf("Failed to add IP to blocked_signup_ips table: %v", err)
+                }
+                
+                // Only send an alert if this is a new block (not already blocked)
+                if !isAlreadyBlocked && settings.WebhookURL != "" {
+                    // Create a receiver object with the necessary information for the alert
+                    alertRec := Receiver{
+                        Name: "BLOCKED_IP_PORT_CONFLICT",
+                        Description: fmt.Sprintf("IP: %s blocked for port conflict", clientIP),
+                        RequestIPAddress: clientIP,
+                        CustomFields: map[string]interface{}{
+                            "reason": "Already sending data to a non-primary port with an assigned receiver",
+                            "unblock_at": unblockTime.Format(time.RFC3339),
+                            "attempts": 1,
+                            "attempted_email": input.Email,
+                            "attempted_name": input.Name,
+                            "attempted_description": input.Description,
+                            "attempted_latitude": input.Latitude,
+                            "attempted_longitude": input.Longitude,
+                            "conflicting_port": port,
+                            "conflicting_receiver_id": receiverID.Int64,
+                        },
+                    }
+                    
+                    // Send an alert about the blocked IP
+                    go notifyWebhookWithType(alertRec, "blocked_ip_attempt")
+                    
+                    log.Printf("IP %s blocked for sending data to port %d which already has receiver ID %d",
+                              clientIP, port, receiverID.Int64)
+                } else {
+                    log.Printf("IP %s remains blocked after attempting to sign up with port conflict", clientIP)
                 }
                 
                 errorMsg := fmt.Sprintf("The IP address '%s' is already sending data to a non-primary port with an assigned receiver", ipToCheck)
