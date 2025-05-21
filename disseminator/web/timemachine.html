@@ -310,10 +310,34 @@
         
         // Add event listeners for date/time changes
         fromDateInput.addEventListener('change', function() {
+            // When from date changes, check if we need to adjust the to date
+            const fromDate = new Date(fromDateInput.value);
+            const toDate = new Date(toDateInput.value);
+            const timeDiffHours = (toDate - fromDate) / (1000 * 60 * 60);
+            
+            if (timeDiffHours > 24) {
+                // Automatically adjust the 'to' date to be 24 hours after 'from'
+                const adjustedToDate = new Date(fromDate.getTime() + (24 * 60 * 60 * 1000));
+                toDateInput.value = formatDateForInput(adjustedToDate);
+                alert("To date has been adjusted to 24 hours after From date (backend limit)");
+            }
+            
             debouncedSearch();
             if (initialLoadComplete) debouncedUpdateURL();
         });
         toDateInput.addEventListener('change', function() {
+            // When to date changes, check if it exceeds 24 hours from from date
+            const fromDate = new Date(fromDateInput.value);
+            const toDate = new Date(toDateInput.value);
+            const timeDiffHours = (toDate - fromDate) / (1000 * 60 * 60);
+            
+            if (timeDiffHours > 24) {
+                // Automatically adjust the 'to' date to be 24 hours after 'from'
+                const adjustedToDate = new Date(fromDate.getTime() + (24 * 60 * 60 * 1000));
+                toDateInput.value = formatDateForInput(adjustedToDate);
+                alert("Time range has been adjusted to 24 hours (backend limit)");
+            }
+            
             debouncedSearch();
             if (initialLoadComplete) debouncedUpdateURL();
         });
@@ -546,52 +570,72 @@
         }
 
         async function searchVessels() {
-            // Don't reset the view when automatically searching
-            // Just clear existing vessels and markers
-            clearVessels();
-            showLoading();
-            
-            try {
-                // Get search parameters
-                const fromDate = new Date(fromDateInput.value);
-                const toDate = new Date(toDateInput.value);
-                const minSpeed = parseFloat(minSpeedInput.value);
-                
-                // Calculate center based on current map view
-                const bounds = map.getBounds();
-                const center = bounds.getCenter();
-                const lat = center.lat;
-                const lng = center.lng;
-                
-                // Calculate radius based on the visible map bounds
-                // Get the corners of the visible map
-                const northEast = bounds.getNorthEast();
-                const southWest = bounds.getSouthWest();
-                const northWest = L.latLng(northEast.lat, southWest.lng);
-                const southEast = L.latLng(southWest.lat, northEast.lng);
-                
-                // Calculate distances from center to each corner
-                const distNE = center.distanceTo(northEast);
-                const distSW = center.distanceTo(southWest);
-                const distNW = center.distanceTo(northWest);
-                const distSE = center.distanceTo(southEast);
-                
-                // Use the maximum distance to ensure coverage of the entire visible area
-                // Add 10% margin to ensure complete coverage
-                let radius = Math.max(distNE, distSW, distNW, distSE) * 1.1;
-                
-                // Set a minimum radius of 500m to avoid too small searches
-                radius = Math.max(radius, 500);
-                
-                // Store calculated radius for reference
-                calculatedRadius = radius / 1000;
-                
-                // No longer drawing the search area circle
-                
-                // Fetch vessels from summaryhistory endpoint
-                const url = `/summaryhistory?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}&latitude=${lat}&longitude=${lng}&radius=${radius}&minSpeed=${minSpeed}`;
-                
-                const response = await fetch(url);
+                    // Don't reset the view when automatically searching
+                    // Just clear existing vessels and markers
+                    clearVessels();
+                    showLoading();
+                    
+                    try {
+                        // Get search parameters
+                        const fromDate = new Date(fromDateInput.value);
+                        const toDate = new Date(toDateInput.value);
+                        const minSpeed = parseFloat(minSpeedInput.value);
+                        
+                        // Calculate center based on current map view
+                        const bounds = map.getBounds();
+                        const center = bounds.getCenter();
+                        const lat = center.lat;
+                        const lng = center.lng;
+                        
+                        // Calculate radius based on the visible map bounds
+                        // Get the corners of the visible map
+                        const northEast = bounds.getNorthEast();
+                        const southWest = bounds.getSouthWest();
+                        const northWest = L.latLng(northEast.lat, southWest.lng);
+                        const southEast = L.latLng(southWest.lat, northEast.lng);
+                        
+                        // Calculate distances from center to each corner
+                        const distNE = center.distanceTo(northEast);
+                        const distSW = center.distanceTo(southWest);
+                        const distNW = center.distanceTo(northWest);
+                        const distSE = center.distanceTo(southEast);
+                        
+                        // Use the maximum distance to ensure coverage of the entire visible area
+                        // Add 10% margin to ensure complete coverage
+                        let radius = Math.max(distNE, distSW, distNW, distSE) * 1.1;
+                        
+                        // Set a minimum radius of 500m to avoid too small searches
+                        radius = Math.max(radius, 500);
+                        
+                        // Store calculated radius for reference
+                        calculatedRadius = radius / 1000;
+                        
+                        // Check if time range exceeds 24 hours (backend limit)
+                        const timeDiffHours = (toDate - fromDate) / (1000 * 60 * 60);
+                        if (timeDiffHours > 24) {
+                            // Automatically adjust the 'to' date to be 24 hours after 'from'
+                            const adjustedToDate = new Date(fromDate.getTime() + (24 * 60 * 60 * 1000));
+                            toDateInput.value = formatDateForInput(adjustedToDate);
+                            toDate.setTime(adjustedToDate.getTime());
+                            
+                            // Inform the user about the adjustment
+                            console.log("Time range adjusted to 24 hours (backend limit)");
+                            alert("Time range has been adjusted to 24 hours (backend limit)");
+                        }
+                        
+                        // Check if radius exceeds 400km (backend limit)
+                        if (calculatedRadius > 400) {
+                            hideLoading();
+                            alert("The current view is too zoomed out. Please zoom in to reduce the search radius below 400km (backend limit).");
+                            return; // Don't send the request
+                        }
+                        
+                        // No longer drawing the search area circle
+                        
+                        // Fetch vessels from summaryhistory endpoint
+                        const url = `/summaryhistory?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}&latitude=${lat}&longitude=${lng}&radius=${radius}&minSpeed=${minSpeed}`;
+                        
+                        const response = await fetch(url);
                 if (!response.ok) {
                     // Get the response text for more detailed error information
                     const errorText = await response.text();
