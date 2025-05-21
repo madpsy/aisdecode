@@ -190,6 +190,7 @@
         let isPlaying = false;
         let playbackInterval;
         let searchArea;
+        let vesselTypes = null; // Will store the vessel types data
 
         // DOM elements
         const fromDateInput = document.getElementById('from-date');
@@ -213,6 +214,9 @@
         
         fromDateInput.value = formatDateForInput(oneHourAgo);
         toDateInput.value = formatDateForInput(now);
+
+        // Fetch vessel types data
+        fetchVesselTypes();
 
         // Event listeners
         searchBtn.addEventListener('click', searchVessels);
@@ -242,6 +246,36 @@
 
         function hideLoading() {
             loadingIndicator.style.display = 'none';
+        }
+
+        // Fetch vessel types data from types.json
+        async function fetchVesselTypes() {
+            try {
+                const response = await fetch('/types.json');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                vesselTypes = await response.json();
+                console.log('Vessel types loaded successfully');
+            } catch (error) {
+                console.error('Error loading vessel types:', error);
+            }
+        }
+
+        // Get descriptive name for a vessel type
+        function getVesselTypeName(typeId) {
+            if (!vesselTypes || !typeId) return 'Unknown';
+            
+            // Convert to string for lookup
+            const typeIdStr = String(typeId);
+            
+            // Get category ID from the lookup
+            const categoryId = vesselTypes.valueLookup[typeIdStr];
+            if (categoryId === undefined) return 'Unknown';
+            
+            // Find the category with this ID
+            const category = vesselTypes.categories.find(cat => cat.id === categoryId);
+            return category ? category.name : 'Unknown';
         }
 
         function toggleVesselList() {
@@ -354,14 +388,15 @@
                 item.dataset.id = id;
                 
                 const name = vessel.Name || 'Unknown';
-                const type = vessel.Type || 'Unknown';
+                const typeId = vessel.Type || 'Unknown';
+                const typeName = getVesselTypeName(typeId);
                 const aisClass = vessel.AISClass || 'Unknown';
                 
                 item.innerHTML = `
                     <div class="vessel-name">${name}</div>
                     <div class="vessel-details">
                         ID: ${id}<br>
-                        Type: ${type}<br>
+                        Type: ${typeName} (${typeId})<br>
                         Class: ${aisClass}
                     </div>
                 `;
@@ -465,6 +500,8 @@
             
             const vessel = vessels[id];
             const name = vessel.Name || 'Unknown';
+            const typeId = vessel.Type || 'Unknown';
+            const typeName = getVesselTypeName(typeId);
             
             // Create marker at first position
             const pos = positions[0];
@@ -476,6 +513,7 @@
             marker.bindPopup(`
                 <strong>${name}</strong><br>
                 ID: ${id}<br>
+                Type: ${typeName} (${typeId})<br>
                 Speed: ${pos.sog !== null ? pos.sog.toFixed(1) : 'N/A'} knots<br>
                 Course: ${pos.cog !== null ? pos.cog.toFixed(1) : 'N/A'}°<br>
                 Time: ${pos.timestamp.toLocaleString()}
@@ -570,10 +608,13 @@
                     // Update popup content
                     const vessel = vessels[id];
                     const name = vessel.Name || 'Unknown';
+                    const typeId = vessel.Type || 'Unknown';
+                    const typeName = getVesselTypeName(typeId);
                     
                     marker.bindPopup(`
                         <strong>${name}</strong><br>
                         ID: ${id}<br>
+                        Type: ${typeName} (${typeId})<br>
                         Speed: ${closestPos.sog !== null ? closestPos.sog.toFixed(1) : 'N/A'} knots<br>
                         Course: ${closestPos.cog !== null ? closestPos.cog.toFixed(1) : 'N/A'}°<br>
                         Time: ${closestPos.timestamp.toLocaleString()}
