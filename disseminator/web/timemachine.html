@@ -1056,8 +1056,9 @@
             
             // Ensure all selected vessels have their tracks drawn
             for (const id of selectedVessels) {
-                // If the vessel has positions but no track, create the marker and track
-                if (vesselPositions[id] && !vesselTracks[id]) {
+                // Always recreate the marker and track for selected vessels
+                // This ensures tracks are properly drawn even when reselecting a vessel
+                if (vesselPositions[id]) {
                     createVesselMarker(id);
                 }
             }
