@@ -3659,7 +3659,7 @@ function applyLogFilters() {
 	        marker.on('popupopen', () => {
 	          const headerElement = document.getElementById(`met-header-${userId}`);
 	          if (headerElement) {
-	            headerElement.innerHTML = `Last Updated: ${lastUpdated ? new Date(lastUpdated).toLocaleString() : 'Unknown'} | AtoN Name: ${name}`;
+	            headerElement.innerHTML = `Last Updated: ${lastUpdated ? new Date(lastUpdated).toLocaleString() : 'Unknown'} | Met Buoy: ${name}`;
 	          }
 	        });
 	      }
