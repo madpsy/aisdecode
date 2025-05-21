@@ -311,16 +311,21 @@
         function getVesselTypeName(typeId) {
             if (!vesselTypes || !typeId) return 'Unknown';
             
+            // Check if vesselTypes has the expected structure
+            if (!vesselTypes.valueLookup || !vesselTypes.categories) {
+                return `Type ${typeId}`;
+            }
+            
             // Convert to string for lookup
             const typeIdStr = String(typeId);
             
             // Get category ID from the lookup
             const categoryId = vesselTypes.valueLookup[typeIdStr];
-            if (categoryId === undefined) return 'Unknown';
+            if (categoryId === undefined) return `Type ${typeId}`;
             
             // Find the category with this ID
             const category = vesselTypes.categories.find(cat => cat.id === categoryId);
-            return category ? category.name : 'Unknown';
+            return category ? category.name : `Type ${typeId}`;
         }
 
         function toggleVesselList() {
