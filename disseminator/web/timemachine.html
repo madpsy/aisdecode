@@ -48,6 +48,21 @@
             overflow-y: auto;
             padding: 10px;
             display: none;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #vessel-filter {
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: calc(100% - 16px);
+        }
+        
+        #vessel-items {
+            flex: 1;
+            overflow-y: auto;
         }
         .control-group {
             display: flex;
@@ -325,7 +340,10 @@
                 <div id="radius-warning">You need to zoom in</div>
                 <div id="map-time-overlay" class="map-time-overlay"></div>
             </div>
-            <div id="vessel-list"></div>
+            <div id="vessel-list">
+                <input type="text" id="vessel-filter" placeholder="Filter by name or MMSI...">
+                <div id="vessel-items"></div>
+            </div>
         </div>
         <div id="timeline" style="display: block !important;">
             <div id="playback-controls">
@@ -414,6 +432,8 @@
         const toggleVesselsBtn = document.getElementById('toggle-vessels-btn');
         const resetBtn = document.getElementById('reset-btn');
         const vesselList = document.getElementById('vessel-list');
+        const vesselItems = document.getElementById('vessel-items');
+        const vesselFilter = document.getElementById('vessel-filter');
         const timeline = document.getElementById('timeline');
         const timelineSlider = document.getElementById('timeline-slider');
         const timeDisplay = document.getElementById('time-display');
@@ -551,6 +571,7 @@
         
         toggleVesselsBtn.addEventListener('click', toggleVesselList);
         resetBtn.addEventListener('click', resetView);
+        vesselFilter.addEventListener('input', filterVesselList);
         playPauseBtn.addEventListener('click', handlePlayPauseClick);
         stopBtn.addEventListener('click', stopPlayback);
         timelineSlider.addEventListener('input', handleTimelineSliderChange);
@@ -764,7 +785,8 @@
             vesselPositions = {};
             
             // Reset UI
-            vesselList.innerHTML = '';
+            vesselItems.innerHTML = '';
+            vesselFilter.value = '';
             vesselList.style.display = 'none';
             // Don't hide the timeline
             // timeline.style.display = 'none';
@@ -1007,10 +1029,10 @@
         }
         
         function populateVesselList(vessels) {
-            vesselList.innerHTML = '';
+            vesselItems.innerHTML = '';
             
             if (Object.keys(vessels).length === 0) {
-                vesselList.innerHTML = '<div class="vessel-item">No vessels found</div>';
+                vesselItems.innerHTML = '<div class="vessel-item">No vessels found</div>';
                 return;
             }
             
@@ -1084,7 +1106,7 @@
                     toggleVesselSelection(id, item, false, timeRangeChanged);
                 });
                 
-                vesselList.appendChild(item);
+                vesselItems.appendChild(item);
             }
         }
 
@@ -2070,6 +2092,24 @@
                 histogramSelectionStart = null;
                 histogramSelectionEnd = null;
             }
+        }
+        
+        // Function to filter vessel list based on search input
+        function filterVesselList() {
+            const filterText = vesselFilter.value.toLowerCase();
+            const vesselElements = document.querySelectorAll('#vessel-items .vessel-item');
+            
+            vesselElements.forEach(item => {
+                const vesselName = item.querySelector('.vessel-name').textContent.toLowerCase();
+                const vesselDetails = item.querySelector('.vessel-details').textContent.toLowerCase();
+                
+                // Check if vessel name or MMSI contains the filter text
+                if (vesselName.includes(filterText) || vesselDetails.includes(filterText)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
         }
     </script>
 </body>
