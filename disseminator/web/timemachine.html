@@ -502,8 +502,22 @@
         
         // Function to clear vessels without resetting the entire view
         function clearVessels() {
-            // Store selected vessel IDs before clearing
+            // Store selected vessel IDs and their position data before clearing
             const selectedVesselIds = Array.from(selectedVessels);
+            const savedPositions = {};
+            
+            // Save position data for selected vessels
+            for (const id of selectedVesselIds) {
+                if (vesselPositions[id]) {
+                    savedPositions[id] = vesselPositions[id];
+                }
+            }
+            
+            // Store the current time range for comparison
+            window.lastTimeRange = {
+                from: fromDateInput.value,
+                to: toDateInput.value
+            };
             
             vessels = {};
             selectedVessels.clear();
@@ -518,7 +532,7 @@
             
             vesselMarkers = {};
             vesselTracks = {};
-            vesselPositions = {};
+            vesselPositions = savedPositions; // Preserve position data for selected vessels
             // Note: We don't clear vesselColorMap to maintain color consistency
             
             // Store selected vessels for restoration after search
@@ -761,6 +775,14 @@
             }
         }
 
+        // Function to check if time range has changed
+        function hasTimeRangeChanged() {
+            if (!window.lastTimeRange) return true;
+            
+            return window.lastTimeRange.from !== fromDateInput.value ||
+                   window.lastTimeRange.to !== toDateInput.value;
+        }
+        
         // Function to select vessels from URL parameters
         function selectVesselsFromParams(vesselIds) {
             for (const id of vesselIds) {
@@ -771,6 +793,14 @@
                     toggleVesselSelection(id, vesselItem, skipURLUpdate);
                 }
             }
+        }
+        
+        // Function to check if time range has changed
+        function hasTimeRangeChanged() {
+            if (!window.lastTimeRange) return true;
+            
+            return window.lastTimeRange.from !== fromDateInput.value ||
+                   window.lastTimeRange.to !== toDateInput.value;
         }
         
         function toggleVesselSelection(id, element, skipURLUpdate) {
@@ -815,11 +845,11 @@
                 selectedVessels.add(id);
                 element.classList.add('selected');
                 
-                // Fetch vessel positions if not already fetched
-                if (!vesselPositions[id]) {
+                // Fetch vessel positions if not already fetched or if time range has changed
+                if (!vesselPositions[id] || hasTimeRangeChanged()) {
                     fetchVesselPositions(id);
                 } else {
-                    // If positions are already fetched, just recreate the marker and track
+                    // If positions are already fetched and time range hasn't changed, just recreate the marker and track
                     createVesselMarker(id);
                     
                     // Update timeline if this is the first vessel selected
