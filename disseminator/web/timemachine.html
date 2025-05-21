@@ -210,6 +210,7 @@
         <div id="timeline" style="display: block !important;">
             <div id="playback-controls">
                 <button id="play-pause-btn" disabled>▶️</button>
+                <button id="stop-btn" disabled>⏹️</button>
                 <input type="range" id="timeline-slider" min="0" max="100" value="0" disabled>
                 <span id="time-display">00:00:00</span>
             </div>
@@ -261,6 +262,7 @@
         const timelineSlider = document.getElementById('timeline-slider');
         const timeDisplay = document.getElementById('time-display');
         const playPauseBtn = document.getElementById('play-pause-btn');
+        const stopBtn = document.getElementById('stop-btn');
         const loadingIndicator = document.getElementById('loading');
 
         // Set default date/time values (1 hour ago to now)
@@ -302,6 +304,7 @@
         toggleVesselsBtn.addEventListener('click', toggleVesselList);
         resetBtn.addEventListener('click', resetView);
         playPauseBtn.addEventListener('click', handlePlayPauseClick);
+        stopBtn.addEventListener('click', stopPlayback);
         timelineSlider.addEventListener('input', handleTimelineSliderChange);
         
         // Call searchVessels on page load
@@ -393,6 +396,7 @@
             
             // Disable timeline controls
             playPauseBtn.disabled = true;
+            stopBtn.disabled = true;
             timelineSlider.disabled = true;
             
             // Stop playback
@@ -699,6 +703,7 @@
             // Enable/disable timeline controls based on selection
             const hasSelectedVessels = selectedVessels.size > 0;
             playPauseBtn.disabled = !hasSelectedVessels;
+            stopBtn.disabled = !hasSelectedVessels;
             timelineSlider.disabled = !hasSelectedVessels;
             
             if (hasSelectedVessels) {
@@ -1019,8 +1024,9 @@
                 playbackInterval = null;
             }
             
-            // Ensure play/pause button is enabled if vessels are selected
+            // Ensure timeline controls are enabled if vessels are selected
             playPauseBtn.disabled = selectedVessels.size === 0;
+            stopBtn.disabled = selectedVessels.size === 0;
             timelineSlider.disabled = selectedVessels.size === 0;
             
             // Reset the timeline index to allow replaying
