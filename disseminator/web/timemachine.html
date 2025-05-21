@@ -477,6 +477,12 @@
             setTimeout(function() {
                 checkRadiusAndUpdateUI();
                 initialLoadComplete = true;
+                
+                // Automatically perform search if we have location parameters
+                if (window.shouldAutoSearch && calculatedRadius <= 400) {
+                    searchVessels();
+                    delete window.shouldAutoSearch;
+                }
             }, 500);
         });
         
@@ -486,6 +492,12 @@
             setTimeout(function() {
                 checkRadiusAndUpdateUI();
                 initialLoadComplete = true;
+                
+                // Automatically perform search if we have location parameters
+                if (window.shouldAutoSearch && calculatedRadius <= 400) {
+                    searchVessels();
+                    delete window.shouldAutoSearch;
+                }
             }, 500);
         }
         
@@ -590,6 +602,13 @@
             
             if (minSpeed && !isNaN(parseFloat(minSpeed))) {
                 minSpeedInput.value = minSpeed;
+            }
+            
+            // Check if we should automatically perform a search
+            // If we have location parameters and zoom level, we can search
+            if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
+                // Flag to indicate we should perform a search after loading
+                window.shouldAutoSearch = true;
             }
         }
 
@@ -1672,8 +1691,10 @@
                 applyHistogramSelection();
             });
             
-            // Double click to reset selection
-            histogramContainer.addEventListener('dblclick', () => {
+            // Single click (not during drag) to reset selection
+            histogramContainer.addEventListener('click', (e) => {
+                // Only handle as a click if we're not dragging
+                if (isDragging) return;
                 histogramSelectionStart = null;
                 histogramSelectionEnd = null;
                 updateHistogramSelection();
