@@ -313,6 +313,11 @@
             <button id="search-btn">Go!</button>
             <button id="toggle-vessels-btn" disabled>Show Vessels</button>
             <button id="reset-btn">Reset</button>
+            <div class="control-group">
+                <label><input type="checkbox" id="class-a-checkbox" checked> Class A</label>
+                <label><input type="checkbox" id="class-b-checkbox" checked> Class B</label>
+                <label><input type="checkbox" id="sar-checkbox" checked> SAR</label>
+            </div>
         </div>
         <div id="histogram-container"></div>
         <div class="split-view">
@@ -533,6 +538,17 @@
             if (initialLoadComplete) debouncedUpdateURL();
         });
         
+        // Add event listeners for class checkboxes
+        document.getElementById('class-a-checkbox').addEventListener('change', function() {
+            if (initialLoadComplete) debouncedUpdateURL();
+        });
+        document.getElementById('class-b-checkbox').addEventListener('change', function() {
+            if (initialLoadComplete) debouncedUpdateURL();
+        });
+        document.getElementById('sar-checkbox').addEventListener('change', function() {
+            if (initialLoadComplete) debouncedUpdateURL();
+        });
+        
         toggleVesselsBtn.addEventListener('click', toggleVesselList);
         resetBtn.addEventListener('click', resetView);
         playPauseBtn.addEventListener('click', handlePlayPauseClick);
@@ -623,6 +639,9 @@
             const fromDate = fromDateInput.value;
             const toDate = toDateInput.value;
             const minSpeed = minSpeedInput.value;
+            const classAChecked = document.getElementById('class-a-checkbox').checked;
+            const classBChecked = document.getElementById('class-b-checkbox').checked;
+            const sarChecked = document.getElementById('sar-checkbox').checked;
             
             const params = new URLSearchParams();
             params.set('lat', center.lat.toFixed(6));
@@ -631,6 +650,9 @@
             params.set('from', fromDate);
             params.set('to', toDate);
             params.set('minSpeed', minSpeed);
+            params.set('classA', classAChecked);
+            params.set('classB', classBChecked);
+            params.set('sar', sarChecked);
             
             // Add selected vessels to URL if any are selected
             if (selectedVessels.size > 0) {
@@ -656,6 +678,9 @@
             const fromDate = params.get('from');
             const toDate = params.get('to');
             const minSpeed = params.get('minSpeed');
+            const classA = params.get('classA');
+            const classB = params.get('classB');
+            const sar = params.get('sar');
             
             // Get selected vessels
             const selectedParam = params.get('selected');
@@ -681,6 +706,19 @@
             
             if (minSpeed && !isNaN(parseFloat(minSpeed))) {
                 minSpeedInput.value = minSpeed;
+            }
+            
+            // Set checkbox states from URL parameters if present
+            if (classA !== null) {
+                document.getElementById('class-a-checkbox').checked = classA === 'true';
+            }
+            
+            if (classB !== null) {
+                document.getElementById('class-b-checkbox').checked = classB === 'true';
+            }
+            
+            if (sar !== null) {
+                document.getElementById('sar-checkbox').checked = sar === 'true';
             }
             
             // Check if we should automatically perform a search
@@ -837,8 +875,19 @@
                         
                         // No longer drawing the search area circle
                         
+                        // Get selected vessel classes
+                        const classAChecked = document.getElementById('class-a-checkbox').checked;
+                        const classBChecked = document.getElementById('class-b-checkbox').checked;
+                        const sarChecked = document.getElementById('sar-checkbox').checked;
+                        
+                        // Build classes parameter
+                        const selectedClasses = [];
+                        if (classAChecked) selectedClasses.push('A');
+                        if (classBChecked) selectedClasses.push('B');
+                        if (sarChecked) selectedClasses.push('SAR');
+                        
                         // Fetch vessels from summaryhistory endpoint
-                        const url = `/summaryhistory?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}&latitude=${lat}&longitude=${lng}&radius=${radius}&minSpeed=${minSpeed}`;
+                        const url = `/summaryhistory?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}&latitude=${lat}&longitude=${lng}&radius=${radius}&minSpeed=${minSpeed}&classes=${selectedClasses.join(',')}`;
                         
                         const response = await fetch(url);
                 if (!response.ok) {
