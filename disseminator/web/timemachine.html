@@ -126,6 +126,20 @@
             display: flex;
             flex-grow: 1;
         }
+        .vessel-tooltip {
+            background-color: rgba(0, 0, 0, 0.7);
+            border: none;
+            color: white;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            white-space: nowrap;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+        }
+        .vessel-tooltip::before {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -494,6 +508,19 @@
             }
         }
 
+        // Create a custom vessel icon (elongated triangle)
+        function createVesselIcon(color) {
+            return L.divIcon({
+                className: 'vessel-icon',
+                html: `<svg width="20" height="30" viewBox="0 0 20 30" xmlns="http://www.w3.org/2000/svg">
+                        <polygon points="10,0 0,30 20,30" fill="${color}" stroke="#000" stroke-width="1" />
+                      </svg>`,
+                iconSize: [20, 30],
+                iconAnchor: [10, 15],
+                popupAnchor: [0, -15]
+            });
+        }
+
         function createVesselMarker(id) {
             const positions = vesselPositions[id];
             if (!positions || positions.length === 0) return;
@@ -503,12 +530,24 @@
             const typeId = vessel.Type || 'Unknown';
             const typeName = getVesselTypeName(typeId);
             
+            // Generate a color for this vessel (same for marker and track)
+            const vesselColor = getRandomColor();
+            
             // Create marker at first position
             const pos = positions[0];
             const marker = L.marker([pos.lat, pos.lng], {
+                icon: createVesselIcon(vesselColor),
                 title: name,
                 rotationAngle: pos.heading || pos.cog || 0
             }).addTo(map);
+            
+            // Add permanent tooltip with vessel name
+            marker.bindTooltip(name, {
+                permanent: true,
+                direction: 'top',
+                offset: [0, -20],
+                className: 'vessel-tooltip'
+            });
             
             marker.bindPopup(`
                 <strong>${name}</strong><br>
@@ -524,7 +563,7 @@
             // Create track polyline
             const trackPoints = positions.map(p => [p.lat, p.lng]);
             const track = L.polyline(trackPoints, {
-                color: getRandomColor(),
+                color: vesselColor,
                 weight: 3,
                 opacity: 0.7
             }).addTo(map);
