@@ -3197,20 +3197,28 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
 
     // Validate the receiver
     if err := validateReceiver(rec); err != nil {
+        // Track the failed signup attempt
+        go trackFailedSignupAttempt(clientIP, err.Error(), input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
     // Ensure database connection
     if err := ensureConnection(); err != nil {
-        http.Error(w, "Database connection error: "+err.Error(), http.StatusInternalServerError)
+        errorMsg := "Database connection error: " + err.Error()
+        // Track the failed signup attempt
+        go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+        http.Error(w, errorMsg, http.StatusInternalServerError)
         return
     }
     
     // Fetch the UDP listen port from the ingester settings
     ingestSettings, err := fetchIngestSettings()
     if err != nil {
-        http.Error(w, fmt.Sprintf("Failed to fetch ingester settings: %v", err), http.StatusInternalServerError)
+        errorMsg := fmt.Sprintf("Failed to fetch ingester settings: %v", err)
+        // Track the failed signup attempt
+        go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+        http.Error(w, errorMsg, http.StatusInternalServerError)
         return
     }
     
@@ -3240,7 +3248,10 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     
     // Check if the IP address is sending data to the primary UDP port
     if !sendingToPrimaryPort {
-        http.Error(w, fmt.Sprintf("The IP address '%s' is not sending data to the primary UDP port (%d)", ipToCheck, primaryUDPPort), http.StatusBadRequest)
+        errorMsg := fmt.Sprintf("The IP address '%s' is not sending data to the primary UDP port (%d)", ipToCheck, primaryUDPPort)
+        // Track the failed signup attempt
+        go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+        http.Error(w, errorMsg, http.StatusBadRequest)
         return
     }
     
@@ -3283,7 +3294,9 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
                     log.Printf("Failed to add IP to blocked_signup_ips table: %v", err)
                 }
                 
-                http.Error(w, fmt.Sprintf("The IP address '%s' is already sending data to a non-primary port with an assigned receiver", ipToCheck), http.StatusForbidden)
+                errorMsg := fmt.Sprintf("The IP address '%s' is already sending data to a non-primary port with an assigned receiver", ipToCheck)
+                // We don't need to track this as a failed attempt since it's already being added to blocked_signup_ips
+                http.Error(w, errorMsg, http.StatusForbidden)
                 return
             }
         }
@@ -3292,7 +3305,10 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     // Start a transaction to ensure atomicity
     tx, err := db.Begin()
     if err != nil {
-        http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
+        errorMsg := "Failed to start transaction: " + err.Error()
+        // Track the failed signup attempt
+        go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+        http.Error(w, errorMsg, http.StatusInternalServerError)
         return
     }
     
@@ -3300,7 +3316,10 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     _, err = tx.Exec(`LOCK TABLE receivers IN EXCLUSIVE MODE`)
     if err != nil {
         tx.Rollback()
-        http.Error(w, "Failed to lock table: "+err.Error(), http.StatusInternalServerError)
+        errorMsg := "Failed to lock table: " + err.Error()
+        // Track the failed signup attempt
+        go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+        http.Error(w, errorMsg, http.StatusInternalServerError)
         return
     }
     
@@ -3369,15 +3388,24 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         // Check for uniqueness violations
         if strings.Contains(err.Error(), "unique constraint") {
             if strings.Contains(err.Error(), "idx_receivers_name") {
-                http.Error(w, fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name), http.StatusBadRequest)
+                errorMsg := fmt.Sprintf("name '%s' is already in use by another receiver", rec.Name)
+                // Track the failed signup attempt
+                go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+                http.Error(w, errorMsg, http.StatusBadRequest)
                 return
             }
             if strings.Contains(err.Error(), "receivers_email_key") {
-                http.Error(w, fmt.Sprintf("email '%s' is already in use by another receiver", rec.Email), http.StatusBadRequest)
+                errorMsg := fmt.Sprintf("email '%s' is already in use by another receiver", rec.Email)
+                // Track the failed signup attempt
+                go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+                http.Error(w, errorMsg, http.StatusBadRequest)
                 return
             }
         }
-        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+        errorMsg := "Database error: " + err.Error()
+        // Track the failed signup attempt
+        go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+        http.Error(w, errorMsg, http.StatusInternalServerError)
         return
     }
 
@@ -3388,10 +3416,16 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
         
         if err.Error() == "no available ports" {
             log.Printf("ERROR: No available UDP ports found for receiver ID %d", rec.ID)
-            http.Error(w, "Failed to create receiver: No available UDP ports", http.StatusServiceUnavailable)
+            errorMsg := "Failed to create receiver: No available UDP ports"
+            // Track the failed signup attempt
+            go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+            http.Error(w, errorMsg, http.StatusServiceUnavailable)
         } else {
             log.Printf("ERROR: Failed to allocate UDP port for receiver ID %d: %v", rec.ID, err)
-            http.Error(w, fmt.Sprintf("Failed to create receiver: UDP port allocation error: %v", err), http.StatusInternalServerError)
+            errorMsg := fmt.Sprintf("Failed to create receiver: UDP port allocation error: %v", err)
+            // Track the failed signup attempt
+            go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+            http.Error(w, errorMsg, http.StatusInternalServerError)
         }
         return
     }
@@ -3400,7 +3434,10 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     if err := tx.Commit(); err != nil {
         tx.Rollback()
         log.Printf("ERROR: Failed to commit transaction for receiver ID %d: %v", rec.ID, err)
-        http.Error(w, "Failed to create receiver: Transaction commit error", http.StatusInternalServerError)
+        errorMsg := "Failed to create receiver: Transaction commit error"
+        // Track the failed signup attempt
+        go trackFailedSignupAttempt(clientIP, errorMsg, input.Email, input.Name, input.Description, input.Latitude, input.Longitude)
+        http.Error(w, errorMsg, http.StatusInternalServerError)
         return
     }
     
