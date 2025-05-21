@@ -432,9 +432,9 @@
                         Class: ${aisClass}
                     </div>
                     <div class="vessel-live-data" id="live-data-${id}">
-                        <span><span class="label">Speed:</span> <span id="sog-${id}">-</span> knots</span>
-                        <span><span class="label">Course:</span> <span id="cog-${id}">-</span> °</span>
-                        <span><span class="label">Heading:</span> <span id="heading-${id}">-</span> °</span>
+                        <span><span class="label">Speed:</span> <span id="sog-${id}">- knots</span></span>
+                        <span><span class="label">Course:</span> <span id="cog-${id}">- °</span></span>
+                        <span><span class="label">Heading:</span> <span id="heading-${id}">- °</span></span>
                     </div>
                 `;
                 
@@ -701,15 +701,15 @@
                     const headingElement = document.getElementById(`heading-${id}`);
                     
                     if (sogElement) {
-                        sogElement.textContent = closestPos.sog !== null ? closestPos.sog.toFixed(1) : '-';
+                        sogElement.textContent = closestPos.sog !== null ? `${closestPos.sog.toFixed(1)} knots` : '- knots';
                     }
                     
                     if (cogElement) {
-                        cogElement.textContent = closestPos.cog !== null ? closestPos.cog.toFixed(1) : '-';
+                        cogElement.textContent = closestPos.cog !== null ? `${closestPos.cog.toFixed(1)} °` : '- °';
                     }
                     
                     if (headingElement) {
-                        headingElement.textContent = closestPos.heading !== null ? closestPos.heading.toFixed(1) : '-';
+                        headingElement.textContent = closestPos.heading !== null ? `${closestPos.heading.toFixed(1)} °` : '- °';
                     }
                 }
             }
