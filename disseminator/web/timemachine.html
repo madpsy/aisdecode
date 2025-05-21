@@ -169,6 +169,15 @@
             color: #666;
             margin-left: 5px;
         }
+        
+        .vessel-color-dot {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
     </style>
 </head>
 <body>
@@ -435,6 +444,14 @@
                 
                 vessels = await response.json();
                 
+                // Generate colors for all vessels
+                for (const id in vessels) {
+                    vessels[id].color = getRandomColor();
+                }
+                
+                // Add dot markers for all vessels
+                addVesselDotMarkers(vessels);
+                
                 // Populate vessel list
                 populateVesselList(vessels);
                 
@@ -456,6 +473,38 @@
             }
         }
 
+        // Function to add dot markers for all vessels
+        function addVesselDotMarkers(vessels) {
+            for (const id in vessels) {
+                const vessel = vessels[id];
+                const lat = vessel.Latitude;
+                const lng = vessel.Longitude;
+                
+                // Skip if no valid coordinates
+                if (!lat || !lng) continue;
+                
+                // Create a small dot marker
+                const dotMarker = L.circleMarker([lat, lng], {
+                    radius: 5,
+                    color: '#000',
+                    fillColor: vessel.color,
+                    fillOpacity: 1,
+                    weight: 1
+                }).addTo(map);
+                
+                // Add tooltip with vessel name
+                const name = vessel.Name || 'Unknown';
+                dotMarker.bindTooltip(name, {
+                    permanent: false,
+                    direction: 'top',
+                    className: 'vessel-tooltip'
+                });
+                
+                // Store the marker
+                vesselMarkers[id] = dotMarker;
+            }
+        }
+        
         function populateVesselList(vessels) {
             vesselList.innerHTML = '';
             
@@ -487,7 +536,6 @@
             
             // Create list items for sorted vessels
             for (const {id, vessel} of vesselsArray) {
-                const vessel = vessels[id];
                 const item = document.createElement('div');
                 item.className = 'vessel-item';
                 item.dataset.id = id;
@@ -497,8 +545,13 @@
                 const typeName = getVesselTypeName(typeId);
                 const aisClass = vessel.AISClass || 'Unknown';
                 
+                const color = vessel.color || '#ccc';
+                
                 item.innerHTML = `
-                    <div class="vessel-name">${name}</div>
+                    <div class="vessel-name">
+                        <span class="vessel-color-dot" style="background-color: ${color};"></span>
+                        ${name}
+                    </div>
                     <div class="vessel-details">
                         ID: ${id}<br>
                         Type: ${typeName} (${typeId})<br>
@@ -523,9 +576,31 @@
                 element.classList.remove('selected');
                 
                 // Remove marker and track if they exist
+                // Remove triangle marker and track
                 if (vesselMarkers[id]) {
                     map.removeLayer(vesselMarkers[id]);
-                    delete vesselMarkers[id];
+                    
+                    // Restore dot marker
+                    const vessel = vessels[id];
+                    if (vessel && vessel.Latitude && vessel.Longitude) {
+                        const dotMarker = L.circleMarker([vessel.Latitude, vessel.Longitude], {
+                            radius: 5,
+                            color: '#000',
+                            fillColor: vessel.color,
+                            fillOpacity: 1,
+                            weight: 1
+                        }).addTo(map);
+                        
+                        // Add tooltip with vessel name
+                        const name = vessel.Name || 'Unknown';
+                        dotMarker.bindTooltip(name, {
+                            permanent: false,
+                            direction: 'top',
+                            className: 'vessel-tooltip'
+                        });
+                        
+                        vesselMarkers[id] = dotMarker;
+                    }
                 }
                 if (vesselTracks[id]) {
                     map.removeLayer(vesselTracks[id]);
@@ -626,8 +701,13 @@
             const typeId = vessel.Type || 'Unknown';
             const typeName = getVesselTypeName(typeId);
             
-            // Generate a color for this vessel (same for marker and track)
-            const vesselColor = getRandomColor();
+            // Use the vessel's assigned color
+            const vesselColor = vessel.color || getRandomColor();
+            
+            // Remove existing marker if any
+            if (vesselMarkers[id]) {
+                map.removeLayer(vesselMarkers[id]);
+            }
             
             // Create marker at first position
             const pos = positions[0];
