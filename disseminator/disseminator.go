@@ -1813,8 +1813,8 @@ func summaryHistoryHandler(w http.ResponseWriter, r *http.Request) {
             return
         }
         
-        // Limit radius to 100 km
-        if radius > 100000 { // 100 km in meters
+        // Limit radius to 200 km
+        if radius > 200000 { // 200 km in meters
             http.Error(w, "Radius too large, try zooming in", http.StatusBadRequest)
             return
         }
@@ -1851,7 +1851,7 @@ func summaryHistoryHandler(w http.ResponseWriter, r *http.Request) {
     // Limit time period to 24 hours
     maxDuration := 24 * time.Hour
     if toTime.Sub(fromTime) > maxDuration {
-        http.Error(w, "Time period cannot exceed 1 hour", http.StatusBadRequest)
+        http.Error(w, "Time period cannot exceed 24 hours", http.StatusBadRequest)
         return
     }
     
