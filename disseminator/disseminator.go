@@ -847,16 +847,12 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 
 func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed float64, userid int64, types string, typeGroups string, classes string, receiverID int64, fromTime, toTime time.Time) (map[string]interface{}, error) {
     // Step 1: Find unique user_ids from messages table within the time period and area
-    query := `
+    query := fmt.Sprintf(`
         SELECT DISTINCT user_id
         FROM messages
-        WHERE timestamp BETWEEN $1 AND $2
+        WHERE timestamp BETWEEN '%s' AND '%s'
         AND message_id IN (1,2,3,9,18,19)
-    `
-    
-    // Add parameters for prepared statement
-    params := []interface{}{fromTime, toTime}
-    paramCount := 2
+    `, fromTime.Format(time.RFC3339Nano), toTime.Format(time.RFC3339Nano))
     
     // If lat, lon, and radius are specified, filter by distance
     if lat != 0 && lon != 0 && radius != 0 {
@@ -866,32 +862,24 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
                     (packet->>'Longitude')::float,
                     (packet->>'Latitude')::float
                 ), 4326),
-                ST_SetSRID(ST_Point($%d, $%d), 4326)
-            ) <= $%d
-        `, paramCount+1, paramCount+2, paramCount+3)
-        params = append(params, lon, lat, radius)
-        paramCount += 3
+                ST_SetSRID(ST_Point(%f, %f), 4326)
+            ) <= %f
+        `, lon, lat, radius)
     }
     
     // If UserID is provided, filter by user_id
     if userid > 0 {
-        query += fmt.Sprintf(" AND user_id = $%d", paramCount+1)
-        params = append(params, userid)
-        paramCount++
+        query += fmt.Sprintf(" AND user_id = '%d'", userid)
     }
     
     // If ReceiverID is provided, filter by receiver_id
     if receiverID > 0 {
-        query += fmt.Sprintf(" AND receiver_id = $%d", paramCount+1)
-        params = append(params, receiverID)
-        paramCount++
+        query += fmt.Sprintf(" AND receiver_id = %d", receiverID)
     }
     
     // If minSpeed is provided, filter by speed
     if minSpeed > 0 {
-        query += fmt.Sprintf(" AND (packet->>'Sog')::float >= $%d", paramCount+1)
-        params = append(params, minSpeed)
-        paramCount++
+        query += fmt.Sprintf(" AND (packet->>'Sog')::float >= %f", minSpeed)
     }
     
     // Process individual types and type groups
@@ -905,9 +893,7 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
             if t != "" {
                 typeVal, err := strconv.ParseFloat(t, 64)
                 if err == nil {
-                    typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = $%d", paramCount+1))
-                    params = append(params, typeVal)
-                    paramCount++
+                    typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = %f", typeVal))
                 } else {
                     log.Printf("Warning: Ignoring invalid type value: %s", t)
                 }
@@ -919,9 +905,7 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
     if typeGroups != "" {
         groupTypes := getTypesFromGroups(typeGroups)
         for _, typeVal := range groupTypes {
-            typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = $%d", paramCount+1))
-            params = append(params, float64(typeVal))
-            paramCount++
+            typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = %d", typeVal))
         }
     }
     
@@ -933,8 +917,7 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
     
     // Apply LIMIT only if it's greater than 0
     if limit > 0 {
-        query += fmt.Sprintf(" LIMIT $%d", paramCount+1)
-        params = append(params, limit)
+        query += fmt.Sprintf(" LIMIT %d", limit)
     }
     
     // Execute the query on all shards
@@ -955,7 +938,7 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
         }
         
         // Execute the query
-        rows, err := cc.Db.Query(query, params...)
+        rows, err := cc.Db.Query(query)
         if err != nil {
             log.Printf("Failed to execute query on database for client %s: %v", cc.DbHost, err)
             continue
@@ -978,11 +961,11 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
     
     for _, userID := range userIDs {
         // Query the state table for this user_id
-        stateQuery := `
+        stateQuery := fmt.Sprintf(`
             SELECT user_id, packet, timestamp, ais_class, count, name
             FROM state
-            WHERE user_id = $1
-        `
+            WHERE user_id = '%s'
+        `, userID)
         
         rows, err := QueryDatabaseForUser(userID, stateQuery)
         if err != nil {
