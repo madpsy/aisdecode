@@ -1813,9 +1813,10 @@ func summaryHistoryHandler(w http.ResponseWriter, r *http.Request) {
             return
         }
         
-        // Limit radius to 20 NM (nautical miles)
-        if radius > 20 * 1852 { // 1 NM = 1852 meters
-            radius = 20 * 1852
+        // Limit radius to 100 km
+        if radius > 100000 { // 100 km in meters
+            http.Error(w, "Radius too large, try zooming in", http.StatusBadRequest)
+            return
         }
     }
 
@@ -1847,8 +1848,8 @@ func summaryHistoryHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Limit time period to 1 hour
-    maxDuration := 1 * time.Hour
+    // Limit time period to 24 hours
+    maxDuration := 24 * time.Hour
     if toTime.Sub(fromTime) > maxDuration {
         http.Error(w, "Time period cannot exceed 1 hour", http.StatusBadRequest)
         return
