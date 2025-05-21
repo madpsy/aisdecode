@@ -1106,6 +1106,16 @@
                 Time: ${pos.timestamp.toLocaleString()}
             `);
             
+            // Add click handler to unselect the vessel when clicked
+            marker.on('click', function() {
+                // Find the vessel item in the list
+                const vesselItem = document.querySelector(`.vessel-item[data-id="${id}"]`);
+                if (vesselItem) {
+                    // Call toggleVesselSelection to unselect this vessel
+                    toggleVesselSelection(id, vesselItem);
+                }
+            });
+            
             vesselMarkers[id] = marker;
             
             // Create track polyline
