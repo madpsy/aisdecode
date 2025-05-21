@@ -268,7 +268,7 @@
         
         .map-time-overlay {
             position: absolute;
-            bottom: 20px;
+            bottom: 40px;
             left: 50%;
             transform: translateX(-50%);
             background-color: rgba(0, 0, 0, 0.6);
@@ -279,6 +279,15 @@
             font-weight: bold;
             z-index: 1000;
             pointer-events: none;
+        }
+        
+        .map-control-checkbox {
+            background-color: white;
+            padding: 5px;
+            border-radius: 4px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+            cursor: pointer;
+            font-size: 12px;
         }
     </style>
 </head>
@@ -330,9 +339,42 @@
         // Map initialization
         const map = L.map('map').setView([55.9533, -3.1883], 10); // Default to Edinburgh, but search will use current view
         
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        // Base OSM layer
+        const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         }).addTo(map);
+        
+        // OpenSeaMap layer
+        const openSeaMapLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openseamap.org/">OpenSeaMap</a> contributors'
+        }).addTo(map); // Add by default
+        
+        // Add OpenSeaMap toggle control
+        const openSeaMapControl = L.control({position: 'topright'});
+        openSeaMapControl.onAdd = function(map) {
+            const div = L.DomUtil.create('div', 'map-control-checkbox');
+            div.innerHTML = '<label><input type="checkbox" id="opensea-toggle" checked> OpenSeaMap</label>';
+            
+            // Prevent clicks from propagating to the map
+            L.DomEvent.disableClickPropagation(div);
+            
+            return div;
+        };
+        openSeaMapControl.addTo(map);
+        
+        // Add event listener for the checkbox
+        document.addEventListener('DOMContentLoaded', function() {
+            const openSeaToggle = document.getElementById('opensea-toggle');
+            if (openSeaToggle) {
+                openSeaToggle.addEventListener('change', function() {
+                    if (this.checked) {
+                        map.addLayer(openSeaMapLayer);
+                    } else {
+                        map.removeLayer(openSeaMapLayer);
+                    }
+                });
+            }
+        });
         
         // Create layer groups for selected and non-selected vessels
         let selectedLayer = L.layerGroup().addTo(map);
@@ -519,6 +561,16 @@
             setTimeout(function() {
                 checkRadiusAndUpdateUI();
                 initialLoadComplete = true;
+                
+                // Check OpenSeaMap toggle state
+                const openSeaToggle = document.getElementById('opensea-toggle');
+                if (openSeaToggle) {
+                    if (openSeaToggle.checked) {
+                        map.addLayer(openSeaMapLayer);
+                    } else {
+                        map.removeLayer(openSeaMapLayer);
+                    }
+                }
                 
                 // Automatically perform search if we have location parameters
                 if (window.shouldAutoSearch && calculatedRadius <= 400) {
@@ -1777,8 +1829,11 @@
                 // Apply the selection to the timeline
                 applyHistogramSelection();
                 
-                // Keep the selection visible
+                // Keep the selection visible and persistent
                 updateHistogramSelection();
+                
+                // Don't reset the selection - this is the key fix
+                // histogramSelectionStart and histogramSelectionEnd remain set
             });
             
             // Single click (not during drag) to reset selection
