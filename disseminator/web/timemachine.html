@@ -482,6 +482,8 @@
             clearVessels();
             // Reset the color map when fully resetting the view
             vesselColorMap = {};
+            // Explicitly clear vessel positions on full reset
+            vesselPositions = {};
             
             // Reset UI
             vesselList.innerHTML = '';
@@ -502,16 +504,8 @@
         
         // Function to clear vessels without resetting the entire view
         function clearVessels() {
-            // Store selected vessel IDs and their position data before clearing
+            // Store selected vessel IDs for restoration after search
             const selectedVesselIds = Array.from(selectedVessels);
-            const savedPositions = {};
-            
-            // Save position data for selected vessels
-            for (const id of selectedVesselIds) {
-                if (vesselPositions[id]) {
-                    savedPositions[id] = vesselPositions[id];
-                }
-            }
             
             // Store the current time range for comparison
             // We'll check if it changed before updating it
@@ -541,7 +535,8 @@
             
             vesselMarkers = {};
             vesselTracks = {};
-            vesselPositions = savedPositions; // Preserve position data for selected vessels
+            // Note: We're NOT clearing vesselPositions to preserve all vessel position data
+            // This ensures we don't refetch data unnecessarily when reselecting vessels
             // Note: We don't clear vesselColorMap to maintain color consistency
             
             // Store selected vessels for restoration after search
