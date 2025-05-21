@@ -441,7 +441,7 @@
                 if (!response.ok) {
                     // Get the response text for more detailed error information
                     const errorText = await response.text();
-                    throw new Error(`HTTP error! Status: ${response.status}\nResponse: ${errorText}`);
+                    throw new Error(`Status: ${response.status}\n${errorText}`);
                 }
                 
                 vessels = await response.json();
@@ -467,7 +467,7 @@
                 
             } catch (error) {
                 console.error('Error searching vessels:', error);
-                alert('Error searching vessels: ' + error.message);
+                alert(error.message);
             } finally {
                 hideLoading();
                 // Ensure timeline is visible after search
@@ -662,7 +662,7 @@
                 if (!response.ok) {
                     // Get the response text for more detailed error information
                     const errorText = await response.text();
-                    throw new Error(`HTTP error! Status: ${response.status}\nResponse: ${errorText}`);
+                    throw new Error(`Status: ${response.status}\n${errorText}`);
                 }
                 
                 const data = await response.json();
@@ -695,7 +695,7 @@
                 
             } catch (error) {
                 console.error(`Error fetching positions for vessel ${id}:`, error);
-                alert(`Error fetching positions for vessel ${id}: ${error.message}`);
+                alert(error.message);
             } finally {
                 hideLoading();
             }
