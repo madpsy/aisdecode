@@ -1883,6 +1883,24 @@
                 const startVal = histogramSelectionStart;
                 const endVal = histogramSelectionEnd;
                 
+                // Check if the selection is too small (likely an accidental click)
+                const minSelectionSize = 0.01; // 1% of the width
+                if (Math.abs(startVal - endVal) < minSelectionSize) {
+                    // If selection is too small, treat it as a click to clear
+                    isDragging = false;
+                    histogramSelectionStart = null;
+                    histogramSelectionEnd = null;
+                    
+                    // Hide the selection
+                    if (histogramSelectionElement) {
+                        histogramSelectionElement.style.display = 'none';
+                    }
+                    
+                    // Reset to full timeline
+                    resetTimelineToFullRange();
+                    return;
+                }
+                
                 isDragging = false;
                 
                 // Apply the selection to the timeline
