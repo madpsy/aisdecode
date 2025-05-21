@@ -947,7 +947,10 @@
 
         function createVesselMarker(id) {
             const positions = vesselPositions[id];
-            if (!positions || positions.length === 0) return;
+            if (!positions || positions.length === 0) {
+                console.warn(`No positions found for vessel ${id}`);
+                return;
+            }
             
             const vessel = vessels[id];
             const name = vessel.Name || 'Unknown';
@@ -961,6 +964,12 @@
             if (vesselMarkers[id]) {
                 nonSelectedLayer.removeLayer(vesselMarkers[id]);
                 selectedLayer.removeLayer(vesselMarkers[id]);
+            }
+            
+            // Remove existing track if any
+            if (vesselTracks[id]) {
+                selectedLayer.removeLayer(vesselTracks[id]);
+                delete vesselTracks[id];
             }
             
             // Create marker at first position
