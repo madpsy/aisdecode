@@ -693,7 +693,9 @@
                     const vesselItem = document.querySelector(`.vessel-item[data-id="${id}"]`);
                     if (vesselItem) {
                         // Call toggleVesselSelection to select this vessel
-                        toggleVesselSelection(id, vesselItem);
+                        // Don't force refetch if time range hasn't changed
+                        const timeRangeChanged = hasTimeRangeChanged();
+                        toggleVesselSelection(id, vesselItem, false, timeRangeChanged);
                         
                         // Make sure the vessel list is visible
                         if (vesselList.style.display === 'none' || vesselList.style.display === '') {
@@ -783,7 +785,11 @@
                     </div>
                 `;
                 
-                item.addEventListener('click', () => toggleVesselSelection(id, item));
+                item.addEventListener('click', () => {
+                    // Don't force refetch if time range hasn't changed
+                    const timeRangeChanged = hasTimeRangeChanged();
+                    toggleVesselSelection(id, item, false, timeRangeChanged);
+                });
                 
                 vesselList.appendChild(item);
             }
@@ -821,43 +827,47 @@
         }
         
         function toggleVesselSelection(id, element, skipURLUpdate, forceRefetch = false) {
-            if (selectedVessels.has(id)) {
-                selectedVessels.delete(id);
-                element.classList.remove('selected');
-                
-                // Remove marker and track if they exist
-                // Remove triangle marker and track
-                if (vesselMarkers[id]) {
-                    map.removeLayer(vesselMarkers[id]);
-                    
-                    // Restore dot marker
-                    const vessel = vessels[id];
-                    if (vessel && vessel.Latitude && vessel.Longitude) {
-                        const dotMarker = L.circleMarker([vessel.Latitude, vessel.Longitude], {
-                            radius: 5,
-                            color: '#000',
-                            fillColor: vessel.color,
-                            fillOpacity: 1,
-                            weight: 1
-                        });
+                    if (selectedVessels.has(id)) {
+                        selectedVessels.delete(id);
+                        element.classList.remove('selected');
                         
-                        // Add tooltip with vessel name
-                        const name = vessel.Name || 'Unknown';
-                        dotMarker.bindTooltip(name, {
-                            permanent: false,
-                            direction: 'top',
-                            className: 'vessel-tooltip'
-                        });
+                        // Remove marker and track if they exist
+                        // Remove triangle marker and track
+                        if (vesselMarkers[id]) {
+                            map.removeLayer(vesselMarkers[id]);
+                            
+                            // Restore dot marker
+                            const vessel = vessels[id];
+                            if (vessel && vessel.Latitude && vessel.Longitude) {
+                                const dotMarker = L.circleMarker([vessel.Latitude, vessel.Longitude], {
+                                    radius: 5,
+                                    color: '#000',
+                                    fillColor: vessel.color,
+                                    fillOpacity: 1,
+                                    weight: 1
+                                });
+                                
+                                // Add tooltip with vessel name
+                                const name = vessel.Name || 'Unknown';
+                                dotMarker.bindTooltip(name, {
+                                    permanent: false,
+                                    direction: 'top',
+                                    className: 'vessel-tooltip'
+                                });
+                                
+                                // Add to non-selected layer instead of directly to map
+                                vesselMarkers[id] = dotMarker;
+                                nonSelectedLayer.addLayer(dotMarker);
+                            }
+                        }
+                        if (vesselTracks[id]) {
+                            map.removeLayer(vesselTracks[id]);
+                            delete vesselTracks[id];
+                        }
                         
-                        // Add to non-selected layer instead of directly to map
-                        vesselMarkers[id] = dotMarker;
-                        nonSelectedLayer.addLayer(dotMarker);
-                    }
-                }
-                if (vesselTracks[id]) {
-                    map.removeLayer(vesselTracks[id]);
-                    delete vesselTracks[id];
-                }
+                        // Note: We're NOT deleting vesselPositions[id] here
+                        // This preserves the position data in memory so we don't need to refetch it
+                        // when the vessel is reselected unless the time range has changed
             } else {
                 selectedVessels.add(id);
                 element.classList.add('selected');
@@ -865,8 +875,11 @@
                 // Fetch vessel positions if:
                 // 1. We don't have positions yet, or
                 // 2. Time range has changed (passed via forceRefetch parameter)
-                if (!vesselPositions[id] || forceRefetch) {
-                    console.log(`Fetching positions for vessel ${id} (forceRefetch: ${forceRefetch})`);
+                // 3. Check if time range has changed since we last fetched
+                const timeRangeChanged = hasTimeRangeChanged();
+                
+                if (!vesselPositions[id] || forceRefetch || timeRangeChanged) {
+                    console.log(`Fetching positions for vessel ${id} (forceRefetch: ${forceRefetch}, timeRangeChanged: ${timeRangeChanged})`);
                     fetchVesselPositions(id);
                 } else {
                     console.log(`Using cached positions for vessel ${id}`);
