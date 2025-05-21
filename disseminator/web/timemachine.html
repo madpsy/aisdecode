@@ -573,9 +573,10 @@
                         ${name}
                     </div>
                     <div class="vessel-details">
-                        ID: ${id}<br>
+                        MMSI: ${id}<br>
                         Type: ${typeName} (${typeId})<br>
-                        Class: ${aisClass}
+                        Class: ${aisClass}<br>
+                        <span id="positions-${id}">Positions: -</span>
                     </div>
                     <div class="vessel-live-data" id="live-data-${id}">
                         <span><span class="label">Speed:</span> <span id="sog-${id}">- knots</span></span>
@@ -685,6 +686,12 @@
                 
                 vesselPositions[id] = positions;
                 
+                // Update positions count in vessel details
+                const positionsElement = document.getElementById(`positions-${id}`);
+                if (positionsElement) {
+                    positionsElement.textContent = `Positions: ${positions.length}`;
+                }
+                
                 // Create initial marker and track
                 createVesselMarker(id);
                 
@@ -749,7 +756,7 @@
             
             marker.bindPopup(`
                 <strong>${name}</strong><br>
-                ID: ${id}<br>
+                MMSI: ${id}<br>
                 Type: ${typeName} (${typeId})<br>
                 Speed: ${pos.sog !== null ? pos.sog.toFixed(1) : 'N/A'} knots<br>
                 Course: ${pos.cog !== null ? pos.cog.toFixed(1) : 'N/A'}°<br>
@@ -850,7 +857,7 @@
                     
                     marker.bindPopup(`
                         <strong>${name}</strong><br>
-                        ID: ${id}<br>
+                        MMSI: ${id}<br>
                         Type: ${typeName} (${typeId})<br>
                         Speed: ${closestPos.sog !== null ? closestPos.sog.toFixed(1) : 'N/A'} knots<br>
                         Course: ${closestPos.cog !== null ? closestPos.cog.toFixed(1) : 'N/A'}°<br>
