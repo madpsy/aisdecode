@@ -637,6 +637,17 @@
                 clearInterval(playbackInterval);
                 playbackInterval = null;
             }
+            
+            // Reset the timeline index to allow replaying
+            currentTimeIndex = 0;
+            timelineSlider.value = 0;
+            
+            // Update display to show the first time point
+            if (timelineData.length > 0) {
+                const time = timelineData[0];
+                updateTimeDisplay(time);
+                updateMarkersToTime(time);
+            }
         }
     </script>
 </body>
