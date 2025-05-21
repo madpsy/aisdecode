@@ -307,7 +307,11 @@
         
         /* Specific width for min-speed input that only needs 3 characters */
         #min-speed {
-            width: 60px; /* Enough for 3 digits plus padding */
+            width: 45px !important; /* Enough for 3 digits plus padding */
+            max-width: 45px !important;
+            box-sizing: border-box;
+            padding: 4px !important;
+            text-align: right;
         }
     </style>
 </head>
@@ -328,7 +332,7 @@
             <!-- Radius is now automatically calculated based on zoom level -->
             <div class="control-group">
                 <label for="min-speed">Min Speed (knots):</label>
-                <input type="number" id="min-speed" min="0" value="0.5" step="0.5">
+                <input type="number" id="min-speed" min="0" max="99.9" value="0.5" step="0.1">
             </div>
             <button id="search-btn">Go!</button>
             <button id="toggle-vessels-btn" disabled>Show Vessels</button>
