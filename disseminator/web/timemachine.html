@@ -502,6 +502,9 @@
         
         // Function to clear vessels without resetting the entire view
         function clearVessels() {
+            // Store selected vessel IDs before clearing
+            const selectedVesselIds = Array.from(selectedVessels);
+            
             vessels = {};
             selectedVessels.clear();
             
@@ -517,6 +520,11 @@
             vesselTracks = {};
             vesselPositions = {};
             // Note: We don't clear vesselColorMap to maintain color consistency
+            
+            // Store selected vessels for restoration after search
+            if (selectedVesselIds.length > 0) {
+                window.vesselsToSelect = selectedVesselIds;
+            }
         }
 
         async function searchVessels() {
@@ -753,12 +761,14 @@
             for (const id of vesselIds) {
                 const vesselItem = document.querySelector(`.vessel-item[data-id="${id}"]`);
                 if (vesselItem && vessels[id]) {
-                    toggleVesselSelection(id, vesselItem);
+                    // Use a flag to prevent URL updates during initial selection from URL params
+                    const skipURLUpdate = true;
+                    toggleVesselSelection(id, vesselItem, skipURLUpdate);
                 }
             }
         }
         
-        function toggleVesselSelection(id, element) {
+        function toggleVesselSelection(id, element, skipURLUpdate) {
             if (selectedVessels.has(id)) {
                 selectedVessels.delete(id);
                 element.classList.remove('selected');
@@ -822,6 +832,11 @@
             
             if (hasSelectedVessels) {
                 timeline.style.display = 'block';
+            }
+            
+            // Update URL with selected vessels (unless we're loading from URL)
+            if (!skipURLUpdate && initialLoadComplete) {
+                debouncedUpdateURL();
             }
         }
 
