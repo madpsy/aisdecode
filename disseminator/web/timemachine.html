@@ -191,7 +191,7 @@
             <div id="map"></div>
             <div id="vessel-list"></div>
         </div>
-        <div id="timeline">
+        <div id="timeline" style="display: block !important;">
             <div id="playback-controls">
                 <button id="play-pause-btn">▶️</button>
                 <input type="range" id="timeline-slider" min="0" max="100" value="0">
@@ -344,7 +344,8 @@
             // Reset UI
             vesselList.innerHTML = '';
             vesselList.style.display = 'none';
-            timeline.style.display = 'none';
+            // Don't hide the timeline
+            // timeline.style.display = 'none';
             toggleVesselsBtn.disabled = true;
             playBtn.disabled = true;
             toggleVesselsBtn.textContent = 'Show Vessels';
