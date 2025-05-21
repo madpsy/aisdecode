@@ -229,7 +229,7 @@
         let timelineData = [];
         let isPlaying = false;
         let playbackInterval;
-        let searchArea;
+        // No longer using searchArea variable
         let vesselTypes = null; // Will store the vessel types data
 
         // DOM elements
@@ -342,9 +342,7 @@
                 map.removeLayer(vesselTracks[id]);
             }
             
-            if (searchArea) {
-                map.removeLayer(searchArea);
-            }
+            // No longer need to remove searchArea
             
             vesselMarkers = {};
             vesselTracks = {};
@@ -402,16 +400,7 @@
                 // Store calculated radius for reference
                 calculatedRadius = radius / 1000;
                 
-                // Draw search area circle
-                if (searchArea) {
-                    map.removeLayer(searchArea);
-                }
-                searchArea = L.circle([lat, lng], {
-                    radius: radius,
-                    color: 'blue',
-                    fillColor: '#30f',
-                    fillOpacity: 0.1
-                }).addTo(map);
+                // No longer drawing the search area circle
                 
                 // Fetch vessels from summaryhistory endpoint
                 const url = `/summaryhistory?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}&latitude=${lat}&longitude=${lng}&radius=${radius}&minSpeed=${minSpeed}`;
@@ -448,7 +437,29 @@
                 return;
             }
             
-            for (const id in vessels) {
+            // Get map center for distance calculation
+            const mapCenter = map.getCenter();
+            
+            // Convert vessels object to array for sorting
+            const vesselsArray = Object.entries(vessels).map(([id, vessel]) => {
+                // Calculate distance from vessel to map center
+                const vesselLat = vessel.Latitude || 0;
+                const vesselLng = vessel.Longitude || 0;
+                const vesselLatLng = L.latLng(vesselLat, vesselLng);
+                const distance = mapCenter.distanceTo(vesselLatLng);
+                
+                return {
+                    id,
+                    vessel,
+                    distance
+                };
+            });
+            
+            // Sort vessels by distance from center
+            vesselsArray.sort((a, b) => a.distance - b.distance);
+            
+            // Create list items for sorted vessels
+            for (const {id, vessel} of vesselsArray) {
                 const vessel = vessels[id];
                 const item = document.createElement('div');
                 item.className = 'vessel-item';
