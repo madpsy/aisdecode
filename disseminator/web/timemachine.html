@@ -212,6 +212,8 @@
             display: flex;
             align-items: flex-end;
             padding: 0 5px;
+            position: relative;
+            cursor: crosshair;
         }
         
         .histogram-bar {
@@ -226,6 +228,32 @@
             width: 100%;
             position: absolute;
             bottom: 0;
+            cursor: pointer;
+        }
+        
+        .histogram-segment:hover {
+            opacity: 0.8;
+        }
+        
+        .histogram-tooltip {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            white-space: nowrap;
+        }
+        
+        .histogram-selection {
+            position: absolute;
+            background-color: rgba(0, 100, 255, 0.2);
+            border: 1px dashed rgba(0, 100, 255, 0.5);
+            top: 0;
+            height: 100%;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -1415,11 +1443,26 @@
             map.addLayer(nonSelectedLayer);
         }
         
+        // Global variables for histogram
+        let histogramEarliest = null;
+        let histogramLatest = null;
+        let histogramBins = [];
+        let histogramSelectionStart = null;
+        let histogramSelectionEnd = null;
+        let isDragging = false;
+        let histogramTooltip = null;
+        let histogramSelectionElement = null;
+        
         // Histogram functions
         function updateHistogram() {
             // Only update if there are selected vessels
             if (selectedVessels.size === 0) {
                 histogramContainer.innerHTML = '';
+                histogramEarliest = null;
+                histogramLatest = null;
+                histogramBins = [];
+                histogramSelectionStart = null;
+                histogramSelectionEnd = null;
                 return;
             }
             
@@ -1446,8 +1489,17 @@
             // If no valid positions, clear histogram and return
             if (latest.getTime() === 0 || earliest > latest) {
                 histogramContainer.innerHTML = '';
+                histogramEarliest = null;
+                histogramLatest = null;
+                histogramBins = [];
+                histogramSelectionStart = null;
+                histogramSelectionEnd = null;
                 return;
             }
+            
+            // Store global references to earliest and latest
+            histogramEarliest = earliest;
+            histogramLatest = latest;
             
             // Create time bins (up to 100 bins)
             const timeRange = latest - earliest;
@@ -1455,7 +1507,7 @@
             const binSize = timeRange / numBins;
             
             // Initialize bins
-            const bins = Array(numBins).fill().map(() => ({}));
+            histogramBins = Array(numBins).fill().map(() => ({}));
             
             // Count messages per vessel per bin
             for (const id of selectedVessels) {
@@ -1463,26 +1515,47 @@
                 if (!positions) continue;
                 
                 const vesselColor = vessels[id].color || '#ccc';
+                const vesselName = vessels[id].Name || 'Unknown';
                 
                 for (const position of positions) {
                     const binIndex = Math.min(numBins - 1, Math.floor((position.timestamp - earliest) / binSize));
-                    if (!bins[binIndex][id]) {
-                        bins[binIndex][id] = {
+                    if (!histogramBins[binIndex][id]) {
+                        histogramBins[binIndex][id] = {
                             count: 0,
-                            color: vesselColor
+                            color: vesselColor,
+                            name: vesselName
                         };
                     }
-                    bins[binIndex][id].count++;
+                    histogramBins[binIndex][id].count++;
                 }
             }
             
             // Render histogram
-            renderHistogram(bins);
+            renderHistogram(histogramBins);
+            
+            // Reset selection if it exists
+            histogramSelectionStart = null;
+            histogramSelectionEnd = null;
+            updateHistogramSelection();
         }
         
         function renderHistogram(bins) {
             // Clear previous histogram
             histogramContainer.innerHTML = '';
+            
+            // Create tooltip element if it doesn't exist
+            if (!histogramTooltip) {
+                histogramTooltip = document.createElement('div');
+                histogramTooltip.className = 'histogram-tooltip';
+                histogramTooltip.style.display = 'none';
+                document.body.appendChild(histogramTooltip);
+            }
+            
+            // Create selection element
+            histogramSelectionElement = document.createElement('div');
+            histogramSelectionElement.className = 'histogram-selection';
+            histogramSelectionElement.style.display = 'none';
+            histogramContainer.appendChild(histogramSelectionElement);
             
             // Find maximum count in any bin for scaling
             let maxCount = 0;
@@ -1495,9 +1568,10 @@
             }
             
             // Create bars
-            for (const bin of bins) {
+            bins.forEach((bin, binIndex) => {
                 const barElement = document.createElement('div');
                 barElement.className = 'histogram-bar';
+                barElement.dataset.binIndex = binIndex;
                 
                 // Calculate total height for this bar
                 let binTotal = 0;
@@ -1514,6 +1588,9 @@
                 for (const id in bin) {
                     const segment = document.createElement('div');
                     segment.className = 'histogram-segment';
+                    segment.dataset.vesselId = id;
+                    segment.dataset.count = bin[id].count;
+                    segment.dataset.name = bin[id].name;
                     
                     // Calculate segment height as percentage of total bar
                     const segmentHeightPercent = binTotal > 0 ? (bin[id].count / binTotal) * 100 : 0;
@@ -1521,12 +1598,164 @@
                     segment.style.bottom = `${currentHeight}%`;
                     segment.style.backgroundColor = bin[id].color;
                     
+                    // Add hover event for tooltip
+                    segment.addEventListener('mousemove', (e) => {
+                        const vesselId = segment.dataset.vesselId;
+                        const count = segment.dataset.count;
+                        const name = segment.dataset.name;
+                        
+                        histogramTooltip.innerHTML = `${name}<br>${count} positions`;
+                        histogramTooltip.style.display = 'block';
+                        histogramTooltip.style.left = `${e.pageX + 10}px`;
+                        histogramTooltip.style.top = `${e.pageY - 30}px`;
+                    });
+                    
+                    segment.addEventListener('mouseleave', () => {
+                        histogramTooltip.style.display = 'none';
+                    });
+                    
                     currentHeight += segmentHeightPercent;
                     barElement.appendChild(segment);
                 }
                 
                 histogramContainer.appendChild(barElement);
+            });
+            
+            // Add event listeners for selection
+            setupHistogramSelectionEvents();
+        }
+        
+        function setupHistogramSelectionEvents() {
+            // Mouse down event to start selection
+            histogramContainer.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return; // Only left mouse button
+                
+                // Get position relative to histogram container
+                const rect = histogramContainer.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                
+                // Calculate percentage of width
+                const percent = x / rect.width;
+                
+                // Start selection
+                histogramSelectionStart = percent;
+                histogramSelectionEnd = percent;
+                isDragging = true;
+                
+                updateHistogramSelection();
+            });
+            
+            // Mouse move event to update selection
+            histogramContainer.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                
+                // Get position relative to histogram container
+                const rect = histogramContainer.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                
+                // Calculate percentage of width
+                const percent = Math.max(0, Math.min(1, x / rect.width));
+                
+                // Update selection end
+                histogramSelectionEnd = percent;
+                
+                updateHistogramSelection();
+            });
+            
+            // Mouse up event to end selection
+            window.addEventListener('mouseup', () => {
+                if (!isDragging) return;
+                
+                isDragging = false;
+                
+                // Apply the selection to the timeline
+                applyHistogramSelection();
+            });
+            
+            // Double click to reset selection
+            histogramContainer.addEventListener('dblclick', () => {
+                histogramSelectionStart = null;
+                histogramSelectionEnd = null;
+                updateHistogramSelection();
+                
+                // Reset to full timeline
+                resetTimelineToFullRange();
+            });
+        }
+        
+        function updateHistogramSelection() {
+            if (!histogramSelectionElement) return;
+            
+            if (histogramSelectionStart === null || histogramSelectionEnd === null) {
+                histogramSelectionElement.style.display = 'none';
+                return;
             }
+            
+            // Ensure start is before end
+            const start = Math.min(histogramSelectionStart, histogramSelectionEnd);
+            const end = Math.max(histogramSelectionStart, histogramSelectionEnd);
+            
+            // Update selection element position and size
+            histogramSelectionElement.style.display = 'block';
+            histogramSelectionElement.style.left = `${start * 100}%`;
+            histogramSelectionElement.style.width = `${(end - start) * 100}%`;
+        }
+        
+        function applyHistogramSelection() {
+            if (histogramSelectionStart === null || histogramSelectionEnd === null ||
+                histogramEarliest === null || histogramLatest === null) {
+                return;
+            }
+            
+            // Ensure start is before end
+            const start = Math.min(histogramSelectionStart, histogramSelectionEnd);
+            const end = Math.max(histogramSelectionStart, histogramSelectionEnd);
+            
+            // Calculate selected time range
+            const timeRange = histogramLatest - histogramEarliest;
+            const startTime = new Date(histogramEarliest.getTime() + timeRange * start);
+            const endTime = new Date(histogramEarliest.getTime() + timeRange * end);
+            
+            // Update timeline to only include positions within the selected range
+            updateTimelineWithRange(startTime, endTime);
+        }
+        
+        function updateTimelineWithRange(startTime, endTime) {
+            // Create timeline data with 100 steps within the selected range
+            const timeRange = endTime - startTime;
+            const stepSize = timeRange / 100;
+            
+            timelineData = Array.from({ length: 101 }, (_, i) => {
+                return new Date(startTime.getTime() + i * stepSize);
+            });
+            
+            // Reset timeline slider
+            timelineSlider.value = 0;
+            currentTimeIndex = 0;
+            
+            // Update display
+            updateTimeDisplay(timelineData[0]);
+            updateMarkersToTime(timelineData[0]);
+        }
+        
+        function resetTimelineToFullRange() {
+            if (!histogramEarliest || !histogramLatest) return;
+            
+            // Create timeline data with 100 steps for the full range
+            const timeRange = histogramLatest - histogramEarliest;
+            const stepSize = timeRange / 100;
+            
+            timelineData = Array.from({ length: 101 }, (_, i) => {
+                return new Date(histogramEarliest.getTime() + i * stepSize);
+            });
+            
+            // Reset timeline slider
+            timelineSlider.value = 0;
+            currentTimeIndex = 0;
+            
+            // Update display
+            updateTimeDisplay(timelineData[0]);
+            updateMarkersToTime(timelineData[0]);
         }
         
         // Update histogram when vessels are selected/unselected
@@ -1536,6 +1765,11 @@
                 updateHistogram();
             } else {
                 histogramContainer.innerHTML = '';
+                histogramEarliest = null;
+                histogramLatest = null;
+                histogramBins = [];
+                histogramSelectionStart = null;
+                histogramSelectionEnd = null;
             }
         }
     </script>
