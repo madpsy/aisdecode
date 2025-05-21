@@ -1813,8 +1813,8 @@ func summaryHistoryHandler(w http.ResponseWriter, r *http.Request) {
             return
         }
         
-        // Limit radius to 200 km
-        if radius > 200000 { // 200 km in meters
+        // Limit radius to 400 km
+        if radius > 400000 { // 400 km in meters
             http.Error(w, "Radius too large, try zooming in", http.StatusBadRequest)
             return
         }
