@@ -3627,9 +3627,16 @@ function applyLogFilters() {
 	  `;
 	  document.head.appendChild(style);
 	  
+	  // Calculate dynamic radius based on current zoom level
+	  const currentZoom = map.getZoom();
+	  const baseRadius = 17;
+	  // Adjust radius inversely to zoom level - smaller radius at higher zoom levels
+	  const zoomFactor = Math.max(0.5, 1.5 - (currentZoom - 5) * 0.1);
+	  const dynamicRadius = Math.round(baseRadius * zoomFactor);
+	  
 	  // Create a circle marker with the water temperature value at the offset position
 	  const marker = L.circleMarker([offsetLat, offsetLon], {
-	    radius: 17,
+	    radius: dynamicRadius,
 	    color: '#fff',
 	    fillColor: '#0078ff',
 	    fillOpacity: 0.7,
@@ -3741,12 +3748,19 @@ function applyLogFilters() {
 	  }
 	});
 	
-	// Add a zoom handler to refresh MET data circles immediately after zoom
+	// Add a zoom handler to update MET data circles when zoom level changes
 	map.on('zoomend', function() {
-	  // Only refresh if MET data overlay is enabled
-	  if (metDataEnabled) {
-	    // Use a very short timeout to ensure this happens after the zoom animation completes
-	    setTimeout(fetchMetData, 50);
+	  // Only update if MET data overlay is enabled and there are markers
+	  if (metDataEnabled && Object.keys(metDataMarkers).length > 0) {
+	    const currentZoom = map.getZoom();
+	    const baseRadius = 17;
+	    const zoomFactor = Math.max(0.5, 1.5 - (currentZoom - 5) * 0.1);
+	    const dynamicRadius = Math.round(baseRadius * zoomFactor);
+	    
+	    // Update radius of all existing MET data markers
+	    for (const id in metDataMarkers) {
+	      metDataMarkers[id].setRadius(dynamicRadius);
+	    }
 	  }
 	});
 
