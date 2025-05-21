@@ -62,6 +62,17 @@ if [[ -z "$BASE_URL" ]]; then
   exit 1
 fi
 
+# Detect package manager
+detect_package_manager() {
+  if command -v apt-get >/dev/null; then
+    echo "apt"
+  elif command -v yum >/dev/null; then
+    echo "yum"
+  else
+    echo "unknown"
+  fi
+}
+
 # Ensure dependencies
 MISSING_CMDS=()
 for cmd in curl jq bc; do
@@ -69,15 +80,34 @@ for cmd in curl jq bc; do
     MISSING_CMDS+=("$cmd")
   fi
 done
+
 if [ ${#MISSING_CMDS[@]} -ne 0 ]; then
-  echo "Missing required commands: ${MISSING_CMDS[*]}"
-  read -p "Install missing with sudo apt-get install ${MISSING_CMDS[*]}? [Y/n]: " install_resp
-  if [[ "$install_resp" =~ ^[Nn]$ ]]; then
-    echo "Aborting due to missing dependencies."
+  PKG_MANAGER=$(detect_package_manager)
+  
+  if [ "$PKG_MANAGER" = "unknown" ]; then
+    echo "Unable to detect package manager. Please install the following dependencies manually: ${MISSING_CMDS[*]}"
     exit 1
   fi
-  sudo apt-get update
-  sudo apt-get install -y "${MISSING_CMDS[@]}"
+  
+  echo "Missing required commands: ${MISSING_CMDS[*]}"
+  
+  if [ "$PKG_MANAGER" = "apt" ]; then
+    read -p "Install missing with sudo apt-get install ${MISSING_CMDS[*]}? [Y/n]: " install_resp
+    if [[ "$install_resp" =~ ^[Nn]$ ]]; then
+      echo "Aborting due to missing dependencies."
+      exit 1
+    fi
+    sudo apt-get update
+    sudo apt-get install -y "${MISSING_CMDS[@]}"
+  elif [ "$PKG_MANAGER" = "yum" ]; then
+    read -p "Install missing with sudo yum install ${MISSING_CMDS[*]}? [Y/n]: " install_resp
+    if [[ "$install_resp" =~ ^[Nn]$ ]]; then
+      echo "Aborting due to missing dependencies."
+      exit 1
+    fi
+    sudo yum check-update
+    sudo yum install -y "${MISSING_CMDS[@]}"
+  fi
 fi
 
 
