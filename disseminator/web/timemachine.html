@@ -1518,6 +1518,19 @@
             currentTimeIndex = 0;
             timelineSlider.value = 0;
             
+            // Ensure timelineData starts from the 'from' time if it exists
+            if (histogramEarliest && histogramLatest && timelineData.length > 0) {
+                // Create timeline data with 100 steps from the full range
+                const fromDate = new Date(fromDateInput.value);
+                const timeRange = histogramLatest - histogramEarliest;
+                const stepSize = timeRange / 100;
+                
+                // Recreate timeline data starting from the 'from' date
+                timelineData = Array.from({ length: 101 }, (_, i) => {
+                    return new Date(histogramEarliest.getTime() + i * stepSize);
+                });
+            }
+            
             // Update display to show the first time point
             if (timelineData.length > 0) {
                 const time = timelineData[0];
