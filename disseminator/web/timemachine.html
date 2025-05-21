@@ -341,19 +341,19 @@
         
         // Base OSM layer
         const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }).addTo(map);
         
         // OpenSeaMap layer
         const openSeaMapLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openseamap.org/">OpenSeaMap</a> contributors'
+            attribution: '&copy; <a href="https://www.openseamap.org/">OpenSeaMap</a>'
         }).addTo(map); // Add by default
         
         // Add OpenSeaMap toggle control
         const openSeaMapControl = L.control({position: 'topright'});
         openSeaMapControl.onAdd = function(map) {
             const div = L.DomUtil.create('div', 'map-control-checkbox');
-            div.innerHTML = '<label><input type="checkbox" id="opensea-toggle" checked> OpenSeaMap</label>';
+            div.innerHTML = '<label><input type="checkbox" id="opensea-toggle" checked> Map Overlay</label>';
             
             // Prevent clicks from propagating to the map
             L.DomEvent.disableClickPropagation(div);
