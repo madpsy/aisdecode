@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIS Time Machine</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        #container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        #header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #title {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        #controls {
+            background-color: #ecf0f1;
+            padding: 10px 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+        #map {
+            flex-grow: 1;
+        }
+        #vessel-list {
+            width: 300px;
+            background-color: white;
+            border-left: 1px solid #ccc;
+            overflow-y: auto;
+            padding: 10px;
+            display: none;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        input, select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .vessel-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+        .vessel-item:hover {
+            background-color: #f5f5f5;
+        }
+        .vessel-item.selected {
+            background-color: #e3f2fd;
+        }
+        .vessel-name {
+            font-weight: bold;
+        }
+        .vessel-details {
+            font-size: 12px;
+            color: #666;
+        }
+        #timeline {
+            height: 50px;
+            background-color: #ecf0f1;
+            position: relative;
+            overflow: hidden;
+            display: none;
+        }
+        #timeline-slider {
+            width: 100%;
+            margin: 0 10px;
+        }
+        #playback-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0 10px;
+        }
+        .hidden {
+            display: none;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 20px;
+            border-radius: 5px;
+            z-index: 1000;
+            display: none;
+        }
+        .split-view {
+            display: flex;
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="header">
+            <div id="title">AIS Time Machine</div>
+        </div>
+        <div id="controls">
+            <div class="control-group">
+                <label for="from-date">From:</label>
+                <input type="datetime-local" id="from-date">
+            </div>
+            <div class="control-group">
+                <label for="to-date">To:</label>
+                <input type="datetime-local" id="to-date">
+            </div>
+            <div class="control-group">
+                <label for="radius">Radius (km):</label>
+                <input type="number" id="radius" min="1" max="20" value="10">
+            </div>
+            <div class="control-group">
+                <label for="min-speed">Min Speed (knots):</label>
+                <input type="number" id="min-speed" min="0" value="0.5" step="0.5">
+            </div>
+            <button id="search-btn">Search Vessels</button>
+            <button id="toggle-vessels-btn" disabled>Show Vessels</button>
+            <button id="play-btn" disabled>Play</button>
+            <button id="reset-btn">Reset</button>
+        </div>
+        <div class="split-view">
+            <div id="map"></div>
+            <div id="vessel-list"></div>
+        </div>
+        <div id="timeline">
+            <div id="playback-controls">
+                <button id="play-pause-btn">▶️</button>
+                <input type="range" id="timeline-slider" min="0" max="100" value="0">
+                <span id="time-display">00:00:00</span>
+            </div>
+        </div>
+        <div id="loading">Loading...</div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Map initialization
+        const map = L.map('map').setView([55.9533, -3.1883], 10); // Default to Edinburgh
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        // Global variables
+        let vessels = {};
+        let selectedVessels = new Set();
+        let vesselMarkers = {};
+        let vesselTracks = {};
+        let vesselPositions = {};
+        let currentTimeIndex = 0;
+        let timelineData = [];
+        let isPlaying = false;
+        let playbackInterval;
+        let searchArea;
+
+        // DOM elements
+        const fromDateInput = document.getElementById('from-date');
+        const toDateInput = document.getElementById('to-date');
+        const radiusInput = document.getElementById('radius');
+        const minSpeedInput = document.getElementById('min-speed');
+        const searchBtn = document.getElementById('search-btn');
+        const toggleVesselsBtn = document.getElementById('toggle-vessels-btn');
+        const playBtn = document.getElementById('play-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const vesselList = document.getElementById('vessel-list');
+        const timeline = document.getElementById('timeline');
+        const timelineSlider = document.getElementById('timeline-slider');
+        const timeDisplay = document.getElementById('time-display');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const loadingIndicator = document.getElementById('loading');
+
+        // Set default date/time values (1 hour ago to now)
+        const now = new Date();
+        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+        
+        fromDateInput.value = formatDateForInput(oneHourAgo);
+        toDateInput.value = formatDateForInput(now);
+
+        // Event listeners
+        searchBtn.addEventListener('click', searchVessels);
+        toggleVesselsBtn.addEventListener('click', toggleVesselList);
+        playBtn.addEventListener('click', startPlayback);
+        resetBtn.addEventListener('click', resetView);
+        playPauseBtn.addEventListener('click', togglePlayPause);
+        timelineSlider.addEventListener('input', handleTimelineSliderChange);
+        
+        // Map click handler to get coordinates
+        map.on('click', function(e) {
+            console.log(`Latitude: ${e.latlng.lat.toFixed(6)}, Longitude: ${e.latlng.lng.toFixed(6)}`);
+        });
+
+        // Helper functions
+        function formatDateForInput(date) {
+            return date.toISOString().slice(0, 16);
+        }
+
+        function formatDateForAPI(date) {
+            return date.toISOString();
+        }
+
+        function showLoading() {
+            loadingIndicator.style.display = 'block';
+        }
+
+        function hideLoading() {
+            loadingIndicator.style.display = 'none';
+        }
+
+        function toggleVesselList() {
+            if (vesselList.style.display === 'none' || vesselList.style.display === '') {
+                vesselList.style.display = 'block';
+                toggleVesselsBtn.textContent = 'Hide Vessels';
+            } else {
+                vesselList.style.display = 'none';
+                toggleVesselsBtn.textContent = 'Show Vessels';
+            }
+        }
+
+        function resetView() {
+            // Clear all data and reset the view
+            vessels = {};
+            selectedVessels.clear();
+            
+            // Clear markers and tracks
+            for (const id in vesselMarkers) {
+                map.removeLayer(vesselMarkers[id]);
+            }
+            for (const id in vesselTracks) {
+                map.removeLayer(vesselTracks[id]);
+            }
+            
+            if (searchArea) {
+                map.removeLayer(searchArea);
+            }
+            
+            vesselMarkers = {};
+            vesselTracks = {};
+            vesselPositions = {};
+            
+            // Reset UI
+            vesselList.innerHTML = '';
+            vesselList.style.display = 'none';
+            timeline.style.display = 'none';
+            toggleVesselsBtn.disabled = true;
+            playBtn.disabled = true;
+            toggleVesselsBtn.textContent = 'Show Vessels';
+            
+            // Stop playback
+            stopPlayback();
+        }
+
+        async function searchVessels() {
+            resetView();
+            showLoading();
+            
+            try {
+                // Get search parameters
+                const fromDate = new Date(fromDateInput.value);
+                const toDate = new Date(toDateInput.value);
+                const radius = parseFloat(radiusInput.value) * 1000; // Convert km to meters
+                const minSpeed = parseFloat(minSpeedInput.value);
+                
+                // Get map center
+                const center = map.getCenter();
+                const lat = center.lat;
+                const lng = center.lng;
+                
+                // Draw search area circle
+                if (searchArea) {
+                    map.removeLayer(searchArea);
+                }
+                searchArea = L.circle([lat, lng], {
+                    radius: radius,
+                    color: 'blue',
+                    fillColor: '#30f',
+                    fillOpacity: 0.1
+                }).addTo(map);
+                
+                // Fetch vessels from summaryhistory endpoint
+                const url = `/summaryhistory?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}&latitude=${lat}&longitude=${lng}&radius=${radius}&minSpeed=${minSpeed}`;
+                
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                vessels = await response.json();
+                
+                // Populate vessel list
+                populateVesselList(vessels);
+                
+                // Enable vessel list toggle button
+                toggleVesselsBtn.disabled = false;
+                toggleVesselList();
+                
+            } catch (error) {
+                console.error('Error searching vessels:', error);
+                alert('Error searching vessels: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function populateVesselList(vessels) {
+            vesselList.innerHTML = '';
+            
+            if (Object.keys(vessels).length === 0) {
+                vesselList.innerHTML = '<div class="vessel-item">No vessels found</div>';
+                return;
+            }
+            
+            for (const id in vessels) {
+                const vessel = vessels[id];
+                const item = document.createElement('div');
+                item.className = 'vessel-item';
+                item.dataset.id = id;
+                
+                const name = vessel.Name || 'Unknown';
+                const type = vessel.Type || 'Unknown';
+                const aisClass = vessel.AISClass || 'Unknown';
+                
+                item.innerHTML = `
+                    <div class="vessel-name">${name}</div>
+                    <div class="vessel-details">
+                        ID: ${id}<br>
+                        Type: ${type}<br>
+                        Class: ${aisClass}
+                    </div>
+                `;
+                
+                item.addEventListener('click', () => toggleVesselSelection(id, item));
+                
+                vesselList.appendChild(item);
+            }
+        }
+
+        function toggleVesselSelection(id, element) {
+            if (selectedVessels.has(id)) {
+                selectedVessels.delete(id);
+                element.classList.remove('selected');
+                
+                // Remove marker and track if they exist
+                if (vesselMarkers[id]) {
+                    map.removeLayer(vesselMarkers[id]);
+                    delete vesselMarkers[id];
+                }
+                if (vesselTracks[id]) {
+                    map.removeLayer(vesselTracks[id]);
+                    delete vesselTracks[id];
+                }
+            } else {
+                selectedVessels.add(id);
+                element.classList.add('selected');
+                
+                // Fetch vessel positions if not already fetched
+                if (!vesselPositions[id]) {
+                    fetchVesselPositions(id);
+                }
+            }
+            
+            // Enable/disable play button based on selection
+            playBtn.disabled = selectedVessels.size === 0;
+        }
+
+        async function fetchVesselPositions(id) {
+            showLoading();
+            
+            try {
+                const fromDate = new Date(fromDateInput.value);
+                const toDate = new Date(toDateInput.value);
+                
+                // Fetch vessel positions from latestmessages endpoint
+                const url = `/latestmessages?UserID=${id}&start=${formatDateForAPI(fromDate)}&end=${formatDateForAPI(toDate)}&MessageID=1,2,3,9,18,19&limit=10000`;
+                
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Process position data
+                const positions = data.map(msg => {
+                    const packet = typeof msg.Packet === 'string' ? JSON.parse(msg.Packet) : msg.Packet;
+                    return {
+                        timestamp: new Date(msg.Timestamp),
+                        lat: parseFloat(packet.Latitude),
+                        lng: parseFloat(packet.Longitude),
+                        cog: packet.Cog !== undefined ? parseFloat(packet.Cog) : null,
+                        sog: packet.Sog !== undefined ? parseFloat(packet.Sog) : null,
+                        heading: packet.TrueHeading !== undefined && packet.TrueHeading !== 511 ? parseFloat(packet.TrueHeading) : null
+                    };
+                }).filter(pos => !isNaN(pos.lat) && !isNaN(pos.lng));
+                
+                // Sort by timestamp
+                positions.sort((a, b) => a.timestamp - b.timestamp);
+                
+                vesselPositions[id] = positions;
+                
+                // Create initial marker and track
+                createVesselMarker(id);
+                
+                // Update timeline if this is the first vessel
+                if (Object.keys(vesselPositions).length === 1) {
+                    setupTimeline();
+                }
+                
+            } catch (error) {
+                console.error(`Error fetching positions for vessel ${id}:`, error);
+                alert(`Error fetching positions for vessel ${id}: ${error.message}`);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function createVesselMarker(id) {
+            const positions = vesselPositions[id];
+            if (!positions || positions.length === 0) return;
+            
+            const vessel = vessels[id];
+            const name = vessel.Name || 'Unknown';
+            
+            // Create marker at first position
+            const pos = positions[0];
+            const marker = L.marker([pos.lat, pos.lng], {
+                title: name,
+                rotationAngle: pos.heading || pos.cog || 0
+            }).addTo(map);
+            
+            marker.bindPopup(`
+                <strong>${name}</strong><br>
+                ID: ${id}<br>
+                Speed: ${pos.sog !== null ? pos.sog.toFixed(1) : 'N/A'} knots<br>
+                Course: ${pos.cog !== null ? pos.cog.toFixed(1) : 'N/A'}°<br>
+                Time: ${pos.timestamp.toLocaleString()}
+            `);
+            
+            vesselMarkers[id] = marker;
+            
+            // Create track polyline
+            const trackPoints = positions.map(p => [p.lat, p.lng]);
+            const track = L.polyline(trackPoints, {
+                color: getRandomColor(),
+                weight: 3,
+                opacity: 0.7
+            }).addTo(map);
+            
+            vesselTracks[id] = track;
+        }
+
+        function getRandomColor() {
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        }
+
+        function setupTimeline() {
+            // Find earliest and latest timestamps across all vessels
+            let earliest = new Date();
+            let latest = new Date(0);
+            
+            for (const id of selectedVessels) {
+                const positions = vesselPositions[id];
+                if (!positions || positions.length === 0) continue;
+                
+                const vesselEarliest = positions[0].timestamp;
+                const vesselLatest = positions[positions.length - 1].timestamp;
+                
+                if (vesselEarliest < earliest) earliest = vesselEarliest;
+                if (vesselLatest > latest) latest = vesselLatest;
+            }
+            
+            // Create timeline data with 100 steps
+            const timeRange = latest - earliest;
+            const stepSize = timeRange / 100;
+            
+            timelineData = Array.from({ length: 101 }, (_, i) => {
+                return new Date(earliest.getTime() + i * stepSize);
+            });
+            
+            // Show timeline
+            timeline.style.display = 'block';
+            timelineSlider.value = 0;
+            updateTimeDisplay(timelineData[0]);
+            
+            // Reset markers to initial position
+            updateMarkersToTime(timelineData[0]);
+        }
+
+        function updateTimeDisplay(time) {
+            timeDisplay.textContent = time.toLocaleTimeString();
+        }
+
+        function updateMarkersToTime(time) {
+            for (const id of selectedVessels) {
+                const positions = vesselPositions[id];
+                if (!positions || positions.length === 0) continue;
+                
+                // Find the position closest to the given time
+                let closestPos = positions[0];
+                let minDiff = Math.abs(time - positions[0].timestamp);
+                
+                for (let i = 1; i < positions.length; i++) {
+                    const diff = Math.abs(time - positions[i].timestamp);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestPos = positions[i];
+                    }
+                }
+                
+                // Update marker position
+                const marker = vesselMarkers[id];
+                if (marker) {
+                    marker.setLatLng([closestPos.lat, closestPos.lng]);
+                    
+                    // Update rotation angle
+                    if (marker.options.rotationAngle !== undefined) {
+                        marker.setRotationAngle(closestPos.heading || closestPos.cog || 0);
+                    }
+                    
+                    // Update popup content
+                    const vessel = vessels[id];
+                    const name = vessel.Name || 'Unknown';
+                    
+                    marker.bindPopup(`
+                        <strong>${name}</strong><br>
+                        ID: ${id}<br>
+                        Speed: ${closestPos.sog !== null ? closestPos.sog.toFixed(1) : 'N/A'} knots<br>
+                        Course: ${closestPos.cog !== null ? closestPos.cog.toFixed(1) : 'N/A'}°<br>
+                        Time: ${closestPos.timestamp.toLocaleString()}
+                    `);
+                }
+                
+                // Update track - show only the part of the track up to the current time
+                const track = vesselTracks[id];
+                if (track) {
+                    const trackPoints = positions
+                        .filter(p => p.timestamp <= time)
+                        .map(p => [p.lat, p.lng]);
+                    
+                    track.setLatLngs(trackPoints);
+                }
+            }
+        }
+
+        function handleTimelineSliderChange() {
+            const index = parseInt(timelineSlider.value);
+            currentTimeIndex = index;
+            
+            const time = timelineData[index];
+            updateTimeDisplay(time);
+            updateMarkersToTime(time);
+        }
+
+        function startPlayback() {
+            // Setup timeline if not already done
+            if (timelineData.length === 0) {
+                setupTimeline();
+            }
+            
+            // Show timeline
+            timeline.style.display = 'block';
+            
+            // Start playback
+            togglePlayPause();
+        }
+
+        function togglePlayPause() {
+            if (isPlaying) {
+                stopPlayback();
+            } else {
+                isPlaying = true;
+                playPauseBtn.textContent = '⏸️';
+                
+                playbackInterval = setInterval(() => {
+                    currentTimeIndex++;
+                    
+                    if (currentTimeIndex >= timelineData.length) {
+                        stopPlayback();
+                        return;
+                    }
+                    
+                    timelineSlider.value = currentTimeIndex;
+                    const time = timelineData[currentTimeIndex];
+                    updateTimeDisplay(time);
+                    updateMarkersToTime(time);
+                }, 100); // Update every 100ms
+            }
+        }
+
+        function stopPlayback() {
+            isPlaying = false;
+            playPauseBtn.textContent = '▶️';
+            
+            if (playbackInterval) {
+                clearInterval(playbackInterval);
+                playbackInterval = null;
+            }
+        }
+    </script>
+</body>
+</html>
