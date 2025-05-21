@@ -1114,12 +1114,21 @@
                     `);
                 }
                 
-                // Update track - show only the part of the track up to the current time
+                // Update track - show the appropriate part of the track
                 const track = vesselTracks[id];
                 if (track) {
-                    const trackPoints = positions
-                        .filter(p => p.timestamp <= time)
-                        .map(p => [p.lat, p.lng]);
+                    let trackPoints;
+                    
+                    // If at the beginning of the timeline, show the full track
+                    // This ensures the track is visible when a vessel is first selected or reselected
+                    if (currentTimeIndex === 0) {
+                        trackPoints = positions.map(p => [p.lat, p.lng]);
+                    } else {
+                        // Otherwise, filter to show only points up to the current time
+                        trackPoints = positions
+                            .filter(p => p.timestamp <= time)
+                            .map(p => [p.lat, p.lng]);
+                    }
                     
                     track.setLatLngs(trackPoints);
                 }
