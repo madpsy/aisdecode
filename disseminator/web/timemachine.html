@@ -190,7 +190,7 @@
                 <label for="min-speed">Min Speed (knots):</label>
                 <input type="number" id="min-speed" min="0" value="0.5" step="0.5">
             </div>
-            <button id="search-btn">Search Vessels</button>
+            <!-- Search now happens automatically when map is moved or zoomed -->
             <button id="toggle-vessels-btn" disabled>Show Vessels</button>
             <button id="play-btn" disabled>Play</button>
             <button id="reset-btn">Reset</button>
@@ -238,7 +238,7 @@
         // Radius is now calculated from zoom level
         let calculatedRadius = 10; // Default value in km
         const minSpeedInput = document.getElementById('min-speed');
-        const searchBtn = document.getElementById('search-btn');
+        // No longer using search button
         const toggleVesselsBtn = document.getElementById('toggle-vessels-btn');
         const playBtn = document.getElementById('play-btn');
         const resetBtn = document.getElementById('reset-btn');
@@ -260,7 +260,25 @@
         fetchVesselTypes();
 
         // Event listeners
-        searchBtn.addEventListener('click', searchVessels);
+        // Implement debounce function for map events
+        function debounce(func, wait) {
+            let timeout;
+            return function() {
+                const context = this;
+                const args = arguments;
+                clearTimeout(timeout);
+                timeout = setTimeout(() => {
+                    func.apply(context, args);
+                }, wait);
+            };
+        }
+        
+        // Debounced search function
+        const debouncedSearch = debounce(searchVessels, 500);
+        
+        // Add event listeners for map movement and zoom
+        map.on('moveend', debouncedSearch);
+        map.on('zoomend', debouncedSearch);
         toggleVesselsBtn.addEventListener('click', toggleVesselList);
         playBtn.addEventListener('click', startPlayback);
         resetBtn.addEventListener('click', resetView);
@@ -331,22 +349,7 @@
 
         function resetView() {
             // Clear all data and reset the view
-            vessels = {};
-            selectedVessels.clear();
-            
-            // Clear markers and tracks
-            for (const id in vesselMarkers) {
-                map.removeLayer(vesselMarkers[id]);
-            }
-            for (const id in vesselTracks) {
-                map.removeLayer(vesselTracks[id]);
-            }
-            
-            // No longer need to remove searchArea
-            
-            vesselMarkers = {};
-            vesselTracks = {};
-            vesselPositions = {};
+            clearVessels();
             
             // Reset UI
             vesselList.innerHTML = '';
@@ -360,9 +363,29 @@
             // Stop playback
             stopPlayback();
         }
+        
+        // Function to clear vessels without resetting the entire view
+        function clearVessels() {
+            vessels = {};
+            selectedVessels.clear();
+            
+            // Clear markers and tracks
+            for (const id in vesselMarkers) {
+                map.removeLayer(vesselMarkers[id]);
+            }
+            for (const id in vesselTracks) {
+                map.removeLayer(vesselTracks[id]);
+            }
+            
+            vesselMarkers = {};
+            vesselTracks = {};
+            vesselPositions = {};
+        }
 
         async function searchVessels() {
-            resetView();
+            // Don't reset the view when automatically searching
+            // Just clear existing vessels and markers
+            clearVessels();
             showLoading();
             
             try {
@@ -417,7 +440,11 @@
                 
                 // Enable vessel list toggle button
                 toggleVesselsBtn.disabled = false;
-                toggleVesselList();
+                
+                // Only show vessel list automatically on the first search
+                if (vesselList.style.display === 'none' || vesselList.style.display === '') {
+                    toggleVesselList();
+                }
                 
             } catch (error) {
                 console.error('Error searching vessels:', error);
