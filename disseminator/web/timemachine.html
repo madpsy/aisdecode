@@ -90,6 +90,24 @@
             font-size: 12px;
             color: #666;
         }
+        .vessel-live-data {
+            font-size: 12px;
+            color: #333;
+            margin-top: 5px;
+            padding-top: 5px;
+            border-top: 1px dashed #ccc;
+            display: none;
+        }
+        .vessel-item.selected .vessel-live-data {
+            display: block;
+        }
+        .vessel-live-data span {
+            display: inline-block;
+            margin-right: 10px;
+        }
+        .vessel-live-data .label {
+            font-weight: bold;
+        }
         #timeline {
             height: 50px;
             background-color: #ecf0f1;
@@ -413,6 +431,11 @@
                         Type: ${typeName} (${typeId})<br>
                         Class: ${aisClass}
                     </div>
+                    <div class="vessel-live-data" id="live-data-${id}">
+                        <span><span class="label">Speed:</span> <span id="sog-${id}">-</span> knots</span>
+                        <span><span class="label">Course:</span> <span id="cog-${id}">-</span>°</span>
+                        <span><span class="label">Heading:</span> <span id="heading-${id}">-</span>°</span>
+                    </div>
                 `;
                 
                 item.addEventListener('click', () => toggleVesselSelection(id, item));
@@ -668,6 +691,26 @@
                         .map(p => [p.lat, p.lng]);
                     
                     track.setLatLngs(trackPoints);
+                }
+                
+                // Update live data in vessel list
+                const liveDataElement = document.getElementById(`live-data-${id}`);
+                if (liveDataElement) {
+                    const sogElement = document.getElementById(`sog-${id}`);
+                    const cogElement = document.getElementById(`cog-${id}`);
+                    const headingElement = document.getElementById(`heading-${id}`);
+                    
+                    if (sogElement) {
+                        sogElement.textContent = closestPos.sog !== null ? closestPos.sog.toFixed(1) : '-';
+                    }
+                    
+                    if (cogElement) {
+                        cogElement.textContent = closestPos.cog !== null ? closestPos.cog.toFixed(1) : '-';
+                    }
+                    
+                    if (headingElement) {
+                        headingElement.textContent = closestPos.heading !== null ? closestPos.heading.toFixed(1) : '-';
+                    }
                 }
             }
         }
