@@ -920,6 +920,25 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
         query += fmt.Sprintf(" AND (%s)", typeFilter)
     }
     
+    // Filter by AIS Class if specified
+    if classes != "" {
+        classConditions := []string{}
+        classesList := strings.Split(classes, ",")
+        for _, c := range classesList {
+            c = strings.TrimSpace(c)
+            if c != "" {
+                // We'll need to join with the state table to filter by ais_class
+                // This will be handled in the state query after the initial results
+                classConditions = append(classConditions, fmt.Sprintf("'%s'", c))
+            }
+        }
+        
+        if len(classConditions) > 0 {
+            // Note: We don't filter here because ais_class is in the state table
+            // The filtering will be done when querying the state table
+        }
+    }
+    
     // Close the CTE and select only the closest message for each user_id
     query += `
         )
@@ -1000,6 +1019,24 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
                 FROM state s
                 WHERE s.user_id = '%s'
             `, userID, fromTime.Format(time.RFC3339Nano), toTime.Format(time.RFC3339Nano), userID)
+            
+            // Filter by AIS Class if specified
+            if classes != "" {
+                classesList := strings.Split(classes, ",")
+                classConditions := []string{}
+                
+                for _, c := range classesList {
+                    c = strings.TrimSpace(c)
+                    if c != "" {
+                        classConditions = append(classConditions, fmt.Sprintf("s.ais_class = '%s'", c))
+                    }
+                }
+                
+                if len(classConditions) > 0 {
+                    classFilter := strings.Join(classConditions, " OR ")
+                    stateQuery += fmt.Sprintf(" AND (%s)", classFilter)
+                }
+            }
             
             stateRows, err := QueryDatabaseForUser(userID, stateQuery)
             if err != nil {
