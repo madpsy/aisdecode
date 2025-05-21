@@ -709,7 +709,7 @@ func main() {
     log.Fatal(http.ListenAndServe(addr, nil))
 }
 
-func createSchema() {
+func createSchema() error {
     // Check if we need to add password_hash and password_salt columns
     var columnCount int
     err := db.QueryRow(`
@@ -878,7 +878,7 @@ func createSchema() {
     // Create index on receiver_id
     _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_receiver_ports_receiver_id ON receiver_ports(receiver_id);`)
     if err != nil {
-        log.Fatalf("Error creating index on receiver_id: %v", err)
+        return fmt.Errorf("error creating index on receiver_id: %v", err)
     }
 
     // Populate receiver_ports table with available ports
@@ -930,8 +930,10 @@ func createSchema() {
     // Create index on receiver_id
     _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_receiver_id ON password_reset_tokens(receiver_id);`)
     if err != nil {
-        log.Fatalf("Error creating index on receiver_id: %v", err)
+        return fmt.Errorf("error creating index on receiver_id: %v", err)
     }
+    
+    return nil
 }
 
 // Ensure connection is alive, attempt to reconnect if needed
