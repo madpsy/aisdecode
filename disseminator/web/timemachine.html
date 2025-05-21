@@ -522,11 +522,27 @@
         // Add event listeners for map movement and zoom
         map.on('moveend', function() {
             checkRadiusAndUpdateUI();
-            if (initialLoadComplete) debouncedUpdateURL();
+            if (initialLoadComplete) {
+                debouncedUpdateURL();
+                // Update vessel list to show only vessels visible in the current view
+                if (hasPerformedSearch && Object.keys(vessels).length > 0) {
+                    populateVesselList(vessels);
+                    // Re-apply any active filter
+                    filterVesselList();
+                }
+            }
         });
         map.on('zoomend', function() {
             checkRadiusAndUpdateUI();
-            if (initialLoadComplete) debouncedUpdateURL();
+            if (initialLoadComplete) {
+                debouncedUpdateURL();
+                // Update vessel list to show only vessels visible in the current view
+                if (hasPerformedSearch && Object.keys(vessels).length > 0) {
+                    populateVesselList(vessels);
+                    // Re-apply any active filter
+                    filterVesselList();
+                }
+            }
         });
         
         // Add event listeners for date/time changes
@@ -1096,10 +1112,11 @@
                 return;
             }
             
-            // Get map center for distance calculation
+            // Get current map bounds
+            const mapBounds = map.getBounds();
             const mapCenter = map.getCenter();
             
-            // Convert vessels object to array for sorting
+            // Convert vessels object to array for sorting, filtering by map bounds
             const vesselsArray = Object.entries(vessels).map(([id, vessel]) => {
                 // Calculate distance from vessel to map center
                 const vesselLat = vessel.Latitude || 0;
@@ -1110,6 +1127,9 @@
                 // Check if this vessel is selected
                 const isSelected = selectedVessels.has(id);
                 
+                // Check if vessel is within current map bounds
+                const isVisible = mapBounds.contains(vesselLatLng);
+                
                 // Get vessel name for sorting
                 const name = vessel.Name || 'Unknown';
                 
@@ -1118,14 +1138,30 @@
                     vessel,
                     distance,
                     isSelected,
+                    isVisible,
                     name
                 };
             });
             
+            // Always filter vessels to only show those visible on map or selected
+            const displayedVesselsArray = vesselsArray.filter(item => item.isVisible || item.isSelected);
+            
+            // Show count of filtered vessels vs total
+            const totalVessels = vesselsArray.length;
+            const visibleVessels = displayedVesselsArray.length;
+            if (visibleVessels < totalVessels) {
+                const infoElement = document.createElement('div');
+                infoElement.className = 'vessel-item';
+                infoElement.style.fontStyle = 'italic';
+                infoElement.style.color = '#666';
+                infoElement.textContent = `Showing ${visibleVessels} visible vessels of ${totalVessels} total`;
+                vesselItems.appendChild(infoElement);
+            }
+            
             // Sort vessels:
             // 1. Selected vessels at the top, sorted alphanumerically by name
             // 2. Non-selected vessels sorted by number of positions (highest to lowest), then by distance
-            vesselsArray.sort((a, b) => {
+            displayedVesselsArray.sort((a, b) => {
                 // First, separate selected from non-selected
                 if (a.isSelected && !b.isSelected) return -1;
                 if (!a.isSelected && b.isSelected) return 1;
@@ -1149,7 +1185,7 @@
             });
             
             // Create list items for sorted vessels
-            for (const {id, vessel, isSelected} of vesselsArray) {
+            for (const {id, vessel, isSelected} of displayedVesselsArray) {
                 const item = document.createElement('div');
                 item.className = isSelected ? 'vessel-item selected' : 'vessel-item';
                 item.dataset.id = id;
