@@ -846,13 +846,18 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 }
 
 func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed float64, userid int64, types string, typeGroups string, classes string, receiverID int64, fromTime, toTime time.Time) (map[string]interface{}, error) {
-    // Step 1: Find unique user_ids from messages table within the time period and area
+    // Step 1: Find messages within the time period and area, and get the one closest to fromTime for each user_id
     query := fmt.Sprintf(`
-        SELECT DISTINCT user_id
-        FROM messages
-        WHERE timestamp BETWEEN '%s' AND '%s'
-        AND message_id IN (1,2,3,9,18,19)
-    `, fromTime.Format(time.RFC3339Nano), toTime.Format(time.RFC3339Nano))
+        WITH ranked_messages AS (
+            SELECT
+                user_id,
+                packet,
+                timestamp,
+                ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - '%s'::timestamp)))) as rn
+            FROM messages
+            WHERE timestamp BETWEEN '%s' AND '%s'
+            AND message_id IN (1,2,3,9,18,19)
+    `, fromTime.Format(time.RFC3339Nano), fromTime.Format(time.RFC3339Nano), toTime.Format(time.RFC3339Nano))
     
     // If lat, lon, and radius are specified, filter by distance
     if lat != 0 && lon != 0 && radius != 0 {
@@ -915,13 +920,21 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
         query += fmt.Sprintf(" AND (%s)", typeFilter)
     }
     
+    // Close the CTE and select only the closest message for each user_id
+    query += `
+        )
+        SELECT user_id, packet, timestamp
+        FROM ranked_messages
+        WHERE rn = 1
+    `
+    
     // Apply LIMIT only if it's greater than 0
     if limit > 0 {
         query += fmt.Sprintf(" LIMIT %d", limit)
     }
     
     // Execute the query on all shards
-    var userIDs []string
+    summarizedResults := make(map[string]interface{})
     
     clientConnectionsMu.RLock()
     conns := make([]*ClientConnection, 0, len(clientConnections))
@@ -946,114 +959,121 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
         
         // Process the results
         for rows.Next() {
-            var userID string
-            if err := rows.Scan(&userID); err != nil {
-                log.Printf("Error scanning user_id: %v", err)
+            var (
+                userID     string
+                packetData []byte
+                timestamp  time.Time
+            )
+            
+            if err := rows.Scan(&userID, &packetData, &timestamp); err != nil {
+                log.Printf("Error scanning message row: %v", err)
                 continue
             }
-            userIDs = append(userIDs, userID)
-        }
-        rows.Close()
-    }
-    
-    // Step 2: For each unique user_id, get the vessel data from the state table
-    summarizedResults := make(map[string]interface{})
-    
-    for _, userID := range userIDs {
-        // Query the state table for this user_id
-        stateQuery := fmt.Sprintf(`
-            SELECT user_id, packet, timestamp, ais_class, count, name
-            FROM state
-            WHERE user_id = '%s'
-        `, userID)
-        
-        rows, err := QueryDatabaseForUser(userID, stateQuery)
-        if err != nil {
-            log.Printf("Error querying state for user %s: %v", userID, err)
-            continue
-        }
-        
-        if !rows.Next() {
-            rows.Close()
-            continue
-        }
-        
-        var (
-            userIDVal interface{}
-            packetData []byte
-            timestamp  time.Time
-            aisClass   string
-            count      int64
-            name       sql.NullString
-        )
-        
-        if err := rows.Scan(&userIDVal, &packetData, &timestamp, &aisClass, &count, &name); err != nil {
-            log.Printf("Error scanning state row: %v", err)
-            rows.Close()
-            continue
-        }
-        rows.Close()
-        
-        // Parse the packet JSON
-        var packetMap map[string]interface{}
-        if err := json.Unmarshal(packetData, &packetMap); err != nil {
-            log.Printf("Error unmarshalling packet: %v", err)
-            continue
-        }
-        
-        // Create the summary for this vessel
-        summary := make(map[string]interface{})
-        summary["UserID"] = getFieldFloat(packetMap, "UserID")
-        summary["CallSign"] = getFieldString(packetMap, "CallSign")
-        summary["Cog"] = getFieldFloat(packetMap, "Cog")
-        summary["Destination"] = getFieldString(packetMap, "Destination")
-        summary["Dimension"] = getFieldJSON(packetMap, "Dimension")
-        summary["MaximumStaticDraught"] = getNullableFloat(packetMap, "MaximumStaticDraught")
-        summary["NavigationalStatus"] = getNullableFloat(packetMap, "NavigationalStatus")
-        summary["Sog"] = getFieldFloat(packetMap, "Sog")
-        summary["Type"] = getFieldFloat(packetMap, "Type")
-        
-        vesselName := getFieldString(packetMap, "Name")
-        ext := getFieldString(packetMap, "NameExtension")
-        if ext != "" {
-            vesselName = vesselName + ext
-        }
-        summary["Name"] = vesselName
-        
-        // Get position data
-        lat := getFieldFloat(packetMap, "Latitude")
-        lon := getFieldFloat(packetMap, "Longitude")
-        trueheading := getFieldFloat(packetMap, "TrueHeading")
-        
-        // Skip invalid positions
-        if isNull(lat) || isNull(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
-            continue
-        }
-        
-        summary["Latitude"] = lat
-        summary["Longitude"] = lon
-        
-        if trueheading != NoTrueHeading {
-            summary["TrueHeading"] = trueheading
-        }
-        
-        summary["AISClass"] = aisClass
-        summary["LastUpdated"] = timestamp.UTC().Format(time.RFC3339Nano)
-        summary["NumMessages"] = count
-        
-        // Override Name from DB if available
-        if name.Valid && name.String != "" {
-            summary["Name"] = name.String
-        }
-        
-        // Default Name to AISClass + " Class" if empty
-        if nameVal, ok := summary["Name"].(string); !ok || nameVal == "" {
-            if classVal, ok := summary["AISClass"].(string); ok {
-                summary["Name"] = fmt.Sprintf("%s (%s)", classVal, userID)
+            
+            // Parse the packet JSON from the message (closest to fromTime)
+            var messagePacket map[string]interface{}
+            if err := json.Unmarshal(packetData, &messagePacket); err != nil {
+                log.Printf("Error unmarshalling message packet: %v", err)
+                continue
             }
+            
+            // Get position data from the message
+            lat := getFieldFloat(messagePacket, "Latitude")
+            lon := getFieldFloat(messagePacket, "Longitude")
+            
+            // Skip invalid positions
+            if isNull(lat) || isNull(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+                continue
+            }
+            
+            // Now get additional vessel data from the state table
+            stateQuery := fmt.Sprintf(`
+                SELECT packet, ais_class, count, name
+                FROM state
+                WHERE user_id = '%s'
+            `, userID)
+            
+            stateRows, err := QueryDatabaseForUser(userID, stateQuery)
+            if err != nil {
+                log.Printf("Error querying state for user %s: %v", userID, err)
+                continue
+            }
+            
+            if !stateRows.Next() {
+                stateRows.Close()
+                continue
+            }
+            
+            var (
+                statePacketData []byte
+                aisClass        string
+                count           int64
+                name            sql.NullString
+            )
+            
+            if err := stateRows.Scan(&statePacketData, &aisClass, &count, &name); err != nil {
+                log.Printf("Error scanning state row: %v", err)
+                stateRows.Close()
+                continue
+            }
+            stateRows.Close()
+            
+            // Parse the packet JSON from the state table
+            var statePacket map[string]interface{}
+            if err := json.Unmarshal(statePacketData, &statePacket); err != nil {
+                log.Printf("Error unmarshalling state packet: %v", err)
+                continue
+            }
+            
+            // Create the summary for this vessel
+            summary := make(map[string]interface{})
+            
+            // Use position data and navigational status from the message (closest to fromTime)
+            summary["Latitude"] = lat
+            summary["Longitude"] = lon
+            summary["Cog"] = getFieldFloat(messagePacket, "Cog")
+            summary["Sog"] = getFieldFloat(messagePacket, "Sog")
+            summary["NavigationalStatus"] = getNullableFloat(messagePacket, "NavigationalStatus")
+            
+            trueheading := getFieldFloat(messagePacket, "TrueHeading")
+            if trueheading != NoTrueHeading {
+                summary["TrueHeading"] = trueheading
+            }
+            
+            // Use other vessel data from the state table
+            summary["UserID"] = getFieldFloat(statePacket, "UserID")
+            summary["CallSign"] = getFieldString(statePacket, "CallSign")
+            summary["Destination"] = getFieldString(statePacket, "Destination")
+            summary["Dimension"] = getFieldJSON(statePacket, "Dimension")
+            summary["MaximumStaticDraught"] = getNullableFloat(statePacket, "MaximumStaticDraught")
+            summary["Type"] = getFieldFloat(statePacket, "Type")
+            
+            vesselName := getFieldString(statePacket, "Name")
+            ext := getFieldString(statePacket, "NameExtension")
+            if ext != "" {
+                vesselName = vesselName + ext
+            }
+            summary["Name"] = vesselName
+            
+            summary["AISClass"] = aisClass
+            summary["LastUpdated"] = timestamp.UTC().Format(time.RFC3339Nano)
+            summary["NumMessages"] = count
+            
+            // Override Name from DB if available
+            if name.Valid && name.String != "" {
+                summary["Name"] = name.String
+            }
+            
+            // Default Name to AISClass + " Class" if empty
+            if nameVal, ok := summary["Name"].(string); !ok || nameVal == "" {
+                if classVal, ok := summary["AISClass"].(string); ok {
+                    summary["Name"] = fmt.Sprintf("%s (%s)", classVal, userID)
+                }
+            }
+            
+            summarizedResults[userID] = summary
         }
-        
-        summarizedResults[userID] = summary
+        rows.Close()
     }
     
     return summarizedResults, nil
