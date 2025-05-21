@@ -163,6 +163,12 @@
         .vessel-tooltip::before {
             display: none;
         }
+        
+        .info-text {
+            font-size: 12px;
+            color: #666;
+            margin-left: 5px;
+        }
     </style>
 </head>
 <body>
@@ -181,7 +187,8 @@
             </div>
             <div class="control-group">
                 <label for="radius">Radius (km):</label>
-                <input type="number" id="radius" min="1" max="20" value="10">
+                <input type="number" id="radius" min="1" max="20" value="10" disabled>
+                <span class="info-text">(Auto-calculated from zoom)</span>
             </div>
             <div class="control-group">
                 <label for="min-speed">Min Speed (knots):</label>
@@ -369,26 +376,26 @@
                 const toDate = new Date(toDateInput.value);
                 const minSpeed = parseFloat(minSpeedInput.value);
                 
-                // Calculate center and radius based on current map view
+                // Calculate center based on current map view
                 const bounds = map.getBounds();
                 const center = bounds.getCenter();
                 const lat = center.lat;
                 const lng = center.lng;
                 
-                // Calculate radius based on map bounds
-                // Get the distance from center to the furthest corner
-                const northEast = bounds.getNorthEast();
-                const southWest = bounds.getSouthWest();
+                // Calculate radius based on zoom level
+                const zoomLevel = map.getZoom();
                 
-                // Calculate diagonal distance in meters
-                const diagonalDistance = center.distanceTo(northEast);
+                // Formula to calculate radius based on zoom level:
+                // - At zoom level 10, radius is about 10km
+                // - Each zoom level halves the radius
+                const baseRadius = 10000; // 10km at zoom level 10
+                const zoomFactor = Math.pow(2, 10 - zoomLevel); // Factor based on zoom difference from 10
+                let radius = baseRadius * zoomFactor;
                 
-                // Use either the user-specified radius or the calculated one, whichever is smaller
-                const userRadius = parseFloat(radiusInput.value) * 1000; // Convert km to meters
-                const calculatedRadius = Math.min(diagonalDistance, 20000); // Cap at 20km
-                const radius = userRadius > 0 ? Math.min(userRadius, calculatedRadius) : calculatedRadius;
+                // Cap the radius between 0.5km and 20km
+                radius = Math.min(Math.max(radius, 500), 20000);
                 
-                // Update radius input to reflect actual value used
+                // Update radius input to reflect calculated value
                 radiusInput.value = (radius / 1000).toFixed(1);
                 
                 // Draw search area circle
