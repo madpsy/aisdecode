@@ -277,7 +277,7 @@
             border-radius: 4px;
             font-size: 14px;
             font-weight: bold;
-            z-index: 1000;
+            z-index: 2000; /* Increased z-index to appear above map attribution */
             pointer-events: none;
         }
         
@@ -1788,6 +1788,17 @@
             histogramContainer.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) return; // Only left mouse button
                 
+                // Check if we clicked on the selection element
+                const selectionRect = histogramSelectionElement ? histogramSelectionElement.getBoundingClientRect() : null;
+                if (selectionRect &&
+                    e.clientX >= selectionRect.left &&
+                    e.clientX <= selectionRect.right &&
+                    e.clientY >= selectionRect.top &&
+                    e.clientY <= selectionRect.bottom) {
+                    // Clicked on selection, don't start a new one
+                    return;
+                }
+                
                 // Get position relative to histogram container
                 const rect = histogramContainer.getBoundingClientRect();
                 const x = e.clientX - rect.left;
@@ -1866,9 +1877,15 @@
                     return;
                 }
                 
+                // This is a click outside the selection - clear selection and reset timeline
+                // Important: Set these to null BEFORE calling updateHistogramSelection
                 histogramSelectionStart = null;
                 histogramSelectionEnd = null;
-                updateHistogramSelection();
+                
+                // Update the UI to hide the selection
+                if (histogramSelectionElement) {
+                    histogramSelectionElement.style.display = 'none';
+                }
                 
                 // Reset to full timeline
                 resetTimelineToFullRange();
