@@ -399,6 +399,12 @@
             params.set('to', toDate);
             params.set('minSpeed', minSpeed);
             
+            // Add selected vessels to URL if any are selected
+            if (selectedVessels.size > 0) {
+                const selectedArray = Array.from(selectedVessels);
+                params.set('selected', selectedArray.join(','));
+            }
+            
             // Update URL without reloading the page
             const newURL = window.location.pathname + '?' + params.toString();
             window.history.replaceState({}, '', newURL);
@@ -417,6 +423,14 @@
             const fromDate = params.get('from');
             const toDate = params.get('to');
             const minSpeed = params.get('minSpeed');
+            
+            // Get selected vessels
+            const selectedParam = params.get('selected');
+            
+            // Store selected vessels for later use after data is loaded
+            if (selectedParam) {
+                window.vesselsToSelect = selectedParam.split(',');
+            }
             
             // Apply map parameters if valid
             if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
@@ -583,6 +597,13 @@
                     toggleVesselList();
                 }
                 
+                // Select vessels from URL parameters if any
+                if (window.vesselsToSelect && window.vesselsToSelect.length > 0) {
+                    selectVesselsFromParams(window.vesselsToSelect);
+                    // Clear the temporary storage
+                    delete window.vesselsToSelect;
+                }
+                
             } catch (error) {
                 console.error('Error searching vessels:', error);
                 alert(error.message);
@@ -727,6 +748,16 @@
             }
         }
 
+        // Function to select vessels from URL parameters
+        function selectVesselsFromParams(vesselIds) {
+            for (const id of vesselIds) {
+                const vesselItem = document.querySelector(`.vessel-item[data-id="${id}"]`);
+                if (vesselItem && vessels[id]) {
+                    toggleVesselSelection(id, vesselItem);
+                }
+            }
+        }
+        
         function toggleVesselSelection(id, element) {
             if (selectedVessels.has(id)) {
                 selectedVessels.delete(id);
