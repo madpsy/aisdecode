@@ -845,6 +845,237 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
     return summarizedResults, nil
 }
 
+func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed float64, userid int64, types string, typeGroups string, classes string, receiverID int64, fromTime, toTime time.Time) (map[string]interface{}, error) {
+    // Step 1: Find unique user_ids from messages table within the time period and area
+    query := `
+        SELECT DISTINCT user_id
+        FROM messages
+        WHERE timestamp BETWEEN $1 AND $2
+        AND message_id IN (1,2,3,9,18,19)
+    `
+    
+    // Add parameters for prepared statement
+    params := []interface{}{fromTime, toTime}
+    paramCount := 2
+    
+    // If lat, lon, and radius are specified, filter by distance
+    if lat != 0 && lon != 0 && radius != 0 {
+        query += fmt.Sprintf(`
+            AND ST_DistanceSphere(
+                ST_SetSRID(ST_Point(
+                    (packet->>'Longitude')::float,
+                    (packet->>'Latitude')::float
+                ), 4326),
+                ST_SetSRID(ST_Point($%d, $%d), 4326)
+            ) <= $%d
+        `, paramCount+1, paramCount+2, paramCount+3)
+        params = append(params, lon, lat, radius)
+        paramCount += 3
+    }
+    
+    // If UserID is provided, filter by user_id
+    if userid > 0 {
+        query += fmt.Sprintf(" AND user_id = $%d", paramCount+1)
+        params = append(params, userid)
+        paramCount++
+    }
+    
+    // If ReceiverID is provided, filter by receiver_id
+    if receiverID > 0 {
+        query += fmt.Sprintf(" AND receiver_id = $%d", paramCount+1)
+        params = append(params, receiverID)
+        paramCount++
+    }
+    
+    // If minSpeed is provided, filter by speed
+    if minSpeed > 0 {
+        query += fmt.Sprintf(" AND (packet->>'Sog')::float >= $%d", paramCount+1)
+        params = append(params, minSpeed)
+        paramCount++
+    }
+    
+    // Process individual types and type groups
+    var typeConditions []string
+    
+    // Filter by Type if specified
+    if types != "" {
+        typesList := strings.Split(types, ",")
+        for _, t := range typesList {
+            t = strings.TrimSpace(t)
+            if t != "" {
+                typeVal, err := strconv.ParseFloat(t, 64)
+                if err == nil {
+                    typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = $%d", paramCount+1))
+                    params = append(params, typeVal)
+                    paramCount++
+                } else {
+                    log.Printf("Warning: Ignoring invalid type value: %s", t)
+                }
+            }
+        }
+    }
+    
+    // Filter by TypeGroups if specified
+    if typeGroups != "" {
+        groupTypes := getTypesFromGroups(typeGroups)
+        for _, typeVal := range groupTypes {
+            typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = $%d", paramCount+1))
+            params = append(params, float64(typeVal))
+            paramCount++
+        }
+    }
+    
+    // Apply type conditions if any exist
+    if len(typeConditions) > 0 {
+        typeFilter := strings.Join(typeConditions, " OR ")
+        query += fmt.Sprintf(" AND (%s)", typeFilter)
+    }
+    
+    // Apply LIMIT only if it's greater than 0
+    if limit > 0 {
+        query += fmt.Sprintf(" LIMIT $%d", paramCount+1)
+        params = append(params, limit)
+    }
+    
+    // Execute the query on all shards
+    var userIDs []string
+    
+    clientConnectionsMu.RLock()
+    conns := make([]*ClientConnection, 0, len(clientConnections))
+    for _, cc := range clientConnections {
+        conns = append(conns, cc)
+    }
+    clientConnectionsMu.RUnlock()
+    
+    for _, cc := range conns {
+        // Ensure the DB is alive
+        if err := cc.ensureDB(); err != nil {
+            log.Printf("Failed to ensure DB for client %s: %v", cc.DbHost, err)
+            continue
+        }
+        
+        // Execute the query
+        rows, err := cc.Db.Query(query, params...)
+        if err != nil {
+            log.Printf("Failed to execute query on database for client %s: %v", cc.DbHost, err)
+            continue
+        }
+        
+        // Process the results
+        for rows.Next() {
+            var userID string
+            if err := rows.Scan(&userID); err != nil {
+                log.Printf("Error scanning user_id: %v", err)
+                continue
+            }
+            userIDs = append(userIDs, userID)
+        }
+        rows.Close()
+    }
+    
+    // Step 2: For each unique user_id, get the vessel data from the state table
+    summarizedResults := make(map[string]interface{})
+    
+    for _, userID := range userIDs {
+        // Query the state table for this user_id
+        stateQuery := `
+            SELECT user_id, packet, timestamp, ais_class, count, name
+            FROM state
+            WHERE user_id = $1
+        `
+        
+        rows, err := QueryDatabaseForUser(userID, stateQuery)
+        if err != nil {
+            log.Printf("Error querying state for user %s: %v", userID, err)
+            continue
+        }
+        
+        if !rows.Next() {
+            rows.Close()
+            continue
+        }
+        
+        var (
+            userIDVal interface{}
+            packetData []byte
+            timestamp  time.Time
+            aisClass   string
+            count      int64
+            name       sql.NullString
+        )
+        
+        if err := rows.Scan(&userIDVal, &packetData, &timestamp, &aisClass, &count, &name); err != nil {
+            log.Printf("Error scanning state row: %v", err)
+            rows.Close()
+            continue
+        }
+        rows.Close()
+        
+        // Parse the packet JSON
+        var packetMap map[string]interface{}
+        if err := json.Unmarshal(packetData, &packetMap); err != nil {
+            log.Printf("Error unmarshalling packet: %v", err)
+            continue
+        }
+        
+        // Create the summary for this vessel
+        summary := make(map[string]interface{})
+        summary["UserID"] = getFieldFloat(packetMap, "UserID")
+        summary["CallSign"] = getFieldString(packetMap, "CallSign")
+        summary["Cog"] = getFieldFloat(packetMap, "Cog")
+        summary["Destination"] = getFieldString(packetMap, "Destination")
+        summary["Dimension"] = getFieldJSON(packetMap, "Dimension")
+        summary["MaximumStaticDraught"] = getNullableFloat(packetMap, "MaximumStaticDraught")
+        summary["NavigationalStatus"] = getNullableFloat(packetMap, "NavigationalStatus")
+        summary["Sog"] = getFieldFloat(packetMap, "Sog")
+        summary["Type"] = getFieldFloat(packetMap, "Type")
+        
+        vesselName := getFieldString(packetMap, "Name")
+        ext := getFieldString(packetMap, "NameExtension")
+        if ext != "" {
+            vesselName = vesselName + ext
+        }
+        summary["Name"] = vesselName
+        
+        // Get position data
+        lat := getFieldFloat(packetMap, "Latitude")
+        lon := getFieldFloat(packetMap, "Longitude")
+        trueheading := getFieldFloat(packetMap, "TrueHeading")
+        
+        // Skip invalid positions
+        if isNull(lat) || isNull(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+            continue
+        }
+        
+        summary["Latitude"] = lat
+        summary["Longitude"] = lon
+        
+        if trueheading != NoTrueHeading {
+            summary["TrueHeading"] = trueheading
+        }
+        
+        summary["AISClass"] = aisClass
+        summary["LastUpdated"] = timestamp.UTC().Format(time.RFC3339Nano)
+        summary["NumMessages"] = count
+        
+        // Override Name from DB if available
+        if name.Valid && name.String != "" {
+            summary["Name"] = name.String
+        }
+        
+        // Default Name to AISClass + " Class" if empty
+        if nameVal, ok := summary["Name"].(string); !ok || nameVal == "" {
+            if classVal, ok := summary["AISClass"].(string); ok {
+                summary["Name"] = fmt.Sprintf("%s (%s)", classVal, userID)
+            }
+        }
+        
+        summarizedResults[userID] = summary
+    }
+    
+    return summarizedResults, nil
+}
+
 func getHistoryResults(userID string, hours int) ([]map[string]interface{}, error) {
     // 1) Compute cutoff timestamp
     pastTime := time.Now().
@@ -1477,6 +1708,148 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
 
     w.Header().Set("Content-Type", "application/json")
     w.Write(blob)
+}
+
+// summaryHistoryHandler handles requests to the /summaryhistory endpoint
+// It returns vessels seen within a specified time period
+func summaryHistoryHandler(w http.ResponseWriter, r *http.Request) {
+    // Declare 'err' once at the beginning of the function
+    var err error
+
+    // Extract latitude, longitude, and radius from query parameters
+    latStr := r.URL.Query().Get("latitude")
+    lonStr := r.URL.Query().Get("longitude")
+    radiusStr := r.URL.Query().Get("radius")
+    
+    // Default to 500 if 'maxResults' is not specified
+    limitStr := r.URL.Query().Get("maxResults")
+    limit := 500
+    if limitStr != "" {
+        parsedLimit, err := strconv.Atoi(limitStr)
+        if err != nil || parsedLimit <= 0 {
+            http.Error(w, "Invalid limit value", http.StatusBadRequest)
+            return
+        }
+        if parsedLimit > 500 {
+            limit = 500
+        } else {
+            limit = parsedLimit
+        }
+    }
+
+    // Extract 'minSpeed' query parameter (optional)
+    minSpeedStr := r.URL.Query().Get("minSpeed")
+    var minSpeed float64
+    if minSpeedStr != "" {
+        minSpeed, err = strconv.ParseFloat(minSpeedStr, 64)
+        if err != nil || minSpeed < 0 {
+            http.Error(w, "Invalid minSpeed value", http.StatusBadRequest)
+            return
+        }
+    }
+
+    // Extract 'UserID' query parameter for filtering (optional)
+    useridStr := r.URL.Query().Get("UserID")
+    var userid int64
+    if useridStr != "" {
+        userid, err = strconv.ParseInt(useridStr, 10, 64)
+        if err != nil || userid <= 0 {
+            http.Error(w, "Invalid UserID value", http.StatusBadRequest)
+            return
+        }
+    }
+    
+    // Extract 'receiver' query parameter for filtering (optional)
+    receiverStr := r.URL.Query().Get("receiver")
+    var receiverID int64
+    if receiverStr != "" {
+        receiverID, err = strconv.ParseInt(receiverStr, 10, 64)
+        if err != nil || receiverID <= 0 {
+            http.Error(w, "Invalid receiver value", http.StatusBadRequest)
+            return
+        }
+    }
+    
+    // Extract 'types' query parameter for filtering (optional)
+    types := r.URL.Query().Get("types")
+    
+    // Extract 'typeGroups' query parameter for filtering (optional)
+    typeGroups := r.URL.Query().Get("typeGroups")
+    
+    // Extract 'classes' query parameter for filtering (optional)
+    classes := r.URL.Query().Get("classes")
+
+    // Parse latitude, longitude, and radius if they are provided
+    var lat, lon, radius float64
+    if latStr != "" && lonStr != "" && radiusStr != "" {
+        lat, err = strconv.ParseFloat(latStr, 64)
+        if err != nil {
+            http.Error(w, "Invalid latitude", http.StatusBadRequest)
+            return
+        }
+
+        lon, err = strconv.ParseFloat(lonStr, 64)
+        if err != nil {
+            http.Error(w, "Invalid longitude", http.StatusBadRequest)
+            return
+        }
+
+        radius, err = strconv.ParseFloat(radiusStr, 64)
+        if err != nil || radius <= 0 {
+            http.Error(w, "Invalid radius", http.StatusBadRequest)
+            return
+        }
+        
+        // Limit radius to 20 NM (nautical miles)
+        if radius > 20 * 1852 { // 1 NM = 1852 meters
+            radius = 20 * 1852
+        }
+    }
+
+    // Extract 'from' and 'to' time parameters
+    fromStr := r.URL.Query().Get("from")
+    toStr := r.URL.Query().Get("to")
+    
+    if fromStr == "" || toStr == "" {
+        http.Error(w, "Both 'from' and 'to' parameters are required", http.StatusBadRequest)
+        return
+    }
+    
+    // Parse the time parameters
+    fromTime, err := time.Parse(time.RFC3339, fromStr)
+    if err != nil {
+        http.Error(w, "Invalid 'from' time format. Use RFC3339 format (e.g., 2025-05-21T08:00:00Z)", http.StatusBadRequest)
+        return
+    }
+    
+    toTime, err := time.Parse(time.RFC3339, toStr)
+    if err != nil {
+        http.Error(w, "Invalid 'to' time format. Use RFC3339 format (e.g., 2025-05-21T09:00:00Z)", http.StatusBadRequest)
+        return
+    }
+    
+    // Ensure 'from' is before 'to'
+    if fromTime.After(toTime) {
+        http.Error(w, "'from' time must be before 'to' time", http.StatusBadRequest)
+        return
+    }
+    
+    // Limit time period to 1 hour
+    maxDuration := 1 * time.Hour
+    if toTime.Sub(fromTime) > maxDuration {
+        http.Error(w, "Time period cannot exceed 1 hour", http.StatusBadRequest)
+        return
+    }
+    
+    // Get summary history results
+    results, err := getSummaryHistoryResults(lat, lon, radius, limit, minSpeed, userid, types, typeGroups, classes, receiverID, fromTime, toTime)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Error generating summary history: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(results)
 }
 
 // metSummaryHandler handles requests to the /met-summary endpoint
@@ -2348,6 +2721,8 @@ func setupServer(settings *Settings) {
     mux.HandleFunc("/summary", func(w http.ResponseWriter, r *http.Request) {
     	summaryHandler(w, r, conf)
     })
+    
+    mux.HandleFunc("/summaryhistory", summaryHistoryHandler)
     
     mux.HandleFunc("/met-summary", metSummaryHandler)
     mux.HandleFunc("/state", userStateHandler)
