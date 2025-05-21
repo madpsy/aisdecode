@@ -995,7 +995,10 @@
                 color: vesselColor,
                 weight: 3,
                 opacity: 0.7
-            }).addTo(map);
+            });
+            
+            // Add to selected layer instead of directly to map
+            selectedLayer.addLayer(track);
             
             vesselTracks[id] = track;
         }
