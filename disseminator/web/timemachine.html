@@ -551,8 +551,19 @@
                 };
             });
             
-            // Sort vessels by distance from center
-            vesselsArray.sort((a, b) => a.distance - b.distance);
+            // Sort vessels by number of positions (highest to lowest), then by distance as a tiebreaker
+            vesselsArray.sort((a, b) => {
+                const positionsA = a.vessel.Positions || 0;
+                const positionsB = b.vessel.Positions || 0;
+                
+                // If positions are equal, sort by distance
+                if (positionsB === positionsA) {
+                    return a.distance - b.distance;
+                }
+                
+                // Otherwise sort by number of positions (descending)
+                return positionsB - positionsA;
+            });
             
             // Create list items for sorted vessels
             for (const {id, vessel} of vesselsArray) {
