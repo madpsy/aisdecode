@@ -255,6 +255,31 @@
             height: 100%;
             pointer-events: none;
         }
+        
+        .histogram-timeline-indicator {
+            position: absolute;
+            top: 0;
+            width: 2px;
+            height: 100%;
+            background-color: rgba(255, 0, 0, 0.7);
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .map-time-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+            z-index: 1000;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -284,6 +309,7 @@
         <div class="split-view">
             <div id="map">
                 <div id="radius-warning">You need to zoom in</div>
+                <div id="map-time-overlay" class="map-time-overlay"></div>
             </div>
             <div id="vessel-list"></div>
         </div>
@@ -349,6 +375,7 @@
         const loadingIndicator = document.getElementById('loading');
         const radiusWarning = document.getElementById('radius-warning');
         const histogramContainer = document.getElementById('histogram-container');
+        const mapTimeOverlay = document.getElementById('map-time-overlay');
 
         // Set default date/time values (1 hour ago to now)
         const now = new Date();
@@ -666,6 +693,11 @@
             histogramBins = [];
             histogramSelectionStart = null;
             histogramSelectionEnd = null;
+            
+            // Hide map time overlay
+            if (mapTimeOverlay) {
+                mapTimeOverlay.style.display = 'none';
+            }
             
             // Stop playback
             stopPlayback();
@@ -1297,6 +1329,33 @@
 
         function updateTimeDisplay(time) {
             timeDisplay.textContent = time.toLocaleTimeString();
+            
+            // Update map time overlay
+            if (mapTimeOverlay) {
+                // Format date in 24-hour format
+                const options = {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                };
+                mapTimeOverlay.textContent = time.toLocaleString(undefined, options);
+                mapTimeOverlay.style.display = 'block';
+            }
+            
+            // Update histogram timeline indicator
+            const timelineIndicator = document.getElementById('histogram-timeline-indicator');
+            if (timelineIndicator && histogramEarliest && histogramLatest) {
+                const timeRange = histogramLatest - histogramEarliest;
+                if (timeRange > 0) {
+                    const percent = (time - histogramEarliest) / timeRange;
+                    timelineIndicator.style.left = `${percent * 100}%`;
+                    timelineIndicator.style.display = 'block';
+                }
+            }
         }
 
         function updateMarkersToTime(time) {
@@ -1583,6 +1642,13 @@
             histogramSelectionElement.className = 'histogram-selection';
             histogramSelectionElement.style.display = 'none';
             histogramContainer.appendChild(histogramSelectionElement);
+            
+            // Create timeline indicator element
+            const timelineIndicator = document.createElement('div');
+            timelineIndicator.className = 'histogram-timeline-indicator';
+            timelineIndicator.id = 'histogram-timeline-indicator';
+            timelineIndicator.style.display = 'none';
+            histogramContainer.appendChild(timelineIndicator);
             
             // Find maximum count in any bin for scaling
             let maxCount = 0;
