@@ -1155,9 +1155,6 @@
             infoElement.style.fontStyle = 'italic';
             infoElement.style.color = '#666';
             infoElement.textContent = `${visibleVessels} vessels found`;
-            if (visibleVessels < totalVessels) {
-                infoElement.textContent += ` (${totalVessels} total)`;
-            }
             // Add selected vessels count
             infoElement.textContent += ` • ${selectedVessels.size} selected`;
             vesselItems.appendChild(infoElement);
