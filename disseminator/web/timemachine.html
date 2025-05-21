@@ -243,6 +243,9 @@
         let playbackInterval;
         // No longer using searchArea variable
         let vesselTypes = null; // Will store the vessel types data
+        
+        // Persistent storage for vessel colors by MMSI
+        let vesselColorMap = {};
 
         // DOM elements
         const fromDateInput = document.getElementById('from-date');
@@ -377,6 +380,8 @@
         function resetView() {
             // Clear all data and reset the view
             clearVessels();
+            // Reset the color map when fully resetting the view
+            vesselColorMap = {};
             
             // Reset UI
             vesselList.innerHTML = '';
@@ -410,6 +415,7 @@
             vesselMarkers = {};
             vesselTracks = {};
             vesselPositions = {};
+            // Note: We don't clear vesselColorMap to maintain color consistency
         }
 
         async function searchVessels() {
@@ -467,9 +473,13 @@
                 
                 vessels = await response.json();
                 
-                // Generate colors for all vessels
+                // Assign colors to vessels, using existing colors if available
                 for (const id in vessels) {
-                    vessels[id].color = getRandomColor();
+                    // Use existing color if we have one, otherwise generate a new one
+                    if (!vesselColorMap[id]) {
+                        vesselColorMap[id] = getRandomColor();
+                    }
+                    vessels[id].color = vesselColorMap[id];
                 }
                 
                 // Add dot markers for all vessels
