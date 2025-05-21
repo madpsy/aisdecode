@@ -477,6 +477,11 @@
 
         // Function to add dot markers for all vessels
         function addVesselDotMarkers(vessels) {
+            // Clear existing markers
+            vesselMarkers = {};
+            selectedLayer.clearLayers();
+            nonSelectedLayer.clearLayers();
+            
             for (const id in vessels) {
                 const vessel = vessels[id];
                 const lat = vessel.Latitude;
@@ -492,7 +497,7 @@
                     fillColor: vessel.color,
                     fillOpacity: 1,
                     weight: 1
-                }).addTo(map);
+                });
                 
                 // Add tooltip with vessel name
                 const name = vessel.Name || 'Unknown';
@@ -520,8 +525,9 @@
                     }
                 });
                 
-                // Store the marker
+                // Store the marker and add to non-selected layer
                 vesselMarkers[id] = dotMarker;
+                nonSelectedLayer.addLayer(dotMarker);
             }
         }
         
@@ -739,9 +745,10 @@
             // Use the vessel's assigned color
             const vesselColor = vessel.color || getRandomColor();
             
-            // Remove existing marker if any
+            // Remove existing marker from any layer
             if (vesselMarkers[id]) {
-                map.removeLayer(vesselMarkers[id]);
+                nonSelectedLayer.removeLayer(vesselMarkers[id]);
+                selectedLayer.removeLayer(vesselMarkers[id]);
             }
             
             // Create marker at first position
@@ -750,7 +757,10 @@
                 icon: createVesselIcon(vesselColor),
                 title: name,
                 rotationAngle: pos.heading || pos.cog || 0
-            }).addTo(map);
+            });
+            
+            // Add to selected layer
+            selectedLayer.addLayer(marker);
             
             // Add permanent tooltip with vessel name
             marker.bindTooltip(name, {
@@ -912,9 +922,6 @@
             updateMarkersToTime(time);
         }
 
-        // Store non-selected markers during playback
-        let hiddenMarkers = {};
-        
         function startPlayback() {
             // Setup timeline if not already done
             if (timelineData.length === 0) {
@@ -924,15 +931,8 @@
             // Show timeline
             timeline.style.display = 'block';
             
-            // Remove non-selected vessel markers from map during playback
-            hiddenMarkers = {};
-            for (const id in vesselMarkers) {
-                if (!selectedVessels.has(id)) {
-                    hiddenMarkers[id] = vesselMarkers[id];
-                    map.removeLayer(vesselMarkers[id]);
-                    // Keep the reference in vesselMarkers for later
-                }
-            }
+            // Hide non-selected vessel markers during playback
+            map.removeLayer(nonSelectedLayer);
             
             // Start playback
             togglePlayPause();
@@ -981,13 +981,8 @@
                 updateMarkersToTime(time);
             }
             
-            // Add back all hidden vessel markers after playback
-            for (const id in hiddenMarkers) {
-                if (!map.hasLayer(hiddenMarkers[id])) {
-                    hiddenMarkers[id].addTo(map);
-                }
-            }
-            hiddenMarkers = {};
+            // Show all vessel markers again after playback
+            map.addLayer(nonSelectedLayer);
         }
     </script>
 </body>
