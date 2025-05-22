@@ -1830,17 +1830,26 @@
         }
 
         function handlePlayPauseClick() {
-            // Setup timeline if not already done
-            if (timelineData.length === 0 && selectedVessels.size > 0) {
-                setupTimeline();
-            }
-            
-            // Hide non-selected vessel markers during playback
-            map.removeLayer(nonSelectedLayer);
-            
-            // Toggle play/pause state
-            togglePlayPause();
-        }
+                    // Setup timeline if not already done
+                    if (timelineData.length === 0 && selectedVessels.size > 0) {
+                        setupTimeline();
+                    }
+                    
+                    // Hide non-selected vessel markers during playback
+                    map.removeLayer(nonSelectedLayer);
+                    
+                    // If we're at the end of the timeline, reset to the beginning
+                    if (currentTimeIndex >= timelineData.length - 1) {
+                        currentTimeIndex = 0;
+                        timelineSlider.value = 0;
+                        const time = timelineData[0];
+                        updateTimeDisplay(time);
+                        updateMarkersToTime(time);
+                    }
+                    
+                    // Toggle play/pause state
+                    togglePlayPause();
+                }
 
         function togglePlayPause() {
                     if (isPlaying) {
@@ -1921,8 +1930,16 @@
                     timelineSlider.disabled = selectedVessels.size === 0;
                     playbackSpeedSelect.disabled = selectedVessels.size === 0;
                     
-                    // Don't reset the timeline index to beginning
-                    // This allows playback to resume from where it was stopped
+                    // Reset the timeline index to the beginning
+                    currentTimeIndex = 0;
+                    timelineSlider.value = 0;
+                    
+                    // Update display to show the first time point
+                    if (timelineData.length > 0) {
+                        const time = timelineData[0];
+                        updateTimeDisplay(time);
+                        updateMarkersToTime(time);
+                    }
                     
                     // Show all vessel markers again only when completely stopping playback
                     map.addLayer(nonSelectedLayer);
