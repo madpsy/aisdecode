@@ -1728,34 +1728,36 @@
                         // Update track - show the appropriate part of the track
                         const track = vesselTracks[id];
                         if (track) {
-                            let trackPoints;
-                            
-                            // If at the beginning of the timeline, show the full track
-                            if (currentTimeIndex === 0) {
-                                trackPoints = positions.map(p => [p.lat, p.lng]);
-                            } else {
-                                // Filter to show points up to the current time
-                                const pointsUpToNow = positions.filter(p => p.timestamp <= time);
+                            // If we haven't calculated the sampling rate for this vessel yet, do it now
+                            if (!vessel.trackSamplingRate) {
+                                // Calculate a consistent sampling rate based on total points and playback duration
+                                // Store it with the vessel so it remains consistent during playback
+                                const totalPoints = positions.length;
+                                vessel.trackSamplingRate = Math.max(1, Math.floor(totalPoints / (playbackDuration * 3)));
                                 
-                                // Adjust the number of points based on playback duration
-                                // For longer durations, include more points for smoother visualization
-                                let pointsToShow = pointsUpToNow;
-                                
-                                // If we have a lot of points, we may need to sample them
-                                if (pointsUpToNow.length > 100) {
-                                    // Calculate sampling rate based on playback duration
-                                    // Longer durations = more points
-                                    const samplingRate = Math.max(1, Math.floor(pointsUpToNow.length / (playbackDuration * 2)));
-                                    
-                                    // Sample points, always including the most recent point
-                                    pointsToShow = pointsUpToNow.filter((_, index, array) =>
-                                        index % samplingRate === 0 || index === array.length - 1
-                                    );
+                                // For very short tracks, don't sample
+                                if (totalPoints < 100) {
+                                    vessel.trackSamplingRate = 1;
                                 }
                                 
-                                trackPoints = pointsToShow.map(p => [p.lat, p.lng]);
+                                console.log(`Vessel ${id}: ${totalPoints} points, sampling rate ${vessel.trackSamplingRate}`);
                             }
                             
+                            // Use the pre-calculated sampling rate
+                            const samplingRate = vessel.trackSamplingRate;
+                            
+                            // Filter points up to current time
+                            const pointsUpToNow = positions.filter(p => p.timestamp <= time);
+                            
+                            // Apply consistent sampling
+                            const sampledPoints = pointsUpToNow.filter((_, index, array) =>
+                                index % samplingRate === 0 || index === array.length - 1
+                            );
+                            
+                            // Convert to track points
+                            const trackPoints = sampledPoints.map(p => [p.lat, p.lng]);
+                            
+                            // Update the track
                             track.setLatLngs(trackPoints);
                         }
                 
