@@ -1589,10 +1589,14 @@
             let earliest = new Date();
             let latest = new Date(0);
             
+            // Count total positions across all vessels to determine optimal timeline steps
+            let totalPositions = 0;
+            
             for (const id of selectedVessels) {
                 const positions = vesselPositions[id];
                 if (!positions || positions.length === 0) continue;
                 
+                totalPositions += positions.length;
                 const vesselEarliest = positions[0].timestamp;
                 const vesselLatest = positions[positions.length - 1].timestamp;
                 
@@ -1600,11 +1604,16 @@
                 if (vesselLatest > latest) latest = vesselLatest;
             }
             
-            // Create timeline data with 100 steps
-            const timeRange = latest - earliest;
-            const stepSize = timeRange / 100;
+            // Determine number of timeline steps based on available positions
+            // Use more steps when we have more positions, but cap at 500 for performance
+            // Minimum of 100 steps for smooth playback
+            const numSteps = Math.min(500, Math.max(100, Math.min(totalPositions, 300)));
             
-            timelineData = Array.from({ length: 101 }, (_, i) => {
+            // Create timeline data with calculated steps
+            const timeRange = latest - earliest;
+            const stepSize = timeRange / (numSteps - 1);
+            
+            timelineData = Array.from({ length: numSteps }, (_, i) => {
                 return new Date(earliest.getTime() + i * stepSize);
             });
             
@@ -1627,6 +1636,8 @@
             
             // Reset markers to initial position
             updateMarkersToTime(timelineData[0]);
+            
+            console.log(`Timeline created with ${numSteps} steps for ${totalPositions} total positions`);
         }
 
         function updateTimeDisplay(time) {
@@ -1667,6 +1678,7 @@
                 
                 // Find the position closest to the given time
                 let closestPos = positions[0];
+                let closestIndex = 0;
                 let minDiff = Math.abs(time - positions[0].timestamp);
                 
                 for (let i = 1; i < positions.length; i++) {
@@ -1674,6 +1686,7 @@
                     if (diff < minDiff) {
                         minDiff = diff;
                         closestPos = positions[i];
+                        closestIndex = i;
                     }
                 }
                 
@@ -1693,13 +1706,17 @@
                     const typeId = vessel.Type || 'Unknown';
                     const typeName = getVesselTypeName(typeId);
                     
+                    // Add position index information to help debug
+                    const positionInfo = `Position ${closestIndex + 1} of ${positions.length}`;
+                    
                     marker.bindPopup(`
                         <strong>${name}</strong><br>
                         MMSI: ${id}<br>
                         Type: ${typeName} (${typeId})<br>
                         Speed: ${closestPos.sog !== null ? closestPos.sog.toFixed(1) : 'N/A'} knots<br>
                         Course: ${closestPos.cog !== null ? closestPos.cog.toFixed(1) : 'N/A'}°<br>
-                        Time: ${closestPos.timestamp.toLocaleString()}
+                        Time: ${closestPos.timestamp.toLocaleString()}<br>
+                        <small>${positionInfo}</small>
                     `);
                 }
                 
@@ -1843,9 +1860,11 @@
                 // Get selected playback duration in seconds
                 const playbackDuration = parseInt(playbackSpeedSelect.value);
                 
-                // Calculate interval based on playback duration
-                // We have 101 steps in the timeline, so divide duration by 100 to get ms per step
-                const intervalMs = (playbackDuration * 1000) / 100;
+                // Calculate interval based on playback duration and number of steps
+                const numSteps = timelineData.length - 1; // -1 because we're counting intervals between steps
+                const intervalMs = (playbackDuration * 1000) / numSteps;
+                
+                console.log(`Starting playback: ${numSteps} steps over ${playbackDuration}s (${intervalMs.toFixed(1)}ms per step)`);
                 
                 playbackInterval = setInterval(() => {
                     currentTimeIndex++;
@@ -2394,7 +2413,9 @@
             const timeRange = endTime - startTime;
             const stepSize = timeRange / 100;
             
-            timelineData = Array.from({ length: 101 }, (_, i) => {
+            // Use the same number of steps as the main timeline
+            const numSteps = timelineData.length;
+            timelineData = Array.from({ length: numSteps }, (_, i) => {
                 return new Date(startTime.getTime() + i * stepSize);
             });
             
@@ -2414,7 +2435,9 @@
             const timeRange = histogramLatest - histogramEarliest;
             const stepSize = timeRange / 100;
             
-            timelineData = Array.from({ length: 101 }, (_, i) => {
+            // Use more steps for better playback resolution
+            const numSteps = Math.min(500, Math.max(100, Object.values(vesselPositions).reduce((sum, positions) => sum + positions.length, 0)));
+            timelineData = Array.from({ length: numSteps }, (_, i) => {
                 return new Date(histogramEarliest.getTime() + i * stepSize);
             });
             
