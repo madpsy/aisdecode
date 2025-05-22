@@ -13,6 +13,5 @@
   "max_failed_signup_attempts": 5,
   "port_metrics_hours": 1,
   "webhook_url": "http://localhost:5135",
-  "receiver_offline_hours": 24,
   "debug": false
 }
