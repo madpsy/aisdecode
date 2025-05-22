@@ -1035,13 +1035,28 @@ func getMessagesByPort(udpPort *int) (int, map[string]MessageStat) {
 
 func main() {
 	// Load settings.json
+	log.Println("Loading settings.json...")
 	data, err := ioutil.ReadFile("settings.json")
 	if err != nil {
 		log.Fatalf("Error reading settings.json: %v", err)
 	}
+
+	// Print the raw JSON for debugging
+	log.Printf("Raw settings.json content: %s", string(data))
+
+	// Check if the file contains the receiver_offline_hours setting
+	if strings.Contains(string(data), "receiver_offline_hours") {
+		log.Println("Found receiver_offline_hours in settings.json")
+	} else {
+		log.Println("WARNING: receiver_offline_hours not found in settings.json")
+	}
+
 	if err := json.Unmarshal(data, &settings); err != nil {
 		log.Fatalf("Error parsing settings.json: %v", err)
 	}
+
+	// Print the value after unmarshaling
+	log.Printf("After unmarshaling: ReceiverOfflineHours = %f", settings.ReceiverOfflineHours)
 
 	// Set default values for settings if not specified
 	// This maintains backward compatibility with existing settings files
@@ -1063,9 +1078,18 @@ func main() {
 	}
 
 	// Default receiver offline hours to 0.25 (15 minutes) if not specified
-	if settings.ReceiverOfflineHours == 0 && !strings.Contains(string(data), "receiver_offline_hours") {
-		settings.ReceiverOfflineHours = 0.25 // 15 minutes in hours
-		log.Printf("ReceiverOfflineHours not specified in settings.json, defaulting to 0.25 hours (15 minutes)")
+	if settings.ReceiverOfflineHours == 0 {
+		// Check if the setting is actually in the file
+		if !strings.Contains(string(data), "receiver_offline_hours") {
+			settings.ReceiverOfflineHours = 0.25 // 15 minutes in hours
+			log.Printf("ReceiverOfflineHours not specified in settings.json, defaulting to 0.25 hours (15 minutes)")
+		} else {
+			// The setting is in the file but parsed as 0
+			log.Printf("WARNING: ReceiverOfflineHours is in settings.json but parsed as 0, setting to default of 0.25 hours (15 minutes)")
+			settings.ReceiverOfflineHours = 0.25
+		}
+	} else {
+		log.Printf("Using configured ReceiverOfflineHours value: %f hours", settings.ReceiverOfflineHours)
 	}
 
 	// Connect to Postgres
