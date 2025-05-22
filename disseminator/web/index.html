@@ -868,9 +868,9 @@
 				const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
 				const fromTime = new Date(now.getTime() - maxAgeHours * 60 * 60 * 1000);
 				
-				// Format dates for URL parameters (ISO format)
-				const toParam = now.toISOString();
-				const fromParam = fromTime.toISOString();
+				// Format dates for URL parameters (YYYY-MM-DDThh:mm format)
+				const toParam = now.toISOString().slice(0, 16);
+				const fromParam = fromTime.toISOString().slice(0, 16);
 				
 				// Open Time Machine with all parameters
 				window.open(`/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`, '_blank');
