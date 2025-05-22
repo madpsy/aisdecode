@@ -442,6 +442,19 @@
         };
         openSeaMapControl.addTo(map);
         
+        // Add RX Path toggle control
+        const rxPathControl = L.control({position: 'topright'});
+        rxPathControl.onAdd = function(map) {
+            const div = L.DomUtil.create('div', 'map-control-checkbox');
+            div.innerHTML = '<label><input type="checkbox" id="rxpath-toggle" checked> RX Path</label>';
+            
+            // Prevent clicks from propagating to the map
+            L.DomEvent.disableClickPropagation(div);
+            
+            return div;
+        };
+        rxPathControl.addTo(map);
+        
         // Add event listener for the checkbox
         document.addEventListener('DOMContentLoaded', function() {
             const openSeaToggle = document.getElementById('opensea-toggle');
@@ -456,9 +469,32 @@
             }
         });
         
+        // Add event listener for the RX Path checkbox
+        document.addEventListener('DOMContentLoaded', function() {
+            const rxPathToggle = document.getElementById('rxpath-toggle');
+            if (rxPathToggle) {
+                rxPathToggle.addEventListener('change', function() {
+                    if (this.checked) {
+                        // Show connection lines
+                        connectionLayerGroup.addTo(map);
+                        // Restore active tooltips
+                        updateActiveReceiverTooltip();
+                    } else {
+                        // Hide connection lines
+                        map.removeLayer(connectionLayerGroup);
+                        // Remove active class from all tooltips
+                        document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+                            tooltip.classList.remove('receiver-tooltip-active');
+                        });
+                    }
+                });
+            }
+        });
+        
         // Create layer groups for selected and non-selected vessels
         let selectedLayer = L.layerGroup().addTo(map);
         let nonSelectedLayer = L.layerGroup().addTo(map);
+        let connectionLayerGroup = L.layerGroup().addTo(map); // Layer group for receiver connection lines
 
         // Global variables
         let vessels = {};
@@ -743,6 +779,16 @@
                         map.addLayer(openSeaMapLayer);
                     } else {
                         map.removeLayer(openSeaMapLayer);
+                    }
+                }
+                
+                // Check RX Path toggle state
+                const rxPathToggle = document.getElementById('rxpath-toggle');
+                if (rxPathToggle) {
+                    if (rxPathToggle.checked) {
+                        connectionLayerGroup.addTo(map);
+                    } else {
+                        map.removeLayer(connectionLayerGroup);
                     }
                 }
                 
@@ -1881,8 +1927,156 @@
                     receiverMarkers[receiverId] = receiverMarker;
                 }
             });
+            
+            // Draw connection lines for the current position
+            updateConnectionLines(positions);
         }
-
+        
+        // Function to update connection lines between vessel positions and receivers
+        function updateConnectionLines(positions) {
+            // Check if RX Path is enabled
+            const rxPathToggle = document.getElementById('rxpath-toggle');
+            if (!rxPathToggle || !rxPathToggle.checked) {
+                return;
+            }
+            
+            // Clear previous connection lines
+            connectionLayerGroup.clearLayers();
+            
+            // Remove active class from all tooltips
+            document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+                tooltip.classList.remove('receiver-tooltip-active');
+            });
+            
+            // For each position with a receiver ID, draw a line to the receiver
+            positions.forEach(position => {
+                if (position.receiverId && receiverMarkers[position.receiverId]) {
+                    const receiver = receivers.find(r => r.id === position.receiverId);
+                    if (receiver && receiver.latitude && receiver.longitude) {
+                        // Draw a dashed grey line between the position and the receiver
+                        const connectionLine = L.polyline(
+                            [[position.lat, position.lng], [receiver.latitude, receiver.longitude]],
+                            {
+                                color: 'grey',
+                                weight: 2,
+                                opacity: 0.7,
+                                dashArray: '5, 7'
+                            }
+                        ).addTo(connectionLayerGroup);
+                    }
+                }
+            });
+            
+            // Update active receiver tooltip
+            updateActiveReceiverTooltip();
+        }
+        
+        // Function to update active receiver tooltip
+        function updateActiveReceiverTooltip() {
+            // Check if RX Path is enabled
+            const rxPathToggle = document.getElementById('rxpath-toggle');
+            if (!rxPathToggle || !rxPathToggle.checked) {
+                return;
+            }
+            
+            // Get the current position based on the timeline
+            if (timelineData.length === 0 || currentTimeIndex >= timelineData.length) {
+                return;
+            }
+            
+            const currentTime = timelineData[currentTimeIndex];
+            
+            // For each selected vessel, find the position closest to the current time
+            for (const id of selectedVessels) {
+                const positions = vesselPositions[id];
+                if (!positions || positions.length === 0) continue;
+                
+                // Find the position closest to the current time
+                let closestPos = null;
+                let minDiff = Infinity;
+                
+                for (const pos of positions) {
+                    const diff = Math.abs(currentTime - pos.timestamp);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestPos = pos;
+                    }
+                }
+                
+                // If we found a position with a receiver ID, highlight the receiver tooltip
+                if (closestPos && closestPos.receiverId) {
+                    const receiver = receivers.find(r => r.id === closestPos.receiverId);
+                    if (receiver) {
+                        // Find and highlight the active receiver tooltip
+                        document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+                            if (tooltip.textContent === receiver.name) {
+                                tooltip.classList.add('receiver-tooltip-active');
+                            }
+                        });
+                    }
+                }
+            }
+        }
+        
+        // Function to update connection lines for a specific time
+        function updateConnectionLinesForTime(time) {
+            // Check if RX Path is enabled
+            const rxPathToggle = document.getElementById('rxpath-toggle');
+            if (!rxPathToggle || !rxPathToggle.checked) {
+                return;
+            }
+            
+            // Clear previous connection lines
+            connectionLayerGroup.clearLayers();
+            
+            // Remove active class from all tooltips
+            document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+                tooltip.classList.remove('receiver-tooltip-active');
+            });
+            
+            // For each selected vessel, find the position closest to the current time
+            for (const id of selectedVessels) {
+                const positions = vesselPositions[id];
+                if (!positions || positions.length === 0) continue;
+                
+                // Find the position closest to the current time
+                let closestPos = null;
+                let minDiff = Infinity;
+                
+                for (const pos of positions) {
+                    const diff = Math.abs(time - pos.timestamp);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestPos = pos;
+                    }
+                }
+                
+                // If we found a position with a receiver ID, draw a line to the receiver
+                if (closestPos && closestPos.receiverId) {
+                    const receiver = receivers.find(r => r.id === closestPos.receiverId);
+                    if (receiver && receiver.latitude && receiver.longitude) {
+                        // Draw a dashed grey line between the position and the receiver
+                        const connectionLine = L.polyline(
+                            [[closestPos.lat, closestPos.lng], [receiver.latitude, receiver.longitude]],
+                            {
+                                color: 'grey',
+                                weight: 2,
+                                opacity: 0.7,
+                                dashArray: '5, 7'
+                            }
+                        ).addTo(connectionLayerGroup);
+                        
+                        // Find and highlight the active receiver tooltip
+                        document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+                            if (tooltip.textContent === receiver.name) {
+                                tooltip.classList.add('receiver-tooltip-active');
+                            }
+                        });
+                    }
+                }
+            }
+        }
+ 
         function setupTimeline() {
             // Find earliest and latest timestamps across all vessels
             let earliest = new Date();
@@ -1975,6 +2169,9 @@
         function updateMarkersToTime(time) {
                     // Get the current playback duration setting
                     const playbackDuration = parseInt(playbackSpeedSelect.value);
+                    
+                    // Update connection lines for the current time
+                    updateConnectionLinesForTime(time);
                     
                     for (const id of selectedVessels) {
                         const positions = vesselPositions[id];
