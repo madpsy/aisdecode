@@ -593,6 +593,29 @@ func getLastReceiverEvent(receiverID int) (string, time.Time, error) {
 	return eventType, timestamp, nil
 }
 
+// getReceiverState returns the current state of a receiver (online/offline)
+// based on its last event in the receiver_events table
+func getReceiverState(receiverID int) (bool, error) {
+	// Skip the dummy receiver with ID 0
+	if receiverID == 0 {
+		return false, nil
+	}
+
+	// Get the last event for this receiver
+	eventType, _, err := getLastReceiverEvent(receiverID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get receiver state: %v", err)
+	}
+
+	// If no events found, default to offline
+	if eventType == "" {
+		return false, nil
+	}
+
+	// Return true if the last event is RECEIVER_ONLINE, false otherwise
+	return eventType == ReceiverOnline, nil
+}
+
 // checkReceiverStatusChanges checks for receivers that have gone offline or come back online
 func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 	// Wait a bit to allow all collector goroutines to update the portLastSeenMap
@@ -1756,6 +1779,16 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             recMap["lastseen"] = rec.lastSeenTime
         }
         
+        // Add the state field (online/offline) if this is not the dummy receiver
+        if rec.ID > 0 {
+            state, err := getReceiverState(rec.ID)
+            if err != nil {
+                log.Printf("Error getting state for receiver %d: %v", rec.ID, err)
+            } else {
+                recMap["state"] = state
+            }
+        }
+        
         response = append(response, recMap)
     }
 
@@ -1885,6 +1918,16 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
         // Add the lastseen field if available
         if rec.lastSeenTime != nil {
             recMap["lastseen"] = rec.lastSeenTime
+        }
+        
+        // Add the state field (online/offline) if this is not the dummy receiver
+        if rec.ID > 0 {
+            state, err := getReceiverState(rec.ID)
+            if err != nil {
+                log.Printf("Error getting state for receiver %d: %v", rec.ID, err)
+            } else {
+                recMap["state"] = state
+            }
         }
         
         responseList = append(responseList, recMap)
