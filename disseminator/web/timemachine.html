@@ -315,11 +315,23 @@
         
         .map-control-checkbox {
             background-color: white;
-            padding: 5px;
+            padding: 3px 5px;
             border-radius: 4px;
             box-shadow: 0 1px 5px rgba(0,0,0,0.4);
             cursor: pointer;
             font-size: 12px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .map-control-checkbox label {
+            margin: 0;
+            display: flex;
+            align-items: center;
+        }
+        
+        .map-control-checkbox input[type="checkbox"] {
+            margin-right: 3px;
         }
         
         /* Specific width for min-speed input that only needs 3 characters */
