@@ -7,7 +7,7 @@
   "listen_port": 5135,
   "smtp_host": "smtp.example.com",
   "smtp_port": 587,
-  "smtp_user": "user@example.com",
+  "smtp_user": "user@example.com",s
   "smtp_pass": "password",
   "smtp_use_tls": true,
   "smtp_tls_skip_verify": false,
@@ -15,8 +15,7 @@
   "from_name": "Alerts Service",
   "to_addresses": "ops@example.com,admin@example.com",
   "site_domain": "example.com",
-  "receivers_base_url": "http://localhost:5123",
-  "receiver_offline_hours": 24,
+  "receivers_base_url": "http://localhost:5123",s
   "statistics_base_url": "http://localhost:5005",
   "statistics_report_enabled": true,
   "statistics_report_time": "saturday,01:00"
