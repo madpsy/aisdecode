@@ -980,8 +980,28 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 					currentLastSeen, now.Sub(currentLastSeen))
 			}
 
-			// If status changed from online to offline
+			// Check if we need to force an offline event for this receiver
+			needsOfflineEvent := false
+
+			// Case 1: Status changed from online to offline
 			if wasOnline && !isOnline {
+				needsOfflineEvent = true
+			}
+
+			// Case 2: Receiver is offline but its last event is ONLINE
+			if !isOnline && hasCurrent {
+				// Check the last event for this receiver
+				lastEventType, _, err := getLastReceiverEvent(receiverID)
+				if err != nil {
+					log.Printf("Error getting last event for receiver %d: %v", receiverID, err)
+				} else if lastEventType == ReceiverOnline {
+					needsOfflineEvent = true
+					log.Printf("Forcing OFFLINE event for receiver %d - last event was ONLINE but receiver is now offline", receiverID)
+				}
+			}
+
+			// If we need to log an offline event
+			if needsOfflineEvent {
 				// Log the offline event
 				if err := logReceiverEvent(receiverID, ReceiverOffline); err != nil {
 					log.Printf("Error logging OFFLINE event for receiver %d: %v", receiverID, err)
