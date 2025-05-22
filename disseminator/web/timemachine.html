@@ -1317,7 +1317,10 @@
         
         // Function to select vessels from URL parameters
         function selectVesselsFromParams(vesselIds) {
-            for (const id of vesselIds) {
+            // Limit to maximum 25 vessels from URL
+            const limitedVesselIds = vesselIds.slice(0, 25);
+            
+            for (const id of limitedVesselIds) {
                 const vesselItem = document.querySelector(`.vessel-item[data-id="${id}"]`);
                 if (vesselItem && vessels[id]) {
                     // Use a flag to prevent URL updates during initial selection from URL params
@@ -1353,6 +1356,22 @@
             // Determine range (works whether start is before or after end)
             const minIndex = Math.min(startIndex, endIndex);
             const maxIndex = Math.max(startIndex, endIndex);
+            
+            // Count how many new vessels would be selected
+            let newSelectionsCount = 0;
+            for (let i = minIndex; i <= maxIndex; i++) {
+                const item = vesselItemsArray[i];
+                const id = item.dataset.id;
+                if (!selectedVessels.has(id)) {
+                    newSelectionsCount++;
+                }
+            }
+            
+            // Check if adding these vessels would exceed the limit
+            if (selectedVessels.size + newSelectionsCount > 25) {
+                alert("Cannot select this range: maximum of 25 vessels can be selected at once");
+                return;
+            }
             
             // Select all vessels in the range
             for (let i = minIndex; i <= maxIndex; i++) {
@@ -1450,6 +1469,12 @@
                 // when the vessel is reselected unless the time range has changed
             } else {
                 // Selecting a vessel
+                
+                // Check if adding this vessel would exceed the maximum limit (25)
+                if (!selectedVessels.has(id) && selectedVessels.size >= 25) {
+                    alert("Maximum of 25 vessels can be selected at once");
+                    return;
+                }
                 
                 // If not keeping other selections (normal click without Ctrl/Shift),
                 // deselect all other vessels first
