@@ -387,6 +387,12 @@
             <div id="playback-controls">
                 <button id="play-pause-btn" disabled>▶️</button>
                 <button id="stop-btn" disabled>⏹️</button>
+                <select id="playback-speed" class="form-control form-control-sm" style="width: auto; margin: 0 10px;" disabled>
+                    <option value="10">10s</option>
+                    <option value="20">20s</option>
+                    <option value="30">30s</option>
+                    <option value="60">60s</option>
+                </select>
                 <input type="range" id="timeline-slider" min="0" max="100" value="0" disabled>
                 <span id="time-display">00:00:00</span>
             </div>
@@ -478,6 +484,7 @@
         const timeDisplay = document.getElementById('time-display');
         const playPauseBtn = document.getElementById('play-pause-btn');
         const stopBtn = document.getElementById('stop-btn');
+        const playbackSpeedSelect = document.getElementById('playback-speed');
         const loadingIndicator = document.getElementById('loading');
         const radiusWarning = document.getElementById('radius-warning');
         const histogramContainer = document.getElementById('histogram-container');
@@ -908,6 +915,7 @@
             playPauseBtn.disabled = true;
             stopBtn.disabled = true;
             timelineSlider.disabled = true;
+            playbackSpeedSelect.disabled = true;
             
             // Clear histogram
             histogramContainer.innerHTML = '';
@@ -1398,6 +1406,7 @@
             playPauseBtn.disabled = !hasSelectedVessels;
             stopBtn.disabled = !hasSelectedVessels;
             timelineSlider.disabled = !hasSelectedVessels;
+            playbackSpeedSelect.disabled = !hasSelectedVessels;
             
             if (hasSelectedVessels) {
                 timeline.style.display = 'block';
@@ -1831,6 +1840,13 @@
                 // Hide non-selected vessel markers during playback
                 map.removeLayer(nonSelectedLayer);
                 
+                // Get selected playback duration in seconds
+                const playbackDuration = parseInt(playbackSpeedSelect.value);
+                
+                // Calculate interval based on playback duration
+                // We have 101 steps in the timeline, so divide duration by 100 to get ms per step
+                const intervalMs = (playbackDuration * 1000) / 100;
+                
                 playbackInterval = setInterval(() => {
                     currentTimeIndex++;
                     
@@ -1843,7 +1859,7 @@
                     const time = timelineData[currentTimeIndex];
                     updateTimeDisplay(time);
                     updateMarkersToTime(time);
-                }, 100); // Update every 100ms
+                }, intervalMs);
             }
         }
 
@@ -1860,6 +1876,7 @@
             playPauseBtn.disabled = selectedVessels.size === 0;
             stopBtn.disabled = selectedVessels.size === 0;
             timelineSlider.disabled = selectedVessels.size === 0;
+            playbackSpeedSelect.disabled = selectedVessels.size === 0;
             
             // Reset the timeline index to allow replaying
             currentTimeIndex = 0;
