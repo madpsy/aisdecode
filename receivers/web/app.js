@@ -466,7 +466,7 @@ function showEventsModal(id, name) {
   eventsModal.classList.add('show');
   
   // Fetch events for the receiver
-  fetch(`/admin/receiver-events?receiver_id=${id}`)
+  fetch(`/admin/receiver-events?id=${id}`)
     .then(response => {
       if (!response.ok) {
         throw new Error('Failed to fetch events');
