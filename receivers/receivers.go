@@ -783,6 +783,9 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 	// Wait a bit to allow all collector goroutines to update the portLastSeenMap
 	time.Sleep(2 * time.Second)
 
+	// Add debug logging
+	log.Printf("DEBUG: checkReceiverStatusChanges called with %d ports in prevPortLastSeenMap", len(prevPortLastSeenMap))
+
 	// Get the current port last seen map
 	portLastSeenMutex.RLock()
 	currentPortLastSeenMap := make(map[int]time.Time)
@@ -903,6 +906,20 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 			// IMPORTANT: We compare against the current time, not the last seen time from the previous check
 			isOnline := hasCurrent && now.Sub(currentLastSeen) <= offlineThreshold
 
+			// Add extensive debug logging for receiver 27
+			if receiverID == 27 {
+				log.Printf("DEBUG: Receiver 27 check - hasCurrent: %v, hasPrev: %v", hasCurrent, hasPrev)
+				if hasCurrent {
+					log.Printf("DEBUG: Receiver 27 - currentLastSeen: %v, time since last seen: %v, threshold: %v",
+						currentLastSeen, now.Sub(currentLastSeen), offlineThreshold)
+					log.Printf("DEBUG: Receiver 27 - isOnline calculation: %v", now.Sub(currentLastSeen) <= offlineThreshold)
+				}
+				if hasPrev {
+					log.Printf("DEBUG: Receiver 27 - prevLastSeen: %v", prevLastSeen)
+					log.Printf("DEBUG: Receiver 27 - wasOnline calculation: %v", now.Sub(prevLastSeen) <= offlineThreshold)
+				}
+			}
+
 			// Force offline detection if the last seen time hasn't changed in more than the threshold period
 			// This handles cases where collectors report the same timestamp repeatedly
 			if isOnline && hasPrev && hasCurrent && currentLastSeen.Equal(prevLastSeen) &&
@@ -910,6 +927,14 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 				isOnline = false
 				log.Printf("Forcing offline detection for receiver %d - last seen time hasn't changed in %v",
 					receiverID, now.Sub(currentLastSeen))
+			}
+
+			// Add a more aggressive check for receiver 27 specifically
+			if receiverID == 27 && hasCurrent && now.Sub(currentLastSeen) > offlineThreshold {
+				// Force receiver 27 offline if it's beyond the threshold, regardless of other conditions
+				isOnline = false
+				log.Printf("DEBUG: Forcing receiver 27 offline - last seen: %v, time since last seen: %v",
+					currentLastSeen, now.Sub(currentLastSeen))
 			}
 
 			// If status changed from online to offline
