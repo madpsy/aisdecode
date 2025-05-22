@@ -107,6 +107,12 @@ type ReceiverPatch struct {
     Password      *string   `json:"password,omitempty"`
 }
 
+// Event types for receiver_events table
+const (
+	ReceiverOffline = "RECEIVER_OFFLINE"
+	ReceiverOnline  = "RECEIVER_ONLINE"
+)
+
 var (
 	db                *sql.DB
 	settings          Settings
@@ -480,6 +486,14 @@ func startCollectorTracking() {
 				collectors = newCollectors
 				collectorsMutex.Unlock()
 
+				// Store previous port last seen map for comparison
+				prevPortLastSeenMap := make(map[int]time.Time)
+				portLastSeenMutex.RLock()
+				for port, lastSeen := range portLastSeenMap {
+					prevPortLastSeenMap[port] = lastSeen
+				}
+				portLastSeenMutex.RUnlock()
+
 				// Clear previous port metrics and last seen maps after a successful fetch
 				portMetricsMutex.Lock()
 				portMetricsMap = make(map[string]map[int]PortMetric)
@@ -524,12 +538,169 @@ func startCollectorTracking() {
 						}
 					}(collector)
 				}
+				
+				// After all collectors have been processed, check for receiver status changes
+				go checkReceiverStatusChanges(prevPortLastSeenMap)
 			}
 
 			// Sleep for 5 seconds
 			time.Sleep(5 * time.Second)
 		}
 	}()
+}
+
+// logReceiverEvent logs an event to the receiver_events table
+func logReceiverEvent(receiverID int, eventType string) error {
+	if err := ensureConnection(); err != nil {
+		return fmt.Errorf("database connection error: %v", err)
+	}
+
+	_, err := db.Exec(`
+		INSERT INTO receiver_events (receiver_id, event_type, timestamp)
+		VALUES ($1, $2, NOW())
+	`, receiverID, eventType)
+
+	if err != nil {
+		return fmt.Errorf("failed to log receiver event: %v", err)
+	}
+
+	return nil
+}
+
+// getLastReceiverEvent gets the most recent event for a receiver
+func getLastReceiverEvent(receiverID int) (string, time.Time, error) {
+	if err := ensureConnection(); err != nil {
+		return "", time.Time{}, fmt.Errorf("database connection error: %v", err)
+	}
+
+	var eventType string
+	var timestamp time.Time
+
+	err := db.QueryRow(`
+		SELECT event_type, timestamp
+		FROM receiver_events
+		WHERE receiver_id = $1
+		ORDER BY timestamp DESC
+		LIMIT 1
+	`, receiverID).Scan(&eventType, &timestamp)
+
+	if err == sql.ErrNoRows {
+		return "", time.Time{}, nil // No events found
+	} else if err != nil {
+		return "", time.Time{}, fmt.Errorf("failed to get last receiver event: %v", err)
+	}
+
+	return eventType, timestamp, nil
+}
+
+// checkReceiverStatusChanges checks for receivers that have gone offline or come back online
+func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
+	// Wait a bit to allow all collector goroutines to update the portLastSeenMap
+	time.Sleep(2 * time.Second)
+
+	// Get the current port last seen map
+	portLastSeenMutex.RLock()
+	currentPortLastSeenMap := make(map[int]time.Time)
+	for port, lastSeen := range portLastSeenMap {
+		currentPortLastSeenMap[port] = lastSeen
+	}
+	portLastSeenMutex.RUnlock()
+
+	// Get all receivers with their ports
+	if err := ensureConnection(); err != nil {
+		log.Printf("Error connecting to database: %v", err)
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT r.id, rp.udp_port
+		FROM receivers r
+		JOIN receiver_ports rp ON r.id = rp.receiver_id
+		WHERE r.id > 0 -- Skip the anonymous receiver
+	`)
+	if err != nil {
+		log.Printf("Error querying receivers: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	now := time.Now()
+	offlineThreshold := 15 * time.Minute
+
+	// Process each receiver
+	for rows.Next() {
+		var receiverID int
+		var udpPort int
+		if err := rows.Scan(&receiverID, &udpPort); err != nil {
+			log.Printf("Error scanning receiver row: %v", err)
+			continue
+		}
+
+		// Check if the receiver has a current last seen time
+		currentLastSeen, hasCurrent := currentPortLastSeenMap[udpPort]
+		prevLastSeen, hasPrev := prevPortLastSeenMap[udpPort]
+
+		// On first run, initialize receiver status in the events table
+		if !hasPrev && hasCurrent {
+			// Check if the receiver has any previous events
+			lastEventType, _, err := getLastReceiverEvent(receiverID)
+			if err != nil {
+				log.Printf("Error getting last event for receiver %d: %v", receiverID, err)
+				continue
+			}
+
+			// If no previous events, add an initial event based on current status
+			if lastEventType == "" {
+				// If the receiver is currently seen within the threshold, mark as online
+				if now.Sub(currentLastSeen) <= offlineThreshold {
+					if err := logReceiverEvent(receiverID, ReceiverOnline); err != nil {
+						log.Printf("Error logging initial ONLINE event for receiver %d: %v", receiverID, err)
+					} else {
+						log.Printf("Logged initial ONLINE event for receiver %d", receiverID)
+					}
+				} else {
+					// Otherwise mark as offline
+					if err := logReceiverEvent(receiverID, ReceiverOffline); err != nil {
+						log.Printf("Error logging initial OFFLINE event for receiver %d: %v", receiverID, err)
+					} else {
+						log.Printf("Logged initial OFFLINE event for receiver %d", receiverID)
+					}
+				}
+				continue
+			}
+		}
+
+		// Skip if we don't have both previous and current data
+		if !hasPrev || !hasCurrent {
+			continue
+		}
+
+		// Check if the receiver has gone offline
+		// A receiver is considered offline if it hasn't been seen for more than 15 minutes
+		wasOnline := now.Sub(prevLastSeen) <= offlineThreshold
+		isOnline := now.Sub(currentLastSeen) <= offlineThreshold
+
+		// If status changed from online to offline
+		if wasOnline && !isOnline {
+			if err := logReceiverEvent(receiverID, ReceiverOffline); err != nil {
+				log.Printf("Error logging OFFLINE event for receiver %d: %v", receiverID, err)
+			} else {
+				log.Printf("Receiver %d went OFFLINE (last seen: %v)", receiverID, currentLastSeen)
+			}
+		}
+		// If status changed from offline to online
+		else if !wasOnline && isOnline {
+			if err := logReceiverEvent(receiverID, ReceiverOnline); err != nil {
+				log.Printf("Error logging ONLINE event for receiver %d: %v", receiverID, err)
+			} else {
+				log.Printf("Receiver %d came back ONLINE (last seen: %v)", receiverID, currentLastSeen)
+			}
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating through receivers: %v", err)
+	}
 }
 
 // getMessagesByPort gets the message count for a specific UDP port from the port metrics map
@@ -672,6 +843,7 @@ func main() {
     http.HandleFunc("/admin/receivers", adminReceiversHandler)
     http.HandleFunc("/admin/receivers/", adminReceiverHandler)
     http.HandleFunc("/admin/receivers/regenerate-password/", adminRegeneratePasswordHandler)
+    http.HandleFunc("/admin/receiver-events", handleReceiverEvents)
 
     // Serve static files at /admin/
     http.Handle(
@@ -950,6 +1122,31 @@ func createSchema() error {
         return fmt.Errorf("error creating index on failed_signup_attempts.attempt_time: %v", err)
     }
     
+    // Create receiver_events table
+    _, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS receiver_events (
+            id SERIAL PRIMARY KEY,
+            receiver_id INTEGER NOT NULL REFERENCES receivers(id) ON DELETE CASCADE,
+            event_type VARCHAR(20) NOT NULL,
+            timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    `)
+    if err != nil {
+        return fmt.Errorf("error creating receiver_events table: %v", err)
+    }
+
+    // Create index on receiver_id for better performance
+    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_receiver_events_receiver_id ON receiver_events(receiver_id);`)
+    if err != nil {
+        return fmt.Errorf("error creating index on receiver_events.receiver_id: %v", err)
+    }
+
+    // Create index on timestamp for better performance
+    _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_receiver_events_timestamp ON receiver_events(timestamp);`)
+    if err != nil {
+        return fmt.Errorf("error creating index on receiver_events.timestamp: %v", err)
+    }
+
     return nil
 }
 
@@ -1233,6 +1430,55 @@ func adminReceiversHandler(w http.ResponseWriter, r *http.Request) {
     default:
         w.WriteHeader(http.StatusMethodNotAllowed)
     }
+}
+
+// getReceiverEvents retrieves events for a specific receiver
+func getReceiverEvents(receiverID int, limit int) ([]map[string]interface{}, error) {
+	if err := ensureConnection(); err != nil {
+		return nil, fmt.Errorf("database connection error: %v", err)
+	}
+
+	// Default limit to 100 if not specified or negative
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := db.Query(`
+		SELECT id, event_type, timestamp
+		FROM receiver_events
+		WHERE receiver_id = $1
+		ORDER BY timestamp DESC
+		LIMIT $2
+	`, receiverID, limit)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to query receiver events: %v", err)
+	}
+	defer rows.Close()
+
+	var events []map[string]interface{}
+	for rows.Next() {
+		var id int
+		var eventType string
+		var timestamp time.Time
+
+		if err := rows.Scan(&id, &eventType, &timestamp); err != nil {
+			return nil, fmt.Errorf("failed to scan event row: %v", err)
+		}
+
+		event := map[string]interface{}{
+			"id":         id,
+			"event_type": eventType,
+			"timestamp":  timestamp,
+		}
+		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating through events: %v", err)
+	}
+
+	return events, nil
 }
 
 // Public list: excludes ip_address and password
@@ -1676,6 +1922,48 @@ func adminReceiverHandler(w http.ResponseWriter, r *http.Request) {
     default:
         w.WriteHeader(http.StatusMethodNotAllowed)
     }
+}
+
+// handleReceiverEvents handles GET requests for receiver events
+func handleReceiverEvents(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodGet {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        return
+    }
+
+    // Parse receiver ID from query parameter
+    idStr := r.URL.Query().Get("id")
+    if idStr == "" {
+        http.Error(w, "Missing required 'id' parameter", http.StatusBadRequest)
+        return
+    }
+
+    id, err := strconv.Atoi(idStr)
+    if err != nil {
+        http.Error(w, "Invalid receiver ID", http.StatusBadRequest)
+        return
+    }
+
+    // Parse limit parameter (optional)
+    limitStr := r.URL.Query().Get("limit")
+    limit := 100 // Default limit
+    if limitStr != "" {
+        parsedLimit, err := strconv.Atoi(limitStr)
+        if err == nil && parsedLimit > 0 {
+            limit = parsedLimit
+        }
+    }
+
+    // Get events for the receiver
+    events, err := getReceiverEvents(id, limit)
+    if err != nil {
+        http.Error(w, "Failed to get receiver events: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // Return events as JSON
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(events)
 }
 
 // generateRandomPassword generates a random password and returns both the plain text password
