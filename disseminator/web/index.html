@@ -860,7 +860,20 @@
 				const lat = e.latlng.lat;
 				const lng = e.latlng.lng;
 				const zoom = Math.max(8, map.getZoom()); // Ensure zoom is not less than 8
-				window.open(`/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}`, '_blank');
+				
+				// Get current time for 'to' parameter
+				const now = new Date();
+				
+				// Calculate 'from' time based on age-slider value
+				const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
+				const fromTime = new Date(now.getTime() - maxAgeHours * 60 * 60 * 1000);
+				
+				// Format dates for URL parameters (ISO format)
+				const toParam = now.toISOString();
+				const fromParam = fromTime.toISOString();
+				
+				// Open Time Machine with all parameters
+				window.open(`/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`, '_blank');
 			}
 		}]
 	}).setView([55.0, -3.0], 5);
