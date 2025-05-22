@@ -15,6 +15,8 @@
         #container {
             display: flex;
             flex-direction: column;
+            height: calc(100vh - 4rem); /* Full height minus body margins */
+            overflow: hidden;
         }
         #header {
             padding: 10px 0;
@@ -37,7 +39,6 @@
         }
         #map {
             flex: 1;
-            height: 400px; /* Fixed height */
             border: 1px solid #ddd;
             position: relative;
             overflow: hidden; /* Prevent scrollbars */
@@ -53,7 +54,6 @@
             display: none;
             display: flex;
             flex-direction: column;
-            max-height: 400px; /* Match map height */
         }
         
         #vessel-filter {
@@ -67,7 +67,6 @@
         #vessel-items {
             flex: 1;
             overflow-y: auto;
-            max-height: calc(400px - 50px); /* Account for filter input */
         }
         .control-group {
             display: flex;
@@ -191,7 +190,6 @@
             display: flex;
             flex: 1;
             overflow: hidden; /* Prevent overflow */
-            height: 400px; /* Fixed height to match map */
         }
         
         /* Add this to ensure map fills space when vessel list is hidden */
