@@ -335,7 +335,7 @@ a.action:hover, button.delete-btn:hover {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 10px;
-  table-layout: auto; /* Changed from fixed to auto to allow columns to adjust to content */
+  table-layout: fixed; /* Changed back to fixed to ensure our column widths are respected */
 }
 
 #events-table th, #events-table td {
@@ -346,8 +346,11 @@ a.action:hover, button.delete-btn:hover {
 
 /* Set appropriate widths for each column */
 .timestamp-col {
-  width: 100px; /* Fixed width for timestamp column */
+  width: 180px; /* Fixed width for timestamp column */
+  max-width: 180px; /* Also set max-width to enforce the constraint */
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis; /* Add ellipsis for overflowing text */
 }
 
 .event-type-col {
