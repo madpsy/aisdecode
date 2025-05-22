@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -614,6 +615,160 @@ func getReceiverState(receiverID int) (bool, error) {
 
 	// Return true if the last event is RECEIVER_ONLINE, false otherwise
 	return eventType == ReceiverOnline, nil
+}
+
+// calculateUptimePercentage calculates the uptime percentage for a receiver
+// over the past 7 days based on the events in the receiver_events table
+func calculateUptimePercentage(receiverID int) (float64, error) {
+	// Skip the dummy receiver with ID 0
+	if receiverID == 0 {
+		return 0, nil
+	}
+
+	if err := ensureConnection(); err != nil {
+		return 0, fmt.Errorf("database connection error: %v", err)
+	}
+
+	// Get the current time and the time 7 days ago
+	now := time.Now()
+	sevenDaysAgo := now.AddDate(0, 0, -7)
+
+	// Get all events for the receiver from the past 7 days
+	rows, err := db.Query(`
+		SELECT event_type, timestamp
+		FROM receiver_events
+		WHERE receiver_id = $1 AND timestamp >= $2
+		ORDER BY timestamp ASC
+	`, receiverID, sevenDaysAgo)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to query receiver events: %v", err)
+	}
+	defer rows.Close()
+
+	// If there are no events, check if the receiver exists and return 0% uptime
+	var count int
+	err = db.QueryRow(`SELECT COUNT(*) FROM receivers WHERE id = $1`, receiverID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to check if receiver exists: %v", err)
+	}
+	if count == 0 {
+		return 0, fmt.Errorf("receiver not found")
+	}
+
+	// Process the events to calculate uptime
+	var events []struct {
+		EventType string
+		Timestamp time.Time
+	}
+
+	for rows.Next() {
+		var eventType string
+		var timestamp time.Time
+		if err := rows.Scan(&eventType, &timestamp); err != nil {
+			return 0, fmt.Errorf("failed to scan event row: %v", err)
+		}
+		events = append(events, struct {
+			EventType string
+			Timestamp time.Time
+		}{EventType: eventType, Timestamp: timestamp})
+	}
+
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("error iterating through events: %v", err)
+	}
+
+	// If there are no events in the past 7 days, get the last event before that period
+	if len(events) == 0 {
+		var eventType string
+		var timestamp time.Time
+		err := db.QueryRow(`
+			SELECT event_type, timestamp
+			FROM receiver_events
+			WHERE receiver_id = $1 AND timestamp < $2
+			ORDER BY timestamp DESC
+			LIMIT 1
+		`, receiverID, sevenDaysAgo).Scan(&eventType, &timestamp)
+
+		if err == sql.ErrNoRows {
+			// No events at all, assume offline for the entire period
+			return 0, nil
+		} else if err != nil {
+			return 0, fmt.Errorf("failed to get last event before period: %v", err)
+		}
+
+		// If the last event was RECEIVER_ONLINE, the receiver was online for the entire period
+		if eventType == ReceiverOnline {
+			return 100.0, nil
+		}
+		// If the last event was RECEIVER_OFFLINE, the receiver was offline for the entire period
+		return 0, nil
+	}
+
+	// Calculate the total time the receiver was online
+	var onlineTime time.Duration
+	var lastEventType string
+	var lastEventTime time.Time
+
+	// If the first event in our period is not at the start of the period,
+	// we need to check the last event before the period to determine the initial state
+	if !events[0].Timestamp.Equal(sevenDaysAgo) && !events[0].Timestamp.Before(sevenDaysAgo) {
+		var eventType string
+		err := db.QueryRow(`
+			SELECT event_type
+			FROM receiver_events
+			WHERE receiver_id = $1 AND timestamp < $2
+			ORDER BY timestamp DESC
+			LIMIT 1
+		`, receiverID, sevenDaysAgo).Scan(&eventType)
+
+		if err == sql.ErrNoRows {
+			// No events before the period, assume the initial state is offline
+			lastEventType = ReceiverOffline
+		} else if err != nil {
+			return 0, fmt.Errorf("failed to get last event before period: %v", err)
+		} else {
+			lastEventType = eventType
+		}
+		lastEventTime = sevenDaysAgo
+	} else {
+		// The first event is at the start of the period
+		lastEventType = events[0].EventType
+		lastEventTime = events[0].Timestamp
+	}
+
+	// Process each event
+	for i := 0; i < len(events); i++ {
+		event := events[i]
+		
+		// If the last event was RECEIVER_ONLINE, add the time until this event to the online time
+		if lastEventType == ReceiverOnline {
+			onlineTime += event.Timestamp.Sub(lastEventTime)
+		}
+		
+		lastEventType = event.EventType
+		lastEventTime = event.Timestamp
+	}
+
+	// Add the time from the last event to now
+	if lastEventType == ReceiverOnline {
+		onlineTime += now.Sub(lastEventTime)
+	}
+
+	// Calculate the total time period
+	totalPeriod := now.Sub(sevenDaysAgo)
+
+	// Calculate the percentage
+	uptimePercentage := float64(onlineTime) / float64(totalPeriod) * 100.0
+
+	// Ensure the percentage is between 0 and 100
+	if uptimePercentage < 0 {
+		uptimePercentage = 0
+	} else if uptimePercentage > 100 {
+		uptimePercentage = 100
+	}
+
+	return uptimePercentage, nil
 }
 
 // checkReceiverStatusChanges checks for receivers that have gone offline or come back online
@@ -1787,6 +1942,15 @@ func handleListReceiversPublic(w http.ResponseWriter, r *http.Request) {
             } else {
                 recMap["state"] = state
             }
+            
+            // Add the uptime percentage for the past 7 days
+            uptimePct, err := calculateUptimePercentage(rec.ID)
+            if err != nil {
+                log.Printf("Error calculating uptime percentage for receiver %d: %v", rec.ID, err)
+            } else {
+                // Round to 2 decimal places
+                recMap["uptime_pct_week"] = math.Round(uptimePct*100) / 100
+            }
         }
         
         response = append(response, recMap)
@@ -1927,6 +2091,15 @@ func handleListReceiversAdmin(w http.ResponseWriter, r *http.Request) {
                 log.Printf("Error getting state for receiver %d: %v", rec.ID, err)
             } else {
                 recMap["state"] = state
+            }
+            
+            // Add the uptime percentage for the past 7 days
+            uptimePct, err := calculateUptimePercentage(rec.ID)
+            if err != nil {
+                log.Printf("Error calculating uptime percentage for receiver %d: %v", rec.ID, err)
+            } else {
+                // Round to 2 decimal places
+                recMap["uptime_pct_week"] = math.Round(uptimePct*100) / 100
             }
         }
         
