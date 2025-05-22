@@ -37,6 +37,7 @@ type Settings struct {
 	DBUser                string `json:"db_user"`
 	DBPass                string `json:"db_pass"`
 	DBName                string `json:"db_name"`
+	ReceiverOfflineHours  int    `json:"receiver_offline_hours"` // Hours before a receiver is considered offline
 	StatisticsBaseURL     string `json:"statistics_base_url"`    // Base URL for statistics API
 	StatisticsReportEnabled bool  `json:"statistics_report_enabled"` // Whether to send statistics reports
 	StatisticsReportTime  string `json:"statistics_report_time"` // When to send statistics reports (day,hour:minute)
@@ -88,6 +89,12 @@ func loadSettings() {
 	}
 	if err := json.Unmarshal(data, &settings); err != nil {
 		log.Fatalf("Error parsing settings.json: %v", err)
+	}
+	
+	// Set default value for ReceiverOfflineHours if not specified
+	if settings.ReceiverOfflineHours <= 0 {
+		settings.ReceiverOfflineHours = 24 // Default to 24 hours if not specified
+		log.Println("ReceiverOfflineHours not specified in settings.json, using default value of 24 hours")
 	}
 	
 	// Log statistics report settings
@@ -486,15 +493,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			resetLink,
 		)
 	case "receiver_offline":
-		// Extract offline hours from custom fields
-		offlineHours := 24.0 // Default to 24 hours if not specified
-		if rec.CustomFields != nil {
-			if hours, ok := rec.CustomFields["offline_hours"].(float64); ok {
-				offlineHours = hours
-			}
-		}
-		
-		subject = fmt.Sprintf("Your AIS receiver '%s' has not been seen for over %.1f hours", rec.Name, offlineHours)
+		subject = fmt.Sprintf("Your AIS receiver '%s' has not been seen for over %d hours", rec.Name, settings.ReceiverOfflineHours)
 		
 		// For receiver offline notifications, send to both the receiver's email address
 		// and the site owner's addresses
@@ -714,11 +713,9 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var alertMsg struct {
-		AlertType    string                 `json:"alert_type"`
-		Receiver     Receiver               `json:"receiver"`
-		OfflineHours float64                `json:"offline_hours,omitempty"`
-		OnlineDays   float64                `json:"online_days,omitempty"`
-		Custom       map[string]interface{} `json:"custom,omitempty"`
+		AlertType string                 `json:"alert_type"`
+		Receiver  Receiver               `json:"receiver"`
+		Custom    map[string]interface{} `json:"custom,omitempty"`
 	}
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -741,14 +738,6 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
 		for k, v := range alertMsg.Custom {
 			alertMsg.Receiver.CustomFields[k] = v
 		}
-	}
-	
-	// Add offline hours or online days to custom fields if provided
-	if alertMsg.OfflineHours > 0 {
-		alertMsg.Receiver.CustomFields["offline_hours"] = alertMsg.OfflineHours
-	}
-	if alertMsg.OnlineDays > 0 {
-		alertMsg.Receiver.CustomFields["online_days"] = alertMsg.OnlineDays
 	}
 	
 	emailSentTo, err := sendEmail(alertMsg.AlertType, alertMsg.Receiver, "")
@@ -877,82 +866,233 @@ func fetchReceivers() ([]Receiver, error) {
 	return receivers, nil
 }
 
-// checkOfflineReceivers and checkWeeklyInactiveReceivers functions have been removed
-// as this is now handled by the receivers service
+// checkOfflineReceivers checks for receivers that haven't been seen for over 24 hours
+func checkOfflineReceivers() {
+	receivers, err := fetchReceivers()
+	if err != nil {
+		log.Printf("Error fetching receivers: %v", err)
+		return
+	}
 
-// startStatisticsReportScheduler starts the background scheduler for statistics reports
-func startStatisticsReportScheduler(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Hour)
+	now := time.Now()
+	for _, receiver := range receivers {
+		// Skip receivers with ID 0, notifications disabled, or no email
+		if receiver.ID == 0 || !receiver.Notifications || receiver.Email == "" {
+			continue
+		}
+
+		// Skip receivers with no LastSeen value or parse the LastSeen time
+		if receiver.LastSeen == "" {
+			continue // Silently skip receivers with no LastSeen value
+		}
+		
+		lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
+		if err != nil {
+			// Only log parsing errors for non-empty LastSeen values
+			log.Printf("Error parsing LastSeen time for receiver %d: %v", receiver.ID, err)
+			continue
+		}
+
+		// Check if receiver hasn't been seen for over the configured time period
+		if now.Sub(lastSeen) > time.Duration(settings.ReceiverOfflineHours)*time.Hour {
+			// Check if we should send a notification
+			shouldSend, err := shouldSendNotification(receiver.ID)
+			if err != nil {
+				log.Printf("Error checking notification status for receiver %d: %v", receiver.ID, err)
+				continue
+			}
+
+			if shouldSend {
+				// Create a copy of the receiver for sendEmail
+				receiverCopy := receiver
+				
+				// Set the email address to use for this notification
+				if receiver.Email != "" {
+					// Use the receiver's email directly in the sendEmail function
+					// The function will use this as the recipient
+				}
+				
+				// Parse the LastSeen time to format it in a human-readable way
+				lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
+				lastSeenStr := receiver.LastSeen
+				if err == nil {
+					lastSeenStr = lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
+				}
+				
+				// Create custom message
+				receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, receiver.ID)
+				
+				// Prepare UDP port display
+				udpPortDisplay := "Not set"
+				if receiver.UDPPort != nil {
+					udpPortDisplay = strconv.Itoa(*receiver.UDPPort)
+				}
+				
+				message := fmt.Sprintf(
+					"Your AIS receiver '%s' (ID: %d) has not been seen for over %d hours.\n\n"+
+					"Receiver Details:\n"+
+					"- Name: %s\n"+
+					"- Description: %s\n"+
+					"- UDP Port: %s\n"+
+					"- Last seen: %s\n\n"+
+					"Please check your receiver's connection and ensure it's properly configured to send data to ingest.%s UDP port %s\n\n"+
+					"You can view your receiver's details and disable notifications here: %s\n\n"+
+					"Thank you for contributing to our AIS network!\n\n"+
+					"AIS Decoder Team\nhttps://%s/",
+					receiver.Name, receiver.ID, settings.ReceiverOfflineHours, receiver.Name, receiver.Description, udpPortDisplay, lastSeenStr, settings.SiteDomain, udpPortDisplay, receiverURL, settings.SiteDomain,
+				)
+
+				// Send the email
+				emailSentTo, err := sendEmail("receiver_offline", receiverCopy, message)
+				if err != nil {
+					log.Printf("Error sending offline notification for receiver %d: %v", receiver.ID, err)
+					continue
+				}
+
+				// Log the alert
+				if err := logAlert("receiver_offline", receiver.ID, emailSentTo, message); err != nil {
+					log.Printf("Error logging alert for receiver %d: %v", receiver.ID, err)
+				}
+
+				// Update notification record
+				if err := updateNotificationRecord(receiver.ID); err != nil {
+					log.Printf("Error updating notification record for receiver %d: %v", receiver.ID, err)
+				}
+
+				log.Printf("Sent offline notification for receiver %d (%s)", receiver.ID, receiver.Name)
+			}
+		}
+	}
+}
+
+// checkWeeklyInactiveReceivers checks for receivers that haven't been seen for over 1 week
+// and sends a summary email to site admins only
+func checkWeeklyInactiveReceivers() {
+	// Only proceed if we have admin email addresses configured
+	if settings.ToAddresses == "" {
+		log.Println("No admin email addresses configured, skipping weekly inactive receivers check")
+		return
+	}
+
+	receivers, err := fetchReceivers()
+	if err != nil {
+		log.Printf("Error fetching receivers for weekly check: %v", err)
+		return
+	}
+
+	now := time.Now()
+	var inactiveReceivers []Receiver
+	oneWeek := 7 * 24 * time.Hour
+
+	for _, receiver := range receivers {
+		// Skip receivers with no LastSeen value
+		if receiver.LastSeen == "" {
+			continue
+		}
+		
+		lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
+		if err != nil {
+			log.Printf("Error parsing LastSeen time for receiver %d: %v", receiver.ID, err)
+			continue
+		}
+
+		// Check if receiver hasn't been seen for over 1 week
+		if now.Sub(lastSeen) > oneWeek {
+			inactiveReceivers = append(inactiveReceivers, receiver)
+		}
+	}
+
+	// If no inactive receivers, no need to send an email
+	if len(inactiveReceivers) == 0 {
+		log.Println("No receivers inactive for over 1 week, skipping weekly report")
+		return
+	}
+
+	// Build the email body with a summary of inactive receivers
+	var bodyBuilder strings.Builder
+	bodyBuilder.WriteString(fmt.Sprintf("Weekly Inactive Receivers Report - %s\n\n", now.Format("2006-01-02")))
+	bodyBuilder.WriteString(fmt.Sprintf("The following %d receivers have not been seen for over 1 week:\n\n", len(inactiveReceivers)))
+
+	for i, receiver := range inactiveReceivers {
+		lastSeen, _ := time.Parse(time.RFC3339, receiver.LastSeen)
+		lastSeenStr := lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
+		daysInactive := int(now.Sub(lastSeen).Hours() / 24)
+		
+		bodyBuilder.WriteString(fmt.Sprintf("%d. Receiver ID: %d\n", i+1, receiver.ID))
+		bodyBuilder.WriteString(fmt.Sprintf("   Name: %s\n", receiver.Name))
+		bodyBuilder.WriteString(fmt.Sprintf("   Description: %s\n", receiver.Description))
+		bodyBuilder.WriteString(fmt.Sprintf("   Last seen: %s (%d days ago)\n", lastSeenStr, daysInactive))
+		bodyBuilder.WriteString(fmt.Sprintf("   Email: %s\n", receiver.Email))
+		
+		// Add UDP port if available
+		if receiver.UDPPort != nil {
+			bodyBuilder.WriteString(fmt.Sprintf("   UDP Port: %d\n", *receiver.UDPPort))
+		}
+		
+		// Add URL if available
+		if receiver.URL != nil && *receiver.URL != "" {
+			bodyBuilder.WriteString(fmt.Sprintf("   URL: %s\n", *receiver.URL))
+		}
+		
+		// Add link to receiver details
+		receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, receiver.ID)
+		bodyBuilder.WriteString(fmt.Sprintf("   Details: %s\n\n", receiverURL))
+	}
+
+	bodyBuilder.WriteString(fmt.Sprintf("\nThis is an automated weekly report sent every Saturday at midnight.\n"))
+	bodyBuilder.WriteString(fmt.Sprintf("\nAIS Decoder Team\nhttps://%s/", settings.SiteDomain))
+
+	// Create a dummy receiver for the sendEmail function
+	dummyReceiver := Receiver{
+		ID:          -1,
+		Name:        "System",
+		Description: "Weekly Inactive Receivers Report",
+	}
+
+	// Send the email to admins only
+	emailSentTo, err := sendEmail("weekly_inactive_receivers", dummyReceiver, bodyBuilder.String())
+	if err != nil {
+		log.Printf("Error sending weekly inactive receivers report: %v", err)
+		return
+	}
+
+	// Log the alert
+	if err := logAlert("weekly_inactive_receivers", -1, emailSentTo, fmt.Sprintf("Weekly report of %d inactive receivers", len(inactiveReceivers))); err != nil {
+		log.Printf("Error logging weekly inactive receivers alert: %v", err)
+	}
+
+	log.Printf("Sent weekly inactive receivers report to %s", emailSentTo)
+}
+
+// startReceiverMonitoring starts the background monitoring of receivers
+func startReceiverMonitoring(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	log.Printf("Statistics report scheduler started, will run at %s", settings.StatisticsReportTime)
+	// Initialize the last run time for weekly check
+	lastWeeklyCheck := time.Now()
 
 	for {
 		select {
 		case <-ticker.C:
-			// Parse the scheduled time
-			parts := strings.Split(settings.StatisticsReportTime, ",")
-			if len(parts) != 2 {
-				log.Printf("Invalid statistics_report_time format: %s", settings.StatisticsReportTime)
-				continue
-			}
-
-			dayStr := strings.ToLower(parts[0])
-			timeStr := parts[1]
-
-			// Check if it's the right day
+			// Regular offline receiver check
+			checkOfflineReceivers()
+			
+			// Check if it's Saturday at midnight (or close to it)
 			now := time.Now()
-			var isRightDay bool
-
-			switch dayStr {
-			case "monday":
-				isRightDay = now.Weekday() == time.Monday
-			case "tuesday":
-				isRightDay = now.Weekday() == time.Tuesday
-			case "wednesday":
-				isRightDay = now.Weekday() == time.Wednesday
-			case "thursday":
-				isRightDay = now.Weekday() == time.Thursday
-			case "friday":
-				isRightDay = now.Weekday() == time.Friday
-			case "saturday":
-				isRightDay = now.Weekday() == time.Saturday
-			case "sunday":
-				isRightDay = now.Weekday() == time.Sunday
-			case "daily":
-				isRightDay = true
-			default:
-				log.Printf("Invalid day in statistics_report_time: %s", dayStr)
-				continue
-			}
-
-			// Check if it's the right time
-			timeParts := strings.Split(timeStr, ":")
-			if len(timeParts) != 2 {
-				log.Printf("Invalid time format in statistics_report_time: %s", timeStr)
-				continue
-			}
-
-			hour, err := strconv.Atoi(timeParts[0])
-			if err != nil {
-				log.Printf("Invalid hour in statistics_report_time: %s", timeParts[0])
-				continue
-			}
-
-			minute, err := strconv.Atoi(timeParts[1])
-			if err != nil {
-				log.Printf("Invalid minute in statistics_report_time: %s", timeParts[1])
-				continue
-			}
-
-			isRightTime := now.Hour() == hour && now.Minute() >= minute && now.Minute() < minute+5
-
-			if isRightDay && isRightTime {
-				log.Println("Running scheduled statistics report")
-				// TODO: Implement statistics report generation
+			isSaturday := now.Weekday() == time.Saturday
+			isNearMidnight := now.Hour() == 0 && now.Minute() < 5
+			
+			// Ensure we only run once per week by checking if it's been at least 23 hours since last check
+			timeSinceLastCheck := now.Sub(lastWeeklyCheck)
+			
+			if isSaturday && isNearMidnight && timeSinceLastCheck >= 23*time.Hour {
+				log.Println("Running weekly inactive receivers check")
+				checkWeeklyInactiveReceivers()
+				lastWeeklyCheck = now
 			}
 		case <-ctx.Done():
-			log.Println("Statistics report scheduler stopped")
+			log.Println("Receiver monitoring stopped")
 			return
 		}
 	}
@@ -971,6 +1111,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	
+	// Start receiver monitoring in a goroutine
+	go startReceiverMonitoring(ctx)
+	
 	// Start statistics report scheduler if enabled
 	if settings.StatisticsReportEnabled && settings.StatisticsBaseURL != "" && settings.StatisticsReportTime != "" {
 		go startStatisticsReportScheduler(ctx)
@@ -978,7 +1121,7 @@ func main() {
 	
 	// Start HTTP server
 	addr := fmt.Sprintf(":%d", settings.ListenPort)
-	http.HandleFunc("/alert", alertHandler)
+	http.HandleFunc("/", alertHandler)
 	log.Printf("Starting alerts service on %s", addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Server error: %v", err)
