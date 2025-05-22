@@ -1208,8 +1208,7 @@
                         MMSI: ${id}<br>
                         Type: ${typeName} (${typeId})<br>
                         Class: ${aisClass}<br>
-                        Positions: ${positions}<br>
-                        Distance: <span id="distance-${id}">0.0 NM</span>
+                        Positions: ${positions}
                     </div>
                     <div class="vessel-live-data" id="live-data-${id}">
                         <span><span class="label">Speed:</span> <span id="sog-${id}">- knots</span></span>
@@ -1415,12 +1414,6 @@
                 // Calculate total distance traveled
                 const totalDistance = calculateTotalDistance(positions);
                 vessels[id].totalDistance = totalDistance;
-                
-                // Update the distance display in the vessel list
-                const distanceElement = document.getElementById(`distance-${id}`);
-                if (distanceElement) {
-                    distanceElement.textContent = `${totalDistance.toFixed(1)} NM`;
-                }
                 
                 // Create initial marker and track
                 createVesselMarker(id);
