@@ -816,7 +816,7 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 	offlineThreshold := time.Duration(offlineMinutes) * time.Minute
 
 	// Log the actual threshold being used
-	log.Printf("Using offline threshold of %v (from %f hours)", offlineThreshold, settings.ReceiverOfflineHours)
+	// log.Printf("Using offline threshold of %v (from %f hours)", offlineThreshold, settings.ReceiverOfflineHours)
 
 	// Process each receiver
 	for rows.Next() {
