@@ -344,8 +344,13 @@ a.action:hover, button.delete-btn:hover {
   border-bottom: 1px solid #ddd;
 }
 
-/* Allow columns to size based on content */
-.timestamp-col, .event-type-col {
+/* Set appropriate widths for each column */
+.timestamp-col {
+  width: 180px; /* Fixed width for timestamp column */
+  white-space: nowrap;
+}
+
+.event-type-col {
   width: auto;
   white-space: nowrap;
 }
