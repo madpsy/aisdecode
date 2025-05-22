@@ -391,7 +391,7 @@
                     <option value="10">10s</option>
                     <option value="20">20s</option>
                     <option value="30">30s</option>
-                    <option value="60">60s</option>
+                    <option value="60" selected>60s</option>
                 </select>
                 <input type="range" id="timeline-slider" min="0" max="100" value="0" disabled>
                 <span id="time-display">00:00:00</span>
@@ -1642,36 +1642,50 @@
         }
 
         function updateTimeDisplay(time) {
-            timeDisplay.textContent = time.toLocaleTimeString();
-            
-            // Update map time overlay
-            if (mapTimeOverlay) {
-                // Format date in 24-hour format
-                const options = {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: false
-                };
-                mapTimeOverlay.textContent = time.toLocaleString(undefined, options);
-                mapTimeOverlay.style.display = 'block';
-            }
-            
-            // Update histogram timeline indicator
-            const timelineIndicator = document.getElementById('histogram-timeline-indicator');
-            if (timelineIndicator && histogramEarliest && histogramLatest) {
-                // Calculate position based on current timeline index instead of absolute time
-                // This ensures the indicator moves in sync with the timeline slider
-                if (timelineData.length > 1) {
-                    const percent = currentTimeIndex / (timelineData.length - 1);
-                    timelineIndicator.style.left = `${percent * 100}%`;
-                    timelineIndicator.style.display = 'block';
+                    timeDisplay.textContent = time.toLocaleTimeString();
+                    
+                    // Update map time overlay
+                    if (mapTimeOverlay) {
+                        // Format date in 24-hour format
+                        const options = {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false
+                        };
+                        mapTimeOverlay.textContent = time.toLocaleString(undefined, options);
+                        mapTimeOverlay.style.display = 'block';
+                    }
+                    
+                    // Update histogram timeline indicator
+                    const timelineIndicator = document.getElementById('histogram-timeline-indicator');
+                    if (timelineIndicator && histogramEarliest && histogramLatest) {
+                        if (timelineData.length > 1) {
+                            // Calculate position based on the actual time value relative to the full time range
+                            // This ensures the indicator shows the correct position regardless of playback speed
+                            if (histogramSelectionStart !== null && histogramSelectionEnd !== null) {
+                                // If we have a histogram selection, calculate position within that selection
+                                const start = Math.min(histogramSelectionStart, histogramSelectionEnd);
+                                const end = Math.max(histogramSelectionStart, histogramSelectionEnd);
+                                const selectionWidth = end - start;
+                                
+                                // Calculate where in the selection this time falls
+                                const timePosition = (time - timelineData[0]) / (timelineData[timelineData.length - 1] - timelineData[0]);
+                                const adjustedPosition = start + (timePosition * selectionWidth);
+                                
+                                timelineIndicator.style.left = `${adjustedPosition * 100}%`;
+                            } else {
+                                // No selection - calculate position across the full histogram
+                                const timePosition = (time - histogramEarliest) / (histogramLatest - histogramEarliest);
+                                timelineIndicator.style.left = `${timePosition * 100}%`;
+                            }
+                            timelineIndicator.style.display = 'block';
+                        }
+                    }
                 }
-            }
-        }
 
         function updateMarkersToTime(time) {
             for (const id of selectedVessels) {
@@ -1843,112 +1857,93 @@
         }
 
         function togglePlayPause() {
-            if (isPlaying) {
-                // Pause playback but keep nonSelectedLayer hidden
-                isPlaying = false;
-                playPauseBtn.textContent = '▶️';
-                
-                if (playbackInterval) {
-                    clearInterval(playbackInterval);
-                    playbackInterval = null;
-                }
-            } else {
-                isPlaying = true;
-                playPauseBtn.textContent = '⏸️';
-                
-                // Hide non-selected vessel markers during playback
-                map.removeLayer(nonSelectedLayer);
-                
-                // Get selected playback duration in seconds
-                const playbackDuration = parseInt(playbackSpeedSelect.value);
-                
-                // Calculate interval based on playback duration and total time range
-                // This ensures the playback finishes exactly when expected
-                const totalTimeRange = timelineData[timelineData.length - 1] - timelineData[0];
-                const totalSteps = timelineData.length - 1;
-                
-                // Calculate how many milliseconds each step should take to complete the full playback in the selected duration
-                const intervalMs = (playbackDuration * 1000) / totalSteps;
-                
-                console.log(`Starting playback: ${totalSteps} steps over ${playbackDuration}s (${intervalMs.toFixed(1)}ms per step)`);
-                
-                // Start time for playback tracking
-                const playbackStartTime = Date.now();
-                const playbackTotalDuration = playbackDuration * 1000; // Total duration in ms
-                
-                playbackInterval = setInterval(() => {
-                    // Calculate elapsed time since playback started
-                    const elapsedTime = Date.now() - playbackStartTime;
-                    
-                    // Calculate what percentage of the total playback time has elapsed
-                    const playbackProgress = Math.min(1, elapsedTime / playbackTotalDuration);
-                    
-                    // Calculate the current index based on progress
-                    const newIndex = Math.min(
-                        timelineData.length - 1,
-                        Math.floor(playbackProgress * timelineData.length)
-                    );
-                    
-                    // Update current index
-                    currentTimeIndex = newIndex;
-                    
-                    // Check if playback is complete
-                    if (playbackProgress >= 1) {
-                        stopPlayback();
-                        return;
+                    if (isPlaying) {
+                        // Pause playback but keep nonSelectedLayer hidden
+                        isPlaying = false;
+                        playPauseBtn.textContent = '▶️';
+                        
+                        if (playbackInterval) {
+                            clearInterval(playbackInterval);
+                            playbackInterval = null;
+                        }
+                    } else {
+                        isPlaying = true;
+                        playPauseBtn.textContent = '⏸️';
+                        
+                        // Hide non-selected vessel markers during playback
+                        map.removeLayer(nonSelectedLayer);
+                        
+                        // Get selected playback duration in seconds
+                        const playbackDuration = parseInt(playbackSpeedSelect.value);
+                        
+                        // Calculate interval based on playback duration and total time range
+                        const totalSteps = timelineData.length - 1;
+                        
+                        // Calculate how many milliseconds each step should take to complete the full playback in the selected duration
+                        const intervalMs = (playbackDuration * 1000) / totalSteps;
+                        
+                        console.log(`Starting playback: ${totalSteps} steps over ${playbackDuration}s (${intervalMs.toFixed(1)}ms per step)`);
+                        
+                        // Start time for playback tracking
+                        const playbackStartTime = Date.now();
+                        const playbackTotalDuration = playbackDuration * 1000; // Total duration in ms
+                        
+                        // Start from current timeline index
+                        let startIndex = parseInt(timelineSlider.value);
+                        
+                        playbackInterval = setInterval(() => {
+                            // Calculate elapsed time since playback started
+                            const elapsedTime = Date.now() - playbackStartTime;
+                            
+                            // Calculate what percentage of the total playback time has elapsed
+                            const playbackProgress = Math.min(1, elapsedTime / playbackTotalDuration);
+                            
+                            // Calculate the current index based on progress, starting from the current position
+                            const progressSteps = Math.floor(playbackProgress * totalSteps);
+                            const newIndex = Math.min(
+                                timelineData.length - 1,
+                                startIndex + progressSteps
+                            );
+                            
+                            // Update current index
+                            currentTimeIndex = newIndex;
+                            
+                            // Check if playback is complete
+                            if (newIndex >= timelineData.length - 1 || playbackProgress >= 1) {
+                                stopPlayback();
+                                return;
+                            }
+                            
+                            // Update UI
+                            timelineSlider.value = currentTimeIndex;
+                            const time = timelineData[currentTimeIndex];
+                            updateTimeDisplay(time);
+                            updateMarkersToTime(time);
+                        }, 50); // Update more frequently for smoother playback
                     }
-                    
-                    // Update UI
-                    timelineSlider.value = currentTimeIndex;
-                    const time = timelineData[currentTimeIndex];
-                    updateTimeDisplay(time);
-                    updateMarkersToTime(time);
-                }, 50); // Update more frequently for smoother playback
-            }
-        }
+                }
 
         function stopPlayback() {
-            isPlaying = false;
-            playPauseBtn.textContent = '▶️';
-            
-            if (playbackInterval) {
-                clearInterval(playbackInterval);
-                playbackInterval = null;
-            }
-            
-            // Ensure timeline controls are enabled if vessels are selected
-            playPauseBtn.disabled = selectedVessels.size === 0;
-            stopBtn.disabled = selectedVessels.size === 0;
-            timelineSlider.disabled = selectedVessels.size === 0;
-            playbackSpeedSelect.disabled = selectedVessels.size === 0;
-            
-            // Reset the timeline index to allow replaying
-            currentTimeIndex = 0;
-            timelineSlider.value = 0;
-            
-            // Ensure timelineData starts from the 'from' time if it exists
-            if (histogramEarliest && histogramLatest && timelineData.length > 0) {
-                // Create timeline data with 100 steps from the full range
-                const fromDate = new Date(fromDateInput.value);
-                const timeRange = histogramLatest - histogramEarliest;
-                const stepSize = timeRange / 100;
-                
-                // Recreate timeline data starting from the 'from' date
-                timelineData = Array.from({ length: 101 }, (_, i) => {
-                    return new Date(histogramEarliest.getTime() + i * stepSize);
-                });
-            }
-            
-            // Update display to show the first time point
-            if (timelineData.length > 0) {
-                const time = timelineData[0];
-                updateTimeDisplay(time);
-                updateMarkersToTime(time);
-            }
-            
-            // Show all vessel markers again only when completely stopping playback
-            map.addLayer(nonSelectedLayer);
-        }
+                    isPlaying = false;
+                    playPauseBtn.textContent = '▶️';
+                    
+                    if (playbackInterval) {
+                        clearInterval(playbackInterval);
+                        playbackInterval = null;
+                    }
+                    
+                    // Ensure timeline controls are enabled if vessels are selected
+                    playPauseBtn.disabled = selectedVessels.size === 0;
+                    stopBtn.disabled = selectedVessels.size === 0;
+                    timelineSlider.disabled = selectedVessels.size === 0;
+                    playbackSpeedSelect.disabled = selectedVessels.size === 0;
+                    
+                    // Don't reset the timeline index to beginning
+                    // This allows playback to resume from where it was stopped
+                    
+                    // Show all vessel markers again only when completely stopping playback
+                    map.addLayer(nonSelectedLayer);
+                }
         
         // Global variables for histogram
         let histogramEarliest = null;
@@ -2408,51 +2403,57 @@
         }
         
         function applyHistogramSelection() {
-            if (histogramSelectionStart === null || histogramSelectionEnd === null ||
-                histogramEarliest === null || histogramLatest === null) {
-                return;
-            }
-            
-            // Ensure start is before end
-            const start = Math.min(histogramSelectionStart, histogramSelectionEnd);
-            const end = Math.max(histogramSelectionStart, histogramSelectionEnd);
-            
-            // Calculate selected time range
-            const timeRange = histogramLatest - histogramEarliest;
-            const startTime = new Date(histogramEarliest.getTime() + timeRange * start);
-            const endTime = new Date(histogramEarliest.getTime() + timeRange * end);
-            
-            // Update timeline to only include positions within the selected range
-            updateTimelineWithRange(startTime, endTime);
-            
-            // Force the selection to remain visible
-            if (histogramSelectionElement) {
-                histogramSelectionElement.style.display = 'block';
-                histogramSelectionElement.style.left = `${start * 100}%`;
-                histogramSelectionElement.style.width = `${(end - start) * 100}%`;
-            }
-        }
+                    if (histogramSelectionStart === null || histogramSelectionEnd === null ||
+                        histogramEarliest === null || histogramLatest === null) {
+                        return;
+                    }
+                    
+                    // Ensure start is before end
+                    const start = Math.min(histogramSelectionStart, histogramSelectionEnd);
+                    const end = Math.max(histogramSelectionStart, histogramSelectionEnd);
+                    
+                    // Calculate selected time range
+                    const timeRange = histogramLatest - histogramEarliest;
+                    const startTime = new Date(histogramEarliest.getTime() + timeRange * start);
+                    const endTime = new Date(histogramEarliest.getTime() + timeRange * end);
+                    
+                    // Update timeline to only include positions within the selected range
+                    updateTimelineWithRange(startTime, endTime);
+                    
+                    // Force the selection to remain visible
+                    if (histogramSelectionElement) {
+                        histogramSelectionElement.style.display = 'block';
+                        histogramSelectionElement.style.left = `${start * 100}%`;
+                        histogramSelectionElement.style.width = `${(end - start) * 100}%`;
+                    }
+                    
+                    // Stop any ongoing playback
+                    if (isPlaying) {
+                        stopPlayback();
+                    }
+                }
         
         function updateTimelineWithRange(startTime, endTime) {
-            // Create timeline data with 100 steps within the selected range
-            const timeRange = endTime - startTime;
-            const stepSize = timeRange / 100;
-            
-            // Use the same number of steps as the main timeline
-            const numSteps = timelineData.length;
-            timelineData = Array.from({ length: numSteps }, (_, i) => {
-                return new Date(startTime.getTime() + i * stepSize);
-            });
-            
-            // Reset timeline slider
-            timelineSlider.value = 0;
-            timelineSlider.max = timelineData.length - 1; // Set max value to match timeline data length
-            currentTimeIndex = 0;
-            
-            // Update display
-            updateTimeDisplay(timelineData[0]);
-            updateMarkersToTime(timelineData[0]);
-        }
+                    // Create timeline data with steps within the selected range
+                    const timeRange = endTime - startTime;
+                    
+                    // Use more steps for better playback resolution
+                    const numSteps = Math.min(500, Math.max(100, Object.values(vesselPositions).reduce((sum, positions) => sum + positions.length, 0)));
+                    const stepSize = timeRange / (numSteps - 1);
+                    
+                    timelineData = Array.from({ length: numSteps }, (_, i) => {
+                        return new Date(startTime.getTime() + i * stepSize);
+                    });
+                    
+                    // Reset timeline slider
+                    timelineSlider.value = 0;
+                    timelineSlider.max = timelineData.length - 1; // Set max value to match timeline data length
+                    currentTimeIndex = 0;
+                    
+                    // Update display
+                    updateTimeDisplay(timelineData[0]);
+                    updateMarkersToTime(timelineData[0]);
+                }
         
         function resetTimelineToFullRange() {
             if (!histogramEarliest || !histogramLatest) return;
