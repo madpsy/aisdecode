@@ -322,7 +322,8 @@ a.action:hover, button.delete-btn:hover {
 
 /* Events modal specific styles */
 .events-modal-content {
-  max-width: 600px;
+  max-width: 400px;
+  width: auto;
 }
 
 .events-container {
@@ -332,24 +333,27 @@ a.action:hover, button.delete-btn:hover {
 }
 
 #events-table {
-  width: 100%;
+  width: auto;
   border-collapse: collapse;
   margin-bottom: 10px;
+  table-layout: auto;
 }
 
 #events-table th, #events-table td {
   padding: 8px;
   text-align: left;
   border-bottom: 1px solid #ddd;
-}
-
-.timestamp-col {
-  width: 150px;
   white-space: nowrap;
 }
 
+.timestamp-col {
+  min-width: 120px;
+  max-width: 150px;
+}
+
 .event-type-col {
-  width: auto;
+  min-width: 100px;
+  max-width: 150px;
 }
 
 #events-table th {
