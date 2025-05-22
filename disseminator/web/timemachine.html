@@ -1704,12 +1704,18 @@
                 delete vesselTracks[id];
             }
             
-            // Create marker at first position
-            const pos = positions[0];
-            const marker = L.marker([pos.lat, pos.lng], {
+            // Create marker at vessel's current position (not first historical position)
+            // Use the vessel's current position from the vessels object
+            const lat = vessel.Latitude;
+            const lng = vessel.Longitude;
+            
+            // Get the most recent position for rotation angle
+            const latestPos = positions[positions.length - 1];
+            
+            const marker = L.marker([lat, lng], {
                 icon: createVesselIcon(vesselColor),
                 title: name,
-                rotationAngle: pos.heading || pos.cog || 0
+                rotationAngle: latestPos.heading || latestPos.cog || 0
             });
             
             // Add to selected layer
@@ -1727,9 +1733,9 @@
                 <strong>${name}</strong><br>
                 MMSI: ${id}<br>
                 Type: ${typeName} (${typeId})<br>
-                Speed: ${pos.sog !== null ? pos.sog.toFixed(1) : 'N/A'} knots<br>
-                Course: ${pos.cog !== null ? pos.cog.toFixed(1) : 'N/A'}°<br>
-                Time: ${pos.timestamp.toLocaleString()}
+                Speed: ${latestPos.sog !== null ? latestPos.sog.toFixed(1) : 'N/A'} knots<br>
+                Course: ${latestPos.cog !== null ? latestPos.cog.toFixed(1) : 'N/A'}°<br>
+                Time: ${latestPos.timestamp.toLocaleString()}
             `);
             
             // Add click handler to unselect the vessel when clicked
@@ -2155,7 +2161,7 @@
                             // Check if playback is complete
                             if (newIndex >= timelineData.length - 1 || playbackProgress >= 1 || currentTime >= window.playbackInfo.endTime) {
                                 console.log(`Playback complete: progress=${playbackProgress.toFixed(2)}, elapsed=${elapsedTime}ms, duration=${playbackTotalDuration}ms`);
-                                stopPlayback();
+                                endPlayback(); // Use endPlayback instead of stopPlayback to stay at current position
                                 return;
                             }
                             
@@ -2168,35 +2174,42 @@
                     }
                 }
 
+        // Function to end playback without resetting position (for natural completion)
+        function endPlayback() {
+            isPlaying = false;
+            playPauseBtn.textContent = '▶️';
+            
+            if (playbackInterval) {
+                clearInterval(playbackInterval);
+                playbackInterval = null;
+            }
+            
+            // Ensure timeline controls are enabled if vessels are selected
+            playPauseBtn.disabled = selectedVessels.size === 0;
+            stopBtn.disabled = selectedVessels.size === 0;
+            timelineSlider.disabled = selectedVessels.size === 0;
+            playbackSpeedSelect.disabled = selectedVessels.size === 0;
+            
+            // Show all vessel markers again
+            map.addLayer(nonSelectedLayer);
+        }
+
+        // Function to stop playback and reset to beginning (for stop button)
         function stopPlayback() {
-                    isPlaying = false;
-                    playPauseBtn.textContent = '▶️';
-                    
-                    if (playbackInterval) {
-                        clearInterval(playbackInterval);
-                        playbackInterval = null;
-                    }
-                    
-                    // Ensure timeline controls are enabled if vessels are selected
-                    playPauseBtn.disabled = selectedVessels.size === 0;
-                    stopBtn.disabled = selectedVessels.size === 0;
-                    timelineSlider.disabled = selectedVessels.size === 0;
-                    playbackSpeedSelect.disabled = selectedVessels.size === 0;
-                    
-                    // Reset the timeline index to the beginning
-                    currentTimeIndex = 0;
-                    timelineSlider.value = 0;
-                    
-                    // Update display to show the first time point
-                    if (timelineData.length > 0) {
-                        const time = timelineData[0];
-                        updateTimeDisplay(time);
-                        updateMarkersToTime(time);
-                    }
-                    
-                    // Show all vessel markers again only when completely stopping playback
-                    map.addLayer(nonSelectedLayer);
-                }
+            // First end the playback
+            endPlayback();
+            
+            // Then reset to beginning
+            currentTimeIndex = 0;
+            timelineSlider.value = 0;
+            
+            // Update display to show the first time point
+            if (timelineData.length > 0) {
+                const time = timelineData[0];
+                updateTimeDisplay(time);
+                updateMarkersToTime(time);
+            }
+        }
         
         // Global variables for histogram
         let histogramEarliest = null;
