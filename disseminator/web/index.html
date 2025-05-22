@@ -849,7 +849,19 @@
 	};
 
 	// Initialize the map with a default base layer
-	const map = L.map('map').setView([55.0, -3.0], 5);
+	const map = L.map('map', {
+		contextmenu: true,
+		contextmenuWidth: 140,
+		contextmenuItems: [{
+			text: 'Time Machine',
+			callback: function(e) {
+				const lat = e.latlng.lat;
+				const lng = e.latlng.lng;
+				const zoom = map.getZoom();
+				window.open(`/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}`, '_blank');
+			}
+		}]
+	}).setView([55.0, -3.0], 5);
 	osm.addTo(map);
 
 	// Add the layers control.
