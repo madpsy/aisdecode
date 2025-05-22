@@ -1728,34 +1728,38 @@
                         // Update track - show the appropriate part of the track
                         const track = vesselTracks[id];
                         if (track) {
-                            let trackPoints;
-                            
-                            // If at the beginning of the timeline, show the full track
-                            if (currentTimeIndex === 0) {
-                                trackPoints = positions.map(p => [p.lat, p.lng]);
-                            } else {
-                                // Filter to show points up to the current time
-                                const pointsUpToNow = positions.filter(p => p.timestamp <= time);
-                                
-                                // Adjust the number of points based on playback duration
-                                // For longer durations, include more points for smoother visualization
-                                let pointsToShow = pointsUpToNow;
-                                
-                                // If we have a lot of points, we may need to sample them
-                                if (pointsUpToNow.length > 100) {
-                                    // Calculate sampling rate based on playback duration
-                                    // Longer durations = more points
-                                    const samplingRate = Math.max(1, Math.floor(pointsUpToNow.length / (playbackDuration * 2)));
-                                    
-                                    // Sample points, always including the most recent point
-                                    pointsToShow = pointsUpToNow.filter((_, index, array) =>
-                                        index % samplingRate === 0 || index === array.length - 1
-                                    );
-                                }
-                                
-                                trackPoints = pointsToShow.map(p => [p.lat, p.lng]);
+                            // Store sampling rates in a separate object to avoid reference errors
+                            if (!window.vesselSamplingRates) {
+                                window.vesselSamplingRates = {};
                             }
                             
+                            // If we haven't calculated the sampling rate for this vessel yet, do it now
+                            if (!window.vesselSamplingRates[id]) {
+                                // Calculate a consistent sampling rate based on total points and playback duration
+                                const totalPoints = positions.length;
+                                const samplingRate = Math.max(1, Math.floor(totalPoints / (playbackDuration * 3)));
+                                
+                                // For very short tracks, don't sample
+                                window.vesselSamplingRates[id] = totalPoints < 100 ? 1 : samplingRate;
+                                
+                                console.log(`Vessel ${id}: ${totalPoints} points, sampling rate ${window.vesselSamplingRates[id]}`);
+                            }
+                            
+                            // Use the pre-calculated sampling rate
+                            const samplingRate = window.vesselSamplingRates[id];
+                            
+                            // Filter points up to current time
+                            const pointsUpToNow = positions.filter(p => p.timestamp <= time);
+                            
+                            // Apply consistent sampling
+                            const sampledPoints = pointsUpToNow.filter((_, index, array) =>
+                                index % samplingRate === 0 || index === array.length - 1
+                            );
+                            
+                            // Convert to track points
+                            const trackPoints = sampledPoints.map(p => [p.lat, p.lng]);
+                            
+                            // Update the track
                             track.setLatLngs(trackPoints);
                         }
                 
