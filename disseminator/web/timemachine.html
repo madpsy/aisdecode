@@ -1151,7 +1151,8 @@
                         } else if (e.originalEvent.shiftKey && window.lastSelectedVessel) {
                             selectVesselRange(window.lastSelectedVessel, id);
                         } else {
-                            toggleVesselSelection(id, vesselItem, false, timeRangeChanged);
+                            // Normal click: add to selection (don't deselect others)
+                            toggleVesselSelection(id, vesselItem, false, timeRangeChanged, true);
                         }
                         
                         // Make sure the vessel list is visible
@@ -1297,8 +1298,8 @@
                         // Shift key: select range of vessels
                         selectVesselRange(window.lastSelectedVessel, id);
                     } else {
-                        // Normal click: deselect all others and select this one
-                        toggleVesselSelection(id, item, false, timeRangeChanged);
+                        // Normal click: add to selection (don't deselect others)
+                        toggleVesselSelection(id, item, false, timeRangeChanged, true);
                     }
                 });
                 
@@ -1322,7 +1323,7 @@
                     // Use a flag to prevent URL updates during initial selection from URL params
                     const skipURLUpdate = true;
                     // Pass the time range change flag to avoid unnecessary refetching
-                    toggleVesselSelection(id, vesselItem, skipURLUpdate, window.timeRangeChanged);
+                    toggleVesselSelection(id, vesselItem, skipURLUpdate, window.timeRangeChanged, true);
                 }
             }
             // Reset the flag after use
@@ -1420,7 +1421,8 @@
                                 } else if (e.originalEvent.shiftKey && window.lastSelectedVessel) {
                                     selectVesselRange(window.lastSelectedVessel, id);
                                 } else {
-                                    toggleVesselSelection(id, vesselItem, false, timeRangeChanged);
+                                    // Normal click: add to selection (don't deselect others)
+                                    toggleVesselSelection(id, vesselItem, false, timeRangeChanged, true);
                                 }
                                 
                                 // Make sure the vessel list is visible
@@ -1503,7 +1505,8 @@
                                             } else if (e.originalEvent.shiftKey && window.lastSelectedVessel) {
                                                 selectVesselRange(window.lastSelectedVessel, prevId);
                                             } else {
-                                                toggleVesselSelection(prevId, vesselItem, false, timeRangeChanged);
+                                                // Normal click: add to selection (don't deselect others)
+                                                toggleVesselSelection(prevId, vesselItem, false, timeRangeChanged, true);
                                             }
                                             
                                             if (vesselList.style.display === 'none') {
@@ -1711,7 +1714,8 @@
                     } else if (e.originalEvent.shiftKey && window.lastSelectedVessel) {
                         selectVesselRange(window.lastSelectedVessel, id);
                     } else {
-                        toggleVesselSelection(id, vesselItem);
+                        // Normal click: add to selection (don't deselect others)
+                        toggleVesselSelection(id, vesselItem, false, false, true);
                     }
                 }
             });
