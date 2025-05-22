@@ -343,6 +343,19 @@
             text-align: right;
         }
     </style>
+    
+    <!-- Add custom style for receiver tooltips -->
+    <style>
+        .receiver-tooltip {
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 1px solid #999;
+            border-radius: 3px;
+            padding: 2px 5px;
+            font-weight: bold;
+            font-size: 11px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+    </style>
 </head>
 <body>
     <div id="container">
@@ -460,6 +473,8 @@
         let playbackInterval;
         // No longer using searchArea variable
         let vesselTypes = null; // Will store the vessel types data
+        let receivers = null; // Will store the receivers data
+        let receiverMarkers = {}; // Will store receiver markers on the map
         
         // Persistent storage for vessel colors by MMSI
         let vesselColorMap = {};
@@ -497,8 +512,9 @@
         fromDateInput.value = formatDateForInput(oneHourAgo);
         toDateInput.value = formatDateForInput(now);
 
-        // Fetch vessel types data
+        // Fetch vessel types and receivers data
         fetchVesselTypes();
+        fetchReceivers();
 
         // Event listeners
         // Implement debounce function for map events
@@ -774,6 +790,20 @@
             }
         }
         
+        // Fetch receivers data from /receivers endpoint
+        async function fetchReceivers() {
+            try {
+                const response = await fetch('/receivers');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                receivers = await response.json();
+                console.log('Receivers data loaded successfully:', receivers);
+            } catch (error) {
+                console.error('Error loading receivers data:', error);
+            }
+        }
+        
         // Function to update URL parameters
         function updateURLParameters() {
             const center = map.getCenter();
@@ -914,6 +944,9 @@
             // Explicitly clear vessel positions on full reset
             vesselPositions = {};
             
+            // Clear receiver markers
+            clearReceiverMarkers();
+            
             // Reset UI
             vesselItems.innerHTML = '';
             vesselFilter.value = '';
@@ -944,6 +977,14 @@
             
             // Stop playback
             stopPlayback();
+        }
+        
+        // Function to clear receiver markers from the map
+        function clearReceiverMarkers() {
+            for (const id in receiverMarkers) {
+                map.removeLayer(receiverMarkers[id]);
+            }
+            receiverMarkers = {};
         }
         
         // Function to clear vessels without resetting the entire view
@@ -1630,7 +1671,8 @@
                         lng: parseFloat(packet.Longitude),
                         cog: packet.Cog !== undefined ? parseFloat(packet.Cog) : null,
                         sog: packet.Sog !== undefined ? parseFloat(packet.Sog) : null,
-                        heading: packet.TrueHeading !== undefined && packet.TrueHeading !== 511 ? parseFloat(packet.TrueHeading) : null
+                        heading: packet.TrueHeading !== undefined && packet.TrueHeading !== 511 ? parseFloat(packet.TrueHeading) : null,
+                        receiverId: msg.ReceiverID // Store the receiver ID
                     };
                 }).filter(pos => !isNaN(pos.lat) && !isNaN(pos.lng));
                 
@@ -1645,6 +1687,9 @@
                 
                 // Create initial marker and track
                 createVesselMarker(id);
+                
+                // Plot receivers that heard this vessel
+                plotReceivers(positions);
                 
                 // Update timeline if this is the first vessel
                 // Always setup timeline when vessel positions are fetched
@@ -1782,6 +1827,60 @@
                 color += letters[Math.floor(Math.random() * 16)];
             }
             return color;
+        }
+        
+        // Helper function to create a diamond-shaped icon for receivers
+        function createReceiverIcon(color = 'red') {
+            const svgHtml = `
+                <svg style="pointer-events: none;" width="16" height="16" viewBox="0 0 20 20">
+                    <polygon points="10,0 20,10 10,20 0,10" fill="${color}" />
+                </svg>
+            `;
+            return L.divIcon({
+                html: svgHtml,
+                className: '',
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            });
+        }
+        
+        // Function to plot receivers on the map
+        function plotReceivers(positions) {
+            // Skip if receivers data isn't loaded yet
+            if (!receivers || !Array.isArray(receivers)) {
+                console.log('Receivers data not available yet');
+                return;
+            }
+            
+            // Get unique receiver IDs from positions
+            const receiverIds = [...new Set(positions.map(pos => pos.receiverId).filter(id => id !== undefined))];
+            
+            // For each receiver ID, find the corresponding receiver data and plot it
+            receiverIds.forEach(receiverId => {
+                // Skip if we've already plotted this receiver
+                if (receiverMarkers[receiverId]) return;
+                
+                // Find receiver data
+                const receiver = receivers.find(r => r.id === receiverId);
+                if (receiver && receiver.latitude && receiver.longitude) {
+                    // Create a marker for the receiver
+                    const receiverMarker = L.marker([receiver.latitude, receiver.longitude], {
+                        icon: createReceiverIcon()
+                    });
+                    
+                    // Add a permanent tooltip with the receiver name
+                    receiverMarker.bindTooltip(receiver.name, {
+                        permanent: true,
+                        direction: 'top',
+                        offset: [0, -10],
+                        className: 'receiver-tooltip'
+                    }).openTooltip();
+                    
+                    // Add to map and store reference
+                    receiverMarker.addTo(map);
+                    receiverMarkers[receiverId] = receiverMarker;
+                }
+            });
         }
 
         function setupTimeline() {
