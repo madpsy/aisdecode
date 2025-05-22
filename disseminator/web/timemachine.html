@@ -1903,12 +1903,27 @@
                         const playbackStartTime = Date.now();
                         const playbackTotalDuration = playbackDuration * 1000; // Total duration in ms
                         
-                        // Use fixed interval for smoother playback
-                        const updateInterval = 50; // ms
+                        // Store the start time and end time for the playback
+                        window.playbackInfo = {
+                            startTime: Date.now(),
+                            endTime: Date.now() + playbackTotalDuration,
+                            startIndex: startIndex,
+                            endIndex: timelineData.length - 1,
+                            duration: playbackTotalDuration
+                        };
+                        
+                        // Calculate how many milliseconds to wait between each step to achieve the desired duration
+                        const msPerStep = playbackTotalDuration / remainingSteps;
+                        
+                        // For very smooth playback, use a fixed interval and calculate position
+                        const updateInterval = Math.min(50, msPerStep); // ms, but never more than 50ms for smoothness
+                        
+                        console.log(`Playback: ${msPerStep.toFixed(1)}ms per step, update interval: ${updateInterval}ms`);
                         
                         playbackInterval = setInterval(() => {
                             // Calculate elapsed time since playback started
-                            const elapsedTime = Date.now() - playbackStartTime;
+                            const now = Date.now();
+                            const elapsedTime = now - playbackStartTime;
                             
                             // Calculate what percentage of the playback duration has elapsed
                             const playbackProgress = Math.min(1, elapsedTime / playbackTotalDuration);
@@ -1923,7 +1938,7 @@
                             currentTimeIndex = newIndex;
                             
                             // Check if playback is complete
-                            if (newIndex >= timelineData.length - 1 || playbackProgress >= 1) {
+                            if (newIndex >= timelineData.length - 1 || playbackProgress >= 1 || now >= window.playbackInfo.endTime) {
                                 stopPlayback();
                                 return;
                             }
