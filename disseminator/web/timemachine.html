@@ -1881,6 +1881,12 @@
             const lat = vessel.Latitude;
             const lng = vessel.Longitude;
             
+            // Skip if coordinates are invalid
+            if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+                console.warn(`Invalid coordinates for vessel ${id}: lat=${lat}, lng=${lng}`);
+                return;
+            }
+            
             // Get the most recent position for rotation angle
             const latestPos = positions[positions.length - 1];
             
@@ -2205,9 +2211,11 @@
                 }
                 
                 // If we found a position with a receiver ID, highlight the receiver tooltip
-                if (closestPos && closestPos.receiverId) {
+                if (closestPos && closestPos.receiverId &&
+                    Math.abs(closestPos.lat) <= 90 && Math.abs(closestPos.lng) <= 180) {
                     const receiver = receivers.find(r => r.id === closestPos.receiverId);
-                    if (receiver) {
+                    if (receiver && receiver.latitude && receiver.longitude &&
+                        Math.abs(receiver.latitude) <= 90 && Math.abs(receiver.longitude) <= 180) {
                         // Find and highlight the active receiver tooltip
                         document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
                             // Check if this tooltip belongs to the receiver
@@ -2371,11 +2379,14 @@
                         // Update marker position
                         const marker = vesselMarkers[id];
                         if (marker) {
-                            marker.setLatLng([closestPos.lat, closestPos.lng]);
-                            
-                            // Update rotation angle
-                            if (marker.options.rotationAngle !== undefined) {
-                                marker.setRotationAngle(closestPos.heading || closestPos.cog || 0);
+                            // Validate coordinates before updating marker position
+                            if (Math.abs(closestPos.lat) <= 90 && Math.abs(closestPos.lng) <= 180) {
+                                marker.setLatLng([closestPos.lat, closestPos.lng]);
+                                
+                                // Update rotation angle
+                                if (marker.options.rotationAngle !== undefined) {
+                                    marker.setRotationAngle(closestPos.heading || closestPos.cog || 0);
+                                }
                             }
                             
                             // Update popup content
