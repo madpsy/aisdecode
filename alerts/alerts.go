@@ -650,7 +650,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 		}
 
 	case "RECEIVER_ONLINE":
-		subject = fmt.Sprintf("Your AIS receiver '%s' is back online", rec.Name)
+		subject = fmt.Sprintf("Your AIS receiver '%s' is now online", rec.Name)
 
 		// For receiver online notifications, determine recipients based on notifications setting
 		if rec.Notifications && rec.Email != "" {
@@ -685,7 +685,7 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			}
 
 			body = fmt.Sprintf(
-				"Hello,\n\nGood news! Your AIS receiver '%s' (ID: %d) is now back online.\n\n"+
+				"Hello,\n\nGood news! Your AIS receiver '%s' (ID: %d) is now online.\n\n"+
 					"Receiver Details:\n"+
 					"- Name: %s\n"+
 					"- Description: %s\n"+
