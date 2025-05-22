@@ -2182,6 +2182,14 @@ func handleCreateReceiver(w http.ResponseWriter, r *http.Request) {
     if settings.WebhookURL != "" {
         go notifyWebhookWithClientIP(rec, clientIP)
     }
+    
+    // Log initial OFFLINE event for the new receiver
+    // It will be marked as ONLINE when we get a lastseen time for it
+    if err := logReceiverEvent(rec.ID, ReceiverOffline); err != nil {
+        log.Printf("Error logging initial OFFLINE event for new receiver %d: %v", rec.ID, err)
+    } else {
+        log.Printf("Logged initial OFFLINE event for new receiver %d", rec.ID)
+    }
 }
 
 func handleGetReceiver(w http.ResponseWriter, r *http.Request, id int) {
@@ -3944,6 +3952,14 @@ func handleAddReceiver(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(response)
     if settings.WebhookURL != "" {
         go notifyWebhookWithClientIP(rec, clientIP)
+    }
+    
+    // Log initial OFFLINE event for the new receiver
+    // It will be marked as ONLINE when we get a lastseen time for it
+    if err := logReceiverEvent(rec.ID, ReceiverOffline); err != nil {
+        log.Printf("Error logging initial OFFLINE event for new receiver %d: %v", rec.ID, err)
+    } else {
+        log.Printf("Logged initial OFFLINE event for new receiver %d", rec.ID)
     }
 }
 
