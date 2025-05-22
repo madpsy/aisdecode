@@ -823,6 +823,12 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 	// Wait a bit to allow all collector goroutines to update the portLastSeenMap
 	time.Sleep(2 * time.Second)
 
+	// Debug logging for port last seen maps
+	log.Printf("DEBUG: Previous port last seen map size: %d", len(prevPortLastSeenMap))
+	portLastSeenMutex.RLock()
+	log.Printf("DEBUG: Current port last seen map size: %d", len(portLastSeenMap))
+	portLastSeenMutex.RUnlock()
+
 	// Wait a bit to allow all collector goroutines to update the portLastSeenMap
 
 	// Get the current port last seen map
@@ -936,7 +942,63 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 			}
 		}
 
-		// MODIFIED: Only require previous data to check for status changes
+		// MODIFIED: Check for online transition even without previous data
+		// This ensures that when a receiver sends data for the first time, it will go online
+		if hasCurrent {
+			// Check if the receiver is currently online based on the threshold
+			isOnline := now.Sub(currentLastSeen) <= offlineThreshold
+
+			// Check the last event for this receiver
+			lastEventType, _, err := getLastReceiverEvent(receiverID)
+			if err != nil {
+				log.Printf("Error getting last event for receiver %d: %v", receiverID, err)
+			} else if lastEventType == ReceiverOffline && isOnline {
+				// If the last event was OFFLINE and the receiver is now online, trigger an online event
+				log.Printf("DEBUG: Receiver %d transitioning from OFFLINE to ONLINE (first data)", receiverID)
+
+				// Log the online event
+				if err := logReceiverEvent(receiverID, ReceiverOnline); err != nil {
+					log.Printf("Error logging ONLINE event for receiver %d: %v", receiverID, err)
+				} else {
+					log.Printf("Receiver %d came back ONLINE (last seen: %v)", receiverID, currentLastSeen)
+
+					// Send webhook notification for online event
+					go func(recID int) {
+						// Get receiver details
+						var rec Receiver
+						err := db.QueryRow(`
+						SELECT r.id, r.name, r.description, r.latitude, r.longitude, r.email, r.notifications,
+						       r.lastupdated, rp.udp_port, r.url
+						FROM receivers r
+						LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
+						WHERE r.id = $1
+					`, recID).Scan(
+							&rec.ID, &rec.Name, &rec.Description, &rec.Latitude, &rec.Longitude,
+							&rec.Email, &rec.Notifications, &rec.LastUpdated, &rec.UDPPort, &rec.URL,
+						)
+
+						if err != nil {
+							log.Printf("Error fetching receiver %d for online webhook: %v", recID, err)
+							return
+						}
+
+						// Add the last seen time to custom fields
+						if rec.CustomFields == nil {
+							rec.CustomFields = make(map[string]interface{})
+						}
+
+						// Store the last seen time in RFC3339 format
+						lastSeenStr := currentLastSeen.Format(time.RFC3339)
+						rec.CustomFields["lastseen"] = lastSeenStr
+
+						// Send the webhook notification
+						notifyWebhookWithType(rec, ReceiverOnline)
+					}(receiverID)
+				}
+			}
+		}
+
+		// Original check for status changes when we have previous data
 		if hasPrev {
 			// Check if the receiver was previously online
 			wasOnline := now.Sub(prevLastSeen) <= offlineThreshold
@@ -944,6 +1006,11 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 			// If the receiver is not in the current map or is beyond the threshold, consider it offline
 			// IMPORTANT: We compare against the current time, not the last seen time from the previous check
 			isOnline := hasCurrent && now.Sub(currentLastSeen) <= offlineThreshold
+
+			log.Printf("DEBUG: Receiver %d - hasPrev: %v, hasCurrent: %v, wasOnline: %v, isOnline: %v",
+				receiverID, hasPrev, hasCurrent, wasOnline, isOnline)
+			log.Printf("DEBUG: Receiver %d - prevLastSeen: %v, currentLastSeen: %v, threshold: %v",
+				receiverID, prevLastSeen, currentLastSeen, offlineThreshold)
 
 			// Debug logging removed
 
@@ -1031,6 +1098,7 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 					}(receiverID)
 				}
 			} else if !wasOnline && isOnline { // If status changed from offline to online
+				log.Printf("DEBUG: Receiver %d transitioning from OFFLINE to ONLINE", receiverID)
 				// Log the online event
 				if err := logReceiverEvent(receiverID, ReceiverOnline); err != nil {
 					log.Printf("Error logging ONLINE event for receiver %d: %v", receiverID, err)
