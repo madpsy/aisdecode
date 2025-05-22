@@ -1457,12 +1457,10 @@ function refreshReceivers() {
               }
               linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a>`;
             }
-            if (receiver.state) {
-              if (linksHTML !== "") {
-                linksHTML += " | ";
-              }
-              linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
+            if (linksHTML !== "") {
+              linksHTML += " | ";
             }
+            linksHTML += `<a href="/statistics/coverage.html?receiver_id=${id}" target="_blank">Coverage</a>`;
             const popupContent = `
               <strong><a href="/metrics/receiver.html?receiver=${receiver.id}" target="_blank">${receiver.name}</a></strong><br>
               ${receiver.description}<br>
@@ -1484,12 +1482,10 @@ function refreshReceivers() {
               }
               linksHTML += `<a href="/metrics.html?id=${id}" target="_blank">Metrics</a>`;
             }
-            if (receiver.state) {
-              if (linksHTML !== "") {
-                linksHTML += " | ";
-              }
-              linksHTML += `<a href="/coverage.html?id=${id}" target="_blank">Coverage</a>`;
+            if (linksHTML !== "") {
+              linksHTML += " | ";
             }
+            linksHTML += `<a href="/statistics/coverage.html?receiver_id=${id}" target="_blank">Coverage</a>`;
             const popupContent = `
               <strong><a href="/metrics/receiver.html?receiver=${receiver.id}" target="_blank">${receiver.name}</a></strong><br>
               ${receiver.description}<br>
