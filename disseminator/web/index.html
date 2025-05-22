@@ -859,7 +859,7 @@
 			callback: function(e) {
 				const lat = e.latlng.lat;
 				const lng = e.latlng.lng;
-				const zoom = map.getZoom();
+				const zoom = Math.max(8, map.getZoom()); // Ensure zoom is not less than 8
 				window.open(`/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}`, '_blank');
 			}
 		}]
