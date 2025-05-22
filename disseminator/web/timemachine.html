@@ -1208,12 +1208,14 @@
                         MMSI: ${id}<br>
                         Type: ${typeName} (${typeId})<br>
                         Class: ${aisClass}<br>
-                        Positions: ${positions}
+                        Positions: ${positions}<br>
+                        Distance: <span id="distance-${id}">0.0 NM</span>
                     </div>
                     <div class="vessel-live-data" id="live-data-${id}">
                         <span><span class="label">Speed:</span> <span id="sog-${id}">- knots</span></span>
                         <span><span class="label">Course:</span> <span id="cog-${id}">- °</span></span>
                         <span><span class="label">Heading:</span> <span id="heading-${id}">- °</span></span>
+                        <span><span class="label">Distance:</span> <span id="distance-progress-${id}">- NM</span></span>
                     </div>
                 `;
                 
@@ -1409,6 +1411,16 @@
                 positions.sort((a, b) => a.timestamp - b.timestamp);
                 
                 vesselPositions[id] = positions;
+                
+                // Calculate total distance traveled
+                const totalDistance = calculateTotalDistance(positions);
+                vessels[id].totalDistance = totalDistance;
+                
+                // Update the distance display in the vessel list
+                const distanceElement = document.getElementById(`distance-${id}`);
+                if (distanceElement) {
+                    distanceElement.textContent = `${totalDistance.toFixed(1)} NM`;
+                }
                 
                 // Create initial marker and track
                 createVesselMarker(id);
@@ -1676,6 +1688,7 @@
                     const sogElement = document.getElementById(`sog-${id}`);
                     const cogElement = document.getElementById(`cog-${id}`);
                     const headingElement = document.getElementById(`heading-${id}`);
+                    const distanceProgressElement = document.getElementById(`distance-progress-${id}`);
                     
                     if (sogElement) {
                         sogElement.textContent = closestPos.sog !== null ? `${closestPos.sog.toFixed(1)} knots` : '- knots';
@@ -1687,6 +1700,20 @@
                     
                     if (headingElement) {
                         headingElement.textContent = closestPos.heading !== null ? `${closestPos.heading.toFixed(1)} °` : '- °';
+                    }
+                    
+                    // Update distance progress during playback
+                    if (distanceProgressElement && isPlaying && vessels[id] && vessels[id].totalDistance) {
+                        // Calculate distance traveled up to this point
+                        const posIndex = positions.findIndex(p => p.timestamp >= closestPos.timestamp);
+                        if (posIndex >= 0) {
+                            const distanceTraveled = calculateTotalDistance(positions.slice(0, posIndex + 1));
+                            distanceProgressElement.textContent = `${distanceTraveled.toFixed(1)} / ${vessels[id].totalDistance.toFixed(1)} NM`;
+                        } else {
+                            distanceProgressElement.textContent = `0.0 / ${vessels[id].totalDistance.toFixed(1)} NM`;
+                        }
+                    } else if (distanceProgressElement && vessels[id] && vessels[id].totalDistance) {
+                        distanceProgressElement.textContent = `${vessels[id].totalDistance.toFixed(1)} NM`;
                     }
                 }
             }
@@ -1702,6 +1729,45 @@
             const time = timelineData[index];
             updateTimeDisplay(time);
             updateMarkersToTime(time);
+        }
+
+        // Function to calculate distance between two points using Haversine formula
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            // Convert latitude and longitude from degrees to radians
+            const toRad = value => value * Math.PI / 180;
+            const R = 6371; // Earth's radius in km
+            
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+            
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const distanceKm = R * c;
+            
+            // Convert km to nautical miles (1 km = 0.539957 NM)
+            return distanceKm * 0.539957;
+        }
+        
+        // Function to calculate total distance traveled from position array
+        function calculateTotalDistance(positions) {
+            if (!positions || positions.length < 2) return 0;
+            
+            let totalDistance = 0;
+            
+            for (let i = 1; i < positions.length; i++) {
+                const prevPos = positions[i-1];
+                const currPos = positions[i];
+                
+                totalDistance += calculateDistance(
+                    prevPos.lat, prevPos.lng,
+                    currPos.lat, currPos.lng
+                );
+            }
+            
+            return totalDistance;
         }
 
         function handlePlayPauseClick() {
