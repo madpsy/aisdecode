@@ -323,7 +323,6 @@ a.action:hover, button.delete-btn:hover {
 /* Events modal specific styles */
 .events-modal-content {
   max-width: 500px;
-  width: 100%; /* Ensure it takes full width up to max-width */
 }
 
 .events-container {
@@ -333,11 +332,11 @@ a.action:hover, button.delete-btn:hover {
 }
 
 #events-table {
-  width: auto; /* Changed from 100% to auto to prevent table from expanding unnecessarily */
-  max-width: 100%; /* Ensure it doesn't overflow its container */
+  width: 450px; /* Set a specific width that fits within the modal */
   border-collapse: collapse;
   margin-bottom: 10px;
-  table-layout: fixed;
+  min-width: 0; /* Ensure no minimum width constraint */
+  table-layout: auto; /* Let browser determine column widths based on content */
 }
 
 #events-table th, #events-table td {
@@ -346,21 +345,12 @@ a.action:hover, button.delete-btn:hover {
   border-bottom: 1px solid #ddd;
 }
 
-/* Set appropriate widths for each column */
-.timestamp-col {
-  width: 160px; /* Reduced fixed width for timestamp column */
-  max-width: 160px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.event-type-col {
-  width: 120px; /* Set specific width for event type column */
-  max-width: 120px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Simple column styles */
+#events-table th, #events-table td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+  white-space: nowrap; /* Prevent text wrapping */
 }
 
 #events-table th {
