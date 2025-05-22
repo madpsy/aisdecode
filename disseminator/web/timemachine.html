@@ -190,6 +190,17 @@
             min-height: 0; /* Allow content to shrink if needed */
             overflow: hidden; /* Prevent overflow */
         }
+        
+        /* Add this to ensure map fills space when vessel list is hidden */
+        #map {
+            transition: flex 0.3s ease; /* Smooth transition when resizing */
+        }
+        
+        /* Force layout recalculation when vessel list visibility changes */
+        .map-expanded {
+            flex: 1 !important;
+            width: 100% !important;
+        }
         .vessel-tooltip {
             background-color: rgba(0, 0, 0, 0.7);
             border: none;
@@ -232,6 +243,8 @@
             position: relative;
             cursor: crosshair;
             margin-bottom: 1rem;
+            user-select: none; /* Restore this property for drag functionality */
+            touch-action: none; /* Ensure touch events work properly */
         }
         
         .histogram-bar {
@@ -843,12 +856,21 @@
         }
 
         function toggleVesselList() {
+            const mapElement = document.getElementById('map');
+            
             if (vesselList.style.display === 'none' || vesselList.style.display === '') {
                 vesselList.style.display = 'block';
                 toggleVesselsBtn.textContent = 'Hide Vessels';
+                mapElement.classList.remove('map-expanded');
             } else {
                 vesselList.style.display = 'none';
                 toggleVesselsBtn.textContent = 'Show Vessels';
+                mapElement.classList.add('map-expanded');
+                
+                // Force a resize event to make the map redraw correctly
+                setTimeout(() => {
+                    window.dispatchEvent(new Event('resize'));
+                }, 50);
             }
         }
 
@@ -2184,6 +2206,100 @@
             });
             
             // The click handler has been moved above the mousedown handler
+            
+            // Touch events for mobile devices
+            histogramContainer.addEventListener('touchstart', (e) => {
+                if (isClearing) return;
+                
+                // Get position relative to histogram container
+                const rect = histogramContainer.getBoundingClientRect();
+                const touch = e.touches[0];
+                const x = touch.clientX - rect.left;
+                
+                // Calculate percentage of width
+                const percent = Math.max(0, Math.min(1, x / rect.width));
+                
+                // Start selection
+                histogramSelectionStart = percent;
+                histogramSelectionEnd = percent;
+                isDragging = true;
+                
+                updateHistogramSelection();
+                
+                // Prevent default to avoid scrolling
+                e.preventDefault();
+            }, { passive: false });
+            
+            histogramContainer.addEventListener('touchmove', (e) => {
+                if (!isDragging) return;
+                
+                // Get position relative to histogram container
+                const rect = histogramContainer.getBoundingClientRect();
+                const touch = e.touches[0];
+                const x = touch.clientX - rect.left;
+                
+                // Calculate percentage of width
+                const percent = Math.max(0, Math.min(1, x / rect.width));
+                
+                // Update selection end
+                histogramSelectionEnd = percent;
+                
+                updateHistogramSelection();
+                
+                // Prevent default to avoid scrolling
+                e.preventDefault();
+            }, { passive: false });
+            
+            window.addEventListener('touchend', (e) => {
+                if (!isDragging) return;
+                
+                // Store the selection values before ending drag
+                const startVal = histogramSelectionStart;
+                const endVal = histogramSelectionEnd;
+                
+                // Check if the selection is too small (likely an accidental touch)
+                const minSelectionSize = 0.01; // 1% of the width
+                if (Math.abs(startVal - endVal) < minSelectionSize) {
+                    // If selection is too small, treat it as a tap to clear
+                    isDragging = false;
+                    histogramSelectionStart = null;
+                    histogramSelectionEnd = null;
+                    
+                    // Hide the selection
+                    if (histogramSelectionElement) {
+                        histogramSelectionElement.style.display = 'none';
+                    }
+                    
+                    // Reset to full timeline
+                    resetTimelineToFullRange();
+                    return;
+                }
+                
+                isDragging = false;
+                
+                // Apply the selection to the timeline
+                applyHistogramSelection();
+                
+                // Explicitly maintain the selection values
+                histogramSelectionStart = startVal;
+                histogramSelectionEnd = endVal;
+                
+                // Force the selection to remain visible
+                if (histogramSelectionElement) {
+                    const start = Math.min(startVal, endVal);
+                    const end = Math.max(startVal, endVal);
+                    histogramSelectionElement.style.display = 'block';
+                    histogramSelectionElement.style.left = `${start * 100}%`;
+                    histogramSelectionElement.style.width = `${(end - start) * 100}%`;
+                }
+            });
+            
+            // Prevent context menu on long press
+            histogramContainer.addEventListener('contextmenu', (e) => {
+                if (e.target.closest('#histogram-container')) {
+                    e.preventDefault();
+                }
+            });
         }
         
         function updateHistogramSelection() {
