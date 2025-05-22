@@ -335,7 +335,7 @@ a.action:hover, button.delete-btn:hover {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 10px;
-  table-layout: fixed;
+  table-layout: auto; /* Changed from fixed to auto to allow columns to adjust to content */
 }
 
 #events-table th, #events-table td {
@@ -344,13 +344,10 @@ a.action:hover, button.delete-btn:hover {
   border-bottom: 1px solid #ddd;
 }
 
-/* Set column widths using percentages */
-.timestamp-col {
-  width: 60%;
-}
-
-.event-type-col {
-  width: 40%;
+/* Allow columns to size based on content */
+.timestamp-col, .event-type-col {
+  width: auto;
+  white-space: nowrap;
 }
 
 #events-table th {
