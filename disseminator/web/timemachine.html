@@ -750,6 +750,9 @@
         
         // Load parameters from URL and initialize the view
         document.addEventListener('DOMContentLoaded', function() {
+            // Check if there are any query parameters in the URL
+            const hasQueryParams = window.location.search.length > 1; // "?" alone is length 1
+            
             loadParametersFromURL();
             // Small delay to ensure the map is fully loaded
             setTimeout(function() {
@@ -761,11 +764,18 @@
                     searchVessels();
                     delete window.shouldAutoSearch;
                 }
+                // If no query parameters were specified, automatically load summary history for current location
+                else if (!hasQueryParams && calculatedRadius <= 400) {
+                    searchVessels();
+                }
             }, 500);
         });
         
         // If DOMContentLoaded has already fired, load parameters and search
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            // Check if there are any query parameters in the URL
+            const hasQueryParams = window.location.search.length > 1; // "?" alone is length 1
+            
             loadParametersFromURL();
             setTimeout(function() {
                 checkRadiusAndUpdateUI();
@@ -797,6 +807,10 @@
                 if (window.shouldAutoSearch && calculatedRadius <= 400) {
                     searchVessels();
                     delete window.shouldAutoSearch;
+                }
+                // If no query parameters were specified, automatically load summary history for current location
+                else if (!hasQueryParams && calculatedRadius <= 400) {
+                    searchVessels();
                 }
             }, 500);
         }
