@@ -4,12 +4,14 @@ const formTitle     = document.getElementById('form-title');
 const cancelBtn     = document.getElementById('cancel-edit');
 const searchInput   = document.getElementById('search-input');
 const notSeenFilter = document.getElementById('not-seen-filter');
+const offlineFilter = document.getElementById('offline-filter');
 const headers       = document.querySelectorAll('th.sortable');
 
 // re-apply sorting + filtering on every keystroke
 searchInput.addEventListener('input', applySortAndFilter);
-// re-apply sorting + filtering when checkbox is toggled
+// re-apply sorting + filtering when checkboxes are toggled
 notSeenFilter.addEventListener('change', applySortAndFilter);
+offlineFilter.addEventListener('change', applySortAndFilter);
 
 let receiversData = [];
 let editId        = null;
@@ -71,6 +73,7 @@ function applySortAndFilter() {
   // Filter
   const term = searchInput.value.trim().toLowerCase();
   const notSeenFilterChecked = notSeenFilter.checked;
+  const offlineFilterChecked = offlineFilter.checked;
   
   // First filter by search term
   let filteredList = term
@@ -113,6 +116,17 @@ function applySortAndFilter() {
       // Compare the last seen date with 1 week ago
       const lastSeenDate = new Date(r.lastseen);
       return lastSeenDate < oneWeekAgo;
+    });
+  }
+  
+  // Apply the "Offline" filter if checked
+  if (offlineFilterChecked) {
+    filteredList = filteredList.filter(r => {
+      // If state is undefined, don't include it
+      if (r.state === undefined) return false;
+      
+      // Only include receivers that are offline (state = false)
+      return r.state === false;
     });
   }
   
