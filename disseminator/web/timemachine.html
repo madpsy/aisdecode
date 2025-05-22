@@ -782,11 +782,9 @@
             // Check if there are any query parameters in the URL
             const hasQueryParams = window.location.search.length > 1; // "?" alone is length 1
             
-            // Check if there are search-related parameters (not just lat/lng/zoom)
+            // Check if vessels are specified as parameters
             const params = new URLSearchParams(window.location.search);
-            const hasSearchParams = params.has('from') || params.has('to') || params.has('selected') ||
-                                   params.has('minSpeed') || params.has('classA') || params.has('classB') ||
-                                   params.has('sar');
+            const hasSelectedVessels = params.has('selected');
             
             loadParametersFromURL();
             // Small delay to ensure the map is fully loaded
@@ -794,11 +792,11 @@
                 checkRadiusAndUpdateUI();
                 initialLoadComplete = true;
                 
-                // Show or hide histogram overlay based on search parameters
-                // Only hide if search-related parameters are present
+                // Show or hide histogram overlay based on whether vessels are selected
+                // Only hide if vessels are specified
                 const histogramOverlay = document.getElementById('histogram-overlay');
                 if (histogramOverlay) {
-                    histogramOverlay.style.display = hasSearchParams ? 'none' : 'flex';
+                    histogramOverlay.style.display = hasSelectedVessels ? 'none' : 'flex';
                 }
                 
                 // Automatically perform search if we have location parameters
@@ -818,22 +816,20 @@
             // Check if there are any query parameters in the URL
             const hasQueryParams = window.location.search.length > 1; // "?" alone is length 1
             
-            // Check if there are search-related parameters (not just lat/lng/zoom)
+            // Check if vessels are specified as parameters
             const params = new URLSearchParams(window.location.search);
-            const hasSearchParams = params.has('from') || params.has('to') || params.has('selected') ||
-                                   params.has('minSpeed') || params.has('classA') || params.has('classB') ||
-                                   params.has('sar');
+            const hasSelectedVessels = params.has('selected');
             
             loadParametersFromURL();
             setTimeout(function() {
                 checkRadiusAndUpdateUI();
                 initialLoadComplete = true;
                 
-                // Show or hide histogram overlay based on search parameters
-                // Only hide if search-related parameters are present
+                // Show or hide histogram overlay based on whether vessels are selected
+                // Only hide if vessels are specified
                 const histogramOverlay = document.getElementById('histogram-overlay');
                 if (histogramOverlay) {
-                    histogramOverlay.style.display = hasSearchParams ? 'none' : 'flex';
+                    histogramOverlay.style.display = hasSelectedVessels ? 'none' : 'flex';
                 }
                 
                 // Check toggle states
