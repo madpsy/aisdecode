@@ -1664,24 +1664,10 @@
                     const timelineIndicator = document.getElementById('histogram-timeline-indicator');
                     if (timelineIndicator && histogramEarliest && histogramLatest) {
                         if (timelineData.length > 1) {
-                            // Calculate position based on the actual time value relative to the full time range
-                            // This ensures the indicator shows the correct position regardless of playback speed
-                            if (histogramSelectionStart !== null && histogramSelectionEnd !== null) {
-                                // If we have a histogram selection, calculate position within that selection
-                                const start = Math.min(histogramSelectionStart, histogramSelectionEnd);
-                                const end = Math.max(histogramSelectionStart, histogramSelectionEnd);
-                                const selectionWidth = end - start;
-                                
-                                // Calculate where in the selection this time falls
-                                const timePosition = (time - timelineData[0]) / (timelineData[timelineData.length - 1] - timelineData[0]);
-                                const adjustedPosition = start + (timePosition * selectionWidth);
-                                
-                                timelineIndicator.style.left = `${adjustedPosition * 100}%`;
-                            } else {
-                                // No selection - calculate position across the full histogram
-                                const timePosition = (time - histogramEarliest) / (histogramLatest - histogramEarliest);
-                                timelineIndicator.style.left = `${timePosition * 100}%`;
-                            }
+                            // For the histogram indicator, always use the actual time position relative to the full time range
+                            // This ensures the indicator shows the correct position in the histogram
+                            const timePosition = (time - histogramEarliest) / (histogramLatest - histogramEarliest);
+                            timelineIndicator.style.left = `${Math.max(0, Math.min(1, timePosition)) * 100}%`;
                             timelineIndicator.style.display = 'block';
                         }
                     }
@@ -1876,33 +1862,30 @@
                         // Get selected playback duration in seconds
                         const playbackDuration = parseInt(playbackSpeedSelect.value);
                         
-                        // Calculate interval based on playback duration and total time range
-                        const totalSteps = timelineData.length - 1;
+                        // Start from current timeline index
+                        const startIndex = parseInt(timelineSlider.value);
+                        const remainingSteps = timelineData.length - 1 - startIndex;
                         
-                        // Calculate how many milliseconds each step should take to complete the full playback in the selected duration
-                        const intervalMs = (playbackDuration * 1000) / totalSteps;
-                        
-                        console.log(`Starting playback: ${totalSteps} steps over ${playbackDuration}s (${intervalMs.toFixed(1)}ms per step)`);
+                        console.log(`Starting playback: ${remainingSteps} remaining steps over ${playbackDuration}s`);
                         
                         // Start time for playback tracking
                         const playbackStartTime = Date.now();
                         const playbackTotalDuration = playbackDuration * 1000; // Total duration in ms
                         
-                        // Start from current timeline index
-                        let startIndex = parseInt(timelineSlider.value);
+                        // Use fixed interval for smoother playback
+                        const updateInterval = 50; // ms
                         
                         playbackInterval = setInterval(() => {
                             // Calculate elapsed time since playback started
                             const elapsedTime = Date.now() - playbackStartTime;
                             
-                            // Calculate what percentage of the total playback time has elapsed
+                            // Calculate what percentage of the playback duration has elapsed
                             const playbackProgress = Math.min(1, elapsedTime / playbackTotalDuration);
                             
-                            // Calculate the current index based on progress, starting from the current position
-                            const progressSteps = Math.floor(playbackProgress * totalSteps);
+                            // Calculate the current index based on the remaining steps
                             const newIndex = Math.min(
                                 timelineData.length - 1,
-                                startIndex + progressSteps
+                                Math.floor(startIndex + (playbackProgress * remainingSteps))
                             );
                             
                             // Update current index
@@ -1919,7 +1902,7 @@
                             const time = timelineData[currentTimeIndex];
                             updateTimeDisplay(time);
                             updateMarkersToTime(time);
-                        }, 50); // Update more frequently for smoother playback
+                        }, updateInterval);
                     }
                 }
 
