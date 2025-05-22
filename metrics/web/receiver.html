@@ -199,9 +199,26 @@
     background-color: #d0e8ff;
   }
 
-  .receiver-name, .receiver-description, .receiver-url, .receiver-lastseen {
+  .receiver-name, .receiver-description, .receiver-url, .receiver-lastseen, .receiver-uptime {
     font-size: 0.8em; /* Reduce the font size */
     font-weight: normal;
+  }
+  
+  /* Status dots for receivers */
+  .status-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 5px;
+  }
+  
+  .status-dot.online {
+    background-color: #28a745; /* Green */
+  }
+  
+  .status-dot.offline {
+    background-color: #dc3545; /* Red */
   }
 
   #receiver-box {
@@ -1910,13 +1927,22 @@ function fetchReceiversById(receiverId) {
       box.innerHTML = `
         <div class="receiver-info-content">
           <h3>Receiver Information</h3>
-          <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
+          <p class="receiver-name">
+            ${receiver.state !== undefined ?
+              `<span class="status-dot ${receiver.state ? 'online' : 'offline'}"></span>` :
+              ''}
+            <strong>Callsign/Name:</strong> ${receiver.name}
+          </p>
           <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
           <p class="receiver-url"><strong>URL:</strong>
             ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
           </p>
           <p class="receiver-lastseen"><strong>Last Seen:</strong>
             ${lastSeen.formatted}${lastSeen.ago ? ` (${lastSeen.ago} ago)` : ''}
+          </p>
+          ${receiver.uptime_pct_week !== undefined ?
+            `<p class="receiver-uptime"><strong>Uptime (7 days):</strong> ${receiver.uptime_pct_week.toFixed(2)}%</p>` :
+            ''}
           </p>
           <div style="margin-bottom: 10px;">
             <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
@@ -2118,13 +2144,22 @@ async function fetchReceivers(ip) {
     
     receiverBox.innerHTML = `
       <h3>Receiver Information</h3>
-      <p class="receiver-name"><strong>Callsign/Name:</strong> ${receiver.name}</p>
+      <p class="receiver-name">
+        ${receiver.state !== undefined ?
+          `<span class="status-dot ${receiver.state ? 'online' : 'offline'}"></span>` :
+          ''}
+        <strong>Callsign/Name:</strong> ${receiver.name}
+      </p>
       <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
       <p class="receiver-url"><strong>URL:</strong>
         ${receiver.url ? `<a href="${receiver.url}" target="_blank">${receiver.url}</a>` : 'None'}
       </p>
       <p class="receiver-lastseen"><strong>Last Seen:</strong>
         ${lastSeen.formatted}${lastSeen.ago ? ` (${lastSeen.ago} ago)` : ''}
+      </p>
+      ${receiver.uptime_pct_week !== undefined ?
+        `<p class="receiver-uptime"><strong>Uptime (7 days):</strong> ${receiver.uptime_pct_week.toFixed(2)}%</p>` :
+        ''}
       </p>
       <div style="margin-bottom: 10px;">
         <button id="edit-receiver-btn" style="background-color: #0066cc; color: white; border: none; padding: 4px 8px; cursor: pointer; margin-right: 5px;">Edit Receiver</button>
