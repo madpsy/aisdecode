@@ -2084,7 +2084,7 @@
             
             // Single click (not during drag) to reset selection - handle BEFORE mousedown
             histogramContainer.addEventListener('click', (e) => {
-                // Only handle as a click if we're not dragging
+                // Only handle as a click if we're not dragging and not immediately after dragging
                 if (isDragging) return;
                 
                 // Check if we clicked on the selection element
@@ -2098,6 +2098,9 @@
                     return;
                 }
                 
+                // Store current selection state to check if we have an active selection
+                const hadActiveSelection = histogramSelectionStart !== null && histogramSelectionEnd !== null;
+                
                 // This is a click outside the selection - clear selection and reset timeline
                 isClearing = true;
                 
@@ -2110,8 +2113,10 @@
                     histogramSelectionElement.style.display = 'none';
                 }
                 
-                // Reset to full timeline
-                resetTimelineToFullRange();
+                // Only reset timeline if we actually had a selection
+                if (hadActiveSelection) {
+                    resetTimelineToFullRange();
+                }
                 
                 // Prevent event propagation to avoid triggering mousedown
                 e.stopPropagation();
@@ -2196,8 +2201,6 @@
                     return;
                 }
                 
-                isDragging = false;
-                
                 // Apply the selection to the timeline
                 applyHistogramSelection();
                 
@@ -2216,6 +2219,12 @@
                 
                 // Prevent event from propagating
                 e.stopPropagation();
+                
+                // Add a small delay before setting isDragging to false
+                // This prevents the click event from clearing the selection
+                setTimeout(() => {
+                    isDragging = false;
+                }, 10);
             });
             
             // The click handler has been moved above the mousedown handler
@@ -2288,8 +2297,6 @@
                     return;
                 }
                 
-                isDragging = false;
-                
                 // Apply the selection to the timeline
                 applyHistogramSelection();
                 
@@ -2305,6 +2312,12 @@
                     histogramSelectionElement.style.left = `${start * 100}%`;
                     histogramSelectionElement.style.width = `${(end - start) * 100}%`;
                 }
+                
+                // Add a small delay before setting isDragging to false
+                // This prevents any touch events from clearing the selection
+                setTimeout(() => {
+                    isDragging = false;
+                }, 10);
             });
             
             // Prevent context menu on long press
