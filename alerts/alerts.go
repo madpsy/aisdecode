@@ -607,8 +607,24 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 			// Parse the LastSeen time to format it in a human-readable way
 			lastSeen, err := time.Parse(time.RFC3339, rec.LastSeen)
 			lastSeenStr := rec.LastSeen
+			offlineDurationStr := ""
 			if err == nil {
 				lastSeenStr = lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
+
+				// Calculate how long the receiver has been offline
+				offlineDuration := time.Since(lastSeen)
+				hours := int(offlineDuration.Hours())
+				minutes := int(offlineDuration.Minutes()) % 60
+
+				if hours > 0 {
+					offlineDurationStr = fmt.Sprintf(" (offline for %d hours", hours)
+					if minutes > 0 {
+						offlineDurationStr += fmt.Sprintf(", %d minutes", minutes)
+					}
+					offlineDurationStr += ")"
+				} else if minutes > 0 {
+					offlineDurationStr = fmt.Sprintf(" (offline for %d minutes)", minutes)
+				}
 			}
 
 			receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, rec.ID)
@@ -625,11 +641,11 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 					"- Name: %s\n"+
 					"- Description: %s\n"+
 					"- UDP Port: %s\n"+
-					"- Last seen: %s\n\n"+
+					"- Last seen: %s%s\n\n"+
 					"Please check your receiver's connection and ensure it's properly configured to send data to ingest.%s UDP port %s\n\n"+
 					"You can view your receiver's details and disable notifications here: %s\n\n"+
 					"Thank you for contributing to our AIS network!\n\nAIS Decoder Team\nhttps://"+settings.SiteDomain+"/",
-				rec.Name, rec.ID, rec.Name, rec.Description, udpPortDisplay, lastSeenStr, settings.SiteDomain, udpPortDisplay, receiverURL,
+				rec.Name, rec.ID, rec.Name, rec.Description, udpPortDisplay, lastSeenStr, offlineDurationStr, settings.SiteDomain, udpPortDisplay, receiverURL,
 			)
 		}
 
