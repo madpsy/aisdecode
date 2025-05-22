@@ -685,6 +685,18 @@
         stopBtn.addEventListener('click', stopPlayback);
         timelineSlider.addEventListener('input', handleTimelineSliderChange);
         
+        // Add event listener for playback speed changes
+        playbackSpeedSelect.addEventListener('change', function() {
+            console.log(`Playback speed changed to ${playbackSpeedSelect.value}s`);
+            // If currently playing, restart playback with new speed
+            if (isPlaying) {
+                stopPlayback();
+                setTimeout(() => {
+                    handlePlayPauseClick();
+                }, 50);
+            }
+        });
+        
         // Load parameters from URL and initialize the view
         document.addEventListener('DOMContentLoaded', function() {
             loadParametersFromURL();
@@ -1884,46 +1896,67 @@
                             playbackInterval = null;
                         }
                     } else {
+                        // Clear any existing interval first
+                        if (playbackInterval) {
+                            clearInterval(playbackInterval);
+                            playbackInterval = null;
+                        }
+                        
                         isPlaying = true;
                         playPauseBtn.textContent = '⏸️';
                         
                         // Hide non-selected vessel markers during playback
                         map.removeLayer(nonSelectedLayer);
                         
-                        // Get selected playback duration in seconds
+                        // Always get the fresh value from the dropdown
                         const playbackDuration = parseInt(playbackSpeedSelect.value);
                         
                         // Start from current timeline index
                         const startIndex = parseInt(timelineSlider.value);
                         const remainingSteps = timelineData.length - 1 - startIndex;
                         
+                        // Ensure we have at least one step
+                        if (remainingSteps <= 0) {
+                            console.log("No remaining steps, resetting to beginning");
+                            currentTimeIndex = 0;
+                            timelineSlider.value = 0;
+                            const time = timelineData[0];
+                            updateTimeDisplay(time);
+                            updateMarkersToTime(time);
+                            isPlaying = false;
+                            playPauseBtn.textContent = '▶️';
+                            return;
+                        }
+                        
                         console.log(`Starting playback: ${remainingSteps} remaining steps over ${playbackDuration}s`);
                         
                         // Start time for playback tracking
-                        const playbackStartTime = Date.now();
+                        const now = Date.now();
+                        const playbackStartTime = now;
                         const playbackTotalDuration = playbackDuration * 1000; // Total duration in ms
                         
                         // Store the start time and end time for the playback
                         window.playbackInfo = {
-                            startTime: Date.now(),
-                            endTime: Date.now() + playbackTotalDuration,
+                            startTime: now,
+                            endTime: now + playbackTotalDuration,
                             startIndex: startIndex,
                             endIndex: timelineData.length - 1,
-                            duration: playbackTotalDuration
+                            duration: playbackTotalDuration,
+                            playbackDuration: playbackDuration // Store the original duration setting
                         };
                         
                         // Calculate how many milliseconds to wait between each step to achieve the desired duration
-                        const msPerStep = playbackTotalDuration / remainingSteps;
+                        const msPerStep = remainingSteps > 0 ? playbackTotalDuration / remainingSteps : playbackTotalDuration;
                         
                         // For very smooth playback, use a fixed interval and calculate position
                         const updateInterval = Math.min(50, msPerStep); // ms, but never more than 50ms for smoothness
                         
-                        console.log(`Playback: ${msPerStep.toFixed(1)}ms per step, update interval: ${updateInterval}ms`);
+                        console.log(`Playback: ${msPerStep.toFixed(1)}ms per step, update interval: ${updateInterval}ms, end time: ${new Date(window.playbackInfo.endTime).toLocaleTimeString()}`);
                         
                         playbackInterval = setInterval(() => {
                             // Calculate elapsed time since playback started
-                            const now = Date.now();
-                            const elapsedTime = now - playbackStartTime;
+                            const currentTime = Date.now();
+                            const elapsedTime = currentTime - playbackStartTime;
                             
                             // Calculate what percentage of the playback duration has elapsed
                             const playbackProgress = Math.min(1, elapsedTime / playbackTotalDuration);
@@ -1938,7 +1971,8 @@
                             currentTimeIndex = newIndex;
                             
                             // Check if playback is complete
-                            if (newIndex >= timelineData.length - 1 || playbackProgress >= 1 || now >= window.playbackInfo.endTime) {
+                            if (newIndex >= timelineData.length - 1 || playbackProgress >= 1 || currentTime >= window.playbackInfo.endTime) {
+                                console.log(`Playback complete: progress=${playbackProgress.toFixed(2)}, elapsed=${elapsedTime}ms, duration=${playbackTotalDuration}ms`);
                                 stopPlayback();
                                 return;
                             }
