@@ -315,11 +315,15 @@
         
         .map-control-checkbox {
             background-color: white;
-            padding: 3px 5px;
+            padding: 5px 8px;
             border-radius: 4px;
             box-shadow: 0 1px 5px rgba(0,0,0,0.4);
             cursor: pointer;
             font-size: 12px;
+        }
+        
+        .map-control-checkbox div {
+            margin: 3px 0;
             display: flex;
             align-items: center;
         }
@@ -354,6 +358,12 @@
             font-weight: bold;
             font-size: 11px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        
+        .receiver-tooltip-active {
+            border: 2px solid #f03 !important;
+            box-shadow: 0 0 5px #f03 !important;
+            z-index: 1000 !important;
         }
     </style>
 </head>
@@ -429,34 +439,25 @@
             attribution: '&copy; <a href="https://www.openseamap.org/">OpenSeaMap</a>'
         }).addTo(map); // Add by default
         
-        // Add OpenSeaMap toggle control
-        const openSeaMapControl = L.control({position: 'topright'});
-        openSeaMapControl.onAdd = function(map) {
+        // Add map controls (OpenSeaMap and RX Path toggles)
+        const mapControlsControl = L.control({position: 'topright'});
+        mapControlsControl.onAdd = function(map) {
             const div = L.DomUtil.create('div', 'map-control-checkbox');
-            div.innerHTML = '<label><input type="checkbox" id="opensea-toggle" checked> Map Overlay</label>';
+            div.innerHTML = `
+                <div><label><input type="checkbox" id="opensea-toggle" checked> Map Overlay</label></div>
+                <div><label><input type="checkbox" id="rxpath-toggle" checked> RX Path</label></div>
+            `;
             
             // Prevent clicks from propagating to the map
             L.DomEvent.disableClickPropagation(div);
             
             return div;
         };
-        openSeaMapControl.addTo(map);
+        mapControlsControl.addTo(map);
         
-        // Add RX Path toggle control
-        const rxPathControl = L.control({position: 'topright'});
-        rxPathControl.onAdd = function(map) {
-            const div = L.DomUtil.create('div', 'map-control-checkbox');
-            div.innerHTML = '<label><input type="checkbox" id="rxpath-toggle" checked> RX Path</label>';
-            
-            // Prevent clicks from propagating to the map
-            L.DomEvent.disableClickPropagation(div);
-            
-            return div;
-        };
-        rxPathControl.addTo(map);
-        
-        // Add event listener for the checkbox
+        // Add event listeners for the checkboxes
         document.addEventListener('DOMContentLoaded', function() {
+            // Map Overlay toggle
             const openSeaToggle = document.getElementById('opensea-toggle');
             if (openSeaToggle) {
                 openSeaToggle.addEventListener('change', function() {
@@ -467,10 +468,8 @@
                     }
                 });
             }
-        });
-        
-        // Add event listener for the RX Path checkbox
-        document.addEventListener('DOMContentLoaded', function() {
+            
+            // RX Path toggle
             const rxPathToggle = document.getElementById('rxpath-toggle');
             if (rxPathToggle) {
                 rxPathToggle.addEventListener('change', function() {
@@ -772,8 +771,11 @@
                 checkRadiusAndUpdateUI();
                 initialLoadComplete = true;
                 
-                // Check OpenSeaMap toggle state
+                // Check toggle states
                 const openSeaToggle = document.getElementById('opensea-toggle');
+                const rxPathToggle = document.getElementById('rxpath-toggle');
+                
+                // Apply Map Overlay toggle state
                 if (openSeaToggle) {
                     if (openSeaToggle.checked) {
                         map.addLayer(openSeaMapLayer);
@@ -782,8 +784,7 @@
                     }
                 }
                 
-                // Check RX Path toggle state
-                const rxPathToggle = document.getElementById('rxpath-toggle');
+                // Apply RX Path toggle state
                 if (rxPathToggle) {
                     if (rxPathToggle.checked) {
                         connectionLayerGroup.addTo(map);
@@ -1919,7 +1920,8 @@
                         permanent: true,
                         direction: 'top',
                         offset: [0, -10],
-                        className: 'receiver-tooltip'
+                        className: 'receiver-tooltip',
+                        interactive: true
                     }).openTooltip();
                     
                     // Add to map and store reference
@@ -1946,6 +1948,7 @@
             // Remove active class from all tooltips
             document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
                 tooltip.classList.remove('receiver-tooltip-active');
+                tooltip.removeAttribute('data-active-receiver');
             });
             
             // For each position with a receiver ID, draw a line to the receiver
@@ -2009,8 +2012,12 @@
                     if (receiver) {
                         // Find and highlight the active receiver tooltip
                         document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+                            // Check if this tooltip belongs to the receiver
                             if (tooltip.textContent === receiver.name) {
+                                // Add the active class and ensure it's applied
                                 tooltip.classList.add('receiver-tooltip-active');
+                                // Also add a data attribute to mark it as active
+                                tooltip.setAttribute('data-active-receiver', 'true');
                             }
                         });
                     }
@@ -2032,6 +2039,7 @@
             // Remove active class from all tooltips
             document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
                 tooltip.classList.remove('receiver-tooltip-active');
+                tooltip.removeAttribute('data-active-receiver');
             });
             
             // For each selected vessel, find the position closest to the current time
@@ -2068,8 +2076,15 @@
                         
                         // Find and highlight the active receiver tooltip
                         document.querySelectorAll('.leaflet-tooltip').forEach(tooltip => {
+                            // Check if this tooltip belongs to the receiver
                             if (tooltip.textContent === receiver.name) {
+                                // Add the active class and ensure it's applied
                                 tooltip.classList.add('receiver-tooltip-active');
+                                // Also add a data attribute to mark it as active
+                                tooltip.setAttribute('data-active-receiver', 'true');
+                                
+                                // Force a repaint to ensure the style is applied
+                                void tooltip.offsetWidth;
                             }
                         });
                     }
