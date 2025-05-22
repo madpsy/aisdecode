@@ -344,7 +344,8 @@ a.action:hover, button.delete-btn:hover {
 }
 
 .timestamp-col {
-  width: 180px;
+  width: 150px;
+  white-space: nowrap;
 }
 
 .event-type-col {
