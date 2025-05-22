@@ -37,9 +37,10 @@
         }
         #map {
             flex: 1;
-            min-height: 400px; /* Match vesselhistory.html height */
+            height: 400px; /* Fixed height */
             border: 1px solid #ddd;
             position: relative;
+            overflow: hidden; /* Prevent scrollbars */
         }
         #vessel-list {
             width: 300px;
@@ -189,7 +190,6 @@
         .split-view {
             display: flex;
             flex: 1;
-            min-height: 0; /* Allow content to shrink if needed */
             overflow: hidden; /* Prevent overflow */
             height: 400px; /* Fixed height to match map */
         }
