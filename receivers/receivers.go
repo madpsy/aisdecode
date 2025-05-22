@@ -919,6 +919,12 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 				}
 			}
 		}
+
+			// getOfflineStartTime returns the timestamp when the receiver went offline
+			func getOfflineStartTime(receiverID int) (time.Time, error) {
+				var startTime time.Time
+				
+				err := db.QueryRow(`
 					SELECT timestamp
 					FROM receiver_events
 					WHERE receiver_id = $1 AND event_type = 'RECEIVER_OFFLINE'
@@ -1038,15 +1044,37 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 					LIMIT 1
 				`, receiverID).Scan(&lastSeen)
 				
+				// Create a map for the receiver data to send to the alerts service
+				// This avoids type mismatches between the Receiver struct in this package
+				// and the Receiver struct in the alerts package
+				receiverData := map[string]interface{}{
+					"id":           rec.ID,
+					"name":         rec.Name,
+					"description":  rec.Description,
+					"latitude":     rec.Latitude,
+					"longitude":    rec.Longitude,
+					"email":        rec.Email,
+					"notifications": rec.Notifications,
+				}
+				
+				// Add optional fields
+				if rec.URL != nil {
+					receiverData["url"] = *rec.URL
+				}
+				if rec.UDPPort != nil {
+					receiverData["udp_port"] = *rec.UDPPort
+				}
+				
+				// Add the last seen time as a string
 				if err == nil {
-					lastSeenStr := lastSeen.Format(time.RFC3339)
-					rec.LastUpdated = lastSeenStr
+					receiverData["lastseen"] = lastSeen.Format(time.RFC3339)
+					receiverData["lastupdated"] = lastSeen.Format(time.RFC3339)
 				}
 				
 				// Create the alert payload
 				alertPayload := map[string]interface{}{
 					"alert_type": "receiver_offline",
-					"receiver": rec,
+					"receiver": receiverData,
 					"offline_hours": offlineHours,
 				}
 				
@@ -1101,10 +1129,37 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 					offlineHours = onlineTime.Sub(offlineStart).Hours()
 				}
 				
+				// Create a map for the receiver data to send to the alerts service
+				// This avoids type mismatches between the Receiver struct in this package
+				// and the Receiver struct in the alerts package
+				receiverData := map[string]interface{}{
+					"id":           rec.ID,
+					"name":         rec.Name,
+					"description":  rec.Description,
+					"latitude":     rec.Latitude,
+					"longitude":    rec.Longitude,
+					"email":        rec.Email,
+					"notifications": rec.Notifications,
+				}
+				
+				// Add optional fields
+				if rec.URL != nil {
+					receiverData["url"] = *rec.URL
+				}
+				if rec.UDPPort != nil {
+					receiverData["udp_port"] = *rec.UDPPort
+				}
+				
+				// Add the online time as a string
+				if !onlineTime.IsZero() {
+					receiverData["lastseen"] = onlineTime.Format(time.RFC3339)
+					receiverData["lastupdated"] = onlineTime.Format(time.RFC3339)
+				}
+				
 				// Create the alert payload
 				alertPayload := map[string]interface{}{
 					"alert_type": "receiver_online",
-					"receiver": rec,
+					"receiver": receiverData,
 					"offline_hours": offlineHours,
 				}
 				
@@ -1156,10 +1211,37 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 				// Calculate how many days the receiver has been offline
 				offlineDays := time.Now().Sub(offlineStartTime).Hours() / 24
 				
+				// Create a map for the receiver data to send to the alerts service
+				// This avoids type mismatches between the Receiver struct in this package
+				// and the Receiver struct in the alerts package
+				receiverData := map[string]interface{}{
+					"id":           rec.ID,
+					"name":         rec.Name,
+					"description":  rec.Description,
+					"latitude":     rec.Latitude,
+					"longitude":    rec.Longitude,
+					"email":        rec.Email,
+					"notifications": rec.Notifications,
+				}
+				
+				// Add optional fields
+				if rec.URL != nil {
+					receiverData["url"] = *rec.URL
+				}
+				if rec.UDPPort != nil {
+					receiverData["udp_port"] = *rec.UDPPort
+				}
+				
+				// Add the offline start time as a string
+				if !offlineStartTime.IsZero() {
+					receiverData["lastseen"] = offlineStartTime.Format(time.RFC3339)
+					receiverData["lastupdated"] = offlineStartTime.Format(time.RFC3339)
+				}
+				
 				// Create the alert payload
 				alertPayload := map[string]interface{}{
 					"alert_type": "receiver_offline_week",
-					"receiver": rec,
+					"receiver": receiverData,
 					"offline_days": offlineDays,
 				}
 				
