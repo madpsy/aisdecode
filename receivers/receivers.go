@@ -811,14 +811,12 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 
 	now := time.Now()
 
-	// Use the configured receiver_offline_hours setting
-	offlineThreshold := time.Duration(settings.ReceiverOfflineHours) * time.Hour
+	// Convert hours to minutes first to avoid precision loss with small values
+	offlineMinutes := settings.ReceiverOfflineHours * 60
+	offlineThreshold := time.Duration(offlineMinutes) * time.Minute
 
-	// If the value is still 0 after loading from settings, use the default
-	if offlineThreshold == 0 {
-		offlineThreshold = 15 * time.Minute
-		log.Println("Warning: ReceiverOfflineHours is set to 0, using default of 15 minutes")
-	}
+	// Log the actual threshold being used
+	log.Printf("Using offline threshold of %v (from %f hours)", offlineThreshold, settings.ReceiverOfflineHours)
 
 	// Process each receiver
 	for rows.Next() {
