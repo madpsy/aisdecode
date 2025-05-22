@@ -584,6 +584,104 @@ func sendEmail(alertType string, rec Receiver, customBody string) (string, error
 				body = adminBody
 			}
 		}
+	case "RECEIVER_OFFLINE":
+		subject = fmt.Sprintf("Your AIS receiver '%s' is offline", rec.Name)
+
+		// For receiver offline notifications, determine recipients based on notifications setting
+		if rec.Notifications && rec.Email != "" {
+			// If notifications are enabled and we have an email, send to both user and admins
+			toAddresses = settings.ToAddresses
+			if toAddresses != "" && rec.Email != "" {
+				toAddresses += "," + rec.Email
+			} else if rec.Email != "" {
+				toAddresses = rec.Email
+			}
+		} else {
+			// If notifications are disabled or no email, just send to admins
+			toAddresses = settings.ToAddresses
+		}
+
+		if customBody != "" {
+			body = customBody
+		} else {
+			// Parse the LastSeen time to format it in a human-readable way
+			lastSeen, err := time.Parse(time.RFC3339, rec.LastSeen)
+			lastSeenStr := rec.LastSeen
+			if err == nil {
+				lastSeenStr = lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
+			}
+
+			receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, rec.ID)
+
+			// Prepare UDP port display
+			udpPortDisplay := "Not set"
+			if rec.UDPPort != nil {
+				udpPortDisplay = strconv.Itoa(*rec.UDPPort)
+			}
+
+			body = fmt.Sprintf(
+				"Hello,\n\nYour AIS receiver '%s' (ID: %d) is now offline.\n\n"+
+					"Receiver Details:\n"+
+					"- Name: %s\n"+
+					"- Description: %s\n"+
+					"- UDP Port: %s\n"+
+					"- Last seen: %s\n\n"+
+					"Please check your receiver's connection and ensure it's properly configured to send data to ingest.%s UDP port %s\n\n"+
+					"You can view your receiver's details and disable notifications here: %s\n\n"+
+					"Thank you for contributing to our AIS network!\n\nAIS Decoder Team\nhttps://"+settings.SiteDomain+"/",
+				rec.Name, rec.ID, rec.Name, rec.Description, udpPortDisplay, lastSeenStr, settings.SiteDomain, udpPortDisplay, receiverURL,
+			)
+		}
+
+	case "RECEIVER_ONLINE":
+		subject = fmt.Sprintf("Your AIS receiver '%s' is back online", rec.Name)
+
+		// For receiver online notifications, determine recipients based on notifications setting
+		if rec.Notifications && rec.Email != "" {
+			// If notifications are enabled and we have an email, send to both user and admins
+			toAddresses = settings.ToAddresses
+			if toAddresses != "" && rec.Email != "" {
+				toAddresses += "," + rec.Email
+			} else if rec.Email != "" {
+				toAddresses = rec.Email
+			}
+		} else {
+			// If notifications are disabled or no email, just send to admins
+			toAddresses = settings.ToAddresses
+		}
+
+		if customBody != "" {
+			body = customBody
+		} else {
+			// Parse the LastSeen time to format it in a human-readable way
+			lastSeen, err := time.Parse(time.RFC3339, rec.LastSeen)
+			lastSeenStr := rec.LastSeen
+			if err == nil {
+				lastSeenStr = lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
+			}
+
+			receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, rec.ID)
+
+			// Prepare UDP port display
+			udpPortDisplay := "Not set"
+			if rec.UDPPort != nil {
+				udpPortDisplay = strconv.Itoa(*rec.UDPPort)
+			}
+
+			body = fmt.Sprintf(
+				"Hello,\n\nGood news! Your AIS receiver '%s' (ID: %d) is now back online.\n\n"+
+					"Receiver Details:\n"+
+					"- Name: %s\n"+
+					"- Description: %s\n"+
+					"- UDP Port: %s\n"+
+					"- Last seen: %s\n\n"+
+					"Your receiver is now successfully sending data to our system.\n\n"+
+					"You can view your receiver's details and statistics here: %s\n\n"+
+					"Thank you for contributing to our AIS network!\n\nAIS Decoder Team\nhttps://"+settings.SiteDomain+"/",
+				rec.Name, rec.ID, rec.Name, rec.Description, udpPortDisplay, lastSeenStr, receiverURL,
+			)
+		}
+
 	case "statistics_report":
 		subject = fmt.Sprintf("Weekly AIS Statistics Report for %s", rec.Name)
 
