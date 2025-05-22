@@ -1620,6 +1620,7 @@
             // Show timeline
             timeline.style.display = 'block';
             timelineSlider.value = 0;
+            timelineSlider.max = timelineData.length - 1; // Set max value to match timeline data length
             updateTimeDisplay(timelineData[0]);
             
             // Ensure all selected vessels have their tracks drawn
@@ -1861,25 +1862,48 @@
                 // Get selected playback duration in seconds
                 const playbackDuration = parseInt(playbackSpeedSelect.value);
                 
-                // Calculate interval based on playback duration and number of steps
-                const numSteps = timelineData.length - 1; // -1 because we're counting intervals between steps
-                const intervalMs = (playbackDuration * 1000) / numSteps;
+                // Calculate interval based on playback duration and total time range
+                // This ensures the playback finishes exactly when expected
+                const totalTimeRange = timelineData[timelineData.length - 1] - timelineData[0];
+                const totalSteps = timelineData.length - 1;
                 
-                console.log(`Starting playback: ${numSteps} steps over ${playbackDuration}s (${intervalMs.toFixed(1)}ms per step)`);
+                // Calculate how many milliseconds each step should take to complete the full playback in the selected duration
+                const intervalMs = (playbackDuration * 1000) / totalSteps;
+                
+                console.log(`Starting playback: ${totalSteps} steps over ${playbackDuration}s (${intervalMs.toFixed(1)}ms per step)`);
+                
+                // Start time for playback tracking
+                const playbackStartTime = Date.now();
+                const playbackTotalDuration = playbackDuration * 1000; // Total duration in ms
                 
                 playbackInterval = setInterval(() => {
-                    currentTimeIndex++;
+                    // Calculate elapsed time since playback started
+                    const elapsedTime = Date.now() - playbackStartTime;
                     
-                    if (currentTimeIndex >= timelineData.length) {
+                    // Calculate what percentage of the total playback time has elapsed
+                    const playbackProgress = Math.min(1, elapsedTime / playbackTotalDuration);
+                    
+                    // Calculate the current index based on progress
+                    const newIndex = Math.min(
+                        timelineData.length - 1,
+                        Math.floor(playbackProgress * timelineData.length)
+                    );
+                    
+                    // Update current index
+                    currentTimeIndex = newIndex;
+                    
+                    // Check if playback is complete
+                    if (playbackProgress >= 1) {
                         stopPlayback();
                         return;
                     }
                     
+                    // Update UI
                     timelineSlider.value = currentTimeIndex;
                     const time = timelineData[currentTimeIndex];
                     updateTimeDisplay(time);
                     updateMarkersToTime(time);
-                }, intervalMs);
+                }, 50); // Update more frequently for smoother playback
             }
         }
 
@@ -2422,6 +2446,7 @@
             
             // Reset timeline slider
             timelineSlider.value = 0;
+            timelineSlider.max = timelineData.length - 1; // Set max value to match timeline data length
             currentTimeIndex = 0;
             
             // Update display
@@ -2444,6 +2469,7 @@
             
             // Reset timeline slider
             timelineSlider.value = 0;
+            timelineSlider.max = timelineData.length - 1; // Set max value to match timeline data length
             currentTimeIndex = 0;
             
             // Update display
