@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AIS Time Machine</title>
+    <title>Time Machine</title>
     <!-- Include Bootstrap CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -347,7 +347,7 @@
 <body>
     <div id="container">
         <div id="header">
-            <h1 id="title">AIS Time Machine</h1>
+            <h1 id="title" style="font-size: 28px;">Time Machine</h1>
         </div>
         <div id="controls">
             <div class="control-group">
@@ -1662,9 +1662,10 @@
             // Update histogram timeline indicator
             const timelineIndicator = document.getElementById('histogram-timeline-indicator');
             if (timelineIndicator && histogramEarliest && histogramLatest) {
-                const timeRange = histogramLatest - histogramEarliest;
-                if (timeRange > 0) {
-                    const percent = (time - histogramEarliest) / timeRange;
+                // Calculate position based on current timeline index instead of absolute time
+                // This ensures the indicator moves in sync with the timeline slider
+                if (timelineData.length > 1) {
+                    const percent = currentTimeIndex / (timelineData.length - 1);
                     timelineIndicator.style.left = `${percent * 100}%`;
                     timelineIndicator.style.display = 'block';
                 }
