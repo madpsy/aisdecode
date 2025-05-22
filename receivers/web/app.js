@@ -490,18 +490,19 @@ function showEventsModal(id, name) {
         // Format the timestamp
         const timestamp = new Date(event.timestamp).toLocaleString();
         
-        // Create the event type cell with appropriate class
-        const eventTypeCell = document.createElement('td');
-        eventTypeCell.textContent = event.event_type;
-        eventTypeCell.className = `event-type-${event.event_type}`;
-        
         // Create the timestamp cell
         const timestampCell = document.createElement('td');
         timestampCell.textContent = timestamp;
+        timestampCell.className = 'timestamp-col';
         
-        // Add cells to the row
-        tr.appendChild(eventTypeCell);
+        // Create the event type cell with appropriate class
+        const eventTypeCell = document.createElement('td');
+        eventTypeCell.textContent = event.event_type;
+        eventTypeCell.className = `event-type-${event.event_type} event-type-col`;
+        
+        // Add cells to the row (timestamp first, then event type)
         tr.appendChild(timestampCell);
+        tr.appendChild(eventTypeCell);
         
         // Add the row to the table
         eventsTbody.appendChild(tr);
