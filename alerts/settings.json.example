@@ -16,7 +16,6 @@
   "to_addresses": "ops@example.com,admin@example.com",
   "site_domain": "example.com",
   "receivers_base_url": "http://localhost:5123",
-  "receiver_offline_hours": 24,
   "statistics_base_url": "http://localhost:5005",
   "statistics_report_enabled": true,
   "statistics_report_time": "saturday,01:00"
