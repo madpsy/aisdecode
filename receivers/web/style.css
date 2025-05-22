@@ -320,6 +320,54 @@ a.action:hover, button.delete-btn:hover {
   width: 100%;
 }
 
+/* Events modal specific styles */
+.events-modal-content {
+  max-width: 600px;
+}
+
+.events-container {
+  max-height: 400px;
+  overflow-y: auto;
+  margin-bottom: 15px;
+}
+
+#events-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 10px;
+}
+
+#events-table th, #events-table td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+#events-table th {
+  background-color: #f0f0f0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+#events-table tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+#events-table tr:hover {
+  background-color: #f0f0f0;
+}
+
+.event-type-RECEIVER_ONLINE {
+  color: #28a745; /* Green */
+  font-weight: bold;
+}
+
+.event-type-RECEIVER_OFFLINE {
+  color: #dc3545; /* Red */
+  font-weight: bold;
+}
+
 .modal-content h3 {
   margin-top: 0;
   color: var(--primary);

@@ -172,6 +172,8 @@ function renderList(list) {
         '—' :
         `<a class="action" data-id="${r.id}">Edit</a>
          &nbsp;|&nbsp;
+         <a class="events-btn" data-id="${r.id}" data-name="${r.name}">Events</a>
+         &nbsp;|&nbsp;
          <button class="delete-btn" data-id="${r.id}" data-name="${r.name}">Delete</button>`}</td>`
     ];
     
@@ -181,6 +183,12 @@ function renderList(list) {
 
   document.querySelectorAll('.action')
     .forEach(a => a.addEventListener('click', e => startEdit(e.target.dataset.id)));
+  document.querySelectorAll('.events-btn')
+    .forEach(a => a.addEventListener('click', e => {
+      const id = e.target.dataset.id;
+      const name = e.target.dataset.name;
+      showEventsModal(id, name);
+    }));
   document.querySelectorAll('.delete-btn')
     .forEach(b => b.addEventListener('click', e => {
       const id = e.target.dataset.id;
@@ -442,6 +450,87 @@ deleteModal.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && deleteModal.classList.contains('show')) {
     hideDeleteModal();
+  }
+});
+
+// Events modal functionality
+const eventsModal = document.getElementById('events-modal');
+const eventsReceiverName = document.getElementById('events-receiver-name');
+const eventsTbody = document.getElementById('events-tbody');
+const eventsCloseBtn = document.getElementById('events-close-btn');
+
+// Show the events modal and load events for the receiver
+function showEventsModal(id, name) {
+  eventsReceiverName.textContent = name;
+  eventsTbody.innerHTML = '<tr><td colspan="2">Loading events...</td></tr>';
+  eventsModal.classList.add('show');
+  
+  // Fetch events for the receiver
+  fetch(`/admin/receiver-events?receiver_id=${id}`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Failed to fetch events');
+      }
+      return response.json();
+    })
+    .then(events => {
+      // Clear the loading message
+      eventsTbody.innerHTML = '';
+      
+      if (events.length === 0) {
+        // Show a message if there are no events
+        eventsTbody.innerHTML = '<tr><td colspan="2">No events found for this receiver.</td></tr>';
+        return;
+      }
+      
+      // Add each event to the table
+      events.forEach(event => {
+        const tr = document.createElement('tr');
+        
+        // Format the timestamp
+        const timestamp = new Date(event.timestamp).toLocaleString();
+        
+        // Create the event type cell with appropriate class
+        const eventTypeCell = document.createElement('td');
+        eventTypeCell.textContent = event.event_type;
+        eventTypeCell.className = `event-type-${event.event_type}`;
+        
+        // Create the timestamp cell
+        const timestampCell = document.createElement('td');
+        timestampCell.textContent = timestamp;
+        
+        // Add cells to the row
+        tr.appendChild(eventTypeCell);
+        tr.appendChild(timestampCell);
+        
+        // Add the row to the table
+        eventsTbody.appendChild(tr);
+      });
+    })
+    .catch(error => {
+      eventsTbody.innerHTML = `<tr><td colspan="2">Error loading events: ${error.message}</td></tr>`;
+    });
+}
+
+// Hide the events modal
+function hideEventsModal() {
+  eventsModal.classList.remove('show');
+}
+
+// Close events modal with button
+eventsCloseBtn.addEventListener('click', hideEventsModal);
+
+// Close events modal when clicking outside of it
+eventsModal.addEventListener('click', (e) => {
+  if (e.target === eventsModal) {
+    hideEventsModal();
+  }
+});
+
+// Close events modal with Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && eventsModal.classList.contains('show')) {
+    hideEventsModal();
   }
 });
 

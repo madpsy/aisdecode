@@ -131,6 +131,29 @@
     </div>
   </div>
   
+  <!-- Events modal -->
+  <div id="events-modal" class="modal">
+    <div class="modal-content events-modal-content">
+      <h3>Receiver Events: <span id="events-receiver-name"></span></h3>
+      <div class="events-container">
+        <table id="events-table">
+          <thead>
+            <tr>
+              <th>Event Type</th>
+              <th>Timestamp</th>
+            </tr>
+          </thead>
+          <tbody id="events-tbody">
+            <!-- Events will be populated here -->
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-buttons">
+        <button id="events-close-btn">Close</button>
+      </div>
+    </div>
+  </div>
+  
   <script src="app.js"></script>
 </body>
 </html>
