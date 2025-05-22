@@ -894,96 +894,117 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 			}
 		}
 
-		// Skip if we don't have both previous and current data
-		if !hasPrev || !hasCurrent {
-			continue
-		}
+		// MODIFIED: Only require previous data to check for status changes
+		if hasPrev {
+			// Check if the receiver was previously online
+			wasOnline := now.Sub(prevLastSeen) <= offlineThreshold
 
-		// Check if the receiver has gone offline
-		// A receiver is considered offline if it hasn't been seen for more than 15 minutes
-		wasOnline := now.Sub(prevLastSeen) <= offlineThreshold
-		isOnline := now.Sub(currentLastSeen) <= offlineThreshold
+			// If the receiver is not in the current map or is beyond the threshold, consider it offline
+			// IMPORTANT: We compare against the current time, not the last seen time from the previous check
+			isOnline := hasCurrent && now.Sub(currentLastSeen) <= offlineThreshold
 
-		// If status changed from online to offline
-		if wasOnline && !isOnline {
-			// Log the offline event
-			if err := logReceiverEvent(receiverID, ReceiverOffline); err != nil {
-				log.Printf("Error logging OFFLINE event for receiver %d: %v", receiverID, err)
-			} else {
-				log.Printf("Receiver %d went OFFLINE (last seen: %v)", receiverID, currentLastSeen)
-
-				// Send webhook notification for offline event
-				go func(recID int) {
-					// Get receiver details
-					var rec Receiver
-					err := db.QueryRow(`
-						SELECT r.id, r.name, r.description, r.latitude, r.longitude, r.email, r.notifications,
-						       r.lastupdated, rp.udp_port, r.url
-						FROM receivers r
-						LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
-						WHERE r.id = $1
-					`, recID).Scan(
-						&rec.ID, &rec.Name, &rec.Description, &rec.Latitude, &rec.Longitude,
-						&rec.Email, &rec.Notifications, &rec.LastUpdated, &rec.UDPPort, &rec.URL,
-					)
-
-					if err != nil {
-						log.Printf("Error fetching receiver %d for offline webhook: %v", recID, err)
-						return
-					}
-
-					// Add the last seen time to custom fields
-					if rec.CustomFields == nil {
-						rec.CustomFields = make(map[string]interface{})
-					}
-
-					// Store the last seen time in RFC3339 format
-					lastSeenStr := currentLastSeen.Format(time.RFC3339)
-					rec.CustomFields["lastseen"] = lastSeenStr
-
-					// Send the webhook notification
-					notifyWebhookWithType(rec, ReceiverOffline)
-				}(receiverID)
+			// Force offline detection if the last seen time hasn't changed in more than the threshold period
+			// This handles cases where collectors report the same timestamp repeatedly
+			if isOnline && hasPrev && hasCurrent && currentLastSeen.Equal(prevLastSeen) &&
+				now.Sub(currentLastSeen) > offlineThreshold {
+				isOnline = false
+				log.Printf("Forcing offline detection for receiver %d - last seen time hasn't changed in %v",
+					receiverID, now.Sub(currentLastSeen))
 			}
-		} else if !wasOnline && isOnline { // If status changed from offline to online
-			// Log the online event
-			if err := logReceiverEvent(receiverID, ReceiverOnline); err != nil {
-				log.Printf("Error logging ONLINE event for receiver %d: %v", receiverID, err)
-			} else {
-				log.Printf("Receiver %d came back ONLINE (last seen: %v)", receiverID, currentLastSeen)
 
-				// Send webhook notification for online event
-				go func(recID int) {
-					// Get receiver details
-					var rec Receiver
-					err := db.QueryRow(`
+			// If status changed from online to offline
+			if wasOnline && !isOnline {
+				// Log the offline event
+				if err := logReceiverEvent(receiverID, ReceiverOffline); err != nil {
+					log.Printf("Error logging OFFLINE event for receiver %d: %v", receiverID, err)
+				} else {
+					// Use the previous last seen time if current is not available
+					lastSeenToReport := prevLastSeen
+					if hasCurrent {
+						lastSeenToReport = currentLastSeen
+					}
+
+					log.Printf("Receiver %d went OFFLINE (last seen: %v)", receiverID, lastSeenToReport)
+
+					// Send webhook notification for offline event
+					go func(recID int) {
+						// Get receiver details
+						var rec Receiver
+						err := db.QueryRow(`
 						SELECT r.id, r.name, r.description, r.latitude, r.longitude, r.email, r.notifications,
 						       r.lastupdated, rp.udp_port, r.url
 						FROM receivers r
 						LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
 						WHERE r.id = $1
 					`, recID).Scan(
-						&rec.ID, &rec.Name, &rec.Description, &rec.Latitude, &rec.Longitude,
-						&rec.Email, &rec.Notifications, &rec.LastUpdated, &rec.UDPPort, &rec.URL,
-					)
+							&rec.ID, &rec.Name, &rec.Description, &rec.Latitude, &rec.Longitude,
+							&rec.Email, &rec.Notifications, &rec.LastUpdated, &rec.UDPPort, &rec.URL,
+						)
 
-					if err != nil {
-						log.Printf("Error fetching receiver %d for online webhook: %v", recID, err)
-						return
-					}
+						if err != nil {
+							log.Printf("Error fetching receiver %d for offline webhook: %v", recID, err)
+							return
+						}
 
-					// Add the last seen time to custom fields
-					if rec.CustomFields == nil {
-						rec.CustomFields = make(map[string]interface{})
-					}
+						// Add the last seen time to custom fields
+						if rec.CustomFields == nil {
+							rec.CustomFields = make(map[string]interface{})
+						}
 
-					// Store the last seen time in RFC3339 format
-					lastSeenStr := currentLastSeen.Format(time.RFC3339)
-					rec.CustomFields["lastseen"] = lastSeenStr
+						// Store the last seen time in RFC3339 format
+						// Use the previous last seen time if current is not available
+						lastSeenToReport := prevLastSeen
+						if hasCurrent {
+							lastSeenToReport = currentLastSeen
+						}
+						lastSeenStr := lastSeenToReport.Format(time.RFC3339)
+						rec.CustomFields["lastseen"] = lastSeenStr
 
-					// Send the webhook notification
-					notifyWebhookWithType(rec, ReceiverOnline)
-				}(receiverID)
+						// Send the webhook notification
+						notifyWebhookWithType(rec, ReceiverOffline)
+					}(receiverID)
+				}
+			} else if !wasOnline && isOnline { // If status changed from offline to online
+				// Log the online event
+				if err := logReceiverEvent(receiverID, ReceiverOnline); err != nil {
+					log.Printf("Error logging ONLINE event for receiver %d: %v", receiverID, err)
+				} else {
+					// Use the current last seen time which must exist for an online transition
+					log.Printf("Receiver %d came back ONLINE (last seen: %v)", receiverID, currentLastSeen)
+
+					// Send webhook notification for online event
+					go func(recID int) {
+						// Get receiver details
+						var rec Receiver
+						err := db.QueryRow(`
+						SELECT r.id, r.name, r.description, r.latitude, r.longitude, r.email, r.notifications,
+						       r.lastupdated, rp.udp_port, r.url
+						FROM receivers r
+						LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
+						WHERE r.id = $1
+					`, recID).Scan(
+							&rec.ID, &rec.Name, &rec.Description, &rec.Latitude, &rec.Longitude,
+							&rec.Email, &rec.Notifications, &rec.LastUpdated, &rec.UDPPort, &rec.URL,
+						)
+
+						if err != nil {
+							log.Printf("Error fetching receiver %d for online webhook: %v", recID, err)
+							return
+						}
+
+						// Add the last seen time to custom fields
+						if rec.CustomFields == nil {
+							rec.CustomFields = make(map[string]interface{})
+						}
+
+						// Store the last seen time in RFC3339 format
+						lastSeenStr := currentLastSeen.Format(time.RFC3339)
+						rec.CustomFields["lastseen"] = lastSeenStr
+
+						// Send the webhook notification
+						notifyWebhookWithType(rec, ReceiverOnline)
+					}(receiverID)
+				}
 			}
 		}
 	}
