@@ -1137,14 +1137,22 @@
                 });
                 
                 // Add click handler to select the vessel
-                dotMarker.on('click', function() {
+                dotMarker.on('click', function(e) {
                     // Find the vessel item in the list
                     const vesselItem = document.querySelector(`.vessel-item[data-id="${id}"]`);
                     if (vesselItem) {
                         // Call toggleVesselSelection to select this vessel
                         // Don't force refetch if time range hasn't changed
                         const timeRangeChanged = hasTimeRangeChanged();
-                        toggleVesselSelection(id, vesselItem, false, timeRangeChanged);
+                        
+                        // Pass the ctrl/shift key state from the click event
+                        if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
+                            toggleVesselSelection(id, vesselItem, false, timeRangeChanged, true);
+                        } else if (e.originalEvent.shiftKey && window.lastSelectedVessel) {
+                            selectVesselRange(window.lastSelectedVessel, id);
+                        } else {
+                            toggleVesselSelection(id, vesselItem, false, timeRangeChanged);
+                        }
                         
                         // Make sure the vessel list is visible
                         if (vesselList.style.display === 'none' || vesselList.style.display === '') {
@@ -1276,10 +1284,22 @@
                     </div>
                 `;
                 
-                item.addEventListener('click', () => {
+                item.addEventListener('click', (e) => {
                     // Don't force refetch if time range hasn't changed
                     const timeRangeChanged = hasTimeRangeChanged();
-                    toggleVesselSelection(id, item, false, timeRangeChanged);
+                    
+                    // Handle multi-select with Ctrl/Cmd key (individual selections)
+                    // or Shift key (range selection)
+                    if (e.ctrlKey || e.metaKey) {
+                        // Ctrl/Cmd key: toggle this vessel without affecting others
+                        toggleVesselSelection(id, item, false, timeRangeChanged, true);
+                    } else if (e.shiftKey && window.lastSelectedVessel) {
+                        // Shift key: select range of vessels
+                        selectVesselRange(window.lastSelectedVessel, id);
+                    } else {
+                        // Normal click: deselect all others and select this one
+                        toggleVesselSelection(id, item, false, timeRangeChanged);
+                    }
                 });
                 
                 vesselItems.appendChild(item);
@@ -1317,74 +1337,195 @@
                    window.lastTimeRange.to !== toDateInput.value;
         }
         
-        function toggleVesselSelection(id, element, skipURLUpdate, forceRefetch = false) {
-                    if (selectedVessels.has(id)) {
-                        selectedVessels.delete(id);
-                        element.classList.remove('selected');
+        // Function to select a range of vessels between two vessel IDs
+        function selectVesselRange(startId, endId) {
+            // Get all vessel items
+            const vesselItems = document.querySelectorAll('.vessel-item[data-id]');
+            const vesselItemsArray = Array.from(vesselItems);
+            
+            // Find indices of start and end vessels
+            const startIndex = vesselItemsArray.findIndex(item => item.dataset.id === startId);
+            const endIndex = vesselItemsArray.findIndex(item => item.dataset.id === endId);
+            
+            if (startIndex === -1 || endIndex === -1) return;
+            
+            // Determine range (works whether start is before or after end)
+            const minIndex = Math.min(startIndex, endIndex);
+            const maxIndex = Math.max(startIndex, endIndex);
+            
+            // Select all vessels in the range
+            for (let i = minIndex; i <= maxIndex; i++) {
+                const item = vesselItemsArray[i];
+                const id = item.dataset.id;
+                
+                // Don't force refetch if time range hasn't changed
+                const timeRangeChanged = hasTimeRangeChanged();
+                toggleVesselSelection(id, item, false, timeRangeChanged, true);
+            }
+            
+            // Store the end vessel as the last selected for future shift-selections
+            window.lastSelectedVessel = endId;
+        }
+
+        function toggleVesselSelection(id, element, skipURLUpdate, forceRefetch = false, keepOtherSelections = false) {
+            // Store this as the last selected vessel for shift-click functionality
+            window.lastSelectedVessel = id;
+            
+            if (selectedVessels.has(id)) {
+                // Deselecting a vessel
+                selectedVessels.delete(id);
+                element.classList.remove('selected');
+                
+                // Re-sort the vessel list to move this vessel back to its normal position
+                populateVesselList(vessels);
+                // Re-apply any active filter
+                filterVesselList();
+                
+                // Remove marker and track if they exist
+                // Remove triangle marker and track
+                if (vesselMarkers[id]) {
+                    map.removeLayer(vesselMarkers[id]);
+                    
+                    // Restore dot marker
+                    const vessel = vessels[id];
+                    if (vessel && vessel.Latitude && vessel.Longitude) {
+                        const dotMarker = L.circleMarker([vessel.Latitude, vessel.Longitude], {
+                            radius: 5,
+                            color: '#000',
+                            fillColor: vessel.color,
+                            fillOpacity: 1,
+                            weight: 1
+                        });
                         
-                        // Re-sort the vessel list to move this vessel back to its normal position
-                        populateVesselList(vessels);
-                        // Re-apply any active filter
-                        filterVesselList();
+                        // Add tooltip with vessel name
+                        const name = vessel.Name || 'Unknown';
+                        dotMarker.bindTooltip(name, {
+                            permanent: false,
+                            direction: 'top',
+                            className: 'vessel-tooltip'
+                        });
                         
-                        // Remove marker and track if they exist
-                        // Remove triangle marker and track
-                        if (vesselMarkers[id]) {
-                            map.removeLayer(vesselMarkers[id]);
-                            
-                            // Restore dot marker
-                            const vessel = vessels[id];
-                            if (vessel && vessel.Latitude && vessel.Longitude) {
-                                const dotMarker = L.circleMarker([vessel.Latitude, vessel.Longitude], {
-                                    radius: 5,
-                                    color: '#000',
-                                    fillColor: vessel.color,
-                                    fillOpacity: 1,
-                                    weight: 1
-                                });
+                        // Add click handler to select the vessel
+                        dotMarker.on('click', function(e) {
+                            // Find the vessel item in the list
+                            const vesselItem = document.querySelector(`.vessel-item[data-id="${id}"]`);
+                            if (vesselItem) {
+                                // Call toggleVesselSelection to select this vessel
+                                // Don't force refetch if time range hasn't changed
+                                const timeRangeChanged = hasTimeRangeChanged();
                                 
-                                // Add tooltip with vessel name
-                                const name = vessel.Name || 'Unknown';
-                                dotMarker.bindTooltip(name, {
-                                    permanent: false,
-                                    direction: 'top',
-                                    className: 'vessel-tooltip'
-                                });
+                                // Pass the ctrl/shift key state from the click event
+                                if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
+                                    toggleVesselSelection(id, vesselItem, false, timeRangeChanged, true);
+                                } else if (e.originalEvent.shiftKey && window.lastSelectedVessel) {
+                                    selectVesselRange(window.lastSelectedVessel, id);
+                                } else {
+                                    toggleVesselSelection(id, vesselItem, false, timeRangeChanged);
+                                }
                                 
-                                // Add click handler to select the vessel
-                                dotMarker.on('click', function() {
-                                    // Find the vessel item in the list
-                                    const vesselItem = document.querySelector(`.vessel-item[data-id="${id}"]`);
-                                    if (vesselItem) {
-                                        // Call toggleVesselSelection to select this vessel
-                                        // Don't force refetch if time range hasn't changed
-                                        const timeRangeChanged = hasTimeRangeChanged();
-                                        toggleVesselSelection(id, vesselItem, false, timeRangeChanged);
-                                        
-                                        // Make sure the vessel list is visible
-                                        if (vesselList.style.display === 'none' || vesselList.style.display === '') {
-                                            toggleVesselList();
+                                // Make sure the vessel list is visible
+                                if (vesselList.style.display === 'none' || vesselList.style.display === '') {
+                                    toggleVesselList();
+                                }
+                                
+                                // Scroll the vessel into view in the list
+                                vesselItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                            }
+                        });
+                        
+                        // Add to non-selected layer instead of directly to map
+                        vesselMarkers[id] = dotMarker;
+                        nonSelectedLayer.addLayer(dotMarker);
+                    }
+                }
+                if (vesselTracks[id]) {
+                    map.removeLayer(vesselTracks[id]);
+                    delete vesselTracks[id];
+                }
+                
+                // Note: We're NOT deleting vesselPositions[id] here
+                // This preserves the position data in memory so we don't need to refetch it
+                // when the vessel is reselected unless the time range has changed
+            } else {
+                // Selecting a vessel
+                
+                // If not keeping other selections (normal click without Ctrl/Shift),
+                // deselect all other vessels first
+                if (!keepOtherSelections) {
+                    // Store the IDs of currently selected vessels to deselect them
+                    const previouslySelected = Array.from(selectedVessels);
+                    
+                    // Clear the selection set
+                    selectedVessels.clear();
+                    
+                    // Remove 'selected' class from all vessel items
+                    document.querySelectorAll('.vessel-item.selected').forEach(item => {
+                        if (item.dataset.id !== id) {  // Don't remove from the one we're selecting
+                            item.classList.remove('selected');
+                        }
+                    });
+                    
+                    // Remove markers and tracks for previously selected vessels
+                    for (const prevId of previouslySelected) {
+                        if (prevId !== id) {  // Don't remove the one we're selecting
+                            // Remove marker and track
+                            if (vesselMarkers[prevId]) {
+                                map.removeLayer(vesselMarkers[prevId]);
+                                
+                                // Restore dot marker
+                                const vessel = vessels[prevId];
+                                if (vessel && vessel.Latitude && vessel.Longitude) {
+                                    const dotMarker = L.circleMarker([vessel.Latitude, vessel.Longitude], {
+                                        radius: 5,
+                                        color: '#000',
+                                        fillColor: vessel.color,
+                                        fillOpacity: 1,
+                                        weight: 1
+                                    });
+                                    
+                                    // Add tooltip with vessel name
+                                    const name = vessel.Name || 'Unknown';
+                                    dotMarker.bindTooltip(name, {
+                                        permanent: false,
+                                        direction: 'top',
+                                        className: 'vessel-tooltip'
+                                    });
+                                    
+                                    // Add click handler with multi-select support
+                                    dotMarker.on('click', function(e) {
+                                        const vesselItem = document.querySelector(`.vessel-item[data-id="${prevId}"]`);
+                                        if (vesselItem) {
+                                            const timeRangeChanged = hasTimeRangeChanged();
+                                            
+                                            // Pass the ctrl/shift key state from the click event
+                                            if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
+                                                toggleVesselSelection(prevId, vesselItem, false, timeRangeChanged, true);
+                                            } else if (e.originalEvent.shiftKey && window.lastSelectedVessel) {
+                                                selectVesselRange(window.lastSelectedVessel, prevId);
+                                            } else {
+                                                toggleVesselSelection(prevId, vesselItem, false, timeRangeChanged);
+                                            }
+                                            
+                                            if (vesselList.style.display === 'none') {
+                                                toggleVesselList();
+                                            }
+                                            vesselItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                                         }
-                                        
-                                        // Scroll the vessel into view in the list
-                                        vesselItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                                    }
-                                });
-                                
-                                // Add to non-selected layer instead of directly to map
-                                vesselMarkers[id] = dotMarker;
-                                nonSelectedLayer.addLayer(dotMarker);
+                                    });
+                                    
+                                    vesselMarkers[prevId] = dotMarker;
+                                    nonSelectedLayer.addLayer(dotMarker);
+                                }
+                            }
+                            if (vesselTracks[prevId]) {
+                                map.removeLayer(vesselTracks[prevId]);
+                                delete vesselTracks[prevId];
                             }
                         }
-                        if (vesselTracks[id]) {
-                            map.removeLayer(vesselTracks[id]);
-                            delete vesselTracks[id];
-                        }
-                        
-                        // Note: We're NOT deleting vesselPositions[id] here
-                        // This preserves the position data in memory so we don't need to refetch it
-                        // when the vessel is reselected unless the time range has changed
-            } else {
+                    }
+                }
+                
+                // Add the new vessel to selection
                 selectedVessels.add(id);
                 element.classList.add('selected');
                 
@@ -1559,12 +1700,19 @@
             `);
             
             // Add click handler to unselect the vessel when clicked
-            marker.on('click', function() {
+            marker.on('click', function(e) {
                 // Find the vessel item in the list
                 const vesselItem = document.querySelector(`.vessel-item[data-id="${id}"]`);
                 if (vesselItem) {
                     // Call toggleVesselSelection to unselect this vessel
-                    toggleVesselSelection(id, vesselItem);
+                    // Pass the ctrl/shift key state from the click event
+                    if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
+                        toggleVesselSelection(id, vesselItem, false, false, true);
+                    } else if (e.originalEvent.shiftKey && window.lastSelectedVessel) {
+                        selectVesselRange(window.lastSelectedVessel, id);
+                    } else {
+                        toggleVesselSelection(id, vesselItem);
+                    }
                 }
             });
             
