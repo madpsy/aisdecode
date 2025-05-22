@@ -1928,10 +1928,10 @@ function fetchReceiversById(receiverId) {
         <div class="receiver-info-content">
           <h3>Receiver Information</h3>
           <p class="receiver-name">
+            <strong>Callsign/Name:</strong> ${receiver.name}
             ${receiver.state !== undefined ?
               `<span class="status-dot ${receiver.state ? 'online' : 'offline'}"></span>` :
               ''}
-            <strong>Callsign/Name:</strong> ${receiver.name}
           </p>
           <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
           <p class="receiver-url"><strong>URL:</strong>
@@ -2145,10 +2145,10 @@ async function fetchReceivers(ip) {
     receiverBox.innerHTML = `
       <h3>Receiver Information</h3>
       <p class="receiver-name">
+        <strong>Callsign/Name:</strong> ${receiver.name}
         ${receiver.state !== undefined ?
           `<span class="status-dot ${receiver.state ? 'online' : 'offline'}"></span>` :
           ''}
-        <strong>Callsign/Name:</strong> ${receiver.name}
       </p>
       <p class="receiver-description"><strong>Description:</strong> ${receiver.description}</p>
       <p class="receiver-url"><strong>URL:</strong>
