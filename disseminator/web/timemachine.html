@@ -414,7 +414,7 @@
             </div>
         </div>
         <div id="histogram-container">
-            <div id="histogram-overlay">Move the map to your chosen location. Select the time range above and click the 'Go!' button. Then select which vessels you want to track and click the play button at the bottom.</div>
+            <div id="histogram-overlay">Move the map to your chosen location and click Go! above</div>
         </div>
         <div class="split-view">
             <div id="map">
@@ -560,11 +560,11 @@
         const histogramContainer = document.getElementById('histogram-container');
         const mapTimeOverlay = document.getElementById('map-time-overlay');
 
-        // Set default date/time values (1 hour ago to now)
+        // Set default date/time values (3 hours ago to now)
         const now = new Date();
-        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+        const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
         
-        fromDateInput.value = formatDateForInput(oneHourAgo);
+        fromDateInput.value = formatDateForInput(threeHoursAgo);
         toDateInput.value = formatDateForInput(now);
 
         // Fetch vessel types and receivers data
