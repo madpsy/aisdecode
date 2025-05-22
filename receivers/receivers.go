@@ -855,7 +855,7 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 							var rec Receiver
 							err := db.QueryRow(`
 								SELECT r.id, r.name, r.description, r.latitude, r.longitude, r.email, r.notifications,
-									   r.last_updated, rp.udp_port, r.url
+									   r.lastupdated, rp.udp_port, r.url
 								FROM receivers r
 								LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
 								WHERE r.id = $1
@@ -918,7 +918,7 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 					var rec Receiver
 					err := db.QueryRow(`
 						SELECT r.id, r.name, r.description, r.latitude, r.longitude, r.email, r.notifications,
-						       r.last_updated, rp.udp_port, r.url
+						       r.lastupdated, rp.udp_port, r.url
 						FROM receivers r
 						LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
 						WHERE r.id = $1
@@ -958,7 +958,7 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 					var rec Receiver
 					err := db.QueryRow(`
 						SELECT r.id, r.name, r.description, r.latitude, r.longitude, r.email, r.notifications,
-						       r.last_updated, rp.udp_port, r.url
+						       r.lastupdated, rp.udp_port, r.url
 						FROM receivers r
 						LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
 						WHERE r.id = $1
