@@ -346,7 +346,7 @@ a.action:hover, button.delete-btn:hover {
 
 /* Set appropriate widths for each column */
 .timestamp-col {
-  width: 180px; /* Fixed width for timestamp column */
+  width: 100px; /* Fixed width for timestamp column */
   white-space: nowrap;
 }
 
