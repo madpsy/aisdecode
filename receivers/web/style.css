@@ -323,6 +323,7 @@ a.action:hover, button.delete-btn:hover {
 /* Events modal specific styles */
 .events-modal-content {
   max-width: 500px;
+  width: 100%; /* Ensure it takes full width up to max-width */
 }
 
 .events-container {
@@ -332,10 +333,11 @@ a.action:hover, button.delete-btn:hover {
 }
 
 #events-table {
-  width: 100%;
+  width: auto; /* Changed from 100% to auto to prevent table from expanding unnecessarily */
+  max-width: 100%; /* Ensure it doesn't overflow its container */
   border-collapse: collapse;
   margin-bottom: 10px;
-  table-layout: fixed; /* Changed back to fixed to ensure our column widths are respected */
+  table-layout: fixed;
 }
 
 #events-table th, #events-table td {
@@ -346,16 +348,19 @@ a.action:hover, button.delete-btn:hover {
 
 /* Set appropriate widths for each column */
 .timestamp-col {
-  width: 180px; /* Fixed width for timestamp column */
-  max-width: 180px; /* Also set max-width to enforce the constraint */
+  width: 160px; /* Reduced fixed width for timestamp column */
+  max-width: 160px;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis; /* Add ellipsis for overflowing text */
+  text-overflow: ellipsis;
 }
 
 .event-type-col {
-  width: auto;
+  width: 120px; /* Set specific width for event type column */
+  max-width: 120px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #events-table th {
