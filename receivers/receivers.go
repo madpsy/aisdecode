@@ -687,9 +687,7 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 			} else {
 				log.Printf("Receiver %d went OFFLINE (last seen: %v)", receiverID, currentLastSeen)
 			}
-		}
-		// If status changed from offline to online
-		else if !wasOnline && isOnline {
+		} else if !wasOnline && isOnline { // If status changed from offline to online
 			if err := logReceiverEvent(receiverID, ReceiverOnline); err != nil {
 				log.Printf("Error logging ONLINE event for receiver %d: %v", receiverID, err)
 			} else {
