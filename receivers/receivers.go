@@ -620,8 +620,51 @@ func getReceiverState(receiverID int) (bool, error) {
 		return false, nil
 	}
 
-	// Return true if the last event is RECEIVER_ONLINE, false otherwise
-	return eventType == ReceiverOnline, nil
+	// If the last event is RECEIVER_OFFLINE, return false
+	if eventType == ReceiverOffline {
+		return false, nil
+	}
+
+	// If the last event is RECEIVER_ONLINE, check if the receiver's last seen time is beyond the offline threshold
+	// Get the UDP port for this receiver
+	var udpPort int
+	err = db.QueryRow(`
+		SELECT udp_port FROM receiver_ports
+		WHERE receiver_id = $1
+	`, receiverID).Scan(&udpPort)
+
+	if err == sql.ErrNoRows {
+		// No UDP port assigned, consider offline
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("failed to get UDP port: %v", err)
+	}
+
+	// Check if the receiver has a last seen time in the portLastSeenMap
+	portLastSeenMutex.RLock()
+	lastSeen, ok := portLastSeenMap[udpPort]
+	portLastSeenMutex.RUnlock()
+
+	if !ok {
+		// No last seen time, consider offline
+		return false, nil
+	}
+
+	// Calculate the offline threshold
+	offlineMinutes := settings.ReceiverOfflineHours * 60
+	offlineThreshold := time.Duration(offlineMinutes) * time.Minute
+
+	// Check if the receiver is beyond the offline threshold
+	if time.Since(lastSeen) > offlineThreshold {
+		// Beyond threshold, consider offline
+		// Log this discrepancy for debugging
+		log.Printf("WARNING: Receiver %d has ONLINE event but last seen time (%v) is beyond threshold (%v)",
+			receiverID, lastSeen, offlineThreshold)
+		return false, nil
+	}
+
+	// Last event is RECEIVER_ONLINE and last seen time is within threshold
+	return true, nil
 }
 
 // calculateUptimePercentage calculates the uptime percentage for a receiver
