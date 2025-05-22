@@ -1647,9 +1647,14 @@
                 createVesselMarker(id);
                 
                 // Update timeline if this is the first vessel
-                if (Object.keys(vesselPositions).length === 1) {
-                    setupTimeline();
-                }
+                // Always setup timeline when vessel positions are fetched
+                setupTimeline();
+                
+                // Update playback controls
+                playPauseBtn.disabled = false;
+                stopBtn.disabled = false;
+                timelineSlider.disabled = false;
+                playbackSpeedSelect.disabled = false;
                 
             } catch (error) {
                 console.error(`Error fetching positions for vessel ${id}:`, error);
