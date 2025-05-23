@@ -1123,9 +1123,6 @@ function sendSummaryRequest() {
     }
   }
   
-  // Debug log for vessel 210780000
-  console.log("[DEBUG] sendSummaryRequest filter parameters:", filterParams);
-  
   // IMPORTANT: Don't stringify the object - send it directly
   socket.emit("requestSummary", filterParams);
   updateOverlay();
@@ -1802,10 +1799,6 @@ function getColorForVesselTypeConsistent(type) {
 // Create a custom boat icon using your existing SVG, but with the stroke and fill set to the vessel type's color.
 function createBoatIcon(type, heading = 0, fillOpacity = 0.5) {
   const color = getColorForVesselTypeConsistent(type);
-  
-  // Debug log for vessel ID 210780000 (we can't directly check here, but we'll log the parameters)
-  console.log("[DEBUG] createBoatIcon called with type:", type, "heading:", heading);
-  
   const svgHtml = `
     <svg width="20" height="50" viewBox="0 0 20 50"
          style="transform: rotate(${heading}deg); transform-origin: center;">
@@ -1818,19 +1811,13 @@ function createBoatIcon(type, heading = 0, fillOpacity = 0.5) {
       />
     </svg>
   `;
-  
-  const icon = L.divIcon({
+  return L.divIcon({
     html: svgHtml,
     className: 'boat-icon',
     iconSize: [20, 50],
     iconAnchor: [10, 25],
     popupAnchor: [0, -25],
   });
-  
-  // Debug log the created icon
-  console.log("[DEBUG] Boat icon created:", icon);
-  
-  return icon;
 }
 
 function getCustomIcon(vesselState, iconUrl) {
@@ -1887,16 +1874,8 @@ function getCustomIcon(vesselState, iconUrl) {
 
 
 function getVesselIcon(vesselState) {
-  // Debug log for vessel ID 210780000
-  if (vesselState.UserID === 210780000) {
-    console.log("[DEBUG] getVesselIcon called for vessel 210780000:", vesselState);
-  }
-  
   // For lower zoom levels, show a simple circle marker.
   if (map.getZoom() < 10) {
-    if (vesselState.UserID === 210780000) {
-      console.log("[DEBUG] Using circle icon for vessel 210780000 due to zoom level");
-    }
     return createCircleIcon(vesselState);
   }
   
@@ -1918,14 +1897,6 @@ function getVesselIcon(vesselState) {
                     : (typeof vesselState.Cog === 'number' && vesselState.Cog >= 0 && vesselState.Cog < 360)
                       ? vesselState.Cog
                       : 0;
-  
-  // Debug log for vessel ID 210780000
-  if (vesselState.UserID === 210780000) {
-    console.log("[DEBUG] Creating boat icon for vessel 210780000:",
-                "Type:", vesselState.Type,
-                "Heading:", heading);
-  }
-  
   return createBoatIcon(vesselState.Type, heading);
 }
 
@@ -3864,15 +3835,6 @@ socket.on('metricsData', (data) => {
 });
 
 socket.on("summaryData", (data) => {
-  // Debug log to check if vessel 210780000 is in the incoming data
-  if (data && typeof data === "object") {
-    console.log("[DEBUG] summaryData received, contains vessel 210780000:",
-                data.hasOwnProperty("210780000"));
-    if (data.hasOwnProperty("210780000")) {
-      console.log("[DEBUG] Vessel 210780000 data from server:", data["210780000"]);
-    }
-  }
-  
   const ageSlider = document.getElementById('age-slider');
   const maxAgeHours = parseInt(ageSlider.value, 10); // Get max-age from the slider
   const now = Date.now();
@@ -3891,26 +3853,12 @@ socket.on("summaryData", (data) => {
     return;
   }
 
-  // Debug log to check if vessel 210780000 is in the data
-  console.log("[DEBUG] Checking if vessel 210780000 is in the summary data:",
-              "Present:", data.hasOwnProperty("210780000"));
-  
   // Remove vessels that no longer appear in the summary data.
   const newIDs = new Set(Object.keys(data));
   for (const userid in vesselData) {
-    // Debug log for vessel ID 210780000
-    if (userid === "210780000") {
-      console.log("[DEBUG] Vessel 210780000 in vesselData:",
-                  "In new data:", newIDs.has(userid),
-                  "Is focused:", userid === focusedVessel);
-    }
-    
     // Only remove if the vessel is not in the latest summary AND is not manually focused
     if (!newIDs.has(userid) && userid !== focusedVessel) {
-      if (vesselMarkers[userid]) {
-        console.log(`[DEBUG] Removing vessel ${userid} from map`);
-        map.removeLayer(vesselMarkers[userid]);
-      }
+      if (vesselMarkers[userid]) map.removeLayer(vesselMarkers[userid]);
       if (vesselTracks[userid]) map.removeLayer(vesselTracks[userid]);
       delete vesselData[userid];
       delete vesselMarkers[userid];
@@ -3919,11 +3867,6 @@ socket.on("summaryData", (data) => {
   }
 
   for (const userid in data) {
-    // Debug log for vessel ID 210780000
-    if (userid === "210780000") {
-      console.log("[DEBUG] Found vessel 210780000 in summary data:", data[userid]);
-    }
-    
     const vesselState = data[userid];
     const vesselTimestamp = new Date(vesselState.LastUpdated).getTime();
 
@@ -3932,11 +3875,6 @@ socket.on("summaryData", (data) => {
       vesselData[userid] = Object.assign({}, vesselState);
       vesselData[userid].track = [];
       vesselData[userid].color = randomColor();
-      
-      // Debug log for vessel ID 210780000
-      if (userid === "210780000") {
-        console.log("[DEBUG] Created new vessel data for 210780000:", vesselData[userid]);
-      }
     } else {
       // For a focused vessel, update only non-location/movement fields.
       if (userid === focusedVessel) {
@@ -3977,11 +3915,6 @@ socket.on("summaryData", (data) => {
 
     // Update marker/track if location data exists…
     if (typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number") {
-      // Debug log for vessel ID 210780000
-      if (userid === "210780000") {
-        console.log("[DEBUG] Vessel 210780000 has valid coordinates:", vesselState.Latitude, vesselState.Longitude);
-      }
-      
       if (userid !== focusedVessel) {
         // For vessels not in focus, update location and movement fields.
         const lat = vesselState.Latitude;
@@ -4026,34 +3959,10 @@ socket.on("summaryData", (data) => {
             setTimeout(() => markerElem2.classList.remove('enlarge'), 500);
           }
         } else {
-          // Debug log for vessel ID 210780000
-          if (userid === "210780000") {
-            console.log("[DEBUG] Creating new marker for vessel 210780000");
-          }
-          
-          const icon = getVesselIcon(vesselData[userid]);
-          
-          // Debug log for vessel ID 210780000
-          if (userid === "210780000") {
-            console.log("[DEBUG] Icon created for vessel 210780000:", icon);
-          }
-          
           const marker = L.marker(
             [vesselState.Latitude, vesselState.Longitude],
-            { icon: icon }
-          );
-          
-          // Debug log for vessel ID 210780000
-          if (userid === "210780000") {
-            console.log("[DEBUG] Adding marker to map for vessel 210780000");
-          }
-          
-          marker.addTo(map);
-          
-          // Debug log for vessel ID 210780000
-          if (userid === "210780000") {
-            console.log("[DEBUG] Marker added to map for vessel 210780000:", marker);
-          }
+            { icon: getVesselIcon(vesselData[userid]) }
+          ).addTo(map);
           marker.bindPopup(popupContent, { autoPan: false });
           const currentZoom = map.getZoom();
           if (currentZoom >= TOOLTIP_ZOOM_THRESHOLD && vesselState.Name) {
@@ -5577,72 +5486,6 @@ map.on("moveend", debouncedSendSummaryRequest);
           return '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
         }
 
-        // Debug function to check status of vessel 210780000
-        function debugVessel210780000() {
-          console.log("=== DEBUG VESSEL 210780000 ===");
-          
-          // Check if vessel exists in vesselData
-          const vesselExists = vesselData.hasOwnProperty("210780000");
-          console.log("Exists in vesselData:", vesselExists);
-          
-          if (vesselExists) {
-            // Log vessel data
-            console.log("Vessel data:", vesselData["210780000"]);
-            
-            // Check coordinates
-            const lat = vesselData["210780000"].Latitude;
-            const lon = vesselData["210780000"].Longitude;
-            console.log("Coordinates:", lat, lon, "Valid:", typeof lat === 'number' && typeof lon === 'number');
-            
-            // Check if marker exists
-            const markerExists = vesselMarkers.hasOwnProperty("210780000");
-            console.log("Marker exists:", markerExists);
-            
-            if (markerExists) {
-              // Log marker details
-              console.log("Marker:", vesselMarkers["210780000"]);
-              console.log("Marker on map:", map.hasLayer(vesselMarkers["210780000"]));
-              
-              // Check icon
-              const icon = vesselMarkers["210780000"].options.icon;
-              console.log("Icon:", icon);
-            }
-            
-            // Check vessel type and AIS class
-            console.log("Vessel type:", vesselData["210780000"].Type);
-            console.log("AIS class:", vesselData["210780000"].AISClass);
-            
-            // Check if it's being filtered
-            const onlyFocused = document.getElementById('only-focussed').checked;
-            console.log("Only focused vessels shown:", onlyFocused);
-            console.log("Is focused:", focusedVessel === "210780000");
-            
-            // Check if it's stationary
-            const showStationary = document.getElementById('stationary').checked;
-            const speed = vesselData["210780000"].Sog;
-            console.log("Show stationary vessels:", showStationary);
-            console.log("Vessel speed:", speed, "knots");
-            console.log("Would be filtered by speed:", !showStationary && (speed === null || speed < 1));
-          } else {
-            // Try to find it in the raw data
-            fetch(`/state?UserID=210780000`)
-              .then(response => response.json())
-              .then(data => {
-                console.log("Fetched vessel data:", data);
-                if (data && typeof data.Latitude === 'number' && typeof data.Longitude === 'number') {
-                  console.log("Vessel exists in database but not in local vesselData");
-                } else {
-                  console.log("Vessel not found in database or has invalid coordinates");
-                }
-              })
-              .catch(err => console.error("Error fetching vessel:", err));
-          }
-          
-          console.log("=== END DEBUG ===");
-        }
-
-        // Make debug function available globally
-        window.debugVessel210780000 = debugVessel210780000;
 
 
     </script>
