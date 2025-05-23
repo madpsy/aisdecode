@@ -1057,39 +1057,59 @@ function sendSummaryRequest() {
   }
   
   
-  // Get all checked groups
-  const checkedGroups = [];
-  for (const groupName in typeGroupCheckboxStates) {
-    if (typeGroupCheckboxStates[groupName] !== false) {
-      checkedGroups.push(groupName);
-    }
-  }
-  
-  // Handle filtering by type groups
-  if (checkedGroups.length === 1) {
-    // If only one group is checked, use that for filtering
-    const groupName = checkedGroups[0];
-    const groupId = typeGroupMapping[groupName];
-    
-    if (groupId !== undefined) {
-      console.log(`Filtering by single type group: ${groupId}`);
-      filterParams.typeGroups = groupId.toString();
-      
-      // Debug output to verify the request
-      console.log("Sending filter request:", JSON.stringify(filterParams, null, 2));
-    }
-  } else if (checkedGroups.length > 1) {
-    // Multiple groups checked - include all of them
-    const groupIds = [];
-    for (const groupName of checkedGroups) {
-      const groupId = typeGroupMapping[groupName];
-      if (groupId !== undefined) {
-        groupIds.push(groupId);
+  // Check if any special classes (AtoN, BASE, SAR) are selected
+  const classAtoN = document.getElementById('class-aton').checked;
+  const classBASE = document.getElementById('class-base').checked;
+  const classSAR = document.getElementById('class-sar').checked;
+  const hasSpecialClasses = classAtoN || classBASE || classSAR;
+
+  // Only apply type group filtering if no special classes are selected
+  // or if other vessel classes (A, B) are also selected
+  const classA = document.getElementById('class-a').checked;
+  const classB = document.getElementById('class-b').checked;
+  const hasRegularClasses = classA || classB;
+
+  // Skip type group filtering if only special classes are selected
+  if (hasSpecialClasses && !hasRegularClasses) {
+    // Skip the type group filtering logic
+    // This ensures that when only AtoN, BASE, or SAR are selected,
+    // we don't apply any type filtering
+    console.log("Skipping type group filtering for special vessel classes");
+  } else {
+    // Get all checked groups
+    const checkedGroups = [];
+    for (const groupName in typeGroupCheckboxStates) {
+      if (typeGroupCheckboxStates[groupName] !== false) {
+        checkedGroups.push(groupName);
       }
     }
     
-    if (groupIds.length > 0) {
-      filterParams.typeGroups = groupIds.join(',');
+    // Handle filtering by type groups
+    if (checkedGroups.length === 1) {
+      // If only one group is checked, use that for filtering
+      const groupName = checkedGroups[0];
+      const groupId = typeGroupMapping[groupName];
+      
+      if (groupId !== undefined) {
+        console.log(`Filtering by single type group: ${groupId}`);
+        filterParams.typeGroups = groupId.toString();
+        
+        // Debug output to verify the request
+        console.log("Sending filter request:", JSON.stringify(filterParams, null, 2));
+      }
+    } else if (checkedGroups.length > 1) {
+      // Multiple groups checked - include all of them
+      const groupIds = [];
+      for (const groupName of checkedGroups) {
+        const groupId = typeGroupMapping[groupName];
+        if (groupId !== undefined) {
+          groupIds.push(groupId);
+        }
+      }
+      
+      if (groupIds.length > 0) {
+        filterParams.typeGroups = groupIds.join(',');
+      }
     }
   }
   
