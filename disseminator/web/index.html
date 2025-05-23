@@ -2833,28 +2833,12 @@ function adjustMapBounds() {
 function updateStationaryMarkers() {
   const showPaths   = document.getElementById('show-paths').checked;
   const onlyFocused = document.getElementById('only-focussed').checked;
-  
-  // Debug: Log the state of the target vessel before updates
-  const targetId = "210780000";
-  console.log(`[DEBUG] updateStationaryMarkers - Target vessel before update:`, {
-    hasMarker: !!vesselMarkers[targetId],
-    isOnMap: vesselMarkers[targetId] ? map.hasLayer(vesselMarkers[targetId]) : false,
-    hasData: !!vesselData[targetId],
-    isFocused: focusedVessel === targetId,
-    showPaths,
-    onlyFocused
-  });
 
   // 1) Always ensure all vessel markers remain on the map
   for (const userid in vesselMarkers) {
     const marker = vesselMarkers[userid];
     if (marker && !map.hasLayer(marker)) {
       map.addLayer(marker);
-      
-      // Debug: Log if we're adding the target vessel to the map
-      if (userid === targetId) {
-        console.log(`[DEBUG] Adding target vessel marker to map`);
-      }
     }
   }
 
@@ -2878,14 +2862,6 @@ function updateStationaryMarkers() {
   }
 
   updateOverlay();
-  
-  // Debug: Log the state of the target vessel after updates
-  console.log(`[DEBUG] updateStationaryMarkers - Target vessel after update:`, {
-    hasMarker: !!vesselMarkers[targetId],
-    isOnMap: vesselMarkers[targetId] ? map.hasLayer(vesselMarkers[targetId]) : false,
-    hasData: !!vesselData[targetId],
-    isFocused: focusedVessel === targetId
-  });
 }
 
 
@@ -2989,22 +2965,7 @@ function isVesselVisibleByAge(vessel) {
   const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
   const now = Date.now();
   const ageMilliseconds = now - vessel.lastUpdate;
-  const isVisible = ageMilliseconds <= maxAgeHours * 3600000; // Convert to milliseconds
-  
-  // Debug: Check if our target vessel is being filtered by age
-  if (vessel.UserID === 210780000) {
-    console.log(`[DEBUG] Target vessel age filter check:`, {
-      maxAgeHours,
-      now,
-      lastUpdate: vessel.lastUpdate,
-      ageMilliseconds,
-      isVisible,
-      lastUpdateDate: new Date(vessel.lastUpdate).toISOString(),
-      nowDate: new Date(now).toISOString()
-    });
-  }
-  
-  return isVisible;
+  return ageMilliseconds <= maxAgeHours * 3600000; // Convert to milliseconds
 }
 
 function attachMessageTypeClicks() {
@@ -3047,27 +3008,7 @@ function updateFocussedVisibility() {
         map.removeLayer(vesselTracks[focusedVessel]);
       }
     }
-    
-    // Debug: Check if our target vessel is the focused vessel
-    if (focusedVessel === "210780000") {
-      console.log(`[DEBUG] Target vessel is focused and visible on map`);
-    }
   }
-  
-  // Debug: Check visibility of our target vessel
-  const targetId = "210780000";
-  if (vesselMarkers[targetId]) {
-    console.log(`[DEBUG] Target vessel marker status:`, {
-      exists: true,
-      isOnMap: map.hasLayer(vesselMarkers[targetId]),
-      isFocused: focusedVessel === targetId,
-      hasData: !!vesselData[targetId],
-      position: vesselMarkers[targetId].getLatLng()
-    });
-  } else if (vesselData[targetId]) {
-    console.log(`[DEBUG] Target vessel has data but no marker`);
-  }
-  
   updateOverlay();
 }
 
@@ -3898,14 +3839,6 @@ socket.on("summaryData", (data) => {
   const maxAgeHours = parseInt(ageSlider.value, 10); // Get max-age from the slider
   const now = Date.now();
   const maxAgeMilliseconds = maxAgeHours * 3600000;  // Convert hours to milliseconds
-  
-  // Debug: Check if our target vessel is in the data
-  const targetVessel = "210780000";
-  if (data[targetVessel]) {
-    console.log(`[DEBUG] Target vessel ${targetVessel} found in summary data:`, data[targetVessel]);
-  } else {
-    console.log(`[DEBUG] Target vessel ${targetVessel} NOT found in summary data`);
-  }
 
   if (typeof data === "string") {
     try {
@@ -3925,15 +3858,6 @@ socket.on("summaryData", (data) => {
   for (const userid in vesselData) {
     // Only remove if the vessel is not in the latest summary AND is not manually focused
     if (!newIDs.has(userid) && userid !== focusedVessel) {
-      // Debug: Log if our target vessel is being removed
-      if (userid === "210780000") {
-        console.log(`[DEBUG] Target vessel being removed from display because:`, {
-          inNewData: newIDs.has(userid),
-          isFocused: userid === focusedVessel,
-          hasMarker: !!vesselMarkers[userid]
-        });
-      }
-      
       if (vesselMarkers[userid]) map.removeLayer(vesselMarkers[userid]);
       if (vesselTracks[userid]) map.removeLayer(vesselTracks[userid]);
       delete vesselData[userid];
@@ -3945,31 +3869,12 @@ socket.on("summaryData", (data) => {
   for (const userid in data) {
     const vesselState = data[userid];
     const vesselTimestamp = new Date(vesselState.LastUpdated).getTime();
-    
-    // Debug: Log details for our target vessel
-    if (userid === "210780000") {
-      console.log(`[DEBUG] Processing target vessel:`, vesselState);
-      console.log(`[DEBUG] Timestamp parsing:`, {
-        LastUpdated: vesselState.LastUpdated,
-        parsedTimestamp: vesselTimestamp,
-        isNaN: isNaN(vesselTimestamp)
-      });
-    }
 
     // Create new vessel data if not already present.
     if (!vesselData[userid]) {
       vesselData[userid] = Object.assign({}, vesselState);
       vesselData[userid].track = [];
       vesselData[userid].color = randomColor();
-      
-      // Debug: Log when we're creating the target vessel data
-      if (userid === "210780000") {
-        console.log(`[DEBUG] Creating new vessel data for target vessel:`, {
-          vesselState,
-          hasType: vesselState.Type !== undefined,
-          hasLatLon: typeof vesselState.Latitude === "number" && typeof vesselState.Longitude === "number"
-        });
-      }
     } else {
       // For a focused vessel, update only non-location/movement fields.
       if (userid === focusedVessel) {
@@ -3992,15 +3897,6 @@ socket.on("summaryData", (data) => {
     // Always update these timestamp fields.
     vesselData[userid].LastUpdated = vesselState.LastUpdated;
     vesselData[userid].lastUpdate = vesselTimestamp;
-    
-    // Debug: Check if our target vessel's timestamp is valid
-    if (userid === "210780000") {
-      console.log(`[DEBUG] Target vessel timestamp fields updated:`, {
-        LastUpdated: vesselData[userid].LastUpdated,
-        lastUpdate: vesselData[userid].lastUpdate,
-        isNaN: isNaN(vesselData[userid].lastUpdate)
-      });
-    }
 
     if (!Array.isArray(vesselData[userid].track)) {
       vesselData[userid].track = [];
@@ -4012,9 +3908,6 @@ socket.on("summaryData", (data) => {
       vesselState.Longitude,             // lon
       vesselState.Sog  ?? null,          // speed
       vesselState.Cog  ?? null,          // course
-      
-      // Debug: Log track update for target vessel
-      userid === "210780000" ? console.log(`[DEBUG] Added track point for target vessel`) : null,
       vesselState.TrueHeading ?? null    // heading
     ]);
 
@@ -4026,15 +3919,6 @@ socket.on("summaryData", (data) => {
         // For vessels not in focus, update location and movement fields.
         const lat = vesselState.Latitude;
         const lon = vesselState.Longitude;
-        
-        // Debug: Log when we're updating the target vessel's marker
-        if (userid === "210780000") {
-          console.log(`[DEBUG] Updating target vessel marker position:`, {
-            lat, lon,
-            hasMarker: !!vesselMarkers[userid],
-            isOnMap: vesselMarkers[userid] ? map.hasLayer(vesselMarkers[userid]) : false
-          });
-        }
         if (vesselMarkers[userid]) {
           vesselMarkers[userid].setLatLng([lat, lon]);
           vesselMarkers[userid].getPopup().setContent(popupContent);
@@ -4153,36 +4037,21 @@ socket.on("summaryData", (data) => {
       map.addLayer(vesselMarkers[focusedVessel]);
     }
     
-    // Debug: Check if our target vessel is the focused vessel
-    if (focusedVessel === "210780000") {
-      console.log(`[DEBUG] Target vessel is focused and visible on map`);
+    const showPaths = document.getElementById('show-paths').checked;
+    if (vesselTracks[focusedVessel]) {
+      if (showPaths && !map.hasLayer(vesselTracks[focusedVessel])) {
+        map.addLayer(vesselTracks[focusedVessel]);
+      }
     }
   }
   
-  // Debug: Check visibility of our target vessel
-  const targetId = "210780000";
-  if (vesselMarkers[targetId]) {
-    console.log(`[DEBUG] Target vessel marker status:`, {
-      exists: true,
-      isOnMap: map.hasLayer(vesselMarkers[targetId]),
-      isFocused: focusedVessel === targetId,
-      hasData: !!vesselData[targetId],
-      position: vesselMarkers[targetId].getLatLng()
-    });
-  } else if (vesselData[targetId]) {
-    console.log(`[DEBUG] Target vessel has data but no marker`);
+  // Redraw radius circles after receiving new data if a receiver is selected
+  if (selectedReceiverId && selectedReceiverCoords) {
+    const receiverLatLng = L.latLng(selectedReceiverCoords[0], selectedReceiverCoords[1]);
+    drawRadiusCircles(selectedReceiverCoords);
   }
   
-  updateOverlay();
-}
-
-// Redraw radius circles after receiving new data if a receiver is selected
-if (selectedReceiverId && selectedReceiverCoords) {
-  const receiverLatLng = L.latLng(selectedReceiverCoords[0], selectedReceiverCoords[1]);
-  drawRadiusCircles(selectedReceiverCoords);
-}
-
-localStorage.setItem('vesselData', JSON.stringify(vesselData));
+  localStorage.setItem('vesselData', JSON.stringify(vesselData));
 });
 
 // Use a debounced function to limit the frequency of requests:
