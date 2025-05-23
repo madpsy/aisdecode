@@ -1228,14 +1228,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 			}
 			log.Printf("Storing MessageID=%d for user %d%s", mid, userID, reason)
 		}
-		// Look up receiver ID based on UDP port and source IP
-		var receiverID interface{} = nil // Use nil (SQL NULL) as default
-		receiverMapMutex.RLock()
-
-		// We already determined portMatched and receiverFound above
-		// receiverID was also already set above
-
-		receiverMapMutex.RUnlock()
+		// receiverID was already set above, no need to look it up again
 
 		// Only insert the message if:
 		// 1. The UDP port matches the ingester's port AND StoreAnonymousMessages is true, OR
