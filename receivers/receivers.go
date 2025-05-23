@@ -4939,4 +4939,3 @@ func handleGetUDPPort(w http.ResponseWriter, r *http.Request) {
 }
 
 // generateResetToken generates a secure random token for password reset
-s
