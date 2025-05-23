@@ -4437,7 +4437,7 @@ function focusOnVessel(UserID, initialFocus = true) {
   // Only remove vessel-receiver connection if focusing on a different vessel
   // This prevents unnecessary recreation when summary data arrives
   if (focusedVessel !== UserID) {
-    console.log("[focusOnVessel] Removing existing vessel-receiver connection");
+    // console.log("[focusOnVessel] Removing existing vessel-receiver connection");
     
     if (receiverPolyline) {
       map.removeLayer(receiverPolyline);
