@@ -868,9 +868,19 @@
 				const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
 				const fromTime = new Date(now.getTime() - maxAgeHours * 60 * 60 * 1000);
 				
-				// Format dates for URL parameters (YYYY-MM-DDThh:mm format)
-				const toParam = now.toISOString().slice(0, 16);
-				const fromParam = fromTime.toISOString().slice(0, 16);
+				// Format dates for URL parameters with timezone adjustment (YYYY-MM-DDThh:mm format)
+				// Add the timezone offset to convert from UTC to local time
+				function formatDateWithTimezone(date) {
+					// Get timezone offset in minutes and convert to milliseconds
+					const tzOffset = date.getTimezoneOffset() * 60000;
+					// Create a new date adjusted for timezone
+					const localDate = new Date(date.getTime() - tzOffset);
+					// Return ISO string without the timezone part
+					return localDate.toISOString().slice(0, 16);
+				}
+				
+				const toParam = formatDateWithTimezone(now);
+				const fromParam = formatDateWithTimezone(fromTime);
 				
 				// Open Time Machine with all parameters
 				window.open(`/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`, '_blank');
