@@ -882,56 +882,17 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 				continue
 			}
 
-			// If no previous events, add an initial event based on current status
+			// If no previous events, always initialize as offline
+			// This ensures proper state transition when it comes online
 			if lastEventType == "" {
-				// If the receiver is currently seen within the threshold, mark as online
-				if now.Sub(currentLastSeen) <= offlineThreshold {
-					if err := logReceiverEvent(receiverID, ReceiverOnline); err != nil {
-						log.Printf("Error logging initial ONLINE event for receiver %d: %v", receiverID, err)
-					} else {
-						log.Printf("Logged initial ONLINE event for receiver %d", receiverID)
-
-						// Send webhook notification for initial online event
-						go func(recID int) {
-							// Get receiver details
-							var rec Receiver
-							err := db.QueryRow(`
-								SELECT r.id, r.name, r.description, r.latitude, r.longitude, r.email, r.notifications,
-									   r.lastupdated, rp.udp_port, r.url
-								FROM receivers r
-								LEFT JOIN receiver_ports rp ON r.id = rp.receiver_id
-								WHERE r.id = $1
-							`, recID).Scan(
-								&rec.ID, &rec.Name, &rec.Description, &rec.Latitude, &rec.Longitude,
-								&rec.Email, &rec.Notifications, &rec.LastUpdated, &rec.UDPPort, &rec.URL,
-							)
-
-							if err != nil {
-								log.Printf("Error fetching receiver %d for initial online webhook: %v", recID, err)
-								return
-							}
-
-							// Add the last seen time to custom fields
-							if rec.CustomFields == nil {
-								rec.CustomFields = make(map[string]interface{})
-							}
-
-							// Store the last seen time in RFC3339 format
-							lastSeenStr := currentLastSeen.Format(time.RFC3339)
-							rec.CustomFields["lastseen"] = lastSeenStr
-
-							// Send the webhook notification
-							notifyWebhookWithType(rec, ReceiverOnline)
-						}(receiverID)
-					}
+				// Always mark as offline initially, regardless of current status
+				if err := logReceiverEvent(receiverID, ReceiverOffline); err != nil {
+					log.Printf("Error logging initial OFFLINE event for receiver %d: %v", receiverID, err)
 				} else {
-					// Otherwise mark as offline, but don't send an alert for initial offline state
-					if err := logReceiverEvent(receiverID, ReceiverOffline); err != nil {
-						log.Printf("Error logging initial OFFLINE event for receiver %d: %v", receiverID, err)
-					} else {
-						log.Printf("Logged initial OFFLINE event for receiver %d (no alert sent)", receiverID)
-					}
+					log.Printf("Logged initial OFFLINE event for receiver %d (no alert sent)", receiverID)
 				}
+
+				// Let the normal transition logic handle the change to online if appropriate
 				continue
 			}
 		}
