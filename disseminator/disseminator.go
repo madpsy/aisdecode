@@ -682,7 +682,12 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	if typeGroups != "" {
 		groupTypes := getTypesFromGroups(typeGroups)
 		for _, typeVal := range groupTypes {
-			typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = %d", typeVal))
+			// Special handling for type 0: include vessels with no Type field
+			if typeVal == 0 {
+				typeConditions = append(typeConditions, fmt.Sprintf("((packet->>'Type')::float = 0 OR packet->>'Type' IS NULL)"))
+			} else {
+				typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = %d", typeVal))
+			}
 		}
 	}
 
