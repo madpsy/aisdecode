@@ -4291,12 +4291,12 @@ function updateVesselReceiverConnection(UserID) {
   // If we already have a connection established, keep using the same receiver
   // This prevents flickering when summary data arrives with different receiver info
   if (currentConnectionReceiverId && receiverMarkers[currentConnectionReceiverId]) {
-    console.log("[updateVesselReceiverConnection] Using existing receiver:", currentConnectionReceiverId);
+    // console.log("[updateVesselReceiverConnection] Using existing receiver:", currentConnectionReceiverId);
     receiverId = currentConnectionReceiverId;
   } else {
     // First time or previous receiver no longer exists
     currentConnectionReceiverId = receiverId;
-    console.log("[updateVesselReceiverConnection] Setting new receiver:", receiverId);
+    // console.log("[updateVesselReceiverConnection] Setting new receiver:", receiverId);
   }
   
   // Check if we have a valid receiver ID and if that receiver exists
@@ -4329,7 +4329,7 @@ function updateVesselReceiverConnection(UserID) {
     // Create or update the polyline with a single operation
     try {
       if (!receiverPolyline || !map.hasLayer(receiverPolyline)) {
-        console.log("[updateVesselReceiverConnection] Creating new polyline");
+        // console.log("[updateVesselReceiverConnection] Creating new polyline");
         // First creation or polyline was removed
         if (receiverPolyline) {
           // Try to clean up any existing polyline
@@ -4375,7 +4375,7 @@ function updateVesselReceiverConnection(UserID) {
     
     try {
       if (!receiverDistanceLabel || !map.hasLayer(receiverDistanceLabel)) {
-        console.log("[updateVesselReceiverConnection] Creating new distance label");
+        // console.log("[updateVesselReceiverConnection] Creating new distance label");
         // First creation or label was removed
         if (receiverDistanceLabel) {
           // Try to clean up any existing label
