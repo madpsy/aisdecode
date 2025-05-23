@@ -2758,8 +2758,15 @@
             const numBins = Math.min(100, Math.max(20, Object.keys(allVesselPositions).length * 5)); // At least 20 bins, at most 100
             const binSize = timeRange / numBins;
             
-            // Initialize bins
+            // Initialize bins with proper error checking
             histogramBins = Array(numBins).fill().map(() => ({}));
+            
+            // Verify all bins are properly initialized
+            for (let i = 0; i < histogramBins.length; i++) {
+                if (!histogramBins[i]) {
+                    histogramBins[i] = {};
+                }
+            }
             
             // Count messages per vessel per bin
             for (const id of selectedVessels) {
@@ -2771,14 +2778,17 @@
                 
                 for (const position of positions) {
                     const binIndex = Math.min(numBins - 1, Math.floor((position.timestamp - earliest) / binSize));
-                    if (!histogramBins[binIndex][id]) {
-                        histogramBins[binIndex][id] = {
-                            count: 0,
-                            color: vesselColor,
-                            name: vesselName
-                        };
+                    // Check if the bin exists before accessing it
+                    if (binIndex >= 0 && binIndex < histogramBins.length && histogramBins[binIndex]) {
+                        if (!histogramBins[binIndex][id]) {
+                            histogramBins[binIndex][id] = {
+                                count: 0,
+                                color: vesselColor,
+                                name: vesselName
+                            };
+                        }
+                        histogramBins[binIndex][id].count++;
                     }
-                    histogramBins[binIndex][id].count++;
                 }
             }
             
