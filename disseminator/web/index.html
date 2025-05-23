@@ -4264,7 +4264,7 @@ function updateVesselReceiverConnection(UserID) {
   lastReceiverUpdateTime = now;
   
   // Debug log to track when this function is called
-  console.log("[updateVesselReceiverConnection] called at", new Date().toISOString());
+  // console.log("[updateVesselReceiverConnection] called at", new Date().toISOString());
   
   // Ensure we're still working with the focused vessel
   if (focusedVessel !== UserID) {
@@ -4551,7 +4551,7 @@ function focusOnVessel(UserID, initialFocus = true) {
     receiverUpdateInterval = setInterval(() => {
       if (focusedVessel === UserID) {
         // Only update if the vessel is still focused
-        console.log("[receiverUpdateInterval] Updating vessel-receiver connection");
+        // console.log("[receiverUpdateInterval] Updating vessel-receiver connection");
         updateVesselReceiverConnection(UserID);
       } else {
         // Stop updating if this is no longer the focused vessel
