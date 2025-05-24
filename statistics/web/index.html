@@ -937,13 +937,23 @@
               imageCell = `<img src="${item.image_url}" alt="${vesselName}" class="thumb" data-full-url="${item.image_url}">`;
             }
             
+            // Find receiver name from receivers array
+            const receiver = receivers.find(r => r.id === item.receiver_id);
+            const receiverName = receiver ? receiver.name : `Receiver ${item.receiver_id}`;
+            
+            // Create link to receiver page
+            const receiverLink = `<a href="/metrics/receiver.html?receiver=${item.receiver_id}" target="_blank">${receiverName}</a>`;
+            
+            // Get type description
+            const typeDesc = item.type ? getTypeDescription(item.ais_class, item.type) : '';
+            
             duplicateTable.row.add([
               nameCell,
               imageCell,
               item.duplicate_count,
-              item.receiver_name || `Receiver ${item.receiver_id}`,
+              receiverLink,
               item.ais_class || '',
-              item.type || ''
+              typeDesc
             ]);
             
             // Add to chart
