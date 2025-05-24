@@ -1253,6 +1253,11 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 		// 1. The UDP port matches the ingester's port AND StoreAnonymousMessages is true, OR
 		// 2. There's a matching port for a receiver
 		if (portMatched && settings.StoreAnonymousMessages) || receiverFound {
+			// Debug log to check if DedupedPort is being passed to tryStoreMessage
+			if settings.Debug && message.DedupedPort != nil {
+				log.Printf("[DEBUG] Calling tryStoreMessage with DedupedPort=%d", *message.DedupedPort)
+			}
+
 			if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, receiverID, message.UDPPort, message.DedupedPort, settings); err != nil {
 				log.Printf("Error storing message: %v", err)
 			}
@@ -1517,6 +1522,12 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
 
 	stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence, receiver_id, distance, udp_port, receiver_id_duplicated)
 	            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+
+	// Debug log to check the values being inserted
+	if settings.Debug && dedupedPort != nil {
+		log.Printf("[DEBUG] Executing INSERT with receiverIDDuplicated=%v", receiverIDDuplicated)
+	}
+
 	_, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance, udpPort, receiverIDDuplicated)
 	if err != nil {
 		log.Printf("Error executing query: %v", err)
