@@ -178,8 +178,16 @@
           </div>
           <div class="col-md-4">
             <div class="card" id="anomalies-container">
-              <div class="card-header">
+              <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Detected Anomalies</h5>
+                <button id="show-all-btn" class="btn btn-sm btn-outline-primary">Show All</button>
+              </div>
+              <div class="d-flex justify-content-center p-2 bg-light border-bottom">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Sort options">
+                  <button id="sort-time-btn" class="btn btn-outline-secondary active" data-sort-dir="desc">Sort by Time</button>
+                  <button id="sort-percent-btn" class="btn btn-outline-secondary" data-sort-dir="desc">Sort by % Increase</button>
+                  <button id="sort-duration-btn" class="btn btn-outline-secondary" data-sort-dir="desc">Sort by Duration</button>
+                </div>
               </div>
               <div class="card-body p-0">
                 <div id="anomalies-list" class="list-group list-group-flush">
@@ -1201,6 +1209,159 @@
       }
     }
     
+    // Sort anomalies by time (toggles between most recent first and oldest first)
+    function sortAnomaliesByTime() {
+      const btn = document.getElementById('sort-time-btn');
+      const sortDir = btn.dataset.sortDir === 'desc' ? 'asc' : 'desc';
+      
+      // Update button states
+      document.getElementById('sort-time-btn').classList.add('active');
+      document.getElementById('sort-percent-btn').classList.remove('active');
+      document.getElementById('sort-duration-btn').classList.remove('active');
+      
+      // Update sort direction
+      btn.dataset.sortDir = sortDir;
+      
+      // Sort anomalies by start_time
+      if (sortDir === 'desc') {
+        // Descending order (most recent first)
+        currentAnomalies.sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
+      } else {
+        // Ascending order (oldest first)
+        currentAnomalies.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+      }
+      
+      // Update the list with sorted anomalies
+      const anomalyType = document.getElementById('anomaly-type').value;
+      updateAnomaliesList(currentAnomalies, anomalyType);
+    }
+    
+    // Sort anomalies by percent increase (toggles between highest first and lowest first)
+    function sortAnomaliesByPercent() {
+      const btn = document.getElementById('sort-percent-btn');
+      const sortDir = btn.dataset.sortDir === 'desc' ? 'asc' : 'desc';
+      
+      // Update button states
+      document.getElementById('sort-time-btn').classList.remove('active');
+      document.getElementById('sort-percent-btn').classList.add('active');
+      document.getElementById('sort-duration-btn').classList.remove('active');
+      
+      // Update sort direction
+      btn.dataset.sortDir = sortDir;
+      
+      // Sort anomalies by percent_increase
+      if (sortDir === 'desc') {
+        // Descending order (highest first)
+        currentAnomalies.sort((a, b) => b.percent_increase - a.percent_increase);
+      } else {
+        // Ascending order (lowest first)
+        currentAnomalies.sort((a, b) => a.percent_increase - b.percent_increase);
+      }
+      
+      // Update the list with sorted anomalies
+      const anomalyType = document.getElementById('anomaly-type').value;
+      updateAnomaliesList(currentAnomalies, anomalyType);
+    }
+    
+    // Sort anomalies by duration (toggles between longest first and shortest first)
+    function sortAnomaliesByDuration() {
+      const btn = document.getElementById('sort-duration-btn');
+      const sortDir = btn.dataset.sortDir === 'desc' ? 'asc' : 'desc';
+      
+      // Update button states
+      document.getElementById('sort-time-btn').classList.remove('active');
+      document.getElementById('sort-percent-btn').classList.remove('active');
+      document.getElementById('sort-duration-btn').classList.add('active');
+      
+      // Update sort direction
+      btn.dataset.sortDir = sortDir;
+      
+      // Sort anomalies by duration
+      if (sortDir === 'desc') {
+        // Descending order (longest first)
+        currentAnomalies.sort((a, b) => {
+          const durationA = new Date(a.end_time) - new Date(a.start_time);
+          const durationB = new Date(b.end_time) - new Date(b.start_time);
+          return durationB - durationA;
+        });
+      } else {
+        // Ascending order (shortest first)
+        currentAnomalies.sort((a, b) => {
+          const durationA = new Date(a.end_time) - new Date(a.start_time);
+          const durationB = new Date(b.end_time) - new Date(b.start_time);
+          return durationA - durationB;
+        });
+      }
+      
+      // Update the list with sorted anomalies
+      const anomalyType = document.getElementById('anomaly-type').value;
+      updateAnomaliesList(currentAnomalies, anomalyType);
+    }
+    
+    // Show all anomalies on the map
+    function showAllAnomalies() {
+      // Clear the map first
+      clearMap();
+      
+      // Get the current anomaly type
+      const anomalyType = document.getElementById('anomaly-type').value;
+      
+      if (currentAnomalies.length === 0) {
+        showNoDataOverlay();
+        return;
+      }
+      
+      // Hide no data overlay
+      hideNoDataOverlay();
+      
+      // Show all anomalies on the map
+      if (anomalyType === 'range') {
+        addRangeAnomaliesToMap(currentAnomalies);
+        
+        // Fit map to bounds
+        getBoundsFromAnomalies(currentAnomalies).then(bounds => {
+          if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [50, 50] });
+          } else {
+            console.warn('Invalid bounds, using default view');
+            map.setView([51.505, -0.09], 6);
+          }
+        }).catch(err => {
+          console.error('Error getting bounds:', err);
+          map.setView([51.505, -0.09], 6);
+        });
+      } else {
+        addDirectionAnomaliesToMap(currentAnomalies);
+        
+        // Create bounds from receiver locations
+        fetch('/receivers').then(r => r.json()).then(receivers => {
+          const bounds = L.latLngBounds();
+          let validBounds = false;
+          
+          currentAnomalies.forEach(anomaly => {
+            const receiver = receivers.find(r => r.id === anomaly.receiver_id);
+            if (receiver && receiver.latitude && receiver.longitude) {
+              bounds.extend([receiver.latitude, receiver.longitude]);
+              
+              // Extend bounds in the direction of the anomaly
+              const extendedPoint = getPointInDirection(
+                receiver.latitude,
+                receiver.longitude,
+                getDirectionDegrees(anomaly.direction),
+                anomaly.max_distance_meters / 1000
+              );
+              bounds.extend(extendedPoint);
+              validBounds = true;
+            }
+          });
+          
+          if (validBounds) {
+            map.fitBounds(bounds, { padding: [50, 50] });
+          }
+        });
+      }
+    }
+    
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
       // Parse URL parameters first
@@ -1208,6 +1369,10 @@
       
       // Add event listeners
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
+      document.getElementById('show-all-btn').addEventListener('click', showAllAnomalies);
+      document.getElementById('sort-time-btn').addEventListener('click', sortAnomaliesByTime);
+      document.getElementById('sort-percent-btn').addEventListener('click', sortAnomaliesByPercent);
+      document.getElementById('sort-duration-btn').addEventListener('click', sortAnomaliesByDuration);
       
       document.getElementById('receiver-select').addEventListener('change', () => {
         const anomalyType = document.getElementById('anomaly-type').value;
