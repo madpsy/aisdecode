@@ -2361,6 +2361,8 @@ func buildRangeAnomalyQuery(from, to time.Time, receiverID int) string {
 				AND m.receiver_id = %d
 				AND (m.packet->>'Latitude') IS NOT NULL
 				AND (m.packet->>'Longitude') IS NOT NULL
+				AND (m.packet->>'Latitude')::float <> 91.0
+				AND (m.packet->>'Longitude')::float <> 181.0
 			)
 			SELECT
 				h.hour_start,
@@ -2395,6 +2397,8 @@ func buildRangeAnomalyQuery(from, to time.Time, receiverID int) string {
 				AND m.timestamp <= '%s'
 				AND (m.packet->>'Latitude') IS NOT NULL
 				AND (m.packet->>'Longitude') IS NOT NULL
+				AND (m.packet->>'Latitude')::float <> 91.0
+				AND (m.packet->>'Longitude')::float <> 181.0
 			)
 			SELECT
 				h.hour_start,
@@ -2650,6 +2654,8 @@ func buildDirectionAnomalyQuery(from, to time.Time, receiverID int) string {
 				AND m.receiver_id = %d
 				AND (m.packet->>'Latitude') IS NOT NULL
 				AND (m.packet->>'Longitude') IS NOT NULL
+				AND (m.packet->>'Latitude')::float <> 91.0
+				AND (m.packet->>'Longitude')::float <> 181.0
 			),
 			message_with_distance AS (
 				SELECT
@@ -2705,6 +2711,8 @@ func buildDirectionAnomalyQuery(from, to time.Time, receiverID int) string {
 				AND m.timestamp <= '%s'
 				AND (m.packet->>'Latitude') IS NOT NULL
 				AND (m.packet->>'Longitude') IS NOT NULL
+				AND (m.packet->>'Latitude')::float <> 91.0
+				AND (m.packet->>'Longitude')::float <> 181.0
 			),
 			message_with_distance AS (
 				SELECT
