@@ -298,6 +298,7 @@ type StreamMessage struct {
 	RawSentence string      `json:"raw_sentence"`
 	UDPPort     int         `json:"udp_port"`
 	DedupedPort *int        `json:"deduped_port,omitempty"`
+	IsDuplicate bool        `json:"is_duplicate"`
 }
 
 // handshakeReq is the JSON clients must send on connect
@@ -1397,6 +1398,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 
 		// ── Deduplication window ───────────────────────────────────────────────
 		var dedupedPort *int = nil
+		isDuplicate := false
 		if dedupWindow > 0 {
 			dedupMu.Lock()
 			now := time.Now()
@@ -1426,6 +1428,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 					// Store the port that first saw this message
 					portCopy := info.Port
 					dedupedPort = &portCopy
+					isDuplicate = true
 
 					if debugFlag {
 						log.Printf("DUPLICATE: Message from user %s with hash %d is a duplicate. Original port: %d, Current port: %d",
@@ -1600,6 +1603,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 			RawSentence: rawToSend,
 			UDPPort:     pkt.port,
 			DedupedPort: dedupedPort,
+			IsDuplicate: isDuplicate,
 		}
 
 		// Debug log to track execution flow
@@ -1660,6 +1664,7 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 			if err := json.Unmarshal(payload, &mqttMap); err == nil {
 				delete(mqttMap, "source_ip")
 				delete(mqttMap, "udp_port")
+				delete(mqttMap, "deduped_port")
 				if mqttBuf, err := json.Marshal(mqttMap); err == nil {
 					token := mqttClient.Publish(topic, 0, false, mqttBuf)
 					token.Wait()
