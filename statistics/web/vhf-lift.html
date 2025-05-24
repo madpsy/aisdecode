@@ -956,13 +956,79 @@
       });
     }
     
+    // Update URL with current parameters
+    function updateUrlParameters() {
+      const receiverId = document.getElementById('receiver-select').value;
+      const days = document.getElementById('days-select').value;
+      const anomalyType = document.getElementById('anomaly-type').value;
+      
+      // Create URL object from current URL
+      const url = new URL(window.location.href);
+      
+      // Update or add parameters
+      if (receiverId) {
+        url.searchParams.set('receiver_id', receiverId);
+      } else {
+        url.searchParams.delete('receiver_id');
+      }
+      
+      url.searchParams.set('days', days);
+      url.searchParams.set('type', anomalyType);
+      
+      // Update URL without reloading the page
+      window.history.pushState({}, '', url);
+    }
+    
+    // Parse URL parameters
+    function parseUrlParameters() {
+      const urlParams = new URLSearchParams(window.location.search);
+      
+      // Get parameters
+      const receiverId = urlParams.get('receiver_id');
+      const days = urlParams.get('days');
+      const anomalyType = urlParams.get('type');
+      
+      // Set dropdown values if parameters exist
+      if (receiverId) {
+        const receiverSelect = document.getElementById('receiver-select');
+        // We'll set this after receivers are loaded
+        receiverSelect.dataset.preselect = receiverId;
+      }
+      
+      if (days) {
+        const daysSelect = document.getElementById('days-select');
+        // Check if the value exists in the options
+        for (let i = 0; i < daysSelect.options.length; i++) {
+          if (daysSelect.options[i].value === days) {
+            daysSelect.selectedIndex = i;
+            break;
+          }
+        }
+      }
+      
+      if (anomalyType) {
+        const anomalyTypeSelect = document.getElementById('anomaly-type');
+        // Check if the value exists in the options
+        for (let i = 0; i < anomalyTypeSelect.options.length; i++) {
+          if (anomalyTypeSelect.options[i].value === anomalyType) {
+            anomalyTypeSelect.selectedIndex = i;
+            break;
+          }
+        }
+      }
+    }
+    
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
+      // Parse URL parameters first
+      parseUrlParameters();
+      
       // Add event listeners
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
       
       document.getElementById('receiver-select').addEventListener('change', () => {
         const anomalyType = document.getElementById('anomaly-type').value;
+        updateUrlParameters();
         if (anomalyType === 'range') {
           loadRangeAnomalies();
         } else {
@@ -972,6 +1038,7 @@
       
       document.getElementById('days-select').addEventListener('change', () => {
         const anomalyType = document.getElementById('anomaly-type').value;
+        updateUrlParameters();
         if (anomalyType === 'range') {
           loadRangeAnomalies();
         } else {
@@ -980,6 +1047,7 @@
       });
       
       document.getElementById('anomaly-type').addEventListener('change', (e) => {
+        updateUrlParameters();
         if (e.target.value === 'range') {
           loadRangeAnomalies();
         } else {
@@ -989,8 +1057,27 @@
       
       // Load receivers
       loadReceivers().then(() => {
-        // Load initial data
-        loadRangeAnomalies();
+        // Check if we need to preselect a receiver from URL parameters
+        const receiverSelect = document.getElementById('receiver-select');
+        if (receiverSelect.dataset.preselect) {
+          const receiverId = receiverSelect.dataset.preselect;
+          for (let i = 0; i < receiverSelect.options.length; i++) {
+            if (receiverSelect.options[i].value === receiverId) {
+              receiverSelect.selectedIndex = i;
+              break;
+            }
+          }
+          // Remove the dataset attribute
+          delete receiverSelect.dataset.preselect;
+        }
+        
+        // Load initial data based on selected parameters
+        const anomalyType = document.getElementById('anomaly-type').value;
+        if (anomalyType === 'range') {
+          loadRangeAnomalies();
+        } else {
+          loadDirectionAnomalies();
+        }
       });
     });
   </script>
