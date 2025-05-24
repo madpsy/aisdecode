@@ -1397,9 +1397,6 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 
 		// ── Deduplication window ───────────────────────────────────────────────
 		var dedupedPort *int = nil
-		// Check if debugFlag is set
-		// log.Printf("DEBUG FLAG CHECK: debugFlag=%v", debugFlag)
-
 		if dedupWindow > 0 {
 			dedupMu.Lock()
 			now := time.Now()
@@ -1433,11 +1430,8 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 					if debugFlag {
 						log.Printf("DUPLICATE: Message from user %s with hash %d is a duplicate. Original port: %d, Current port: %d",
 							userID, hashedMsg, info.Port, pkt.port)
-						log.Printf("DUPLICATE DETAILS: Setting dedupedPort=%d (pointer=%p)", *dedupedPort, dedupedPort)
+						log.Printf("[DEBUG] Setting dedupedPort=%d (pointer=%p)", *dedupedPort, dedupedPort)
 					}
-
-					// Simple debug log to check if execution continues
-					// log.Printf("EXECUTION CHECK: After setting dedupedPort")
 				} else {
 					// Original behavior: discard the packet
 					if debugFlag {
@@ -1468,8 +1462,8 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 		// ── Downsample logic ────────────────────────────────────────────────────
 		// Debug log to check if duplicate messages are reaching the downsampling logic
 		if debugFlag && dedupedPort != nil {
-			log.Printf("DUPLICATE DOWNSAMPLE CHECK: Message with dedupedPort=%d reached downsampling logic", *dedupedPort)
-			log.Printf("DUPLICATE DOWNSAMPLE BYPASS: Skipping downsampling for duplicate message")
+			log.Printf("[DEBUG] Duplicate message with dedupedPort=%d reached downsampling logic", *dedupedPort)
+			log.Printf("[DEBUG] Skipping downsampling for duplicate message")
 		}
 
 		// Skip downsampling for duplicate messages (messages with dedupedPort set)
@@ -1589,6 +1583,11 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 		rawToSend := rawStr
 		if complete && joined != "" {
 			rawToSend = joined
+		}
+
+		// Simple debug log before creating StreamMessage
+		if debugFlag && dedupedPort != nil {
+			log.Printf("[DEBUG] Before creating StreamMessage")
 		}
 
 		streamObj := StreamMessage{
