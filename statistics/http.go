@@ -134,6 +134,10 @@ func registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/statistics/stats/coverage-map", coverageMapHandler)
 	mux.HandleFunc("/statistics/stats/time-series", timeSeriesHandler)
 	mux.HandleFunc("/statistics/stats/top-duplicates", topDuplicatesHandler)
+
+	// VHF lift detection endpoints
+	mux.HandleFunc("/statistics/stats/vhf-range-anomalies", vhfRangeAnomaliesHandler)
+	mux.HandleFunc("/statistics/stats/vhf-direction-anomalies", vhfDirectionAnomaliesHandler)
 }
 
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
@@ -2206,4 +2210,682 @@ func getIntervalName(period TimeSeriesPeriod) string {
 	default:
 		return "hour"
 	}
+}
+
+// VHF Lift Detection Types and Handlers
+
+// RangeAnomaly represents a period of unusual reception range
+type RangeAnomaly struct {
+	ReceiverID        int       `json:"receiver_id"`
+	ReceiverName      string    `json:"receiver_name,omitempty"`
+	StartTime         time.Time `json:"start_time"`
+	EndTime           time.Time `json:"end_time"`
+	NormalRangeKm     float64   `json:"normal_range_km"`
+	AnomalyRangeKm    float64   `json:"anomaly_range_km"`
+	PercentIncrease   float64   `json:"percent_increase"`
+	MaxUserID         int       `json:"max_user_id"`
+	MaxVesselName     string    `json:"max_vessel_name,omitempty"`
+	MaxLat            float64   `json:"max_lat"`
+	MaxLon            float64   `json:"max_lon"`
+	MaxDistanceMeters float64   `json:"max_distance_meters"`
+}
+
+// DirectionAnomaly represents an unusual directional pattern in reception
+type DirectionAnomaly struct {
+	ReceiverID        int       `json:"receiver_id"`
+	ReceiverName      string    `json:"receiver_name,omitempty"`
+	Direction         string    `json:"direction"`
+	StartTime         time.Time `json:"start_time"`
+	EndTime           time.Time `json:"end_time"`
+	NormalCount       int       `json:"normal_count"`
+	AnomalyCount      int       `json:"anomaly_count"`
+	PercentIncrease   float64   `json:"percent_increase"`
+	MaxDistanceMeters float64   `json:"max_distance_meters"`
+}
+
+// vhfRangeAnomaliesHandler detects unusual increases in reception range
+func vhfRangeAnomaliesHandler(w http.ResponseWriter, r *http.Request) {
+	days := parseDaysParam(r)
+	receiverID := parseReceiverIDParam(r)
+	timeRange, err := parseTimeRangeParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Include receiver_id and time range in cache key if specified
+	var cacheKey string
+	if timeRange.UseRange {
+		if receiverID > 0 {
+			cacheKey = fmt.Sprintf("vhf-range-anomalies:%s-%s:r%d",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"),
+				receiverID)
+		} else {
+			cacheKey = fmt.Sprintf("vhf-range-anomalies:%s-%s",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"))
+		}
+	} else {
+		if receiverID > 0 {
+			cacheKey = fmt.Sprintf("vhf-range-anomalies:%dd:r%d", days, receiverID)
+		} else {
+			cacheKey = fmt.Sprintf("vhf-range-anomalies:%dd", days)
+		}
+	}
+
+	var anomalies []RangeAnomaly
+	if ok, _ := cacheGet(cacheKey, &anomalies); ok {
+		// Enrich with receiver names if needed
+		if len(anomalies) > 0 {
+			receiverIDs := make([]int, 0, len(anomalies))
+			for _, a := range anomalies {
+				if a.ReceiverID > 0 {
+					receiverIDs = append(receiverIDs, a.ReceiverID)
+				}
+			}
+
+			if len(receiverIDs) > 0 {
+				receivers, err := fetchReceivers(receiverIDs)
+				if err == nil {
+					for i := range anomalies {
+						if name, ok := receivers[anomalies[i].ReceiverID]; ok {
+							anomalies[i].ReceiverName = name
+						}
+					}
+				}
+			}
+		}
+
+		respondJSON(w, anomalies)
+		return
+	}
+
+	// Build query to get maximum distance per hour
+	var qry string
+	if timeRange.UseRange {
+		qry = buildRangeAnomalyQuery(timeRange.From, timeRange.To, receiverID)
+	} else {
+		// Calculate from and to dates based on days parameter
+		to := time.Now()
+		from := to.AddDate(0, 0, -days)
+		qry = buildRangeAnomalyQuery(from, to, receiverID)
+	}
+
+	shardResults, err := QueryDatabasesForAllShards(qry)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+
+	// Process results to find anomalies
+	anomalies = detectRangeAnomalies(shardResults)
+
+	// Enrich with vessel names
+	for i := range anomalies {
+		if anomalies[i].MaxUserID > 0 {
+			meta, err := getVesselMetadata(anomalies[i].MaxUserID)
+			if err == nil && meta.Name != "" {
+				anomalies[i].MaxVesselName = meta.Name
+			}
+		}
+	}
+
+	// Cache results
+	cacheSet(cacheKey, anomalies)
+	respondJSON(w, anomalies)
+}
+
+// buildRangeAnomalyQuery creates SQL to get hourly max distances
+func buildRangeAnomalyQuery(from, to time.Time, receiverID int) string {
+	var qry string
+
+	if receiverID > 0 {
+		qry = fmt.Sprintf(`
+			WITH receiver_locations AS (
+				SELECT id, latitude, longitude
+				FROM receivers
+				WHERE id = %d
+			),
+			hourly_data AS (
+				SELECT
+					date_trunc('hour', m.timestamp) AS hour_start,
+					m.receiver_id,
+					m.user_id,
+					(m.packet->>'Latitude')::float AS lat,
+					(m.packet->>'Longitude')::float AS lon
+				FROM messages m
+				WHERE m.message_id IN (1,2,3,18,19)
+				AND m.timestamp >= '%s'
+				AND m.timestamp <= '%s'
+				AND m.receiver_id = %d
+				AND (m.packet->>'Latitude') IS NOT NULL
+				AND (m.packet->>'Longitude') IS NOT NULL
+			)
+			SELECT
+				h.hour_start,
+				h.receiver_id,
+				h.user_id,
+				h.lat,
+				h.lon,
+				ST_DistanceSphere(
+					ST_MakePoint(h.lon, h.lat),
+					ST_MakePoint(r.longitude, r.latitude)
+				) AS distance_meters
+			FROM hourly_data h
+			JOIN receiver_locations r ON h.receiver_id = r.id
+			ORDER BY hour_start, distance_meters DESC
+		`, receiverID, from.Format(time.RFC3339), to.Format(time.RFC3339), receiverID)
+	} else {
+		qry = fmt.Sprintf(`
+			WITH receiver_locations AS (
+				SELECT id, latitude, longitude
+				FROM receivers
+			),
+			hourly_data AS (
+				SELECT
+					date_trunc('hour', m.timestamp) AS hour_start,
+					m.receiver_id,
+					m.user_id,
+					(m.packet->>'Latitude')::float AS lat,
+					(m.packet->>'Longitude')::float AS lon
+				FROM messages m
+				WHERE m.message_id IN (1,2,3,18,19)
+				AND m.timestamp >= '%s'
+				AND m.timestamp <= '%s'
+				AND (m.packet->>'Latitude') IS NOT NULL
+				AND (m.packet->>'Longitude') IS NOT NULL
+			)
+			SELECT
+				h.hour_start,
+				h.receiver_id,
+				h.user_id,
+				h.lat,
+				h.lon,
+				ST_DistanceSphere(
+					ST_MakePoint(h.lon, h.lat),
+					ST_MakePoint(r.longitude, r.latitude)
+				) AS distance_meters
+			FROM hourly_data h
+			JOIN receiver_locations r ON h.receiver_id = r.id
+			ORDER BY hour_start, distance_meters DESC
+		`, from.Format(time.RFC3339), to.Format(time.RFC3339))
+	}
+
+	return qry
+}
+
+// detectRangeAnomalies processes query results to find unusual range increases
+func detectRangeAnomalies(shardResults map[string][]map[string]interface{}) []RangeAnomaly {
+	// Group max distances by receiver and hour
+	type hourlyMax struct {
+		hour        time.Time
+		maxDistance float64
+		userID      int
+		lat         float64
+		lon         float64
+	}
+
+	receiverHourlyMax := make(map[int][]hourlyMax)
+
+	for _, recs := range shardResults {
+		for _, rec := range recs {
+			hour, _ := parseTime(rec["hour_start"])
+			receiverID, _ := parseInt(rec["receiver_id"])
+			userID, _ := parseInt(rec["user_id"])
+			lat, _ := parseFloat(rec["lat"])
+			lon, _ := parseFloat(rec["lon"])
+			distance, _ := parseFloat(rec["distance_meters"])
+
+			// Skip if we already have a record for this hour and receiver with a greater distance
+			found := false
+			for i, existing := range receiverHourlyMax[receiverID] {
+				if existing.hour.Equal(hour) {
+					found = true
+					if distance > existing.maxDistance {
+						receiverHourlyMax[receiverID][i] = hourlyMax{
+							hour:        hour,
+							maxDistance: distance,
+							userID:      userID,
+							lat:         lat,
+							lon:         lon,
+						}
+					}
+					break
+				}
+			}
+
+			if !found {
+				receiverHourlyMax[receiverID] = append(receiverHourlyMax[receiverID], hourlyMax{
+					hour:        hour,
+					maxDistance: distance,
+					userID:      userID,
+					lat:         lat,
+					lon:         lon,
+				})
+			}
+		}
+	}
+
+	// Calculate baseline and detect anomalies
+	var anomalies []RangeAnomaly
+
+	for receiverID, hourlyData := range receiverHourlyMax {
+		// Sort by hour
+		sort.Slice(hourlyData, func(i, j int) bool {
+			return hourlyData[i].hour.Before(hourlyData[j].hour)
+		})
+
+		// Need at least 3 hours of data to establish a baseline
+		if len(hourlyData) < 3 {
+			continue
+		}
+
+		// Calculate baseline (median of first 24 hours or all available if less)
+		baselineCount := min(24, len(hourlyData))
+		baselineDistances := make([]float64, baselineCount)
+		for i := 0; i < baselineCount; i++ {
+			baselineDistances[i] = hourlyData[i].maxDistance
+		}
+		sort.Float64s(baselineDistances)
+		baselineDistance := baselineDistances[baselineCount/2] // median
+
+		// Look for anomalies (20%+ increase over baseline)
+		anomalyThreshold := baselineDistance * 1.2
+
+		var currentAnomaly *RangeAnomaly
+
+		for i, data := range hourlyData {
+			if data.maxDistance > anomalyThreshold {
+				// Start or continue anomaly
+				if currentAnomaly == nil {
+					currentAnomaly = &RangeAnomaly{
+						ReceiverID:        receiverID,
+						StartTime:         data.hour,
+						EndTime:           data.hour.Add(time.Hour),
+						NormalRangeKm:     baselineDistance / 1000.0, // convert to km
+						AnomalyRangeKm:    data.maxDistance / 1000.0, // convert to km
+						PercentIncrease:   (data.maxDistance - baselineDistance) / baselineDistance * 100.0,
+						MaxUserID:         data.userID,
+						MaxLat:            data.lat,
+						MaxLon:            data.lon,
+						MaxDistanceMeters: data.maxDistance,
+					}
+				} else {
+					// Update end time and max values if needed
+					currentAnomaly.EndTime = data.hour.Add(time.Hour)
+					if data.maxDistance > currentAnomaly.MaxDistanceMeters {
+						currentAnomaly.MaxDistanceMeters = data.maxDistance
+						currentAnomaly.AnomalyRangeKm = data.maxDistance / 1000.0
+						currentAnomaly.PercentIncrease = (data.maxDistance - baselineDistance) / baselineDistance * 100.0
+						currentAnomaly.MaxUserID = data.userID
+						currentAnomaly.MaxLat = data.lat
+						currentAnomaly.MaxLon = data.lon
+					}
+				}
+
+				// If this is the last data point or next point is not anomalous, save the anomaly
+				if i == len(hourlyData)-1 || hourlyData[i+1].maxDistance <= anomalyThreshold {
+					if currentAnomaly != nil {
+						anomalies = append(anomalies, *currentAnomaly)
+						currentAnomaly = nil
+					}
+				}
+			}
+		}
+	}
+
+	// Sort anomalies by percent increase (descending)
+	sort.Slice(anomalies, func(i, j int) bool {
+		return anomalies[i].PercentIncrease > anomalies[j].PercentIncrease
+	})
+
+	return anomalies
+}
+
+// vhfDirectionAnomaliesHandler detects unusual directional patterns in reception
+func vhfDirectionAnomaliesHandler(w http.ResponseWriter, r *http.Request) {
+	days := parseDaysParam(r)
+	receiverID := parseReceiverIDParam(r)
+	timeRange, err := parseTimeRangeParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Include receiver_id and time range in cache key if specified
+	var cacheKey string
+	if timeRange.UseRange {
+		if receiverID > 0 {
+			cacheKey = fmt.Sprintf("vhf-direction-anomalies:%s-%s:r%d",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"),
+				receiverID)
+		} else {
+			cacheKey = fmt.Sprintf("vhf-direction-anomalies:%s-%s",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"))
+		}
+	} else {
+		if receiverID > 0 {
+			cacheKey = fmt.Sprintf("vhf-direction-anomalies:%dd:r%d", days, receiverID)
+		} else {
+			cacheKey = fmt.Sprintf("vhf-direction-anomalies:%dd", days)
+		}
+	}
+
+	var anomalies []DirectionAnomaly
+	if ok, _ := cacheGet(cacheKey, &anomalies); ok {
+		// Enrich with receiver names if needed
+		if len(anomalies) > 0 {
+			receiverIDs := make([]int, 0, len(anomalies))
+			for _, a := range anomalies {
+				if a.ReceiverID > 0 {
+					receiverIDs = append(receiverIDs, a.ReceiverID)
+				}
+			}
+
+			if len(receiverIDs) > 0 {
+				receivers, err := fetchReceivers(receiverIDs)
+				if err == nil {
+					for i := range anomalies {
+						if name, ok := receivers[anomalies[i].ReceiverID]; ok {
+							anomalies[i].ReceiverName = name
+						}
+					}
+				}
+			}
+		}
+
+		respondJSON(w, anomalies)
+		return
+	}
+
+	// Build query to get directional data
+	var qry string
+	if timeRange.UseRange {
+		qry = buildDirectionAnomalyQuery(timeRange.From, timeRange.To, receiverID)
+	} else {
+		// Calculate from and to dates based on days parameter
+		to := time.Now()
+		from := to.AddDate(0, 0, -days)
+		qry = buildDirectionAnomalyQuery(from, to, receiverID)
+	}
+
+	shardResults, err := QueryDatabasesForAllShards(qry)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+
+	// Process results to find directional anomalies
+	anomalies = detectDirectionAnomalies(shardResults)
+
+	// Cache results
+	cacheSet(cacheKey, anomalies)
+	respondJSON(w, anomalies)
+}
+
+// buildDirectionAnomalyQuery creates SQL to get hourly directional data
+func buildDirectionAnomalyQuery(from, to time.Time, receiverID int) string {
+	var qry string
+
+	if receiverID > 0 {
+		qry = fmt.Sprintf(`
+			WITH receiver_locations AS (
+				SELECT id, latitude, longitude
+				FROM receivers
+				WHERE id = %d
+			),
+			message_data AS (
+				SELECT
+					date_trunc('hour', m.timestamp) AS hour_start,
+					m.receiver_id,
+					(m.packet->>'Latitude')::float AS lat,
+					(m.packet->>'Longitude')::float AS lon
+				FROM messages m
+				WHERE m.message_id IN (1,2,3,18,19)
+				AND m.timestamp >= '%s'
+				AND m.timestamp <= '%s'
+				AND m.receiver_id = %d
+				AND (m.packet->>'Latitude') IS NOT NULL
+				AND (m.packet->>'Longitude') IS NOT NULL
+			),
+			message_with_distance AS (
+				SELECT
+					m.hour_start,
+					m.receiver_id,
+					m.lat,
+					m.lon,
+					ST_DistanceSphere(
+						ST_MakePoint(m.lon, m.lat),
+						ST_MakePoint(r.longitude, r.latitude)
+					) AS distance_meters,
+					degrees(ST_Azimuth(
+						ST_MakePoint(r.longitude, r.latitude),
+						ST_MakePoint(m.lon, m.lat)
+					)) AS bearing
+				FROM message_data m
+				JOIN receiver_locations r ON m.receiver_id = r.id
+			)
+			SELECT
+				hour_start,
+				receiver_id,
+				CASE
+					WHEN bearing BETWEEN 0 AND 22.5 OR bearing BETWEEN 337.5 AND 360 THEN 'N'
+					WHEN bearing BETWEEN 22.5 AND 67.5 THEN 'NE'
+					WHEN bearing BETWEEN 67.5 AND 112.5 THEN 'E'
+					WHEN bearing BETWEEN 112.5 AND 157.5 THEN 'SE'
+					WHEN bearing BETWEEN 157.5 AND 202.5 THEN 'S'
+					WHEN bearing BETWEEN 202.5 AND 247.5 THEN 'SW'
+					WHEN bearing BETWEEN 247.5 AND 292.5 THEN 'W'
+					WHEN bearing BETWEEN 292.5 AND 337.5 THEN 'NW'
+				END AS direction,
+				COUNT(*) AS message_count,
+				MAX(distance_meters) AS max_distance
+			FROM message_with_distance
+			GROUP BY hour_start, receiver_id, direction
+			ORDER BY hour_start, direction
+		`, receiverID, from.Format(time.RFC3339), to.Format(time.RFC3339), receiverID)
+	} else {
+		qry = fmt.Sprintf(`
+			WITH receiver_locations AS (
+				SELECT id, latitude, longitude
+				FROM receivers
+			),
+			message_data AS (
+				SELECT
+					date_trunc('hour', m.timestamp) AS hour_start,
+					m.receiver_id,
+					(m.packet->>'Latitude')::float AS lat,
+					(m.packet->>'Longitude')::float AS lon
+				FROM messages m
+				WHERE m.message_id IN (1,2,3,18,19)
+				AND m.timestamp >= '%s'
+				AND m.timestamp <= '%s'
+				AND (m.packet->>'Latitude') IS NOT NULL
+				AND (m.packet->>'Longitude') IS NOT NULL
+			),
+			message_with_distance AS (
+				SELECT
+					m.hour_start,
+					m.receiver_id,
+					m.lat,
+					m.lon,
+					ST_DistanceSphere(
+						ST_MakePoint(m.lon, m.lat),
+						ST_MakePoint(r.longitude, r.latitude)
+					) AS distance_meters,
+					degrees(ST_Azimuth(
+						ST_MakePoint(r.longitude, r.latitude),
+						ST_MakePoint(m.lon, m.lat)
+					)) AS bearing
+				FROM message_data m
+				JOIN receiver_locations r ON m.receiver_id = r.id
+			)
+			SELECT
+				hour_start,
+				receiver_id,
+				CASE
+					WHEN bearing BETWEEN 0 AND 22.5 OR bearing BETWEEN 337.5 AND 360 THEN 'N'
+					WHEN bearing BETWEEN 22.5 AND 67.5 THEN 'NE'
+					WHEN bearing BETWEEN 67.5 AND 112.5 THEN 'E'
+					WHEN bearing BETWEEN 112.5 AND 157.5 THEN 'SE'
+					WHEN bearing BETWEEN 157.5 AND 202.5 THEN 'S'
+					WHEN bearing BETWEEN 202.5 AND 247.5 THEN 'SW'
+					WHEN bearing BETWEEN 247.5 AND 292.5 THEN 'W'
+					WHEN bearing BETWEEN 292.5 AND 337.5 THEN 'NW'
+				END AS direction,
+				COUNT(*) AS message_count,
+				MAX(distance_meters) AS max_distance
+			FROM message_with_distance
+			GROUP BY hour_start, receiver_id, direction
+			ORDER BY hour_start, receiver_id, direction
+		`, from.Format(time.RFC3339), to.Format(time.RFC3339))
+	}
+
+	return qry
+}
+
+// detectDirectionAnomalies processes query results to find unusual directional patterns
+func detectDirectionAnomalies(shardResults map[string][]map[string]interface{}) []DirectionAnomaly {
+	// Group by receiver, hour, and direction
+	type directionData struct {
+		count       int
+		maxDistance float64
+	}
+
+	type hourData map[string]directionData   // direction -> data
+	type receiverData map[time.Time]hourData // hour -> direction data
+
+	receiverDirections := make(map[int]receiverData)
+
+	for _, recs := range shardResults {
+		for _, rec := range recs {
+			hour, _ := parseTime(rec["hour_start"])
+			receiverID, _ := parseInt(rec["receiver_id"])
+			direction, _ := parseString(rec["direction"])
+			count, _ := parseInt(rec["message_count"])
+			maxDistance, _ := parseFloat(rec["max_distance"])
+
+			// Initialize maps if needed
+			if _, exists := receiverDirections[receiverID]; !exists {
+				receiverDirections[receiverID] = make(receiverData)
+			}
+
+			if _, exists := receiverDirections[receiverID][hour]; !exists {
+				receiverDirections[receiverID][hour] = make(hourData)
+			}
+
+			// Store the data
+			receiverDirections[receiverID][hour][direction] = directionData{
+				count:       count,
+				maxDistance: maxDistance,
+			}
+		}
+	}
+
+	// Calculate baselines and detect anomalies
+	var anomalies []DirectionAnomaly
+
+	for receiverID, data := range receiverDirections {
+		// Convert to time-sorted slice for easier processing
+		type timeDirectionData struct {
+			hour      time.Time
+			direction string
+			count     int
+			maxDist   float64
+		}
+
+		var timeSeriesData []timeDirectionData
+
+		for hour, dirData := range data {
+			for dir, counts := range dirData {
+				timeSeriesData = append(timeSeriesData, timeDirectionData{
+					hour:      hour,
+					direction: dir,
+					count:     counts.count,
+					maxDist:   counts.maxDistance,
+				})
+			}
+		}
+
+		// Sort by hour
+		sort.Slice(timeSeriesData, func(i, j int) bool {
+			return timeSeriesData[i].hour.Before(timeSeriesData[j].hour)
+		})
+
+		// Group by direction to calculate baselines
+		directionBaselines := make(map[string]int)
+		directionCounts := make(map[string]int)
+
+		for _, d := range timeSeriesData {
+			directionBaselines[d.direction] += d.count
+			directionCounts[d.direction]++
+		}
+
+		// Calculate average counts per direction
+		for dir := range directionBaselines {
+			if directionCounts[dir] > 0 {
+				directionBaselines[dir] = directionBaselines[dir] / directionCounts[dir]
+			}
+		}
+
+		// Look for anomalies (50%+ increase in a specific direction)
+		var currentAnomalies = make(map[string]*DirectionAnomaly)
+
+		for _, d := range timeSeriesData {
+			baseline := directionBaselines[d.direction]
+			if baseline == 0 {
+				continue // Skip directions with no baseline
+			}
+
+			// Check if this is an anomaly (50%+ increase)
+			anomalyThreshold := float64(baseline) * 1.5
+			if float64(d.count) > anomalyThreshold {
+				// Start or continue anomaly
+				if _, exists := currentAnomalies[d.direction]; !exists {
+					currentAnomalies[d.direction] = &DirectionAnomaly{
+						ReceiverID:        receiverID,
+						Direction:         d.direction,
+						StartTime:         d.hour,
+						EndTime:           d.hour.Add(time.Hour),
+						NormalCount:       baseline,
+						AnomalyCount:      d.count,
+						PercentIncrease:   (float64(d.count) - float64(baseline)) / float64(baseline) * 100.0,
+						MaxDistanceMeters: d.maxDist,
+					}
+				} else {
+					// Update end time and max values if needed
+					currentAnomalies[d.direction].EndTime = d.hour.Add(time.Hour)
+					if d.count > currentAnomalies[d.direction].AnomalyCount {
+						currentAnomalies[d.direction].AnomalyCount = d.count
+						currentAnomalies[d.direction].PercentIncrease =
+							(float64(d.count) - float64(baseline)) / float64(baseline) * 100.0
+					}
+					if d.maxDist > currentAnomalies[d.direction].MaxDistanceMeters {
+						currentAnomalies[d.direction].MaxDistanceMeters = d.maxDist
+					}
+				}
+			} else {
+				// If this direction had an anomaly and it's now over, save it
+				if anom, exists := currentAnomalies[d.direction]; exists {
+					anomalies = append(anomalies, *anom)
+					delete(currentAnomalies, d.direction)
+				}
+			}
+		}
+
+		// Add any remaining anomalies
+		for _, anom := range currentAnomalies {
+			anomalies = append(anomalies, *anom)
+		}
+	}
+
+	// Sort anomalies by percent increase (descending)
+	sort.Slice(anomalies, func(i, j int) bool {
+		return anomalies[i].PercentIncrease > anomalies[j].PercentIncrease
+	})
+
+	return anomalies
 }
