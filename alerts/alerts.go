@@ -57,6 +57,7 @@ type Receiver struct {
 	Notifications    bool                   `json:"notifications"`
 	RequestIPAddress string                 `json:"request_ip_address,omitempty"` // IP address of who added the receiver
 	CustomFields     map[string]interface{} `json:"custom_fields,omitempty"`      // For additional fields like reset tokens
+	UptimePctWeek    float64                `json:"uptime_pct_week,omitempty"`    // Weekly uptime percentage
 }
 
 // Alert represents an alert record in the database

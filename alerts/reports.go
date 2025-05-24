@@ -20,11 +20,11 @@ type StatisticsSettings struct {
 
 // ReceiverStats represents statistics for a single receiver
 type ReceiverStats struct {
-	TopSOG       []vessel      `json:"top_sog"`
-	TopTypes     []typeCount   `json:"top_types"`
-	TopClasses   []classCount  `json:"top_classes"`
-	TopPositions []posVessel   `json:"top_positions"`
-	TopDistance  []distVessel  `json:"top_distance"`
+	TopSOG       []vessel        `json:"top_sog"`
+	TopTypes     []typeCount     `json:"top_types"`
+	TopClasses   []classCount    `json:"top_classes"`
+	TopPositions []posVessel     `json:"top_positions"`
+	TopDistance  []distVessel    `json:"top_distance"`
 	Coverage     []coveragePoint `json:"coverage"`
 }
 
@@ -144,7 +144,7 @@ func isTimeToSendReport(lastReportTime time.Time, reportTimeStr string) (bool, e
 	}
 
 	now := time.Now()
-	
+
 	// Check if it's the right day of the week
 	if now.Weekday() != day {
 		return false, nil
@@ -166,13 +166,13 @@ func isTimeToSendReport(lastReportTime time.Time, reportTimeStr string) (bool, e
 // fetchVesselTypeMap fetches the vessel type mapping from the statistics API
 func fetchVesselTypeMap(baseURL string) (VesselTypeMap, error) {
 	vesselTypeMap := make(VesselTypeMap)
-	
+
 	// Fetch vessel type mappings
 	vesselTypesURL := fmt.Sprintf("%s/statistics/vessel_types.json", baseURL)
 	if err := fetchJSON(vesselTypesURL, &vesselTypeMap); err != nil {
 		return nil, fmt.Errorf("error fetching vessel type mappings: %w", err)
 	}
-	
+
 	return vesselTypeMap, nil
 }
 
@@ -239,7 +239,18 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vess
 	report.WriteString(fmt.Sprintf("Report Period: Last %d days\n", days))
 	report.WriteString(fmt.Sprintf("Generated on: %s\n\n", time.Now().Format("January 2, 2006 at 15:04:05 (UTC)")))
 
-	// Coverage Statistics (now first)
+	// Weekly Uptime (new section)
+	report.WriteString("=== Weekly Uptime ===\n")
+
+	// Access the UptimePctWeek field directly from the Receiver struct
+	if rec.UptimePctWeek > 0 {
+		report.WriteString(fmt.Sprintf("Weekly Uptime: %.2f%%\n", rec.UptimePctWeek))
+	} else {
+		report.WriteString("Weekly Uptime: Not available\n")
+	}
+	report.WriteString("\n")
+
+	// Coverage Statistics
 	report.WriteString("=== Coverage Statistics ===\n")
 	if len(stats.Coverage) > 0 {
 		totalPoints := len(stats.Coverage)
@@ -248,7 +259,7 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vess
 			totalReports += p.Count
 		}
 		report.WriteString(fmt.Sprintf("Total position reports: %d\n", totalReports))
-		
+
 		// Calculate approximate coverage area (very rough estimate)
 		// Each grid cell is approximately 1km x 1km at the equator
 		report.WriteString(fmt.Sprintf("Approximate coverage area: %d sq km\n", totalPoints))
@@ -315,14 +326,14 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vess
 
 	// Calculate report generation duration (including API fetch time)
 	duration := time.Since(startTime)
-	
+
 	// Footer with links
 	receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, rec.ID)
 	report.WriteString(fmt.Sprintf("Report generated in %.2f seconds\n\n", duration.Seconds()))
 	report.WriteString(fmt.Sprintf("View detailed statistics: %s\n\n", receiverURL))
 	report.WriteString(fmt.Sprintf("Thank you for contributing to our AIS network!\n\n"))
 	report.WriteString(fmt.Sprintf("AIS Decoder Team\nhttps://%s/\n", settings.SiteDomain))
-	
+
 	// Add unsubscribe info
 	report.WriteString(fmt.Sprintf("\nTo unsubscribe from these reports, visit your receiver page and disable notifications."))
 
@@ -344,9 +355,9 @@ func sendWeeklyStatisticsReports() {
 		log.Println("Statistics reporting is disabled or base URL not set")
 		return
 	}
-	
+
 	log.Println("Starting weekly statistics report generation")
-	
+
 	// Record overall start time for total processing duration
 	overallStartTime := time.Now()
 
@@ -367,7 +378,7 @@ func sendWeeklyStatisticsReports() {
 
 	// Get current time
 	now := time.Now()
-	
+
 	// Number of days to include in the report
 	days := 7
 
@@ -443,7 +454,7 @@ func sendWeeklyStatisticsReports() {
 				if email == "" {
 					continue
 				}
-				
+
 				if err := logAlert("statistics_report", receiver.ID, email,
 					fmt.Sprintf("Weekly statistics report sent for receiver %s (ID: %d)", receiver.Name, receiver.ID)); err != nil {
 					log.Printf("Error logging statistics report alert for receiver %d to %s: %v", receiver.ID, email, err)
@@ -480,14 +491,14 @@ func sendReportSummaryToAdmins(totalReports, successfulReports int, failedReport
 	}
 
 	subject := fmt.Sprintf("Weekly Statistics Report Summary - %s", time.Now().Format("Jan 2, 2006"))
-	
+
 	var body strings.Builder
 	body.WriteString(fmt.Sprintf("Weekly Statistics Report Processing Summary\n\n"))
 	body.WriteString(fmt.Sprintf("Total reports processed: %d\n", totalReports))
 	body.WriteString(fmt.Sprintf("Successful reports: %d\n", successfulReports))
 	body.WriteString(fmt.Sprintf("Failed reports: %d\n", len(failedReports)))
 	body.WriteString(fmt.Sprintf("Total processing time: %.2f seconds\n\n", processingTime.Seconds()))
-	
+
 	if len(failedReports) > 0 {
 		body.WriteString("Failed Reports Details:\n")
 		for i, report := range failedReports {
@@ -495,25 +506,25 @@ func sendReportSummaryToAdmins(totalReports, successfulReports int, failedReport
 				i+1, report.ReceiverID, report.ReceiverName, report.Email, report.Error))
 		}
 	}
-	
+
 	body.WriteString(fmt.Sprintf("\nGenerated on: %s\n", time.Now().Format("January 2, 2006 at 15:04:05 (UTC)")))
 	body.WriteString(fmt.Sprintf("\nAIS Decoder Team\nhttps://%s/\n", settings.SiteDomain))
-	
+
 	// Split the comma-separated list of admin emails
 	adminEmails := strings.Split(settings.ToAddresses, ",")
-	
+
 	for _, email := range adminEmails {
 		email = strings.TrimSpace(email)
 		if email == "" {
 			continue
 		}
-		
+
 		err := sendSingleEmail(subject, body.String(), email)
 		if err != nil {
 			log.Printf("Error sending report summary to admin (%s): %v", email, err)
 		} else {
 			log.Printf("Sent report summary to admin: %s", email)
-			
+
 			// Log the alert for each admin email
 			if err := logAlert("report_summary", -1, email,
 				fmt.Sprintf("Weekly statistics report summary sent with %d total reports (%d successful, %d failed)",
@@ -527,20 +538,20 @@ func sendReportSummaryToAdmins(totalReports, successfulReports int, failedReport
 // sendWeeklyOfflineReceiversReport sends a weekly report of all receivers that have been offline for over a week
 func sendWeeklyOfflineReceiversReport() {
 	log.Println("Starting weekly offline receivers report generation")
-	
+
 	// Record start time for processing duration
 	startTime := time.Now()
-	
+
 	// Fetch all receivers
 	receivers, err := fetchReceivers()
 	if err != nil {
 		log.Printf("Error fetching receivers for offline report: %v", err)
 		return
 	}
-	
+
 	// Get current time
 	now := time.Now()
-	
+
 	// Filter receivers that have been offline for over a week (7 days)
 	var offlineReceivers []Receiver
 	for _, receiver := range receivers {
@@ -548,34 +559,34 @@ func sendWeeklyOfflineReceiversReport() {
 		if receiver.LastSeen == "" {
 			continue
 		}
-		
+
 		// Parse LastSeen time
 		lastSeen, err := time.Parse(time.RFC3339, receiver.LastSeen)
 		if err != nil {
 			log.Printf("Error parsing LastSeen time for receiver %d: %v", receiver.ID, err)
 			continue
 		}
-		
+
 		// Check if receiver has been offline for over a week
 		if now.Sub(lastSeen) > 7*24*time.Hour {
 			offlineReceivers = append(offlineReceivers, receiver)
 		}
 	}
-	
+
 	// If no offline receivers, log and return
 	if len(offlineReceivers) == 0 {
 		log.Println("No receivers offline for over a week, skipping report")
 		return
 	}
-	
+
 	// Generate the report
 	var report strings.Builder
-	
+
 	// Header
 	report.WriteString(fmt.Sprintf("Weekly Offline Receivers Report\n"))
 	report.WriteString(fmt.Sprintf("Generated on: %s\n\n", time.Now().Format("January 2, 2006 at 15:04:05 (UTC)")))
 	report.WriteString(fmt.Sprintf("The following %d receivers have been offline for over a week:\n\n", len(offlineReceivers)))
-	
+
 	// List all offline receivers
 	for i, receiver := range offlineReceivers {
 		// Parse the LastSeen time to format it in a human-readable way
@@ -584,20 +595,20 @@ func sendWeeklyOfflineReceiversReport() {
 		if err == nil {
 			lastSeenStr = lastSeen.Format("January 2, 2006 at 15:04:05 (UTC)")
 		}
-		
+
 		// Calculate how long the receiver has been offline
 		offlineDuration := now.Sub(lastSeen)
 		offlineDays := int(offlineDuration.Hours() / 24)
-		
+
 		// Prepare UDP port display
 		udpPortDisplay := "Not set"
 		if receiver.UDPPort != nil {
 			udpPortDisplay = strconv.Itoa(*receiver.UDPPort)
 		}
-		
+
 		// Create a link to the receiver
 		receiverURL := fmt.Sprintf("https://%s/metrics/receiver.html?receiver=%d", settings.SiteDomain, receiver.ID)
-		
+
 		report.WriteString(fmt.Sprintf("%d. Receiver: %s (ID: %d)\n", i+1, receiver.Name, receiver.ID))
 		report.WriteString(fmt.Sprintf("   Description: %s\n", receiver.Description))
 		report.WriteString(fmt.Sprintf("   Email: %s\n", receiver.Email))
@@ -605,35 +616,35 @@ func sendWeeklyOfflineReceiversReport() {
 		report.WriteString(fmt.Sprintf("   Last seen: %s (%d days ago)\n", lastSeenStr, offlineDays))
 		report.WriteString(fmt.Sprintf("   Receiver URL: %s\n\n", receiverURL))
 	}
-	
+
 	// Footer
 	report.WriteString(fmt.Sprintf("\nTotal offline receivers: %d\n", len(offlineReceivers)))
 	report.WriteString(fmt.Sprintf("Report generated in %.2f seconds\n\n", time.Since(startTime).Seconds()))
 	report.WriteString(fmt.Sprintf("AIS Decoder Team\nhttps://%s/\n", settings.SiteDomain))
-	
+
 	// Send the report to site admins
 	if settings.ToAddresses == "" {
 		log.Println("No admin email addresses configured, skipping offline receivers report")
 		return
 	}
-	
+
 	subject := fmt.Sprintf("Weekly Offline Receivers Report - %s", time.Now().Format("Jan 2, 2006"))
-	
+
 	// Split the comma-separated list of admin emails
 	adminEmails := strings.Split(settings.ToAddresses, ",")
-	
+
 	for _, email := range adminEmails {
 		email = strings.TrimSpace(email)
 		if email == "" {
 			continue
 		}
-		
+
 		err := sendSingleEmail(subject, report.String(), email)
 		if err != nil {
 			log.Printf("Error sending offline receivers report to admin (%s): %v", email, err)
 		} else {
 			log.Printf("Sent offline receivers report to admin: %s", email)
-			
+
 			// Log the alert for each admin email
 			if err := logAlert("offline_receivers_report", -1, email,
 				fmt.Sprintf("Weekly offline receivers report sent with %d receivers", len(offlineReceivers))); err != nil {
@@ -641,9 +652,9 @@ func sendWeeklyOfflineReceiversReport() {
 			}
 		}
 	}
-	
+
 	// Alert logging is now done for each individual email above
-	
+
 	log.Printf("Weekly offline receivers report generation complete. Reported %d offline receivers.", len(offlineReceivers))
 }
 
@@ -655,7 +666,7 @@ func startStatisticsReportScheduler(ctx context.Context) {
 	// Initialize the last run times
 	lastStatisticsReportTime := time.Now().Add(-24 * time.Hour)
 	lastOfflineReportTime := time.Now().Add(-24 * time.Hour)
-	
+
 	// Configure offline receivers report time (Saturday at 09:00)
 	offlineReportTime := "saturday,09:00"
 
@@ -673,7 +684,7 @@ func startStatisticsReportScheduler(ctx context.Context) {
 					lastStatisticsReportTime = time.Now()
 				}
 			}
-			
+
 			// Check if it's time to send offline receivers report
 			shouldSend, err := isTimeToSendReport(lastOfflineReportTime, offlineReportTime)
 			if err != nil {
