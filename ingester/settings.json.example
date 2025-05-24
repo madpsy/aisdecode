@@ -16,6 +16,7 @@
   "num_workers": 4,
   "downsample_window": 5,
   "deduplication_window_ms": 200,
+  "deduplication_forward_but_tag": false,
   "web_path": "web",
   "debug": true,
   "include_source": true,

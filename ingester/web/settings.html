@@ -203,6 +203,10 @@
         <input type="number" id="deduplication_window_ms" />
       </div>
       <div class="form-group">
+        <label><input type="checkbox" id="deduplication_forward_but_tag" /> Forward Duplicates with Tag</label>
+        <small class="form-text text-muted">When enabled, duplicate messages will still be forwarded but will include the port that first saw the message.</small>
+      </div>
+      <div class="form-group">
         <label for="web_path">Web Path</label>
         <input type="text" id="web_path" />
       </div>
@@ -525,6 +529,7 @@ form.addEventListener('submit', async e => {
     num_workers:             +document.getElementById('num_workers').value,
     downsample_window:       +document.getElementById('downsample_window').value,
     deduplication_window_ms: +document.getElementById('deduplication_window_ms').value,
+    deduplication_forward_but_tag: document.getElementById('deduplication_forward_but_tag').checked,
     web_path:                document.getElementById('web_path').value,
     debug:                   document.getElementById('debug').checked,
     include_source:          document.getElementById('include_source').checked,
