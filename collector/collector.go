@@ -938,6 +938,11 @@ func createIndexesIfNotExist(db *sql.DB) {
 }
 
 func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence string) error {
+	// Log at the very beginning of storeMessage
+	if message.DedupedPort != nil {
+		log.Printf("DUPLICATE ENTRY: storeMessage called with DedupedPort=%d", *message.DedupedPort)
+	}
+
 	// 1) Unwrap outer JSON
 	var outerMap map[string]interface{}
 	if err := json.Unmarshal(message.Packet, &outerMap); err != nil {
@@ -1169,6 +1174,11 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 		shouldInsert = true
 	}
 
+	// Override shouldInsert for duplicate messages
+	if message.DedupedPort != nil {
+		shouldInsert = true
+	}
+
 	// 6) Generic time-based filtering
 	if window, ok := timeFilters[mid]; ok {
 		t, err := time.Parse(time.RFC3339, message.Timestamp)
@@ -1236,6 +1246,11 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 			log.Printf("Skipping state update: UDP port %d doesn't match ingester port %d or StoreAnonymousMessages is false",
 				message.UDPPort, settings.IngestUDPListenPort)
 		}
+	}
+
+	// Log shouldInsert value for duplicate messages
+	if message.DedupedPort != nil {
+		log.Printf("DUPLICATE SHOULDINSERT: shouldInsert=%v for message with DedupedPort=%d", shouldInsert, *message.DedupedPort)
 	}
 
 	// 8) Conditionally insert into messages
