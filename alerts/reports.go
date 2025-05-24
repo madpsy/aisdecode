@@ -18,14 +18,27 @@ type StatisticsSettings struct {
 	ReportTime string `json:"statistics_report_time"` // Format: "day,hour:minute" e.g. "saturday,01:00"
 }
 
+// duplicateVessel represents a vessel with duplicate message data
+type duplicateVessel struct {
+	UserID         int    `json:"user_id"`
+	Name           string `json:"name,omitempty"`
+	ImageURL       string `json:"image_url,omitempty"`
+	AISClass       string `json:"ais_class,omitempty"`
+	Type           string `json:"type,omitempty"`
+	DuplicateCount int    `json:"duplicate_count"`
+	ReceiverID     int    `json:"receiver_id"`
+	ReceiverName   string `json:"receiver_name,omitempty"`
+}
+
 // ReceiverStats represents statistics for a single receiver
 type ReceiverStats struct {
-	TopSOG       []vessel        `json:"top_sog"`
-	TopTypes     []typeCount     `json:"top_types"`
-	TopClasses   []classCount    `json:"top_classes"`
-	TopPositions []posVessel     `json:"top_positions"`
-	TopDistance  []distVessel    `json:"top_distance"`
-	Coverage     []coveragePoint `json:"coverage"`
+	TopSOG        []vessel          `json:"top_sog"`
+	TopTypes      []typeCount       `json:"top_types"`
+	TopClasses    []classCount      `json:"top_classes"`
+	TopPositions  []posVessel       `json:"top_positions"`
+	TopDistance   []distVessel      `json:"top_distance"`
+	TopDuplicates []duplicateVessel `json:"top_duplicates"`
+	Coverage      []coveragePoint   `json:"coverage"`
 }
 
 // vessel represents a vessel with speed data
@@ -212,6 +225,13 @@ func fetchReceiverStatistics(baseURL string, receiverID int, days int) (*Receive
 		return nil, fmt.Errorf("error fetching coverage map: %w", err)
 	}
 
+	// Fetch top duplicates
+	topDuplicatesURL := fmt.Sprintf("%s/statistics/stats/top-duplicates?receiver_id=%d&days=%d", baseURL, receiverID, days)
+	if err := fetchJSON(topDuplicatesURL, &stats.TopDuplicates); err != nil {
+		log.Printf("Warning: error fetching top duplicates: %v", err)
+		// Continue without duplicates data
+	}
+
 	return stats, nil
 }
 
@@ -321,6 +341,28 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vess
 		}
 	} else {
 		report.WriteString("No vessel type data available\n")
+	}
+	report.WriteString("\n")
+
+	// Top Duplicated Vessels
+	report.WriteString("=== Top Duplicated Vessels ===\n")
+	if len(stats.TopDuplicates) > 0 {
+		for i, d := range stats.TopDuplicates {
+			// Try to translate the vessel type ID to a description
+			typeDescription := d.Type
+			if description, ok := vesselTypeMap[d.Type]; ok && description != "" {
+				typeDescription = description
+			}
+
+			report.WriteString(fmt.Sprintf("%d. %s (%s): %d duplicate messages (original receiver: %s)\n",
+				i+1,
+				d.Name,
+				typeDescription,
+				d.DuplicateCount,
+				d.ReceiverName))
+		}
+	} else {
+		report.WriteString("No duplicate data available\n")
 	}
 	report.WriteString("\n")
 
