@@ -2321,6 +2321,11 @@ func vhfRangeAnomaliesHandler(w http.ResponseWriter, r *http.Request) {
 	// Process results to find anomalies
 	anomalies = detectRangeAnomalies(shardResults)
 
+	// Ensure we always return an array, even if empty
+	if anomalies == nil {
+		anomalies = []RangeAnomaly{}
+	}
+
 	// Enrich with vessel names
 	for i := range anomalies {
 		if anomalies[i].MaxUserID > 0 {
@@ -2480,8 +2485,8 @@ func detectRangeAnomalies(shardResults map[string][]map[string]interface{}) []Ra
 			return hourlyData[i].hour.Before(hourlyData[j].hour)
 		})
 
-		// Need at least 3 hours of data to establish a baseline
-		if len(hourlyData) < 3 {
+		// Need at least 2 hours of data to establish a baseline
+		if len(hourlyData) < 2 {
 			continue
 		}
 
@@ -2531,7 +2536,12 @@ func detectRangeAnomalies(shardResults map[string][]map[string]interface{}) []Ra
 				// If this is the last data point or next point is not anomalous, save the anomaly
 				if i == len(hourlyData)-1 || hourlyData[i+1].maxDistance <= anomalyThreshold {
 					if currentAnomaly != nil {
-						anomalies = append(anomalies, *currentAnomaly)
+						// Only consider anomalies that span at least 2 hours to filter out random errors
+						startHour := currentAnomaly.StartTime.Hour()
+						endHour := currentAnomaly.EndTime.Hour()
+						if startHour != endHour || currentAnomaly.StartTime.Day() != currentAnomaly.EndTime.Day() {
+							anomalies = append(anomalies, *currentAnomaly)
+						}
 						currentAnomaly = nil
 					}
 				}
@@ -2624,6 +2634,11 @@ func vhfDirectionAnomaliesHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Process results to find directional anomalies
 	anomalies = detectDirectionAnomalies(shardResults)
+
+	// Ensure we always return an array, even if empty
+	if anomalies == nil {
+		anomalies = []DirectionAnomaly{}
+	}
 
 	// Cache results
 	cacheSet(cacheKey, anomalies)
@@ -2834,8 +2849,12 @@ func detectDirectionAnomalies(shardResults map[string][]map[string]interface{}) 
 
 		// Calculate average counts per direction
 		for dir := range directionBaselines {
-			if directionCounts[dir] > 0 {
+			// Need at least 2 data points for a direction to establish a baseline
+			if directionCounts[dir] >= 2 {
 				directionBaselines[dir] = directionBaselines[dir] / directionCounts[dir]
+			} else {
+				// Remove directions with insufficient data
+				delete(directionBaselines, dir)
 			}
 		}
 
@@ -2878,7 +2897,12 @@ func detectDirectionAnomalies(shardResults map[string][]map[string]interface{}) 
 			} else {
 				// If this direction had an anomaly and it's now over, save it
 				if anom, exists := currentAnomalies[d.direction]; exists {
-					anomalies = append(anomalies, *anom)
+					// Only consider anomalies that span at least 2 hours to filter out random errors
+					startHour := anom.StartTime.Hour()
+					endHour := anom.EndTime.Hour()
+					if startHour != endHour || anom.StartTime.Day() != anom.EndTime.Day() {
+						anomalies = append(anomalies, *anom)
+					}
 					delete(currentAnomalies, d.direction)
 				}
 			}
@@ -2886,7 +2910,12 @@ func detectDirectionAnomalies(shardResults map[string][]map[string]interface{}) 
 
 		// Add any remaining anomalies
 		for _, anom := range currentAnomalies {
-			anomalies = append(anomalies, *anom)
+			// Only consider anomalies that span at least 2 hours to filter out random errors
+			startHour := anom.StartTime.Hour()
+			endHour := anom.EndTime.Hour()
+			if startHour != endHour || anom.StartTime.Day() != anom.EndTime.Day() {
+				anomalies = append(anomalies, *anom)
+			}
 		}
 	}
 
