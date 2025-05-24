@@ -489,6 +489,7 @@ func startCollectorTracking() {
 			if err != nil {
 				log.Printf("Error fetching collectors: %v", err)
 				// Sleep and continue if we can't fetch collectors
+				// Skip status checks when ingester is unreachable to avoid false offline alerts
 				time.Sleep(5 * time.Second)
 				continue
 			}
