@@ -130,6 +130,11 @@ var (
 	// New map to track the most recent last seen time for each port
 	portLastSeenMutex sync.RWMutex
 	portLastSeenMap   map[int]time.Time // Map of UDP port to last seen time
+
+	// Track when the ingester was last successfully contacted
+	lastIngestContactMutex sync.RWMutex
+	lastIngestContactTime  time.Time
+	ingestWasDown          bool
 )
 
 // New types for collector tracking
@@ -488,8 +493,28 @@ func startCollectorTracking() {
 			newCollectors, err := fetchCollectors()
 			if err != nil {
 				log.Printf("Error fetching collectors: %v", err)
+				// Mark that the ingester was down
+				lastIngestContactMutex.Lock()
+				ingestWasDown = true
+				lastIngestContactMutex.Unlock()
+
 				// Sleep and continue if we can't fetch collectors
 				// Skip status checks when ingester is unreachable to avoid false offline alerts
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			// Update the last successful contact time
+			lastIngestContactMutex.Lock()
+			wasDown := ingestWasDown
+			ingestWasDown = false
+			lastIngestContactTime = time.Now()
+			lastIngestContactMutex.Unlock()
+
+			// If the ingester was previously down, log this but don't trigger status changes yet
+			if wasDown {
+				log.Printf("Ingester is back online, skipping status checks for this cycle to avoid false alerts")
+				// Skip the status check for one cycle after the ingester comes back
 				time.Sleep(5 * time.Second)
 				continue
 			}
@@ -839,8 +864,6 @@ func calculateUptimePercentage(receiverID int) (float64, error) {
 func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 	// Wait a bit to allow all collector goroutines to update the portLastSeenMap
 	time.Sleep(2 * time.Second)
-
-	// Wait a bit to allow all collector goroutines to update the portLastSeenMap
 
 	// Get the current port last seen map
 	portLastSeenMutex.RLock()
