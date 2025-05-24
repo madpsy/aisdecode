@@ -292,9 +292,18 @@
         if (anomalies.length > 0) {
           addRangeAnomaliesToMap(anomalies);
           
-          // Fit map to bounds
-          const bounds = getBoundsFromAnomalies(anomalies);
-          map.fitBounds(bounds, { padding: [50, 50] });
+          // Fit map to bounds - getBoundsFromAnomalies returns a Promise
+          getBoundsFromAnomalies(anomalies).then(bounds => {
+            if (bounds.isValid()) {
+              map.fitBounds(bounds, { padding: [50, 50] });
+            } else {
+              console.warn('Invalid bounds, using default view');
+              map.setView([51.505, -0.09], 6);
+            }
+          }).catch(err => {
+            console.error('Error getting bounds:', err);
+            map.setView([51.505, -0.09], 6);
+          });
         }
       } catch (e) {
         console.error('Failed to load range anomalies:', e);
