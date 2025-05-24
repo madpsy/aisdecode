@@ -315,6 +315,9 @@
           }
         });
         
+        // Sort anomalies by start_time in descending order (most recent first)
+        anomalies.sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
+        
         currentAnomalies = anomalies;
         
         // Clear map
@@ -381,6 +384,9 @@
             anomaly.receiver_name = receiver.name;
           }
         });
+        
+        // Sort anomalies by start_time in descending order (most recent first)
+        anomalies.sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
         
         currentAnomalies = anomalies;
         
