@@ -663,6 +663,15 @@
         <img id="modal-image" src="" alt="Full-size Vessel Image" style="max-width:90vw; max-height:90vh; display:block; margin:0 auto;">
       </div>
     </div>
+    
+    <!-- Receivers modal overlay -->
+    <div id="receivers-modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:1500; align-items:center; justify-content:center;">
+      <div id="receivers-modal-content" style="position:relative; background:white; padding:20px; border-radius:8px; max-width:80%; max-height:80%; overflow-y:auto;">
+        <button id="receivers-modal-close" style="position:absolute; top:10px; right:10px; font-size:20px; background:transparent; border:none; cursor:pointer;">X</button>
+        <h3 style="margin-top:0;">All Receivers</h3>
+        <div id="receivers-list"></div>
+      </div>
+    </div>
 
     <!-- Toggle Buttons -->
     <button id="toggle-known-overlay" class="toggle-button">Show Vessels</button>
@@ -737,6 +746,11 @@
   
   // Check if this is the first visit
   document.addEventListener('DOMContentLoaded', function() {
+    // Add event listener to receivers modal close button
+    document.getElementById('receivers-modal-close').addEventListener('click', function() {
+      closeReceiversModal();
+    });
+    
     if (!localStorage.getItem('hasVisitedBefore')) {
       // First time visit - show welcome overlay
       document.getElementById('welcome-overlay').style.display = 'block';
@@ -2052,6 +2066,40 @@ function closeImageModal() {
   modalOverlay.style.display = 'none';
 }
 
+// Function to show all receivers in a modal
+function showAllReceivers(receiverIds) {
+  const receiversArray = receiverIds.split(',').map(id => parseInt(id, 10));
+  const modalOverlay = document.getElementById('receivers-modal-overlay');
+  const receiversList = document.getElementById('receivers-list');
+  
+  // Clear previous content
+  receiversList.innerHTML = '';
+  
+  // Create a list of all receivers
+  if (receiversArray.length > 0) {
+    const receiverItems = receiversArray.map(id => {
+      if (receiverData[id] && receiverData[id].Name) {
+        return `<div style="margin-bottom:8px;"><a href="/metrics/receiver.html?receiver=${id}" target="_blank">${receiverData[id].Name}</a></div>`;
+      } else {
+        return `<div style="margin-bottom:8px;"><a href="/metrics/receiver.html?receiver=${id}" target="_blank">ID: ${id}</a></div>`;
+      }
+    });
+    
+    receiversList.innerHTML = receiverItems.join('');
+  } else {
+    receiversList.innerHTML = '<p>No receivers available</p>';
+  }
+  
+  // Show the modal
+  modalOverlay.style.display = 'flex';
+}
+
+// Function to close the receivers modal
+function closeReceiversModal() {
+  const modalOverlay = document.getElementById('receivers-modal-overlay');
+  modalOverlay.style.display = 'none';
+}
+
 // Attach click listener to the vessel image when vessel details are shown.
 function attachImageClick() {
   const vesselImage = document.getElementById('vessel-image');
@@ -2061,6 +2109,18 @@ function attachImageClick() {
       openImageModal(this.src);
     });
   }
+}
+
+// Function to attach click handlers to "View All" receiver links
+function attachViewAllReceiversClicks() {
+  const viewAllLinks = document.querySelectorAll('.view-all-receivers');
+  viewAllLinks.forEach(link => {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      const receiverIds = this.getAttribute('data-receivers');
+      showAllReceivers(receiverIds);
+    });
+  });
 }
 
 function attachPolylineEvents(layerGroup, UserID) {
@@ -2739,30 +2799,28 @@ if (data.MessageTypes && Array.isArray(data.MessageTypes)) {
   lines.push(`Message Types: ${codeSpans.join(', ')}`);
 }
 
-// Add the list of receivers that have reported this vessel
-if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 0) {
-  // Filter out receivers that aren't in the current receiver list
-  const validReceiverIds = data.ReceiverIDs.filter(id => receiverData[id]);
+// Add only the last receiver that reported this vessel (with a "View All" link)
+if (data.ReceiverID) {
+  // Get the last receiver ID
+  const lastReceiverId = data.ReceiverID;
   
-  if (validReceiverIds.length > 0) {
-    // Create links for each valid receiver ID
-    const receiverLinks = validReceiverIds.map(id => {
-      if (receiverData[id] && receiverData[id].Name) {
-        return `<a href="/metrics/receiver.html?receiver=${id}" target="_blank">${receiverData[id].Name}</a>`;
-      } else {
-        return `<a href="/metrics/receiver.html?receiver=${id}" target="_blank">ID: ${id}</a>`;
-      }
-    });
-    
-    // Join the links with commas
-    lines.push(`Receivers: ${receiverLinks.join(', ')}`);
+  // Create link for the last receiver
+  let receiverLink = '';
+  if (receiverData[lastReceiverId] && receiverData[lastReceiverId].Name) {
+    receiverLink = `<a href="/metrics/receiver.html?receiver=${lastReceiverId}" target="_blank">${receiverData[lastReceiverId].Name}</a>`;
   } else {
-    // No valid receivers available
-    lines.push(`Receivers: None`);
+    receiverLink = `<a href="/metrics/receiver.html?receiver=${lastReceiverId}" target="_blank">ID: ${lastReceiverId}</a>`;
   }
+  
+  // Add "View All" link if there are multiple receivers
+  if (data.ReceiverIDs && Array.isArray(data.ReceiverIDs) && data.ReceiverIDs.length > 1) {
+    receiverLink += ` <a href="#" class="view-all-receivers" data-receivers="${data.ReceiverIDs.join(',')}" style="font-size: 12px;">(View All)</a>`;
+  }
+  
+  lines.push(`Receiver: ${receiverLink}`);
 } else {
-  // No receivers available
-  lines.push(`Receivers: None`);
+  // No receiver available
+  lines.push(`Receiver: None`);
 }
 
   return `<div class="popup-content">${lines.join('<br>')}</div>`;
@@ -2989,6 +3047,7 @@ function attachMessageTypeClicks() {
 	    const container = document.getElementById('detail-content');
 	    container.innerHTML = html;
 	    attachMessageTypeClicks();
+	    attachViewAllReceiversClicks();
 	  }
 	}
         setInterval(updateVesselDetailOverlay, 1000);
