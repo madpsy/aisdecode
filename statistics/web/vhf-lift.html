@@ -184,8 +184,8 @@
               </div>
               <div class="d-flex justify-content-center p-2 bg-light border-bottom">
                 <div class="btn-group btn-group-sm" role="group" aria-label="Sort options">
-                  <button id="sort-time-btn" class="btn btn-outline-secondary active" data-sort-dir="desc">Sort by Time</button>
-                  <button id="sort-percent-btn" class="btn btn-outline-secondary" data-sort-dir="desc">Sort by % Increase</button>
+                  <button id="sort-time-btn" class="btn btn-outline-secondary" data-sort-dir="desc">Sort by Time</button>
+                  <button id="sort-percent-btn" class="btn btn-outline-secondary active" data-sort-dir="desc">Sort by % Increase</button>
                   <button id="sort-duration-btn" class="btn btn-outline-secondary" data-sort-dir="desc">Sort by Duration</button>
                 </div>
               </div>
@@ -323,8 +323,8 @@
           }
         });
         
-        // Sort anomalies by start_time in descending order (most recent first)
-        anomalies.sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
+        // Sort anomalies by percent_increase in descending order (highest first)
+        anomalies.sort((a, b) => b.percent_increase - a.percent_increase);
         
         currentAnomalies = anomalies;
         
@@ -377,8 +377,8 @@
           }
         });
         
-        // Sort anomalies by start_time in descending order (most recent first)
-        anomalies.sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
+        // Sort anomalies by percent_increase in descending order (highest first)
+        anomalies.sort((a, b) => b.percent_increase - a.percent_increase);
         
         currentAnomalies = anomalies;
         
@@ -1212,7 +1212,12 @@
     // Sort anomalies by time (toggles between most recent first and oldest first)
     function sortAnomaliesByTime() {
       const btn = document.getElementById('sort-time-btn');
-      const sortDir = btn.dataset.sortDir === 'desc' ? 'asc' : 'desc';
+      let sortDir = 'desc'; // Default to descending (newest to oldest)
+      
+      // Only toggle if the button is already active (not first click)
+      if (btn.classList.contains('active')) {
+        sortDir = btn.dataset.sortDir === 'desc' ? 'asc' : 'desc';
+      }
       
       // Update button states
       document.getElementById('sort-time-btn').classList.add('active');
@@ -1239,7 +1244,12 @@
     // Sort anomalies by percent increase (toggles between highest first and lowest first)
     function sortAnomaliesByPercent() {
       const btn = document.getElementById('sort-percent-btn');
-      const sortDir = btn.dataset.sortDir === 'desc' ? 'asc' : 'desc';
+      let sortDir = 'desc'; // Default to descending (highest to lowest)
+      
+      // Only toggle if the button is already active (not first click)
+      if (btn.classList.contains('active')) {
+        sortDir = btn.dataset.sortDir === 'desc' ? 'asc' : 'desc';
+      }
       
       // Update button states
       document.getElementById('sort-time-btn').classList.remove('active');
@@ -1266,7 +1276,12 @@
     // Sort anomalies by duration (toggles between longest first and shortest first)
     function sortAnomaliesByDuration() {
       const btn = document.getElementById('sort-duration-btn');
-      const sortDir = btn.dataset.sortDir === 'desc' ? 'asc' : 'desc';
+      let sortDir = 'desc'; // Default to descending (longest to shortest)
+      
+      // Only toggle if the button is already active (not first click)
+      if (btn.classList.contains('active')) {
+        sortDir = btn.dataset.sortDir === 'desc' ? 'asc' : 'desc';
+      }
       
       // Update button states
       document.getElementById('sort-time-btn').classList.remove('active');
