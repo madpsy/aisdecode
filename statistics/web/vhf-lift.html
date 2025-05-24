@@ -326,27 +326,11 @@
         // Hide no data overlay initially
         hideNoDataOverlay();
         
-        // Update anomalies list
+        // Update anomalies list - this will auto-select the first anomaly and focus the map on it
         updateAnomaliesList(anomalies, 'range');
         
-        // Add anomalies to map
-        if (anomalies.length > 0) {
-          addRangeAnomaliesToMap(anomalies);
-          
-          // Fit map to bounds - getBoundsFromAnomalies returns a Promise
-          getBoundsFromAnomalies(anomalies).then(bounds => {
-            if (bounds.isValid()) {
-              map.fitBounds(bounds, { padding: [50, 50] });
-            } else {
-              console.warn('Invalid bounds, using default view');
-              map.setView([51.505, -0.09], 6);
-            }
-          }).catch(err => {
-            console.error('Error getting bounds:', err);
-            map.setView([51.505, -0.09], 6);
-          });
-        } else {
-          // Show no data overlay when API returns empty array
+        // Show no data overlay if no anomalies
+        if (anomalies.length === 0) {
           showNoDataOverlay();
         }
       } catch (e) {
@@ -396,36 +380,11 @@
         // Hide no data overlay initially
         hideNoDataOverlay();
         
-        // Update anomalies list
+        // Update anomalies list - this will auto-select the first anomaly and focus the map on it
         updateAnomaliesList(anomalies, 'direction');
         
-        // Add anomalies to map
-        if (anomalies.length > 0) {
-          addDirectionAnomaliesToMap(anomalies);
-          
-          // Create bounds from receiver locations
-          const bounds = L.latLngBounds();
-          anomalies.forEach(anomaly => {
-            const receiver = receivers.find(r => r.id === anomaly.receiver_id);
-            if (receiver && receiver.latitude && receiver.longitude) {
-              bounds.extend([receiver.latitude, receiver.longitude]);
-              
-              // Extend bounds in the direction of the anomaly
-              const extendedPoint = getPointInDirection(
-                receiver.latitude,
-                receiver.longitude,
-                getDirectionDegrees(anomaly.direction),
-                anomaly.max_distance_meters / 1000
-              );
-              bounds.extend(extendedPoint);
-            }
-          });
-          
-          if (bounds.isValid()) {
-            map.fitBounds(bounds, { padding: [50, 50] });
-          }
-        } else {
-          // Show no data overlay when API returns empty array
+        // Show no data overlay if no anomalies
+        if (anomalies.length === 0) {
           showNoDataOverlay();
         }
       } catch (e) {
