@@ -2368,6 +2368,7 @@ func buildRangeAnomalyQuery(from, to time.Time, receiverID int) string {
 				AND (m.packet->>'Longitude') IS NOT NULL
 				AND (m.packet->>'Latitude')::float <> 91.0
 				AND (m.packet->>'Longitude')::float <> 181.0
+				AND distance IS NOT NULL AND distance <= %d -- Only include points with valid distances <= configured distance
 			)
 			SELECT
 				h.hour_start,
@@ -2382,7 +2383,7 @@ func buildRangeAnomalyQuery(from, to time.Time, receiverID int) string {
 			FROM hourly_data h
 			JOIN receiver_locations r ON h.receiver_id = r.id
 			ORDER BY hour_start, distance_meters DESC
-		`, receiverID, from.Format(time.RFC3339), to.Format(time.RFC3339), receiverID)
+		`, receiverID, from.Format(time.RFC3339), to.Format(time.RFC3339), receiverID, conf.MaxDistanceMeters)
 	} else {
 		qry = fmt.Sprintf(`
 			WITH receiver_locations AS (
@@ -2404,6 +2405,7 @@ func buildRangeAnomalyQuery(from, to time.Time, receiverID int) string {
 				AND (m.packet->>'Longitude') IS NOT NULL
 				AND (m.packet->>'Latitude')::float <> 91.0
 				AND (m.packet->>'Longitude')::float <> 181.0
+				AND distance IS NOT NULL AND distance <= %d -- Only include points with valid distances <= configured distance
 			)
 			SELECT
 				h.hour_start,
@@ -2418,7 +2420,7 @@ func buildRangeAnomalyQuery(from, to time.Time, receiverID int) string {
 			FROM hourly_data h
 			JOIN receiver_locations r ON h.receiver_id = r.id
 			ORDER BY hour_start, distance_meters DESC
-		`, from.Format(time.RFC3339), to.Format(time.RFC3339))
+		`, from.Format(time.RFC3339), to.Format(time.RFC3339), conf.MaxDistanceMeters)
 	}
 
 	return qry
@@ -2671,6 +2673,7 @@ func buildDirectionAnomalyQuery(from, to time.Time, receiverID int) string {
 				AND (m.packet->>'Longitude') IS NOT NULL
 				AND (m.packet->>'Latitude')::float <> 91.0
 				AND (m.packet->>'Longitude')::float <> 181.0
+				AND distance IS NOT NULL AND distance <= %d -- Only include points with valid distances <= configured distance
 			),
 			message_with_distance AS (
 				SELECT
@@ -2707,7 +2710,7 @@ func buildDirectionAnomalyQuery(from, to time.Time, receiverID int) string {
 			FROM message_with_distance
 			GROUP BY hour_start, receiver_id, direction
 			ORDER BY hour_start, direction
-		`, receiverID, from.Format(time.RFC3339), to.Format(time.RFC3339), receiverID)
+		`, receiverID, from.Format(time.RFC3339), to.Format(time.RFC3339), receiverID, conf.MaxDistanceMeters)
 	} else {
 		qry = fmt.Sprintf(`
 			WITH receiver_locations AS (
@@ -2728,6 +2731,7 @@ func buildDirectionAnomalyQuery(from, to time.Time, receiverID int) string {
 				AND (m.packet->>'Longitude') IS NOT NULL
 				AND (m.packet->>'Latitude')::float <> 91.0
 				AND (m.packet->>'Longitude')::float <> 181.0
+				AND distance IS NOT NULL AND distance <= %d -- Only include points with valid distances <= configured distance
 			),
 			message_with_distance AS (
 				SELECT
@@ -2764,7 +2768,7 @@ func buildDirectionAnomalyQuery(from, to time.Time, receiverID int) string {
 			FROM message_with_distance
 			GROUP BY hour_start, receiver_id, direction
 			ORDER BY hour_start, receiver_id, direction
-		`, from.Format(time.RFC3339), to.Format(time.RFC3339))
+		`, from.Format(time.RFC3339), to.Format(time.RFC3339), conf.MaxDistanceMeters)
 	}
 
 	return qry
