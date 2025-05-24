@@ -540,6 +540,8 @@
         firstItem.classList.add('selected');
         const anomaly = anomalies[parseInt(firstItem.dataset.index)];
         showAnomalyDetails(anomaly, type);
+        // Also focus the map on the first anomaly
+        focusMapOnAnomaly(anomaly, type);
       }
     }
     
