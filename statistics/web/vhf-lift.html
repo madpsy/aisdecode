@@ -955,18 +955,29 @@
       });
     }
     
-    // Update the coverage link with the current receiver ID
+    // Update the coverage link with the current receiver ID and days
     function updateCoverageLink() {
       const receiverId = document.getElementById('receiver-select').value;
+      const days = document.getElementById('days-select').value;
       const coverageLink = document.getElementById('coverage-link');
       
       if (coverageLink) {
         const coverageUrl = new URL(coverageLink.href);
+        
+        // Set receiver ID if selected
         if (receiverId) {
           coverageUrl.searchParams.set('receiver_id', receiverId);
         } else {
           coverageUrl.searchParams.delete('receiver_id');
         }
+        
+        // Set days parameter
+        if (days) {
+          coverageUrl.searchParams.set('days', days);
+        } else {
+          coverageUrl.searchParams.delete('days');
+        }
+        
         coverageLink.href = coverageUrl.toString();
       }
     }
