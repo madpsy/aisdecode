@@ -1463,27 +1463,38 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 		}
 
 		// ── Downsample logic ────────────────────────────────────────────────────
-		// Debug log to check if duplicate messages are reaching the downsampling logic
-		if debugFlag && dedupedPort != nil {
-			log.Printf("[DEBUG] Duplicate message with dedupedPort=%d reached downsampling logic", *dedupedPort)
-			log.Printf("[DEBUG] Skipping downsampling for duplicate message")
-		}
+		shouldDownsample := false
 
-		// Skip downsampling for duplicate messages (messages with dedupedPort set)
-		if downsampleWindow > 0 && downsampleTypes[msgID] && dedupedPort == nil {
+		if downsampleWindow > 0 && downsampleTypes[msgID] {
 			now := time.Now()
 			downMu.Lock()
 			if lastForward[msgID] == nil {
 				lastForward[msgID] = map[string]time.Time{}
 			}
+
+			// Check if this message should be downsampled based on time window
 			if now.Sub(lastForward[msgID][userID]) < downsampleWindow {
-				downMu.Unlock()
-
-				// Debug log to check if duplicate messages are being downsampled
-				if debugFlag && dedupedPort != nil {
-					log.Printf("DUPLICATE DOWNSAMPLED: Message with dedupedPort=%d is being downsampled and discarded", *dedupedPort)
+				shouldDownsample = true
+			} else {
+				// Update the last forward time for this message type and user ID
+				// Only update for original messages, not for duplicates
+				if dedupedPort == nil {
+					lastForward[msgID][userID] = now
 				}
+			}
+			downMu.Unlock()
 
+			// If this is a duplicate message, log for debugging
+			if debugFlag && dedupedPort != nil {
+				if shouldDownsample {
+					log.Printf("[DEBUG] Duplicate message with dedupedPort=%d will be downsampled", *dedupedPort)
+				} else {
+					log.Printf("[DEBUG] Duplicate message with dedupedPort=%d will be forwarded", *dedupedPort)
+				}
+			}
+
+			// If we should downsample, do it now
+			if shouldDownsample {
 				metricsMu.Lock()
 				totalDownsampled++
 				downsampledCounter.AddEvent()
@@ -1508,8 +1519,6 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 				packetPool.Put(pkt)
 				continue
 			}
-			lastForward[msgID][userID] = now
-			downMu.Unlock()
 		}
 
 		// ── Shard & forward raw UDP ────────────────────────────────────────────

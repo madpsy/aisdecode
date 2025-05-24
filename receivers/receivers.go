@@ -488,6 +488,11 @@ func startCollectorTracking() {
 
 	// Start the collector tracking goroutine
 	go func() {
+		// Track when the ingester came back online
+		var ingestRecoveryTime time.Time
+		// Define a grace period (60 seconds) after ingester recovery before checking status changes
+		const ingestRecoveryGracePeriod = 60 * time.Second
+
 		for {
 			// Fetch collectors
 			newCollectors, err := fetchCollectors()
@@ -511,12 +516,27 @@ func startCollectorTracking() {
 			lastIngestContactTime = time.Now()
 			lastIngestContactMutex.Unlock()
 
-			// If the ingester was previously down, log this but don't trigger status changes yet
+			// If the ingester was previously down, log this and record the recovery time
 			if wasDown {
-				log.Printf("Ingester is back online, skipping status checks for this cycle to avoid false alerts")
+				ingestRecoveryTime = time.Now()
+				log.Printf("Ingester is back online, entering grace period of %v to avoid false alerts", ingestRecoveryGracePeriod)
 				// Skip the status check for one cycle after the ingester comes back
 				time.Sleep(5 * time.Second)
 				continue
+			}
+
+			// Check if we're still within the grace period after ingester recovery
+			if !ingestRecoveryTime.IsZero() && time.Since(ingestRecoveryTime) < ingestRecoveryGracePeriod {
+				log.Printf("Still in ingester recovery grace period (%v remaining), skipping status checks",
+					ingestRecoveryGracePeriod-time.Since(ingestRecoveryTime))
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			// If we were in a grace period but now it's over, reset the recovery time
+			if !ingestRecoveryTime.IsZero() && time.Since(ingestRecoveryTime) >= ingestRecoveryGracePeriod {
+				log.Printf("Ingester recovery grace period ended, resuming normal status checks")
+				ingestRecoveryTime = time.Time{} // Reset to zero time
 			}
 
 			// Update collectors list
