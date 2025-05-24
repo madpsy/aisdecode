@@ -444,12 +444,17 @@
     // Update anomalies list
     function updateAnomaliesList(anomalies, type) {
       const listElement = document.getElementById('anomalies-list');
-      const noAnomaliesMessage = document.getElementById('no-anomalies-message');
       
       // Clear list
       listElement.innerHTML = '';
       
       if (anomalies.length === 0) {
+        // Create a new "no anomalies" message element instead of reusing the existing one
+        const noAnomaliesMessage = document.createElement('div');
+        noAnomaliesMessage.className = 'list-group-item text-center py-4 text-muted';
+        noAnomaliesMessage.id = 'no-anomalies-message';
+        noAnomaliesMessage.textContent = 'No anomalies detected in the selected time period';
+        
         listElement.appendChild(noAnomaliesMessage);
         
         // Hide details section
