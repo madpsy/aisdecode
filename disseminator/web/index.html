@@ -1506,6 +1506,7 @@ function refreshReceivers() {
             }
             linksHTML += `<a href="/statistics/coverage.html?receiver_id=${id}&days=1" target="_blank">Coverage</a>`;
             linksHTML += ` | <a href="/statistics/statistics.html?receiver_id=${id}" target="_blank">Stats</a>`;
+            linksHTML += ` | <a href="/statistics/?receiver_id=${id}" target="_blank">Top 10</a>`;
             const popupContent = `
               <strong><a href="/metrics/receiver.html?receiver=${receiver.id}" target="_blank">${receiver.name}</a></strong><br>
               ${receiver.description}<br>
@@ -1532,6 +1533,7 @@ function refreshReceivers() {
             }
             linksHTML += `<a href="/statistics/coverage.html?receiver_id=${id}&days=1" target="_blank">Coverage</a>`;
             linksHTML += ` | <a href="/statistics/statistics.html?receiver_id=${id}" target="_blank">Stats</a>`;
+            linksHTML += ` | <a href="/statistics/?receiver_id=${id}" target="_blank">Top 10</a>`;
             const popupContent = `
               <strong><a href="/metrics/receiver.html?receiver=${receiver.id}" target="_blank">${receiver.name}</a></strong><br>
               ${receiver.description}<br>
