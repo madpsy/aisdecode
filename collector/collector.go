@@ -183,6 +183,7 @@ type Message struct {
 	SourceIP    string          `json:"source_ip"`
 	RawSentence string          `json:"raw_sentence"`
 	UDPPort     int             `json:"udp_port"`
+	DedupedPort *int            `json:"deduped_port,omitempty"`
 }
 
 // ── MAIN ─────────────────────────────────────────────────────────────────────
@@ -248,20 +249,21 @@ func main() {
 	}
 
 	_, err = db.Exec(`
-        CREATE TABLE IF NOT EXISTS messages (
-            id SERIAL PRIMARY KEY,
-            packet JSONB,
-            shard_id INT,
-            timestamp TIMESTAMP,
-            source_ip VARCHAR(45),
-            user_id INT,
-            message_id INT,
-            raw_sentence TEXT,
-            receiver_id INT,
-            distance INT,
-            udp_port INT
-        );
-    `)
+	       CREATE TABLE IF NOT EXISTS messages (
+	           id SERIAL PRIMARY KEY,
+	           packet JSONB,
+	           shard_id INT,
+	           timestamp TIMESTAMP,
+	           source_ip VARCHAR(45),
+	           user_id INT,
+	           message_id INT,
+	           raw_sentence TEXT,
+	           receiver_id INT,
+	           distance INT,
+	           udp_port INT,
+	           receiver_id_duplicated INT
+	       );
+	   `)
 	if err != nil {
 		log.Fatal("Error creating messages table: ", err)
 	}
@@ -299,10 +301,15 @@ func main() {
 	}
 	createIndexesIfNotExist(db)
 
-	// Create indexes for the new udp_port column
+	// Create index for the udp_port column
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_udp_port ON messages(udp_port);`)
 	if err != nil {
 		log.Printf("Error creating index on messages.udp_port: %v", err)
+	}
+
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_receiver_id_duplicated ON messages(receiver_id_duplicated);`)
+	if err != nil {
+		log.Printf("Error creating index on messages.receiver_id_duplicated: %v", err)
 	}
 
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_state_udp_port ON state(udp_port);`)
@@ -735,6 +742,13 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
 	if err := json.Unmarshal(message, &msg); err != nil {
 		log.Printf("[DEBUG] failed to unmarshal outer Message: %v", err)
 		return err
+	}
+
+	// Debug log to check if DedupedPort is being received
+	if settings.Debug && msg.DedupedPort != nil {
+		log.Printf("[DEBUG] Received message with DedupedPort=%d", *msg.DedupedPort)
+		// Print the raw JSON to see what's actually being received
+		log.Printf("[DEBUG] Raw message JSON: %s", string(message))
 	}
 
 	// 2) Persist to DB (includes msg.RawSentence)
@@ -1210,13 +1224,18 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 	// Only update the state table if:
 	// 1. The UDP port matches the ingester's port AND StoreAnonymousMessages is true, OR
 	// 2. There's a matching port for a receiver
-	if (portMatched && settings.StoreAnonymousMessages) || receiverFound {
+	// Only update the state table if this is not a duplicate message (DedupedPort is nil)
+	if message.DedupedPort == nil && ((portMatched && settings.StoreAnonymousMessages) || receiverFound) {
 		if err := storeState(db, packetJSON, message.ShardID, message.Timestamp, userID, messageIDf, message.SourceIP, receiverID, message.UDPPort); err != nil {
 			log.Printf("Error storing state: %v", err)
 		}
 	} else if settings.Debug {
-		log.Printf("Skipping state update: UDP port %d doesn't match ingester port %d or StoreAnonymousMessages is false",
-			message.UDPPort, settings.IngestUDPListenPort)
+		if message.DedupedPort != nil {
+			log.Printf("Skipping state update: Message is a duplicate (DedupedPort=%d)", *message.DedupedPort)
+		} else {
+			log.Printf("Skipping state update: UDP port %d doesn't match ingester port %d or StoreAnonymousMessages is false",
+				message.UDPPort, settings.IngestUDPListenPort)
+		}
 	}
 
 	// 8) Conditionally insert into messages
@@ -1234,7 +1253,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 		// 1. The UDP port matches the ingester's port AND StoreAnonymousMessages is true, OR
 		// 2. There's a matching port for a receiver
 		if (portMatched && settings.StoreAnonymousMessages) || receiverFound {
-			if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, receiverID, message.UDPPort, settings); err != nil {
+			if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, receiverID, message.UDPPort, message.DedupedPort, settings); err != nil {
 				log.Printf("Error storing message: %v", err)
 			}
 		} else if settings.Debug {
@@ -1466,7 +1485,7 @@ func calculateDistance(packetJSON []byte, receiverID interface{}) (float64, bool
 	return math.Round(distance), true
 }
 
-func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, rawSentence string, receiverID interface{}, udpPort int, settings *Settings) error {
+func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp string, sourceIP string, userID float64, messageID float64, rawSentence string, receiverID interface{}, udpPort int, dedupedPort *int, settings *Settings) error {
 	// Calculate distance if this is a position message and we have receiver info
 	var distance interface{} = nil // Default to SQL NULL
 	if hasPositionData(int(messageID)) {
@@ -1475,9 +1494,30 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
 		}
 	}
 
-	stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence, receiver_id, distance, udp_port)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
-	_, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance, udpPort)
+	// Translate dedupedPort to receiver_id_duplicated if available
+	var receiverIDDuplicated interface{} = nil // Default to SQL NULL
+	if dedupedPort != nil {
+		receiverMapMutex.RLock()
+		if id, exists := receiverPortToIDMap[*dedupedPort]; exists && *dedupedPort > 0 {
+			receiverIDDuplicated = id
+			if settings.Debug {
+				log.Printf("[DEBUG] Translated DedupedPort=%d to receiver_id_duplicated=%d", *dedupedPort, id)
+			}
+		} else {
+			// If no mapping exists, set receiver_id_duplicated to 0
+			receiverIDDuplicated = 0
+			if settings.Debug {
+				log.Printf("[DEBUG] Could not translate DedupedPort=%d to receiver_id_duplicated, setting to 0", *dedupedPort)
+				// Print the current port-to-receiver mapping
+				log.Printf("[DEBUG] Current port-to-receiver mapping: %v", receiverPortToIDMap)
+			}
+		}
+		receiverMapMutex.RUnlock()
+	}
+
+	stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence, receiver_id, distance, udp_port, receiver_id_duplicated)
+	            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+	_, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance, udpPort, receiverIDDuplicated)
 	if err != nil {
 		log.Printf("Error executing query: %v", err)
 		if isDatabaseConnectionError(err) {
@@ -1487,7 +1527,7 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
 				log.Printf("Failed to reconnect to the database: %v", err)
 				return err
 			}
-			_, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance, udpPort)
+			_, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance, udpPort, receiverIDDuplicated)
 			if err != nil {
 				log.Printf("Error executing query after reconnecting: %v", err)
 				return err

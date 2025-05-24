@@ -1397,6 +1397,9 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 
 		// ── Deduplication window ───────────────────────────────────────────────
 		var dedupedPort *int = nil
+		// Check if debugFlag is set
+		// log.Printf("DEBUG FLAG CHECK: debugFlag=%v", debugFlag)
+
 		if dedupWindow > 0 {
 			dedupMu.Lock()
 			now := time.Now()
@@ -1426,8 +1429,21 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 					// Store the port that first saw this message
 					portCopy := info.Port
 					dedupedPort = &portCopy
+
+					if debugFlag {
+						log.Printf("DUPLICATE: Message from user %s with hash %d is a duplicate. Original port: %d, Current port: %d",
+							userID, hashedMsg, info.Port, pkt.port)
+						log.Printf("DUPLICATE DETAILS: Setting dedupedPort=%d (pointer=%p)", *dedupedPort, dedupedPort)
+					}
+
+					// Simple debug log to check if execution continues
+					// log.Printf("EXECUTION CHECK: After setting dedupedPort")
 				} else {
 					// Original behavior: discard the packet
+					if debugFlag {
+						log.Printf("DUPLICATE DISCARDED: Message from user %s with hash %d is a duplicate and being discarded. Original port: %d, Current port: %d",
+							userID, hashedMsg, info.Port, pkt.port)
+					}
 					pkt.raw = nil
 					pkt.sourceIP = ""
 					packetPool.Put(pkt)
@@ -1439,12 +1455,25 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 					Timestamp: now,
 					Port:      pkt.port,
 				}
+
+				if debugFlag {
+					log.Printf("NEW MESSAGE: First time seeing message from user %s with hash %d on port %d",
+						userID, hashedMsg, pkt.port)
+				}
+
 				dedupMu.Unlock()
 			}
 		}
 
 		// ── Downsample logic ────────────────────────────────────────────────────
-		if downsampleWindow > 0 && downsampleTypes[msgID] {
+		// Debug log to check if duplicate messages are reaching the downsampling logic
+		if debugFlag && dedupedPort != nil {
+			log.Printf("DUPLICATE DOWNSAMPLE CHECK: Message with dedupedPort=%d reached downsampling logic", *dedupedPort)
+			log.Printf("DUPLICATE DOWNSAMPLE BYPASS: Skipping downsampling for duplicate message")
+		}
+
+		// Skip downsampling for duplicate messages (messages with dedupedPort set)
+		if downsampleWindow > 0 && downsampleTypes[msgID] && dedupedPort == nil {
 			now := time.Now()
 			downMu.Lock()
 			if lastForward[msgID] == nil {
@@ -1452,6 +1481,12 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 			}
 			if now.Sub(lastForward[msgID][userID]) < downsampleWindow {
 				downMu.Unlock()
+
+				// Debug log to check if duplicate messages are being downsampled
+				if debugFlag && dedupedPort != nil {
+					log.Printf("DUPLICATE DOWNSAMPLED: Message with dedupedPort=%d is being downsampled and discarded", *dedupedPort)
+				}
+
 				metricsMu.Lock()
 				totalDownsampled++
 				downsampledCounter.AddEvent()
@@ -1567,14 +1602,44 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 			UDPPort:     pkt.port,
 			DedupedPort: dedupedPort,
 		}
+
+		// Debug log to track execution flow
+		if debugFlag && dedupedPort != nil {
+			log.Printf("DUPLICATE FLOW: Created StreamMessage object with DedupedPort=%d", *dedupedPort)
+		}
 		if includeSource {
 			streamObj.SourceIP = srcIP
 		}
 
+		// Before JSON encoding, log the StreamMessage object
+		if debugFlag && dedupedPort != nil {
+			log.Printf("DUPLICATE BEFORE ENCODING: streamObj=%+v, dedupedPort=%d", streamObj, *dedupedPort)
+		}
+
 		buf := jsonBufPool.Get().(*bytes.Buffer)
 		buf.Reset()
-		json.NewEncoder(buf).Encode(streamObj)
+		encodeErr := json.NewEncoder(buf).Encode(streamObj)
+		if encodeErr != nil && debugFlag {
+			log.Printf("ERROR ENCODING JSON: %v", encodeErr)
+		}
 		out := buf.Bytes()
+
+		// Debug log for duplicate messages to verify deduped_port is in the JSON
+		if debugFlag && dedupedPort != nil {
+			log.Printf("DUPLICATE JSON: %s", string(out))
+
+			// Decode the JSON back to verify the field is there
+			var decoded map[string]interface{}
+			if err := json.Unmarshal(out, &decoded); err != nil {
+				log.Printf("ERROR DECODING JSON: %v", err)
+			} else {
+				if dp, ok := decoded["deduped_port"]; ok {
+					log.Printf("DUPLICATE JSON VERIFIED: deduped_port=%v found in JSON", dp)
+				} else {
+					log.Printf("DUPLICATE JSON MISSING FIELD: deduped_port not found in JSON")
+				}
+			}
+		}
 
 		// ── MQTT ───────────────────────────────────────────────────────────────
 		if mqttClient != nil && mqttClient.IsConnected() {
@@ -1605,11 +1670,23 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 
 		// ── TCP stream to clients ─────────────────────────────────────────────
 		out = append(out, 0)
+
+		// Debug log right before TCP transmission
+		if debugFlag && dedupedPort != nil {
+			log.Printf("DUPLICATE TCP: About to send message with DedupedPort=%d to %d clients", *dedupedPort, len(clients))
+		}
+
 		clientsMu.Lock()
 		for _, c := range clients {
 			for _, s := range c.shards {
 				if s == shardID {
 					c.mu.Lock()
+
+					// Debug log for each client connection
+					if debugFlag && dedupedPort != nil {
+						log.Printf("DUPLICATE TCP CLIENT: Sending to client with shards=%v", c.shards)
+					}
+
 					n, err := c.conn.Write(out)
 					if err == nil {
 						c.messagesSent++
