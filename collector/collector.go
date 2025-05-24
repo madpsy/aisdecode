@@ -1253,13 +1253,16 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 		// 1. The UDP port matches the ingester's port AND StoreAnonymousMessages is true, OR
 		// 2. There's a matching port for a receiver
 		if (portMatched && settings.StoreAnonymousMessages) || receiverFound {
-			// Debug log to check if DedupedPort is being passed to tryStoreMessage
-			if settings.Debug && message.DedupedPort != nil {
-				log.Printf("[DEBUG] Calling tryStoreMessage with DedupedPort=%d", *message.DedupedPort)
+			// Always log when processing a duplicate message
+			if message.DedupedPort != nil {
+				log.Printf("PROCESSING DUPLICATE: About to call tryStoreMessage with DedupedPort=%d", *message.DedupedPort)
 			}
 
 			if err := tryStoreMessage(db, packetJSON, message.ShardID, message.Timestamp, message.SourceIP, userIDf, messageIDf, rawSentence, receiverID, message.UDPPort, message.DedupedPort, settings); err != nil {
 				log.Printf("Error storing message: %v", err)
+			} else if message.DedupedPort != nil {
+				// Log successful storage of duplicate message
+				log.Printf("DUPLICATE STORED: Successfully stored message with DedupedPort=%d", *message.DedupedPort)
 			}
 		} else if settings.Debug {
 			log.Printf("Skipping message storage: UDP port %d doesn't match ingester port %d and no matching receiver found",
@@ -1502,20 +1505,19 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
 	// Translate dedupedPort to receiver_id_duplicated if available
 	var receiverIDDuplicated interface{} = nil // Default to SQL NULL
 	if dedupedPort != nil {
+		// Always log when processing a duplicate in tryStoreMessage
+		log.Printf("DUPLICATE IN TRYSTOREMESSAGE: Processing message with DedupedPort=%d", *dedupedPort)
+
 		receiverMapMutex.RLock()
 		if id, exists := receiverPortToIDMap[*dedupedPort]; exists && *dedupedPort > 0 {
 			receiverIDDuplicated = id
-			if settings.Debug {
-				log.Printf("[DEBUG] Translated DedupedPort=%d to receiver_id_duplicated=%d", *dedupedPort, id)
-			}
+			log.Printf("DUPLICATE TRANSLATION: Translated DedupedPort=%d to receiver_id_duplicated=%d", *dedupedPort, id)
 		} else {
 			// If no mapping exists, set receiver_id_duplicated to 0
 			receiverIDDuplicated = 0
-			if settings.Debug {
-				log.Printf("[DEBUG] Could not translate DedupedPort=%d to receiver_id_duplicated, setting to 0", *dedupedPort)
-				// Print the current port-to-receiver mapping
-				log.Printf("[DEBUG] Current port-to-receiver mapping: %v", receiverPortToIDMap)
-			}
+			log.Printf("DUPLICATE TRANSLATION: Could not translate DedupedPort=%d to receiver_id_duplicated, setting to 0", *dedupedPort)
+			// Print the current port-to-receiver mapping
+			log.Printf("DUPLICATE TRANSLATION: Current port-to-receiver mapping: %v", receiverPortToIDMap)
 		}
 		receiverMapMutex.RUnlock()
 	}
@@ -1523,12 +1525,21 @@ func tryStoreMessage(db *sql.DB, packetJSON []byte, shardID int, timestamp strin
 	stmt := `INSERT INTO messages (packet, shard_id, timestamp, source_ip, user_id, message_id, raw_sentence, receiver_id, distance, udp_port, receiver_id_duplicated)
 	            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 
-	// Debug log to check the values being inserted
-	if settings.Debug && dedupedPort != nil {
-		log.Printf("[DEBUG] Executing INSERT with receiverIDDuplicated=%v", receiverIDDuplicated)
+	// Always log when executing SQL for a duplicate message
+	if dedupedPort != nil {
+		log.Printf("DUPLICATE SQL: Executing INSERT with receiverIDDuplicated=%v", receiverIDDuplicated)
 	}
 
 	_, err := db.Exec(stmt, packetJSON, shardID, timestamp, sourceIP, userID, messageID, rawSentence, receiverID, distance, udpPort, receiverIDDuplicated)
+
+	// Log the result of the SQL execution
+	if dedupedPort != nil {
+		if err != nil {
+			log.Printf("DUPLICATE SQL ERROR: Failed to insert message with DedupedPort=%d: %v", *dedupedPort, err)
+		} else {
+			log.Printf("DUPLICATE SQL SUCCESS: Successfully inserted message with DedupedPort=%d and receiverIDDuplicated=%v", *dedupedPort, receiverIDDuplicated)
+		}
+	}
 	if err != nil {
 		log.Printf("Error executing query: %v", err)
 		if isDatabaseConnectionError(err) {
