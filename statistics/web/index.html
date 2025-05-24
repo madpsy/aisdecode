@@ -338,6 +338,35 @@
       </div>
     </div>
 
+    <!-- Top 10 Duplicated Vessels -->
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title">Top 10 Duplicated Vessels</h2>
+        <div class="row gy-3">
+          <div class="col-12 col-md-6 chart-container">
+            <canvas id="duplicateChart"></canvas>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="table-responsive">
+              <table id="top-duplicates-table" class="table table-striped table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Vessel</th>
+                    <th>Image</th>
+                    <th>Duplicates</th>
+                    <th>Original Receiver</th>
+                    <th>Class</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Top 10 by Distance -->
     <div class="card">
       <div class="card-body">
@@ -486,6 +515,8 @@
         '#8549ba','#e6194b'
       ];
       
+      // Chart objects
+      
       // Helper function to create vessel history URL
       function createVesselHistoryUrl(userId, timestamp = null, receiverId = null, aisClass = null) {
         // Only create links for AIS class A or B
@@ -598,6 +629,42 @@
           aspectRatio: 1,  // Ensures the chart remains circular
         }
       });
+      const duplicateChart = new Chart($('#duplicateChart')[0].getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: [],
+          datasets: [{
+            data: [],
+            backgroundColor: sliceColors,
+            borderColor: '#fff',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          indexAxis: 'y',
+          plugins: {
+            legend: {
+              display: false
+            }
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Number of Duplicate Messages'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Vessel'
+              }
+            }
+          }
+        }
+      });
       const posChart = new Chart($('#posChart')[0].getContext('2d'), {
         type: 'bar',
         data: { labels: [], datasets: [{ label: 'Reports', data: [] }] },
@@ -615,6 +682,9 @@
       });
       const classTable = $('#top-classes-table').DataTable({
         paging: false, info: false, searching: false, order: [[1, 'desc']]
+      });
+      const duplicateTable = $('#top-duplicates-table').DataTable({
+        paging: false, info: false, searching: false, order: [[2, 'desc']]
       });
       const distanceTable = $('#top-distance-table').DataTable({
         paging: false, info: false, searching: false, order: [[2, 'desc']]
@@ -666,6 +736,7 @@
             fetchTopSog(days, receiverId, fromDate, toDate),
             fetchTopTypes(days, receiverId, fromDate, toDate),
             fetchTopClasses(days, receiverId, fromDate, toDate),
+            fetchTopDuplicates(days, receiverId, fromDate, toDate),
             fetchTopDistance(days, receiverId, fromDate, toDate),
             fetchUserCounts(days, receiverId, fromDate, toDate)
           ]);
@@ -825,6 +896,75 @@
 
         classTable.draw();
         classChart.update();
+      }
+      
+      async function fetchTopDuplicates(days, receiverId, fromDate, toDate) {
+        let url;
+        
+        if (fromDate && toDate) {
+          // Use date range parameters
+          url = `/statistics/stats/top-duplicates?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}`;
+        } else {
+          // Use days parameter
+          url = `/statistics/stats/top-duplicates?days=${days}`;
+        }
+        
+        if (receiverId) {
+          url += `&receiver_id=${receiverId}`;
+        }
+        
+        try {
+          const data = await (await fetch(url)).json();
+          
+          // Clear previous data
+          duplicateTable.clear();
+          duplicateChart.data.labels = [];
+          duplicateChart.data.datasets[0].data = [];
+          
+          // Process data
+          data.forEach((item, i) => {
+            // Add to table
+            const vesselName = item.name || `Vessel ${item.user_id}`;
+            const vesselHistoryUrl = createVesselHistoryUrl(item.user_id, null, null, item.ais_class);
+            
+            let nameCell = vesselName;
+            if (vesselHistoryUrl) {
+              nameCell = `<a href="${vesselHistoryUrl}" target="_blank">${vesselName}</a>`;
+            }
+            
+            let imageCell = '';
+            if (item.image_url) {
+              imageCell = `<img src="${item.image_url}" alt="${vesselName}" class="thumb" data-full-url="${item.image_url}">`;
+            }
+            
+            duplicateTable.row.add([
+              nameCell,
+              imageCell,
+              item.duplicate_count,
+              item.receiver_name || `Receiver ${item.receiver_id}`,
+              item.ais_class || '',
+              item.type || ''
+            ]);
+            
+            // Add to chart
+            duplicateChart.data.labels.push(vesselName);
+            duplicateChart.data.datasets[0].data.push(item.duplicate_count);
+          });
+          
+          // Update chart colors
+          duplicateChart.data.datasets[0].backgroundColor = sliceColors.slice(0, data.length);
+          
+          // Draw table and update chart
+          duplicateTable.draw();
+          duplicateChart.update();
+          
+          // Add click event for thumbnails
+          $('#top-duplicates-table .thumb').on('click', function() {
+            showImageOverlay($(this).data('full-url'));
+          });
+        } catch (error) {
+          console.error('Error fetching top duplicates:', error);
+        }
       }
 
       // Map and map layers

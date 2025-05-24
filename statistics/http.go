@@ -133,6 +133,7 @@ func registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/statistics/stats/user-counts", userCountsHandler)
 	mux.HandleFunc("/statistics/stats/coverage-map", coverageMapHandler)
 	mux.HandleFunc("/statistics/stats/time-series", timeSeriesHandler)
+	mux.HandleFunc("/statistics/stats/top-duplicates", topDuplicatesHandler)
 }
 
 func topSogHandler(w http.ResponseWriter, r *http.Request) {
@@ -1775,6 +1776,292 @@ func fetchVesselTimeSeries(period TimeSeriesPeriod, days int, receiverID int) ([
 	}
 
 	return dataPoints, nil
+}
+
+// duplicateVessel is the JSON shape returned by /statistics/stats/top-duplicates.
+type duplicateVessel struct {
+	UserID         int    `json:"user_id"`
+	Name           string `json:"name,omitempty"`
+	ImageURL       string `json:"image_url,omitempty"`
+	AISClass       string `json:"ais_class,omitempty"`
+	Type           string `json:"type,omitempty"`
+	DuplicateCount int    `json:"duplicate_count"`
+	ReceiverID     int    `json:"receiver_id"`
+	ReceiverName   string `json:"receiver_name,omitempty"`
+}
+
+// topDuplicatesHandler provides the top 10 vessels with the most duplicate messages
+func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
+	days := parseDaysParam(r)
+	receiverID := parseReceiverIDParam(r)
+	timeRange, err := parseTimeRangeParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Include receiver_id and time range in cache key if specified
+	var cacheKey string
+	if timeRange.UseRange {
+		if receiverID > 0 {
+			cacheKey = fmt.Sprintf("top-duplicates:%s-%s:r%d",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"),
+				receiverID)
+		} else {
+			cacheKey = fmt.Sprintf("top-duplicates:%s-%s",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"))
+		}
+	} else {
+		if receiverID > 0 {
+			cacheKey = fmt.Sprintf("top-duplicates:%dd:r%d", days, receiverID)
+		} else {
+			cacheKey = fmt.Sprintf("top-duplicates:%dd", days)
+		}
+	}
+
+	var vessels []duplicateVessel
+	if ok, _ := cacheGet(cacheKey, &vessels); ok {
+		// Enrich with vessel metadata
+		vessels = enrichDuplicateVessels(vessels)
+
+		// Enrich with receiver names
+		vessels = enrichDuplicateVesselReceivers(vessels)
+
+		respondJSON(w, vessels)
+		return
+	}
+
+	// Build query with optional receiver_id filter and time range
+	var qry string
+	if receiverID > 0 {
+		if timeRange.UseRange {
+			qry = fmt.Sprintf(`
+				SELECT
+					m.user_id,
+					m.receiver_id_duplicated AS receiver_id,
+					COUNT(*) AS duplicate_count
+				FROM
+					messages m
+				WHERE
+					m.receiver_id_duplicated IS NOT NULL
+					AND m.receiver_id = %d
+					AND m.timestamp >= '%s'
+					AND m.timestamp <= '%s'
+				GROUP BY
+					m.user_id, m.receiver_id_duplicated
+				ORDER BY
+					duplicate_count DESC
+				LIMIT 10
+			`, receiverID, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
+		} else {
+			qry = fmt.Sprintf(`
+				SELECT
+					m.user_id,
+					m.receiver_id_duplicated AS receiver_id,
+					COUNT(*) AS duplicate_count
+				FROM
+					messages m
+				WHERE
+					m.receiver_id_duplicated IS NOT NULL
+					AND m.receiver_id = %d
+					AND m.timestamp >= now() - INTERVAL '%d days'
+				GROUP BY
+					m.user_id, m.receiver_id_duplicated
+				ORDER BY
+					duplicate_count DESC
+				LIMIT 10
+			`, receiverID, days)
+		}
+	} else {
+		if timeRange.UseRange {
+			qry = fmt.Sprintf(`
+				SELECT
+					m.user_id,
+					m.receiver_id_duplicated AS receiver_id,
+					COUNT(*) AS duplicate_count
+				FROM
+					messages m
+				WHERE
+					m.receiver_id_duplicated IS NOT NULL
+					AND m.timestamp >= '%s'
+					AND m.timestamp <= '%s'
+				GROUP BY
+					m.user_id, m.receiver_id_duplicated
+				ORDER BY
+					duplicate_count DESC
+				LIMIT 10
+			`, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
+		} else {
+			qry = fmt.Sprintf(`
+				SELECT
+					m.user_id,
+					m.receiver_id_duplicated AS receiver_id,
+					COUNT(*) AS duplicate_count
+				FROM
+					messages m
+				WHERE
+					m.receiver_id_duplicated IS NOT NULL
+					AND m.timestamp >= now() - INTERVAL '%d days'
+				GROUP BY
+					m.user_id, m.receiver_id_duplicated
+				ORDER BY
+					duplicate_count DESC
+				LIMIT 10
+			`, days)
+		}
+	}
+
+	shardResults, err := QueryDatabasesForAllShards(qry)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+
+	// Aggregate results from all shards
+	type dupKey struct {
+		userID     int
+		receiverID int
+	}
+
+	dupMap := make(map[dupKey]int)
+
+	for _, recs := range shardResults {
+		for _, rec := range recs {
+			userID, _ := parseInt(rec["user_id"])
+			receiverID, _ := parseInt(rec["receiver_id"])
+			count, _ := parseInt(rec["duplicate_count"])
+
+			key := dupKey{userID, receiverID}
+			dupMap[key] += count
+		}
+	}
+
+	// Convert to slice for sorting
+	vessels = make([]duplicateVessel, 0, len(dupMap))
+	for key, count := range dupMap {
+		vessels = append(vessels, duplicateVessel{
+			UserID:         key.userID,
+			ReceiverID:     key.receiverID,
+			DuplicateCount: count,
+		})
+	}
+
+	// Sort by duplicate count descending
+	sort.Slice(vessels, func(i, j int) bool {
+		return vessels[i].DuplicateCount > vessels[j].DuplicateCount
+	})
+
+	// Limit to top 10
+	if len(vessels) > 10 {
+		vessels = vessels[:10]
+	}
+
+	// Enrich with vessel metadata
+	vessels = enrichDuplicateVessels(vessels)
+
+	// Enrich with receiver names
+	vessels = enrichDuplicateVesselReceivers(vessels)
+
+	cacheSet(cacheKey, vessels)
+	respondJSON(w, vessels)
+}
+
+// enrichDuplicateVessels looks up and injects Name/ImageURL/AISClass/Type for each vessel in-place.
+func enrichDuplicateVessels(vs []duplicateVessel) []duplicateVessel {
+	ids := make([]int, len(vs))
+	for i, v := range vs {
+		ids[i] = v.UserID
+	}
+	meta, err := fetchVesselMetadata(ids)
+	if err != nil {
+		log.Printf("enrichDuplicateVessels: metadata fetch error: %v", err)
+		return vs
+	}
+	for i := range vs {
+		if m, ok := meta[vs[i].UserID]; ok {
+			vs[i].Name = m.Name
+			vs[i].ImageURL = m.ImageURL
+			vs[i].AISClass = m.AISClass
+			vs[i].Type = m.Type
+		}
+	}
+	return vs
+}
+
+// enrichDuplicateVesselReceivers looks up and injects ReceiverName for each vessel in-place.
+func enrichDuplicateVesselReceivers(vs []duplicateVessel) []duplicateVessel {
+	// Get unique receiver IDs
+	receiverIDs := make(map[int]bool)
+	for _, v := range vs {
+		receiverIDs[v.ReceiverID] = true
+	}
+
+	// Convert to slice
+	ids := make([]int, 0, len(receiverIDs))
+	for id := range receiverIDs {
+		ids = append(ids, id)
+	}
+
+	// Fetch receiver names
+	receivers, err := fetchReceivers(ids)
+	if err != nil {
+		log.Printf("enrichDuplicateVesselReceivers: receiver fetch error: %v", err)
+		return vs
+	}
+
+	// Update vessel records
+	for i := range vs {
+		if r, ok := receivers[vs[i].ReceiverID]; ok {
+			vs[i].ReceiverName = r
+		} else {
+			vs[i].ReceiverName = fmt.Sprintf("Receiver %d", vs[i].ReceiverID)
+		}
+	}
+
+	return vs
+}
+
+// fetchReceivers fetches receiver names by ID
+func fetchReceivers(ids []int) (map[int]string, error) {
+	if len(ids) == 0 {
+		return make(map[int]string), nil
+	}
+
+	// Convert IDs to string for query
+	idStrs := make([]string, len(ids))
+	for i, id := range ids {
+		idStrs[i] = strconv.Itoa(id)
+	}
+
+	// Query receivers API
+	resp, err := http.Get("/receivers")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("receivers API returned status %d", resp.StatusCode)
+	}
+
+	var receiverList []struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&receiverList); err != nil {
+		return nil, err
+	}
+
+	// Create map of ID to name
+	result := make(map[int]string)
+	for _, r := range receiverList {
+		result[r.ID] = r.Name
+	}
+
+	return result, nil
 }
 
 // fetchDuplicateTimeSeries retrieves duplicate message counts grouped by time period and original receiver
