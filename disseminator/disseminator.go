@@ -861,15 +861,16 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed float64, userid int64, types string, typeGroups string, classes string, receiverID int64, fromTime, toTime time.Time) (map[string]interface{}, error) {
 	// Step 1: Find messages within the time period and area, and get the one closest to fromTime for each user_id
 	query := fmt.Sprintf(`
-        WITH ranked_messages AS (
-            SELECT
-                user_id,
-                packet,
-                timestamp,
-                ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - '%s'::timestamp)))) as rn
-            FROM messages
-            WHERE timestamp BETWEEN '%s' AND '%s'
-            AND message_id IN (1,2,3,9,18,19)
+	       WITH ranked_messages AS (
+	           SELECT
+	               user_id,
+	               packet,
+	               timestamp,
+	               ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY ABS(EXTRACT(EPOCH FROM (timestamp - '%s'::timestamp)))) as rn
+	           FROM messages
+	           WHERE timestamp BETWEEN '%s' AND '%s'
+	           AND message_id IN (1,2,3,9,18,19)
+	           AND (receiver_id_duplicated IS NULL)
     `, fromTime.Format(time.RFC3339Nano), fromTime.Format(time.RFC3339Nano), toTime.Format(time.RFC3339Nano))
 
 	// If lat, lon, and radius are specified, filter by distance
@@ -1028,7 +1029,8 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
                     (SELECT COUNT(*) FROM messages
                      WHERE user_id = '%s'
                      AND timestamp BETWEEN '%s' AND '%s'
-                     AND message_id IN (1,2,3,9,18,19)) as position_count
+                     AND message_id IN (1,2,3,9,18,19)
+                     AND (receiver_id_duplicated IS NULL)) as position_count
                 FROM state s
                 WHERE s.user_id = '%s'
             `, userID, fromTime.Format(time.RFC3339Nano), toTime.Format(time.RFC3339Nano), userID)
@@ -1149,18 +1151,19 @@ func getHistoryResults(userID string, hours int) ([]map[string]interface{}, erro
 	// 2) History from messages for selected movement types
 	historyQuery := fmt.Sprintf(`
 SELECT
-    timestamp,
-    (packet->>'Latitude')::double precision AS latitude,
-    (packet->>'Longitude')::double precision AS longitude,
-    (packet->>'Sog')::double precision AS sog,
-    (packet->>'Cog')::double precision AS cog,
-    (packet->>'TrueHeading')::double precision AS trueHeading
+	   timestamp,
+	   (packet->>'Latitude')::double precision AS latitude,
+	   (packet->>'Longitude')::double precision AS longitude,
+	   (packet->>'Sog')::double precision AS sog,
+	   (packet->>'Cog')::double precision AS cog,
+	   (packet->>'TrueHeading')::double precision AS trueHeading
 FROM messages
 WHERE user_id   = '%[1]s'
-  AND timestamp >= '%[2]s'
-  AND message_id IN (1,2,3,9,18,19)
-  AND packet->>'Latitude'  IS NOT NULL
-  AND packet->>'Longitude' IS NOT NULL
+	 AND timestamp >= '%[2]s'
+	 AND message_id IN (1,2,3,9,18,19)
+	 AND packet->>'Latitude'  IS NOT NULL
+	 AND packet->>'Longitude' IS NOT NULL
+	 AND (receiver_id_duplicated IS NULL)
 ORDER BY timestamp
 LIMIT 2000;
 `, userID, pastTime)
@@ -1478,14 +1481,15 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		query := fmt.Sprintf(`
-            SELECT
-              %s,
-              %s
-            FROM messages
-            WHERE %s
-            GROUP BY bucket
-            ORDER BY bucket ASC
-            LIMIT 2000;
+		          SELECT
+		            %s,
+		            %s
+		          FROM messages
+		          WHERE %s
+		            AND (receiver_id_duplicated IS NULL)
+		          GROUP BY bucket
+		          ORDER BY bucket ASC
+		          LIMIT 2000;
         `, bucketCol, strings.Join(exprs, ", "), whereClause)
 		// log.Printf("SQL Query: %s", query)
 
@@ -1568,18 +1572,19 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	var query string
 	if len(messageIDs) == 0 && q.Get("DAC") == "" && q.Get("FI") == "" {
 		query = fmt.Sprintf(`
-            SELECT DISTINCT ON (
-              message_id,
-              (packet->'ApplicationID'->>'DesignatedAreaCode')::int,
-              (packet->'ApplicationID'->>'FunctionIdentifier')::int
-            )
-              message_id,
-              packet,
-              raw_sentence,
-              timestamp,
-              receiver_id
-            FROM messages
-            WHERE %s
+		          SELECT DISTINCT ON (
+		            message_id,
+		            (packet->'ApplicationID'->>'DesignatedAreaCode')::int,
+		            (packet->'ApplicationID'->>'FunctionIdentifier')::int
+		          )
+		            message_id,
+		            packet,
+		            raw_sentence,
+		            timestamp,
+		            receiver_id
+		          FROM messages
+		          WHERE %s
+		            AND (receiver_id_duplicated IS NULL)
             ORDER BY
               message_id,
               (packet->'ApplicationID'->>'DesignatedAreaCode')::int,
@@ -1588,14 +1593,15 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
         `, whereClause)
 	} else {
 		query = fmt.Sprintf(`
-            SELECT
-              message_id,
-              packet,
-              raw_sentence,
-              timestamp,
-              receiver_id
-            FROM messages
-            WHERE %s
+		          SELECT
+		            message_id,
+		            packet,
+		            raw_sentence,
+		            timestamp,
+		            receiver_id
+		          FROM messages
+		          WHERE %s
+		            AND (receiver_id_duplicated IS NULL)
             ORDER BY timestamp DESC
             LIMIT %d;
         `, whereClause, limit)
@@ -2380,6 +2386,7 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
         ARRAY_AGG(DISTINCT message_id) AS message_types
       FROM messages
       WHERE user_id = %d
+        AND (receiver_id_duplicated IS NULL)
       GROUP BY user_id
     ),
     receiver_ids AS (
@@ -2390,6 +2397,7 @@ func userStateHandler(w http.ResponseWriter, r *http.Request) {
       WHERE user_id = %d
         AND receiver_id IS NOT NULL
         AND receiver_id != 0
+        AND (receiver_id_duplicated IS NULL)
       GROUP BY user_id
     )
     SELECT
