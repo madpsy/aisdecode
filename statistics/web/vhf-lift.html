@@ -955,6 +955,22 @@
       });
     }
     
+    // Update the coverage link with the current receiver ID
+    function updateCoverageLink() {
+      const receiverId = document.getElementById('receiver-select').value;
+      const coverageLink = document.getElementById('coverage-link');
+      
+      if (coverageLink) {
+        const coverageUrl = new URL(coverageLink.href);
+        if (receiverId) {
+          coverageUrl.searchParams.set('receiver_id', receiverId);
+        } else {
+          coverageUrl.searchParams.delete('receiver_id');
+        }
+        coverageLink.href = coverageUrl.toString();
+      }
+    }
+    
     // Update URL with current parameters
     function updateUrlParameters() {
       const receiverId = document.getElementById('receiver-select').value;
@@ -977,17 +993,8 @@
       // Update URL without reloading the page
       window.history.pushState({}, '', url);
       
-      // Update the coverage link with receiver ID if selected
-      const coverageLink = document.getElementById('coverage-link');
-      if (coverageLink) {
-        const coverageUrl = new URL(coverageLink.href);
-        if (receiverId) {
-          coverageUrl.searchParams.set('receiver_id', receiverId);
-        } else {
-          coverageUrl.searchParams.delete('receiver_id');
-        }
-        coverageLink.href = coverageUrl.toString();
-      }
+      // Update the coverage link
+      updateCoverageLink();
     }
     
     // Parse URL parameters
@@ -1081,6 +1088,9 @@
           // Remove the dataset attribute
           delete receiverSelect.dataset.preselect;
         }
+        
+        // Update the coverage link with the current receiver ID
+        updateCoverageLink();
         
         // Load initial data based on selected parameters
         const anomalyType = document.getElementById('anomaly-type').value;
