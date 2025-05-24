@@ -488,68 +488,84 @@ func startCollectorTracking() {
 			newCollectors, err := fetchCollectors()
 			if err != nil {
 				log.Printf("Error fetching collectors: %v", err)
-			} else {
-				// Update collectors list
-				collectorsMutex.Lock()
-				collectors = newCollectors
-				collectorsMutex.Unlock()
-
-				// Store previous port last seen map for comparison
-				prevPortLastSeenMap := make(map[int]time.Time)
-				portLastSeenMutex.RLock()
-				for port, lastSeen := range portLastSeenMap {
-					prevPortLastSeenMap[port] = lastSeen
-				}
-				portLastSeenMutex.RUnlock()
-
-				// Clear previous port metrics and last seen maps after a successful fetch
-				portMetricsMutex.Lock()
-				portMetricsMap = make(map[string]map[int]PortMetric)
-				portMetricsMutex.Unlock()
-				portLastSeenMutex.Lock()
-				portLastSeenMap = make(map[int]time.Time)
-				portLastSeenMutex.Unlock()
-
-				// For each collector, fetch port metrics
-				for _, collector := range newCollectors {
-					go func(c Collector) {
-						portMetrics, portLastSeen, err := fetchPortMetrics(c)
-						if err != nil {
-							log.Printf("Error fetching port metrics from collector %s:%d: %v", c.IP, c.Port, err)
-							return
-						}
-
-						// Update port metrics map
-						portMetricsMutex.Lock()
-						for _, metric := range portMetrics {
-							// Create map for IP address if it doesn't exist
-							if _, ok := portMetricsMap[metric.IPAddress]; !ok {
-								portMetricsMap[metric.IPAddress] = make(map[int]PortMetric)
-							}
-
-							// Always use the latest metric data from the collector
-							// This replaces the previous implementation that accumulated message counts
-							portMetricsMap[metric.IPAddress][metric.UDPPort] = metric
-						}
-						portMetricsMutex.Unlock()
-
-						// Update port last seen map with the most recent last seen time
-						if portLastSeen != nil {
-							portLastSeenMutex.Lock()
-							for port, lastSeen := range portLastSeen {
-								// Only update if this is more recent than what we already have
-								if existing, ok := portLastSeenMap[port]; !ok || lastSeen.After(existing) {
-									portLastSeenMap[port] = lastSeen
-								}
-							}
-							portLastSeenMutex.Unlock()
-						}
-					}(collector)
-				}
-
-				// After all collectors have been processed, check for receiver status changes
-				go checkReceiverStatusChanges(prevPortLastSeenMap)
+				// Sleep and continue if we can't fetch collectors
+				time.Sleep(5 * time.Second)
+				continue
 			}
+
+			// Update collectors list
+			collectorsMutex.Lock()
+			collectors = newCollectors
+			collectorsMutex.Unlock()
+
+			// Store previous port last seen map for comparison
+			prevPortLastSeenMap := make(map[int]time.Time)
+			portLastSeenMutex.RLock()
+			for port, lastSeen := range portLastSeenMap {
+				prevPortLastSeenMap[port] = lastSeen
+			}
+			portLastSeenMutex.RUnlock()
+
+			// Create new maps to store the updated data
+			newPortMetricsMap := make(map[string]map[int]PortMetric)
+			newPortLastSeenMap := make(map[int]time.Time)
+
+			// Use a WaitGroup to wait for all collector goroutines to complete
+			var wg sync.WaitGroup
+
+			// For each collector, fetch port metrics
+			for _, collector := range newCollectors {
+				wg.Add(1)
+				go func(c Collector) {
+					defer wg.Done()
+
+					portMetrics, portLastSeen, err := fetchPortMetrics(c)
+					if err != nil {
+						log.Printf("Error fetching port metrics from collector %s:%d: %v", c.IP, c.Port, err)
+						return
+					}
+
+					// Update new port metrics map
+					portMetricsMutex.Lock()
+					for _, metric := range portMetrics {
+						// Create map for IP address if it doesn't exist
+						if _, ok := newPortMetricsMap[metric.IPAddress]; !ok {
+							newPortMetricsMap[metric.IPAddress] = make(map[int]PortMetric)
+						}
+
+						// Always use the latest metric data from the collector
+						newPortMetricsMap[metric.IPAddress][metric.UDPPort] = metric
+					}
+					portMetricsMutex.Unlock()
+
+					// Update new port last seen map with the most recent last seen time
+					if portLastSeen != nil {
+						portLastSeenMutex.Lock()
+						for port, lastSeen := range portLastSeen {
+							// Only update if this is more recent than what we already have
+							if existing, ok := newPortLastSeenMap[port]; !ok || lastSeen.After(existing) {
+								newPortLastSeenMap[port] = lastSeen
+							}
+						}
+						portLastSeenMutex.Unlock()
+					}
+				}(collector)
+			}
+
+			// Wait for all collector goroutines to complete
+			wg.Wait()
+
+			// Only update the global maps after all collectors have reported
+			portMetricsMutex.Lock()
+			portMetricsMap = newPortMetricsMap
+			portMetricsMutex.Unlock()
+
+			portLastSeenMutex.Lock()
+			portLastSeenMap = newPortLastSeenMap
+			portLastSeenMutex.Unlock()
+
+			// After all collectors have been processed and maps updated, check for receiver status changes
+			checkReceiverStatusChanges(prevPortLastSeenMap)
 
 			// Sleep for 5 seconds
 			time.Sleep(5 * time.Second)
