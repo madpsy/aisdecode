@@ -61,7 +61,7 @@
       font-size: 1.5rem;
       font-weight: bold;
     }
-    .loading-overlay {
+    .loading-overlay, .no-data-overlay {
       position: absolute;
       top: 0;
       left: 0;
@@ -170,6 +170,10 @@
                 <div class="loading-spinner"></div>
                 <span>Loading...</span>
               </div>
+              <!-- No data overlay for map -->
+              <div class="no-data-overlay" id="noDataOverlay">
+                <span>No Datapoints Found</span>
+              </div>
             </div>
           </div>
           <div class="col-md-4">
@@ -248,6 +252,16 @@
       document.getElementById('mapLoadingOverlay').style.display = 'none';
     }
     
+    // Show no data overlay
+    function showNoDataOverlay() {
+      document.getElementById('noDataOverlay').style.display = 'flex';
+    }
+    
+    // Hide no data overlay
+    function hideNoDataOverlay() {
+      document.getElementById('noDataOverlay').style.display = 'none';
+    }
+    
     // Load receivers
     async function loadReceivers() {
       try {
@@ -306,6 +320,9 @@
         // Clear map
         clearMap();
         
+        // Hide no data overlay initially
+        hideNoDataOverlay();
+        
         // Update anomalies list
         updateAnomaliesList(anomalies, 'range');
         
@@ -325,6 +342,9 @@
             console.error('Error getting bounds:', err);
             map.setView([51.505, -0.09], 6);
           });
+        } else {
+          // Show no data overlay when API returns empty array
+          showNoDataOverlay();
         }
       } catch (e) {
         console.error('Failed to load range anomalies:', e);
@@ -367,6 +387,9 @@
         // Clear map
         clearMap();
         
+        // Hide no data overlay initially
+        hideNoDataOverlay();
+        
         // Update anomalies list
         updateAnomaliesList(anomalies, 'direction');
         
@@ -395,6 +418,9 @@
           if (bounds.isValid()) {
             map.fitBounds(bounds, { padding: [50, 50] });
           }
+        } else {
+          // Show no data overlay when API returns empty array
+          showNoDataOverlay();
         }
       } catch (e) {
         console.error('Failed to load direction anomalies:', e);
@@ -411,6 +437,8 @@
           map.removeLayer(layer);
         }
       });
+      // Hide no data overlay when clearing the map
+      hideNoDataOverlay();
     }
     
     // Update anomalies list
