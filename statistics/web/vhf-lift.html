@@ -522,6 +522,9 @@
           
           // Show details
           showAnomalyDetails(anomaly, type);
+          
+          // Focus map on this anomaly
+          focusMapOnAnomaly(anomaly, type);
         });
         
         listElement.appendChild(item);
@@ -694,6 +697,157 @@
         
         return bounds;
       });
+    }
+    
+    // Focus map on a specific anomaly
+    function focusMapOnAnomaly(anomaly, type) {
+      // Clear the map first
+      clearMap();
+      
+      // Show only this anomaly on the map
+      if (type === 'range') {
+        // Fetch receivers to get location
+        fetch('/receivers').then(r => r.json()).then(receivers => {
+          const receiver = receivers.find(r => r.id === anomaly.receiver_id);
+          if (!receiver || !receiver.latitude || !receiver.longitude) return;
+          
+          // Add receiver marker
+          const receiverMarker = L.marker([receiver.latitude, receiver.longitude], {
+            icon: L.divIcon({
+              html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+              className: 'receiver-marker',
+              iconSize: [12, 12]
+            })
+          }).addTo(map);
+          
+          receiverMarker.bindPopup(`<b>Receiver:</b> ${receiver.name || `#${receiver.id}`}`);
+          
+          // Add normal range circle
+          const normalRangeCircle = L.circle([receiver.latitude, receiver.longitude], {
+            radius: anomaly.normal_range_km * 1000,
+            color: '#3388ff',
+            fillColor: '#3388ff',
+            fillOpacity: 0.1,
+            weight: 1,
+            dashArray: '5, 5'
+          }).addTo(map);
+          
+          // Add anomaly range circle
+          const anomalyRangeCircle = L.circle([receiver.latitude, receiver.longitude], {
+            radius: anomaly.anomaly_range_km * 1000,
+            color: '#ff4136',
+            fillColor: '#ff4136',
+            fillOpacity: 0.1,
+            weight: 2
+          }).addTo(map);
+          
+          // Add line to max point
+          if (anomaly.max_lat && anomaly.max_lon) {
+            const line = L.polyline([
+              [receiver.latitude, receiver.longitude],
+              [anomaly.max_lat, anomaly.max_lon]
+            ], {
+              color: '#ff4136',
+              weight: 2,
+              dashArray: '5, 5'
+            }).addTo(map);
+            
+            // Add max point marker
+            const maxMarker = L.marker([anomaly.max_lat, anomaly.max_lon], {
+              icon: L.divIcon({
+                html: '<div style="background-color: #ff4136; width: 8px; height: 8px; border-radius: 50%; border: 2px solid white;"></div>',
+                className: 'max-point-marker',
+                iconSize: [8, 8]
+              })
+            }).addTo(map);
+            
+            if (anomaly.max_vessel_name) {
+              maxMarker.bindPopup(`<b>Vessel:</b> ${anomaly.max_vessel_name}`);
+            }
+          }
+          
+          // Fit map to this anomaly
+          const bounds = L.latLngBounds();
+          bounds.extend([receiver.latitude, receiver.longitude]);
+          
+          if (anomaly.max_lat && anomaly.max_lon) {
+            bounds.extend([anomaly.max_lat, anomaly.max_lon]);
+          } else {
+            // If no max point, extend bounds based on anomaly range
+            const directions = [0, 90, 180, 270];
+            directions.forEach(dir => {
+              const point = getPointInDirection(
+                receiver.latitude,
+                receiver.longitude,
+                dir,
+                anomaly.anomaly_range_km
+              );
+              bounds.extend(point);
+            });
+          }
+          
+          if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [50, 50] });
+          }
+        });
+      } else {
+        // Direction anomaly
+        fetch('/receivers').then(r => r.json()).then(receivers => {
+          const receiver = receivers.find(r => r.id === anomaly.receiver_id);
+          if (!receiver || !receiver.latitude || !receiver.longitude) return;
+          
+          // Add receiver marker
+          const receiverMarker = L.marker([receiver.latitude, receiver.longitude], {
+            icon: L.divIcon({
+              html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+              className: 'receiver-marker',
+              iconSize: [12, 12]
+            })
+          }).addTo(map);
+          
+          receiverMarker.bindPopup(`<b>Receiver:</b> ${receiver.name || `#${receiver.id}`}`);
+          
+          // Add direction arrow
+          const directionDegrees = getDirectionDegrees(anomaly.direction);
+          const arrowLength = anomaly.max_distance_meters / 1000; // km
+          
+          // Calculate end point
+          const endPoint = getPointInDirection(
+            receiver.latitude,
+            receiver.longitude,
+            directionDegrees,
+            arrowLength
+          );
+          
+          // Draw arrow
+          const arrow = L.polyline([
+            [receiver.latitude, receiver.longitude],
+            endPoint
+          ], {
+            color: '#ff4136',
+            weight: 3
+          }).addTo(map);
+          
+          // Add arrowhead
+          const arrowHead = L.polyline([
+            getPointInDirection(endPoint[0], endPoint[1], directionDegrees - 150, arrowLength * 0.05),
+            endPoint,
+            getPointInDirection(endPoint[0], endPoint[1], directionDegrees + 150, arrowLength * 0.05)
+          ], {
+            color: '#ff4136',
+            weight: 3
+          }).addTo(map);
+          
+          // Fit map to this anomaly
+          const bounds = L.latLngBounds();
+          bounds.extend([receiver.latitude, receiver.longitude]);
+          bounds.extend(endPoint);
+          
+          if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [50, 50] });
+          }
+        });
+      }
     }
     
     // Show anomaly details
