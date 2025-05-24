@@ -195,6 +195,37 @@
         </div>
       </div>
     </div>
+
+    <!-- Duplicate Messages Chart -->
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title">Duplicate Messages</h2>
+        <div class="period-selector">
+          <div class="btn-group" role="group" aria-label="Time period selector">
+            <button type="button" class="btn btn-outline-primary active" data-period="daily">Daily (per hour)</button>
+            <button type="button" class="btn btn-outline-primary" data-period="monthly">Monthly (per day)</button>
+            <button type="button" class="btn btn-outline-primary" data-period="yearly">Yearly (per month)</button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="duplicateChart"></canvas>
+          <div class="loading-overlay" id="duplicateChartLoading">
+            <div class="loading-spinner"></div>
+            <span>Loading...</span>
+          </div>
+        </div>
+        <div class="mt-3">
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="stackedDuplicates" checked>
+            <label class="form-check-label" for="stackedDuplicates">Stacked</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="showLegendDuplicates" checked>
+            <label class="form-check-label" for="showLegendDuplicates">Show Legend</label>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Dependencies -->
@@ -211,6 +242,7 @@
       // Global variables
       let messageChart = null;
       let vesselChart = null;
+      let duplicateChart = null;
       let receivers = [];
       let messageTypes = {};
       let activeRequests = 0; // Track active API requests
@@ -263,6 +295,14 @@
       
       document.getElementById('showLegendVessels').addEventListener('change', function() {
         updateChartLegend('vessels', this.checked);
+      });
+      
+      document.getElementById('stackedDuplicates').addEventListener('change', function() {
+        updateChartStacking('duplicates', this.checked);
+      });
+      
+      document.getElementById('showLegendDuplicates').addEventListener('change', function() {
+        updateChartLegend('duplicates', this.checked);
       });
       
       // Add event listener for receiver selector
@@ -329,6 +369,38 @@
         
         // Vessel chart
         vesselChart = new Chart(document.getElementById('vesselChart'), {
+          type: 'bar',
+          data: {
+            labels: [],
+            datasets: []
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                stacked: true
+              },
+              y: {
+                stacked: true,
+                beginAtZero: true
+              }
+            },
+            plugins: {
+              legend: {
+                position: 'bottom',
+                display: true
+              },
+              tooltip: {
+                mode: 'index',
+                intersect: false
+              }
+            }
+          }
+        });
+        
+        // Duplicate chart
+        duplicateChart = new Chart(document.getElementById('duplicateChart'), {
           type: 'bar',
           data: {
             labels: [],
@@ -439,10 +511,12 @@
         // Get active periods
         const messagePeriod = document.querySelector('#messageChart').closest('.card').querySelector('.btn.active').dataset.period;
         const vesselPeriod = document.querySelector('#vesselChart').closest('.card').querySelector('.btn.active').dataset.period;
+        const duplicatePeriod = document.querySelector('#duplicateChart').closest('.card').querySelector('.btn.active').dataset.period;
         
-        // Load data for both charts
+        // Load data for all charts
         loadChartData('messages', messagePeriod);
         loadChartData('vessels', vesselPeriod);
+        loadChartData('duplicates', duplicatePeriod);
       }
       
       // Show global loading overlay
@@ -501,8 +575,10 @@
           // Update chart
           if (type === 'messages') {
             updateMessageChart(data);
-          } else {
+          } else if (type === 'vessels') {
             updateVesselChart(data);
+          } else if (type === 'duplicates') {
+            updateDuplicateChart(data);
           }
         } catch (e) {
           console.error(`Failed to load ${type} data:`, e);
@@ -627,9 +703,78 @@
         vesselChart.update();
       }
       
+      // Update duplicate chart
+      function updateDuplicateChart(data) {
+        // Extract timestamps for labels
+        const labels = data.data_points.map(point => {
+          const date = new Date(point.timestamp);
+          
+          // Format based on period
+          if (data.period === 'daily') {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          } else if (data.period === 'monthly') {
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          } else {
+            return date.toLocaleDateString([], { year: 'numeric', month: 'short' });
+          }
+        });
+        
+        // Get all unique receiver IDs
+        const receiverIds = new Set();
+        data.data_points.forEach(point => {
+          Object.keys(point.values).forEach(id => receiverIds.add(id));
+        });
+        
+        // Sort receiver IDs numerically
+        const sortedReceiverIds = Array.from(receiverIds).sort((a, b) => parseInt(a) - parseInt(b));
+        
+        // Create datasets
+        const datasets = [];
+        
+        // Process each receiver ID
+        for (const id of sortedReceiverIds) {
+          // Skip receiver ID 0 (represents no duplicates)
+          if (id === '0') continue;
+          
+          // Find receiver name from receivers array
+          let receiverName = `Receiver ${id}`;
+          const receiver = receivers.find(r => r.id === parseInt(id));
+          if (receiver) {
+            receiverName = receiver.name;
+          }
+          
+          // Get data points for this receiver ID
+          const dataPoints = data.data_points.map(point => point.values[id] || 0);
+          
+          // Only include receivers that have at least one non-zero value
+          const sum = dataPoints.reduce((a, b) => a + b, 0);
+          if (sum > 0) {
+            datasets.push({
+              label: receiverName,
+              data: dataPoints,
+              backgroundColor: colorPalette[datasets.length % colorPalette.length],
+              borderColor: 'rgba(255, 255, 255, 0.5)',
+              borderWidth: 1
+            });
+          }
+        }
+        
+        // Update chart
+        duplicateChart.data.labels = labels;
+        duplicateChart.data.datasets = datasets;
+        duplicateChart.update();
+      }
+      
       // Update chart stacking
       function updateChartStacking(type, stacked) {
-        const chart = type === 'messages' ? messageChart : vesselChart;
+        let chart;
+        if (type === 'messages') {
+          chart = messageChart;
+        } else if (type === 'vessels') {
+          chart = vesselChart;
+        } else {
+          chart = duplicateChart;
+        }
         
         chart.options.scales.x.stacked = stacked;
         chart.options.scales.y.stacked = stacked;
@@ -638,7 +783,14 @@
       
       // Update chart legend
       function updateChartLegend(type, show) {
-        const chart = type === 'messages' ? messageChart : vesselChart;
+        let chart;
+        if (type === 'messages') {
+          chart = messageChart;
+        } else if (type === 'vessels') {
+          chart = vesselChart;
+        } else {
+          chart = duplicateChart;
+        }
         
         chart.options.plugins.legend.display = show;
         chart.update();
