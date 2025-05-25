@@ -5,7 +5,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"flag"
@@ -307,7 +306,6 @@ func main() {
 	           user_id INT PRIMARY KEY,
 	           raw_sentence TEXT NOT NULL,
 	           timestamp TIMESTAMP NOT NULL,
-	           message_hash TEXT NOT NULL,
 	           receiver_ids INT[] NOT NULL,
 	           last_updated TIMESTAMP NOT NULL
 	       );
@@ -967,21 +965,15 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 
 	// If this is not a duplicate message, create or update the entry with a new message
 	if !isDuplicate {
-		// Create a hash of the raw sentence for reference
-		h := sha256.New()
-		h.Write([]byte(rawSentence))
-		messageHash := fmt.Sprintf("%x", h.Sum(nil))
-
 		_, err := db.Exec(`
-			INSERT INTO vessel_receivers (user_id, raw_sentence, timestamp, message_hash, receiver_ids, last_updated)
-			VALUES ($1, $2, $3, $4, ARRAY[$5::integer], NOW())
+			INSERT INTO vessel_receivers (user_id, raw_sentence, timestamp, receiver_ids, last_updated)
+			VALUES ($1, $2, $3, ARRAY[$4::integer], NOW())
 			ON CONFLICT (user_id) DO UPDATE SET
 				raw_sentence = EXCLUDED.raw_sentence,
 				timestamp = EXCLUDED.timestamp,
-				message_hash = EXCLUDED.message_hash,
-				receiver_ids = ARRAY[$5::integer],  -- Reset the array with just this receiver
+				receiver_ids = ARRAY[$4::integer],  -- Reset the array with just this receiver
 				last_updated = NOW()
-		`, userID, rawSentence, timestamp, messageHash, recID)
+		`, userID, rawSentence, timestamp, recID)
 		return err
 	} else {
 		// For duplicates, trust the ingester's duplicate detection (dedupedPort)
