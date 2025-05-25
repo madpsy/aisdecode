@@ -613,7 +613,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 
 	// If UserID is provided, filter by user_id (UserID)
 	if userid > 0 {
-		query += fmt.Sprintf(" WHERE user_id = %d", userid)
+		query += fmt.Sprintf(" WHERE s.user_id = %d", userid)
 		whereAdded = true
 	}
 
