@@ -989,23 +989,6 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 			return err
 		}
 
-		// Check if any rows were affected
-		rowsAffected, _ := result.RowsAffected()
-		if rowsAffected > 0 {
-			// log.Printf("Added receiver %d to vessel_receivers for user %d (duplicate from port %d)",
-			//	recID, userID, *dedupedPort)
-		} else {
-			//log.Printf("Receiver %d already exists in vessel_receivers for user %d (duplicate from port %d)",
-			// 	recID, userID, *dedupedPort)
-		}
-
-		if err != nil {
-			return err
-		}
-
-		// log.Printf("Added receiver %d to vessel_receivers for user %d (duplicate from port %d)",
-		//	recID, userID, *dedupedPort)
-
 		return nil
 	}
 }
@@ -1344,7 +1327,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 				log.Printf("Error updating vessel receivers: %v", err)
 			}
 		} else if settings.Debug {
-			// log.Printf("Skipping message storage: UDP port %d doesn't match ingester port %d and no matching receiver found",
+			log.Printf("Skipping message storage: UDP port %d doesn't match ingester port %d and no matching receiver found",
 				message.UDPPort, settings.IngestUDPListenPort)
 		}
 	}
