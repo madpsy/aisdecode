@@ -577,6 +577,25 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 	return results, nil
 }
 
+// Helper function to handle receiver IDs
+func handleReceiverIDs(receiverIDs []int64, receiverID int64, summary map[string]interface{}, userIDStr string) {
+	// If a specific receiver ID was requested, only include that one
+	if receiverID > 0 {
+		// Check if the requested receiver is in the list
+		for _, id := range receiverIDs {
+			if id == receiverID {
+				summary["CurrentReceivers"] = []int64{receiverID}
+				log.Printf("Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userIDStr)
+				break
+			}
+		}
+	} else {
+		// Otherwise include all receivers
+		summary["CurrentReceivers"] = receiverIDs
+		log.Printf("Adding CurrentReceivers with %d IDs for vessel %s", len(receiverIDs), userIDStr)
+	}
+}
+
 func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64, types string, typeGroups string, classes string, receiverID int64) (map[string]interface{}, error) {
 	query := `
 	      SELECT s.user_id
@@ -861,24 +880,37 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 			}
 
 			// Add CurrentReceivers field from vessel_receivers table
-			if receiverIDs, ok := row["receiver_ids"].([]int64); ok {
-				// If a specific receiver ID was requested, only include that one
-				if receiverID > 0 {
-					// Check if the requested receiver is in the list
-					for _, id := range receiverIDs {
-						if id == receiverID {
-							summary["CurrentReceivers"] = []int64{receiverID}
-							log.Printf("Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userIDStr)
-							break
+			if receiverIDsRaw, ok := row["receiver_ids"]; ok {
+				// Try to handle different types that might come from the database
+				switch receiverIDs := receiverIDsRaw.(type) {
+				case []int64:
+					// Direct array of int64
+					handleReceiverIDs(receiverIDs, receiverID, summary, userIDStr)
+				case pq.Int64Array:
+					// PostgreSQL int64 array
+					handleReceiverIDs([]int64(receiverIDs), receiverID, summary, userIDStr)
+				case []uint8:
+					// Raw binary data - try to parse as PostgreSQL array format
+					// PostgreSQL array format is typically: {1,2,3}
+					arrayStr := string(receiverIDs)
+					if len(arrayStr) > 2 && arrayStr[0] == '{' && arrayStr[len(arrayStr)-1] == '}' {
+						// Remove the braces and split by comma
+						numStrs := strings.Split(arrayStr[1:len(arrayStr)-1], ",")
+						var ids []int64
+						for _, numStr := range numStrs {
+							if id, err := strconv.ParseInt(numStr, 10, 64); err == nil {
+								ids = append(ids, id)
+							}
 						}
+						handleReceiverIDs(ids, receiverID, summary, userIDStr)
+					} else {
+						log.Printf("Unexpected array format for vessel %s: %s", userIDStr, arrayStr)
 					}
-				} else {
-					// Otherwise include all receivers
-					summary["CurrentReceivers"] = receiverIDs
-					log.Printf("Adding CurrentReceivers with %d IDs for vessel %s", len(receiverIDs), userIDStr)
+				default:
+					log.Printf("Unexpected type for receiver_ids for vessel %s: %T", userIDStr, receiverIDsRaw)
 				}
 			} else {
-				log.Printf("No receiver_ids found for vessel %s (or wrong type: %T)", userIDStr, row["receiver_ids"])
+				log.Printf("No receiver_ids found for vessel %s", userIDStr)
 			}
 
 			summarizedResults[userIDStr] = summary
@@ -1178,22 +1210,35 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
 			receiverRows, err := QueryDatabaseForUser(userID, receiverQuery)
 			if err == nil {
 				if receiverRows.Next() {
-					var receiverIDs []int64
-					if err := receiverRows.Scan(&receiverIDs); err == nil {
-						// If a specific receiver ID was requested, only include that one
-						if receiverID > 0 {
-							// Check if the requested receiver is in the list
-							for _, id := range receiverIDs {
-								if id == receiverID {
-									summary["CurrentReceivers"] = []int64{receiverID}
-									log.Printf("History: Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userID)
-									break
+					var receiverIDsRaw interface{}
+					if err := receiverRows.Scan(&receiverIDsRaw); err == nil {
+						// Try to handle different types that might come from the database
+						switch receiverIDs := receiverIDsRaw.(type) {
+						case []int64:
+							// Direct array of int64
+							handleReceiverIDs(receiverIDs, receiverID, summary, userID)
+						case pq.Int64Array:
+							// PostgreSQL int64 array
+							handleReceiverIDs([]int64(receiverIDs), receiverID, summary, userID)
+						case []uint8:
+							// Raw binary data - try to parse as PostgreSQL array format
+							// PostgreSQL array format is typically: {1,2,3}
+							arrayStr := string(receiverIDs)
+							if len(arrayStr) > 2 && arrayStr[0] == '{' && arrayStr[len(arrayStr)-1] == '}' {
+								// Remove the braces and split by comma
+								numStrs := strings.Split(arrayStr[1:len(arrayStr)-1], ",")
+								var ids []int64
+								for _, numStr := range numStrs {
+									if id, err := strconv.ParseInt(numStr, 10, 64); err == nil {
+										ids = append(ids, id)
+									}
 								}
+								handleReceiverIDs(ids, receiverID, summary, userID)
+							} else {
+								log.Printf("History: Unexpected array format for vessel %s: %s", userID, arrayStr)
 							}
-						} else {
-							// Otherwise include all receivers
-							summary["CurrentReceivers"] = receiverIDs
-							log.Printf("History: Adding CurrentReceivers with %d IDs for vessel %s", len(receiverIDs), userID)
+						default:
+							log.Printf("History: Unexpected type for receiver_ids for vessel %s: %T", userID, receiverIDsRaw)
 						}
 					} else {
 						log.Printf("History: Error scanning receiver_ids for vessel %s: %v", userID, err)
