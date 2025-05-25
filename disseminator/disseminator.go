@@ -579,16 +579,14 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 
 func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64, types string, typeGroups string, classes string, receiverID int64) (map[string]interface{}, error) {
 	query := `
-	      SELECT s.user_id
-	           , s.packet
-	           , s.timestamp
-	           , s.ais_class
-	           , s.count
-	           , s.name
-	           , vr.receiver_ids
-	      FROM state s
-	      LEFT JOIN vessel_receivers vr ON s.user_id = vr.user_id
-	  `
+       SELECT user_id
+            , packet
+            , timestamp
+            , ais_class
+            , count
+            , name
+       FROM state
+   `
 
 	whereAdded := false
 
@@ -859,33 +857,6 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 					summary["Name"] = fmt.Sprintf("%s (%s)", classVal, userIDStr)
 				}
 			}
-
-			// Add CurrentReceivers field from vessel_receivers table
-			if receiverIDs, ok := row["receiver_ids"].([]byte); ok {
-				var receivers []int64
-				if err := json.Unmarshal(receiverIDs, &receivers); err == nil {
-					// If a specific receiver ID was requested, only include that one
-					if receiverID > 0 {
-						// Check if the requested receiver is in the list
-						for _, id := range receivers {
-							if id == receiverID {
-								summary["CurrentReceivers"] = []int64{receiverID}
-								log.Printf("Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userIDStr)
-								break
-							}
-						}
-					} else {
-						// Otherwise include all receivers
-						summary["CurrentReceivers"] = receivers
-						log.Printf("Adding CurrentReceivers with %d IDs for vessel %s", len(receivers), userIDStr)
-					}
-				} else {
-					log.Printf("Error unmarshalling receiver_ids for vessel %s: %v", userIDStr, err)
-				}
-			} else {
-				log.Printf("No receiver_ids found for vessel %s", userIDStr)
-			}
-
 			summarizedResults[userIDStr] = summary
 		}
 	}
@@ -1172,42 +1143,6 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
 				if classVal, ok := summary["AISClass"].(string); ok {
 					summary["Name"] = fmt.Sprintf("%s (%s)", classVal, userID)
 				}
-			}
-
-			// Add CurrentReceivers field from vessel_receivers table
-			// Query vessel_receivers table to get receiver_ids for this user_id
-			receiverQuery := fmt.Sprintf(`
-				SELECT receiver_ids FROM vessel_receivers WHERE user_id = '%s'
-			`, userID)
-
-			receiverRows, err := QueryDatabaseForUser(userID, receiverQuery)
-			if err == nil {
-				if receiverRows.Next() {
-					var receiverIDs []byte
-					if err := receiverRows.Scan(&receiverIDs); err == nil {
-						var receivers []int64
-						if err := json.Unmarshal(receiverIDs, &receivers); err == nil {
-							// If a specific receiver ID was requested, only include that one
-							if receiverID > 0 {
-								// Check if the requested receiver is in the list
-								for _, id := range receivers {
-									if id == receiverID {
-										summary["CurrentReceivers"] = []int64{receiverID}
-										log.Printf("History: Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userID)
-										break
-									}
-								}
-							} else {
-								// Otherwise include all receivers
-								summary["CurrentReceivers"] = receivers
-								log.Printf("History: Adding CurrentReceivers with %d IDs for vessel %s", len(receivers), userID)
-							}
-						} else {
-							log.Printf("History: Error unmarshalling receiver_ids for vessel %s: %v", userID, err)
-						}
-					}
-				}
-				receiverRows.Close()
 			}
 
 			summarizedResults[userID] = summary
