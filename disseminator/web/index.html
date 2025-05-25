@@ -4340,11 +4340,33 @@ function updateVesselReceiverConnection(UserID) {
   // Get receiver IDs from the CurrentReceivers field if available
   let receiverIds = [];
   
-  // First check for CurrentReceivers array from summary data
+  // Debug logging to see what fields are available
+  console.log("Vessel data for connection:", {
+    UserID: UserID,
+    CurrentReceivers: vessel.CurrentReceivers,
+    CurrentReceiver: vessel.CurrentReceiver, // Check both plural and singular
+    receiver_id: vessel.receiver_id,
+    ReceiverID: vessel.ReceiverID
+  });
+  
+  // First check for CurrentReceivers array from summary data (try both plural and singular)
   if (Array.isArray(vessel.CurrentReceivers) && vessel.CurrentReceivers.length > 0) {
+    console.log("Using CurrentReceivers array:", vessel.CurrentReceivers);
     receiverIds = vessel.CurrentReceivers;
+  } else if (Array.isArray(vessel.CurrentReceiver) && vessel.CurrentReceiver.length > 0) {
+    console.log("Using CurrentReceiver array:", vessel.CurrentReceiver);
+    receiverIds = vessel.CurrentReceiver;
+  } else if (typeof vessel.CurrentReceivers === 'number' || typeof vessel.CurrentReceivers === 'string') {
+    // Handle case where CurrentReceivers is a single value, not an array
+    console.log("CurrentReceivers is a single value:", vessel.CurrentReceivers);
+    receiverIds = [vessel.CurrentReceivers];
+  } else if (typeof vessel.CurrentReceiver === 'number' || typeof vessel.CurrentReceiver === 'string') {
+    // Handle case where CurrentReceiver is a single value, not an array
+    console.log("CurrentReceiver is a single value:", vessel.CurrentReceiver);
+    receiverIds = [vessel.CurrentReceiver];
   } else {
     // Fall back to legacy fields if CurrentReceivers is not available
+    console.log("Falling back to legacy receiver fields");
     // First try receiver_id from ais_data events
     let receiverId = vessel.receiver_id;
     
@@ -4355,20 +4377,44 @@ function updateVesselReceiverConnection(UserID) {
     
     // Add the single receiver ID if it's valid
     if (receiverId !== null && receiverId !== undefined) {
+      console.log("Using legacy receiver ID:", receiverId);
       receiverIds = [receiverId];
     }
   }
+  
+  console.log("Final receiver IDs for connections:", receiverIds);
   
   // Keep track of which receiver IDs we've processed
   const processedReceiverIds = new Set();
   
   // Process each receiver ID
+  console.log("Starting to process receiver IDs:", receiverIds);
   for (const receiverId of receiverIds) {
+    console.log("Processing receiver ID:", receiverId);
     // Skip if this receiver doesn't exist on the map
-    if (!receiverMarkers[receiverId]) continue;
+    console.log(`Checking if receiver marker exists for ID: ${receiverId}, type: ${typeof receiverId}`);
+    console.log("Available receiver markers:", Object.keys(receiverMarkers));
     
-    // Mark this receiver as processed
-    processedReceiverIds.add(receiverId);
+    // Try both string and number versions of the ID
+    const receiverIdStr = String(receiverId);
+    const receiverIdNum = parseInt(receiverId, 10);
+    
+    if (receiverMarkers[receiverId]) {
+      console.log(`Found receiver marker using original ID: ${receiverId}`);
+    } else if (receiverMarkers[receiverIdStr]) {
+      console.log(`Found receiver marker using string ID: ${receiverIdStr}`);
+      receiverId = receiverIdStr;
+    } else if (!isNaN(receiverIdNum) && receiverMarkers[receiverIdNum]) {
+      console.log(`Found receiver marker using numeric ID: ${receiverIdNum}`);
+      receiverId = receiverIdNum;
+    } else {
+      console.log("Receiver marker not found for ID:", receiverId);
+      continue;
+    }
+    
+    // Mark this receiver as processed - convert to string to ensure consistent type
+    processedReceiverIds.add(String(receiverId));
+    console.log("Receiver marker found, creating connection for ID:", receiverId);
     const vesselLatLng = [vessel.Latitude, vessel.Longitude];
     const receiverLatLng = receiverMarkers[receiverId].getLatLng();
     
@@ -4420,7 +4466,9 @@ function updateVesselReceiverConnection(UserID) {
         
         // Add to map in a separate step to catch any errors
         try {
+          console.log(`Adding polyline for receiver ${receiverId} to map`);
           receiverPolylines[receiverId].addTo(map);
+          console.log(`Successfully added polyline for receiver ${receiverId}`);
         } catch (e) {
           console.warn(`Error adding polyline for receiver ${receiverId} to map:`, e);
           delete receiverPolylines[receiverId]; // Remove from our tracking
@@ -4493,24 +4541,30 @@ function updateVesselReceiverConnection(UserID) {
   }
   
   // Remove any polylines and labels for receivers that are no longer in the list
-  for (const receiverId in receiverPolylines) {
-    if (!processedReceiverIds.has(receiverId)) {
+  console.log("Checking for polylines to remove. Processed IDs:", Array.from(processedReceiverIds));
+  console.log("Current polylines:", Object.keys(receiverPolylines));
+  
+  for (const polylineId in receiverPolylines) {
+    if (!processedReceiverIds.has(String(polylineId))) {
+      console.log(`Removing polyline for receiver ${polylineId} as it's no longer in the list`);
       try {
-        map.removeLayer(receiverPolylines[receiverId]);
-        delete receiverPolylines[receiverId];
+        map.removeLayer(receiverPolylines[polylineId]);
+        delete receiverPolylines[polylineId];
       } catch (e) {
-        // Ignore errors
+        console.warn(`Error removing polyline for receiver ${polylineId}:`, e);
       }
     }
   }
   
-  for (const receiverId in receiverDistanceLabels) {
-    if (!processedReceiverIds.has(receiverId)) {
+  console.log("Current distance labels:", Object.keys(receiverDistanceLabels));
+  for (const labelId in receiverDistanceLabels) {
+    if (!processedReceiverIds.has(String(labelId))) {
+      console.log(`Removing distance label for receiver ${labelId} as it's no longer in the list`);
       try {
-        map.removeLayer(receiverDistanceLabels[receiverId]);
-        delete receiverDistanceLabels[receiverId];
+        map.removeLayer(receiverDistanceLabels[labelId]);
+        delete receiverDistanceLabels[labelId];
       } catch (e) {
-        // Ignore errors
+        console.warn(`Error removing distance label for receiver ${labelId}:`, e);
       }
     }
   }
