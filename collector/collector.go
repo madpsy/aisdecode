@@ -978,7 +978,7 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 	} else {
 		// For duplicates, trust the ingester's duplicate detection (dedupedPort)
 		// and append this receiver to the array if not already present
-		err := db.Exec(`
+		result, err := db.Exec(`
 			UPDATE vessel_receivers
 			SET receiver_ids = array_append(receiver_ids, $1::integer),
 				last_updated = NOW()
@@ -988,6 +988,16 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 		if err != nil {
 			return err
 		}
+
+		// Check if any rows were affected
+		rowsAffected, _ := result.RowsAffected()
+		
+
+		if err != nil {
+			return err
+		}
+
+
 
 		return nil
 	}
@@ -1318,7 +1328,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 				log.Printf("Error storing message: %v", err)
 			} else if message.DedupedPort != nil {
 				// Log successful storage of duplicate message
-				// log.Printf("DUPLICATE STORED: Successfully stored message with DedupedPort=%d", *message.DedupedPort)
+				log.Printf("DUPLICATE STORED: Successfully stored message with DedupedPort=%d", *message.DedupedPort)
 			}
 
 			// Update vessel_receivers table to track which receivers saw this message
