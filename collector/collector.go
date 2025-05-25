@@ -977,22 +977,54 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 		return err
 	} else {
 		// For duplicates, trust the ingester's duplicate detection (dedupedPort)
-		// and append this receiver to the array if not already present
-		_, err := db.Exec(`
+		// and append this receiver to the array
+
+		// First, check if the record exists and what receivers are already there
+		var existingReceivers []int
+		err := db.QueryRow(`
+			SELECT receiver_ids FROM vessel_receivers WHERE user_id = $1
+		`, userID).Scan(&existingReceivers)
+
+		if err == sql.ErrNoRows {
+			// No record exists yet, treat as non-duplicate
+			if settings.Debug {
+				log.Printf("No existing record for user %d, creating new entry for duplicate", userID)
+			}
+			return updateVesselReceivers(db, userID, rawSentence, timestamp, receiverID, false, dedupedPort)
+		} else if err != nil {
+			return err
+		}
+
+		// Check if this receiver is already in the array
+		receiverExists := false
+		for _, id := range existingReceivers {
+			if id == recID {
+				receiverExists = true
+				break
+			}
+		}
+
+		if receiverExists {
+			if settings.Debug {
+				log.Printf("Receiver %d already exists in vessel_receivers for user %d", recID, userID)
+			}
+			return nil
+		}
+
+		// Append the receiver ID to the array
+		_, err = db.Exec(`
 			UPDATE vessel_receivers
 			SET receiver_ids = array_append(receiver_ids, $1::integer),
 				last_updated = NOW()
-			WHERE user_id = $2 AND NOT ($1::integer = ANY(receiver_ids))
+			WHERE user_id = $2
 		`, recID, userID)
 
 		if err != nil {
 			return err
 		}
 
-		if settings.Debug {
-			log.Printf("Added receiver %d to vessel_receivers for user %d (duplicate from port %d)",
-				recID, userID, *dedupedPort)
-		}
+		log.Printf("Added receiver %d to vessel_receivers for user %d (duplicate from port %d)",
+			recID, userID, *dedupedPort)
 
 		return nil
 	}
