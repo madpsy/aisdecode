@@ -978,7 +978,7 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 	} else {
 		// For duplicates, trust the ingester's duplicate detection (dedupedPort)
 		// and append this receiver to the array if not already present
-		result, err := db.Exec(`
+		err := db.Exec(`
 			UPDATE vessel_receivers
 			SET receiver_ids = array_append(receiver_ids, $1::integer),
 				last_updated = NOW()
