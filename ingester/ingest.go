@@ -1472,26 +1472,52 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 				lastForward[msgID] = map[string]time.Time{}
 			}
 
-			// Check if this message should be downsampled based on time window
-			if now.Sub(lastForward[msgID][userID]) < downsampleWindow {
-				shouldDownsample = true
+			// For duplicate messages, we need special handling
+			if dedupedPort != nil {
+				// Get the zero time for comparison
+				var zeroTime time.Time
+
+				// Check if we've seen an original message for this msgID/userID
+				lastTime, exists := lastForward[msgID][userID]
+
+				if debugFlag {
+					log.Printf("[DEBUG] Duplicate message check: exists=%v, lastTime=%v", exists, lastTime)
+				}
+
+				// Only apply downsampling if we've seen an original message AND
+				// it's within the downsampling window
+				if exists && lastTime != zeroTime && now.Sub(lastTime) < downsampleWindow {
+					shouldDownsample = true
+					if debugFlag {
+						log.Printf("[DEBUG] Duplicate will be downsampled: time since last=%v, window=%v",
+							now.Sub(lastTime), downsampleWindow)
+					}
+				} else {
+					if debugFlag {
+						log.Printf("[DEBUG] Duplicate will be forwarded: no recent original message")
+					}
+				}
 			} else {
-				// Update the last forward time for this message type and user ID
-				// Only update for original messages, not for duplicates
-				if dedupedPort == nil {
+				// Original message - normal downsampling logic
+				lastTime := lastForward[msgID][userID]
+				var zeroTime time.Time
+
+				// Check if this message should be downsampled based on time window
+				if lastTime != zeroTime && now.Sub(lastTime) < downsampleWindow {
+					shouldDownsample = true
+					if debugFlag {
+						log.Printf("[DEBUG] Original message will be downsampled: time since last=%v",
+							now.Sub(lastTime))
+					}
+				} else {
+					// Update the last forward time for this message type and user ID
 					lastForward[msgID][userID] = now
+					if debugFlag {
+						log.Printf("[DEBUG] Original message will be forwarded and timestamp updated")
+					}
 				}
 			}
 			downMu.Unlock()
-
-			// If this is a duplicate message, log for debugging
-			if debugFlag && dedupedPort != nil {
-				if shouldDownsample {
-					log.Printf("[DEBUG] Duplicate message with dedupedPort=%d will be downsampled", *dedupedPort)
-				} else {
-					log.Printf("[DEBUG] Duplicate message with dedupedPort=%d will be forwarded", *dedupedPort)
-				}
-			}
 
 			// If we should downsample, do it now
 			if shouldDownsample {
