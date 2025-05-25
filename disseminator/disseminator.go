@@ -579,14 +579,16 @@ func QueryDatabasesForAllShards(query string) (map[string][]map[string]interface
 
 func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed float64, userid int64, types string, typeGroups string, classes string, receiverID int64) (map[string]interface{}, error) {
 	query := `
-       SELECT user_id
-            , packet
-            , timestamp
-            , ais_class
-            , count
-            , name
-       FROM state
-   `
+	      SELECT s.user_id
+	           , s.packet
+	           , s.timestamp
+	           , s.ais_class
+	           , s.count
+	           , s.name
+	           , vr.receiver_ids
+	      FROM state s
+	      LEFT JOIN vessel_receivers vr ON s.user_id = vr.user_id
+	  `
 
 	whereAdded := false
 
@@ -613,8 +615,8 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 			query += fmt.Sprintf(`
                 AND ST_DistanceSphere(
                     ST_SetSRID(ST_Point(
-                        (packet->>'Longitude')::float,
-                        (packet->>'Latitude')::float
+                        (s.packet->>'Longitude')::float,
+                        (s.packet->>'Latitude')::float
                     ), 4326),
                     ST_SetSRID(ST_Point(%f, %f), 4326)
                 ) <= %f
@@ -623,8 +625,8 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 			query += fmt.Sprintf(`
                 WHERE ST_DistanceSphere(
                     ST_SetSRID(ST_Point(
-                        (packet->>'Longitude')::float,
-                        (packet->>'Latitude')::float
+                        (s.packet->>'Longitude')::float,
+                        (s.packet->>'Latitude')::float
                     ), 4326),
                     ST_SetSRID(ST_Point(%f, %f), 4326)
                 ) <= %f
@@ -636,9 +638,9 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	if maxAge > 0 {
 		cutoff := time.Now().Add(-time.Duration(maxAge) * time.Hour).UTC().Format(time.RFC3339Nano)
 		if whereAdded {
-			query += fmt.Sprintf(" AND timestamp >= '%s'", cutoff)
+			query += fmt.Sprintf(" AND s.timestamp >= '%s'", cutoff)
 		} else {
-			query += fmt.Sprintf(" WHERE timestamp >= '%s'", cutoff)
+			query += fmt.Sprintf(" WHERE s.timestamp >= '%s'", cutoff)
 			whereAdded = true
 		}
 	}
@@ -646,12 +648,12 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	if minSpeed > 0 {
 		if whereAdded {
 			query += fmt.Sprintf(
-				" AND (packet->>'Sog')::float >= %f",
+				" AND (s.packet->>'Sog')::float >= %f",
 				minSpeed,
 			)
 		} else {
 			query += fmt.Sprintf(
-				" WHERE (packet->>'Sog')::float >= %f",
+				" WHERE (s.packet->>'Sog')::float >= %f",
 				minSpeed,
 			)
 			whereAdded = true
@@ -671,7 +673,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 			if t != "" {
 				typeVal, err := strconv.ParseFloat(t, 64)
 				if err == nil {
-					typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = %f", typeVal))
+					typeConditions = append(typeConditions, fmt.Sprintf("(s.packet->>'Type')::float = %f", typeVal))
 				} else {
 					log.Printf("Warning: Ignoring invalid type value: %s", t)
 				}
@@ -685,9 +687,9 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 		for _, typeVal := range groupTypes {
 			// Special handling for type 0: include vessels with no Type field
 			if typeVal == 0 {
-				typeConditions = append(typeConditions, fmt.Sprintf("((packet->>'Type')::float = 0 OR packet->>'Type' IS NULL)"))
+				typeConditions = append(typeConditions, fmt.Sprintf("((s.packet->>'Type')::float = 0 OR s.packet->>'Type' IS NULL)"))
 			} else {
-				typeConditions = append(typeConditions, fmt.Sprintf("(packet->>'Type')::float = %d", typeVal))
+				typeConditions = append(typeConditions, fmt.Sprintf("(s.packet->>'Type')::float = %d", typeVal))
 			}
 		}
 	}
@@ -698,7 +700,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 
 		// Special handling for AtoN, BASE, and SAR vessels
 		// These should always be included regardless of type filtering
-		specialClassesFilter := "ais_class IN ('AtoN', 'BASE', 'SAR')"
+		specialClassesFilter := "s.ais_class IN ('AtoN', 'BASE', 'SAR')"
 
 		// Combine with OR logic to include both vessels matching type conditions
 		// AND special class vessels regardless of their type
@@ -723,7 +725,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 				// Valid values are A, B, BASE, SAR and AtoN
 				switch c {
 				case "A", "B", "BASE", "SAR", "AtoN":
-					classConditions = append(classConditions, fmt.Sprintf("ais_class = '%s'", c))
+					classConditions = append(classConditions, fmt.Sprintf("s.ais_class = '%s'", c))
 				default:
 					log.Printf("Warning: Ignoring invalid AIS class value: %s", c)
 				}
@@ -742,7 +744,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	}
 
 	// Finalizing the query
-	query += " ORDER BY timestamp ASC"
+	query += " ORDER BY s.timestamp ASC"
 
 	// Apply LIMIT only if it's greater than 0
 	if limit > 0 {
@@ -857,6 +859,33 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 					summary["Name"] = fmt.Sprintf("%s (%s)", classVal, userIDStr)
 				}
 			}
+
+			// Add CurrentReceivers field from vessel_receivers table
+			if receiverIDs, ok := row["receiver_ids"].([]byte); ok {
+				var receivers []int64
+				if err := json.Unmarshal(receiverIDs, &receivers); err == nil {
+					// If a specific receiver ID was requested, only include that one
+					if receiverID > 0 {
+						// Check if the requested receiver is in the list
+						for _, id := range receivers {
+							if id == receiverID {
+								summary["CurrentReceivers"] = []int64{receiverID}
+								log.Printf("Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userIDStr)
+								break
+							}
+						}
+					} else {
+						// Otherwise include all receivers
+						summary["CurrentReceivers"] = receivers
+						log.Printf("Adding CurrentReceivers with %d IDs for vessel %s", len(receivers), userIDStr)
+					}
+				} else {
+					log.Printf("Error unmarshalling receiver_ids for vessel %s: %v", userIDStr, err)
+				}
+			} else {
+				log.Printf("No receiver_ids found for vessel %s", userIDStr)
+			}
+
 			summarizedResults[userIDStr] = summary
 		}
 	}
@@ -1143,6 +1172,42 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
 				if classVal, ok := summary["AISClass"].(string); ok {
 					summary["Name"] = fmt.Sprintf("%s (%s)", classVal, userID)
 				}
+			}
+
+			// Add CurrentReceivers field from vessel_receivers table
+			// Query vessel_receivers table to get receiver_ids for this user_id
+			receiverQuery := fmt.Sprintf(`
+				SELECT receiver_ids FROM vessel_receivers WHERE user_id = '%s'
+			`, userID)
+
+			receiverRows, err := QueryDatabaseForUser(userID, receiverQuery)
+			if err == nil {
+				if receiverRows.Next() {
+					var receiverIDs []byte
+					if err := receiverRows.Scan(&receiverIDs); err == nil {
+						var receivers []int64
+						if err := json.Unmarshal(receiverIDs, &receivers); err == nil {
+							// If a specific receiver ID was requested, only include that one
+							if receiverID > 0 {
+								// Check if the requested receiver is in the list
+								for _, id := range receivers {
+									if id == receiverID {
+										summary["CurrentReceivers"] = []int64{receiverID}
+										log.Printf("History: Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userID)
+										break
+									}
+								}
+							} else {
+								// Otherwise include all receivers
+								summary["CurrentReceivers"] = receivers
+								log.Printf("History: Adding CurrentReceivers with %d IDs for vessel %s", len(receivers), userID)
+							}
+						} else {
+							log.Printf("History: Error unmarshalling receiver_ids for vessel %s: %v", userID, err)
+						}
+					}
+				}
+				receiverRows.Close()
 			}
 
 			summarizedResults[userID] = summary
