@@ -621,9 +621,9 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	if receiverID > 0 {
 		log.Printf("Filtering by receiver ID %d using vessel_receivers table", receiverID)
 		if whereAdded {
-			query += fmt.Sprintf(" AND user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
+			query += fmt.Sprintf(" AND s.user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
 		} else {
-			query += fmt.Sprintf(" WHERE user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
+			query += fmt.Sprintf(" WHERE s.user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
 			whereAdded = true
 		}
 	}
@@ -956,7 +956,7 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
 	// If ReceiverID is provided, filter using vessel_receivers table
 	if receiverID > 0 {
 		log.Printf("History: Filtering by receiver ID %d using vessel_receivers table", receiverID)
-		query += fmt.Sprintf(" AND user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
+		query += fmt.Sprintf(" AND messages.user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
 	}
 
 	// If minSpeed is provided, filter by speed
