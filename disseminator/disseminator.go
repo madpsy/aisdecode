@@ -596,12 +596,13 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 		whereAdded = true
 	}
 
-	// If ReceiverID is provided, filter by receiver_id
+	// If ReceiverID is provided, filter using vessel_receivers table
 	if receiverID > 0 {
+		log.Printf("Filtering by receiver ID %d using vessel_receivers table", receiverID)
 		if whereAdded {
-			query += fmt.Sprintf(" AND receiver_id = %d", receiverID)
+			query += fmt.Sprintf(" AND user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
 		} else {
-			query += fmt.Sprintf(" WHERE receiver_id = %d", receiverID)
+			query += fmt.Sprintf(" WHERE user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
 			whereAdded = true
 		}
 	}
@@ -748,6 +749,11 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
 
+	// Log the final query when filtering by receiver ID
+	if receiverID > 0 {
+		log.Printf("Final SQL query with receiver filter: %s", query)
+	}
+
 	// Query the database
 	results, err := QueryDatabasesForAllShards(query)
 	if err != nil {
@@ -891,9 +897,10 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
 		query += fmt.Sprintf(" AND user_id = '%d'", userid)
 	}
 
-	// If ReceiverID is provided, filter by receiver_id
+	// If ReceiverID is provided, filter using vessel_receivers table
 	if receiverID > 0 {
-		query += fmt.Sprintf(" AND receiver_id = %d", receiverID)
+		log.Printf("History: Filtering by receiver ID %d using vessel_receivers table", receiverID)
+		query += fmt.Sprintf(" AND user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
 	}
 
 	// If minSpeed is provided, filter by speed
@@ -964,6 +971,11 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
 	// Apply LIMIT only if it's greater than 0
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+
+	// Log the final query when filtering by receiver ID
+	if receiverID > 0 {
+		log.Printf("Final SQL history query with receiver filter: %s", query)
 	}
 
 	// Execute the query on all shards
@@ -1732,6 +1744,7 @@ func summaryHandler(w http.ResponseWriter, r *http.Request, settings *Settings) 
 			http.Error(w, "Invalid receiver value", http.StatusBadRequest)
 			return
 		}
+		log.Printf("HTTP summary request with receiver filter: %d", receiverID)
 	}
 
 	// Extract 'types' query parameter for filtering (optional)
@@ -2328,6 +2341,7 @@ func handleSummaryRequest(client *serverSocket.Socket, data map[string]interface
 	var receiverID int64
 	if receiverVal, ok := data["receiver"].(float64); ok {
 		receiverID = int64(receiverVal)
+		log.Printf("WebSocket summary request with receiver filter: %d", receiverID)
 	}
 
 	// Extract types parameter (comma-delimited string)
