@@ -271,7 +271,15 @@
             e.target.classList.add('active');
             
             // Determine which chart to update
-            const chartType = e.target.closest('.card').querySelector('canvas').id === 'messageChart' ? 'messages' : 'vessels';
+            let chartType;
+            const canvasId = e.target.closest('.card').querySelector('canvas').id;
+            if (canvasId === 'messageChart') {
+              chartType = 'messages';
+            } else if (canvasId === 'vesselChart') {
+              chartType = 'vessels';
+            } else if (canvasId === 'duplicateChart') {
+              chartType = 'duplicates';
+            }
             const period = e.target.dataset.period;
             
             // Update chart
