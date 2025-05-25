@@ -977,16 +977,27 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 		return err
 	} else {
 		// For duplicates, trust the ingester's duplicate detection (dedupedPort)
-		// and append this receiver to the array
-
-		// Simply append the receiver ID to the array without checking
-		// PostgreSQL's array_append will handle duplicates
-		_, err := db.Exec(`
+		// and append this receiver to the array if not already present
+		result, err := db.Exec(`
 			UPDATE vessel_receivers
 			SET receiver_ids = array_append(receiver_ids, $1::integer),
 				last_updated = NOW()
-			WHERE user_id = $2
+			WHERE user_id = $2 AND NOT ($1::integer = ANY(receiver_ids))
 		`, recID, userID)
+
+		if err != nil {
+			return err
+		}
+
+		// Check if any rows were affected
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected > 0 {
+			log.Printf("Added receiver %d to vessel_receivers for user %d (duplicate from port %d)",
+				recID, userID, *dedupedPort)
+		} else {
+			log.Printf("Receiver %d already exists in vessel_receivers for user %d (duplicate from port %d)",
+				recID, userID, *dedupedPort)
+		}
 
 		if err != nil {
 			return err
