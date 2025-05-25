@@ -589,6 +589,10 @@ var (
 	downsampleTypes = make(map[string]bool)
 	downMu          sync.Mutex
 	lastForward     = map[string]map[string]time.Time{}
+
+	// Track which messages have been seen for downsampling decisions
+	// Map structure: msgID -> userID -> last message time
+	lastSeen = map[string]map[string]time.Time{}
 )
 
 // DedupInfo stores information about a deduplicated message
@@ -1431,9 +1435,10 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 					isDuplicate = true
 
 					if debugFlag {
-						log.Printf("DUPLICATE: Message from user %s with hash %d is a duplicate. Original port: %d, Current port: %d",
+						log.Printf("DUPLICATE DETECTED: Message from user %s with hash %d is a duplicate. Original port: %d, Current port: %d",
 							userID, hashedMsg, info.Port, pkt.port)
 						log.Printf("[DEBUG] Setting dedupedPort=%d (pointer=%p)", *dedupedPort, dedupedPort)
+						log.Printf("[DEBUG] deduplicationForwardButTag=%v, isDuplicate=%v", deduplicationForwardButTag, isDuplicate)
 					}
 				} else {
 					// Original behavior: discard the packet
@@ -1461,66 +1466,136 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 				dedupMu.Unlock()
 			}
 		}
-
 		// ── Downsample logic ────────────────────────────────────────────────────
-		shouldDownsample := false
+		// First, always track when we see a message, regardless of whether it's downsampled or not
+		now := time.Now()
+		downMu.Lock()
 
-		if downsampleWindow > 0 && downsampleTypes[msgID] {
-			now := time.Now()
-			downMu.Lock()
-			if lastForward[msgID] == nil {
-				lastForward[msgID] = map[string]time.Time{}
-			}
+		// Initialize maps if needed
+		if lastSeen[msgID] == nil {
+			lastSeen[msgID] = map[string]time.Time{}
+		}
+		if lastForward[msgID] == nil {
+			lastForward[msgID] = map[string]time.Time{}
+		}
 
-			// For duplicate messages, we need special handling
-			if dedupedPort != nil {
-				// Get the zero time for comparison
-				var zeroTime time.Time
+		// For duplicate messages, we need to determine if the original was downsampled or forwarded
+		if dedupedPort != nil {
+			// This is a duplicate message
+			if downsampleWindow > 0 && downsampleTypes[msgID] {
+				// Get the last time we saw a message of this type from this user
+				lastSeenTime, exists := lastSeen[msgID][userID]
 
-				// Check if we've seen an original message for this msgID/userID
-				lastTime, exists := lastForward[msgID][userID]
+				// Get the last time we forwarded a message of this type from this user
+				lastForwardTime, forwarded := lastForward[msgID][userID]
 
-				if debugFlag {
-					log.Printf("[DEBUG] Duplicate message check: exists=%v, lastTime=%v", exists, lastTime)
-				}
-
-				// Only apply downsampling if we've seen an original message AND
-				// it's within the downsampling window
-				if exists && lastTime != zeroTime && now.Sub(lastTime) < downsampleWindow {
-					shouldDownsample = true
+				if !exists {
+					// We've never seen a message of this type from this user
+					// This means the original must have been forwarded
 					if debugFlag {
-						log.Printf("[DEBUG] Duplicate will be downsampled: time since last=%v, window=%v",
-							now.Sub(lastTime), downsampleWindow)
+						log.Printf("DUPLICATE FORWARDED: Message from user %s with msgID=%s (no previous messages seen)",
+							userID, msgID)
+					}
+				} else if !forwarded {
+					// We've seen a message but never forwarded one
+					// This means all previous messages were downsampled
+					if debugFlag {
+						log.Printf("DUPLICATE DOWNSAMPLED: Message from user %s with msgID=%s (all previous messages downsampled)",
+							userID, msgID)
+					}
+
+					downMu.Unlock()
+
+					// Downsample this duplicate
+					metricsMu.Lock()
+					totalDownsampled++
+					downsampledCounter.AddEvent()
+					downsampledMessageTypeTotals[msgID]++
+					if downsampledMessageTypeCounters[msgID] == nil {
+						downsampledMessageTypeCounters[msgID] = NewFixedWindowCounter()
+					}
+					downsampledMessageTypeCounters[msgID].AddEvent()
+					downsampledUserIDTotals[userID]++
+					if downsampledUserIDCounters[userID] == nil {
+						downsampledUserIDCounters[userID] = NewFixedWindowCounter()
+					}
+					downsampledUserIDCounters[userID].AddEvent()
+					if downsampledPerUserMessageIDCount[userID] == nil {
+						downsampledPerUserMessageIDCount[userID] = map[string]int64{}
+					}
+					downsampledPerUserMessageIDCount[userID][msgID]++
+					metricsMu.Unlock()
+
+					pkt.raw = nil
+					pkt.sourceIP = ""
+					packetPool.Put(pkt)
+					continue
+				} else if lastSeenTime.Equal(lastForwardTime) {
+					// The last message we saw was forwarded
+					// This means the original was forwarded
+					if debugFlag {
+						log.Printf("DUPLICATE FORWARDED: Message from user %s with msgID=%s (last message was forwarded)",
+							userID, msgID)
 					}
 				} else {
+					// The last message we saw was not the same as the last one we forwarded
+					// This means the original was downsampled
 					if debugFlag {
-						log.Printf("[DEBUG] Duplicate will be forwarded: no recent original message")
+						log.Printf("DUPLICATE DOWNSAMPLED: Message from user %s with msgID=%s (last message was downsampled)",
+							userID, msgID)
 					}
-				}
-			} else {
-				// Original message - normal downsampling logic
-				lastTime := lastForward[msgID][userID]
-				var zeroTime time.Time
 
-				// Check if this message should be downsampled based on time window
-				if lastTime != zeroTime && now.Sub(lastTime) < downsampleWindow {
-					shouldDownsample = true
-					if debugFlag {
-						log.Printf("[DEBUG] Original message will be downsampled: time since last=%v",
-							now.Sub(lastTime))
+					downMu.Unlock()
+
+					// Downsample this duplicate
+					metricsMu.Lock()
+					totalDownsampled++
+					downsampledCounter.AddEvent()
+					downsampledMessageTypeTotals[msgID]++
+					if downsampledMessageTypeCounters[msgID] == nil {
+						downsampledMessageTypeCounters[msgID] = NewFixedWindowCounter()
 					}
-				} else {
-					// Update the last forward time for this message type and user ID
-					lastForward[msgID][userID] = now
-					if debugFlag {
-						log.Printf("[DEBUG] Original message will be forwarded and timestamp updated")
+					downsampledMessageTypeCounters[msgID].AddEvent()
+					downsampledUserIDTotals[userID]++
+					if downsampledUserIDCounters[userID] == nil {
+						downsampledUserIDCounters[userID] = NewFixedWindowCounter()
 					}
+					downsampledUserIDCounters[userID].AddEvent()
+					if downsampledPerUserMessageIDCount[userID] == nil {
+						downsampledPerUserMessageIDCount[userID] = map[string]int64{}
+					}
+					downsampledPerUserMessageIDCount[userID][msgID]++
+					metricsMu.Unlock()
+
+					pkt.raw = nil
+					pkt.sourceIP = ""
+					packetPool.Put(pkt)
+					continue
 				}
+			} else if debugFlag {
+				// Message type not subject to downsampling
+				log.Printf("DUPLICATE FORWARDED: Message from user %s with msgID=%s (message type not subject to downsampling)",
+					userID, msgID)
 			}
+
 			downMu.Unlock()
+		} else if downsampleWindow > 0 && downsampleTypes[msgID] {
+			// This is an original message - apply normal downsampling logic
 
-			// If we should downsample, do it now
-			if shouldDownsample {
+			// Always update the last seen time for this message type and user ID
+			lastSeenTime := lastSeen[msgID][userID]
+			lastSeen[msgID][userID] = now
+
+			// Check if this message should be downsampled based on time window
+			if !lastSeenTime.IsZero() && now.Sub(lastSeenTime) < downsampleWindow {
+				// Downsample this original message
+				if debugFlag {
+					log.Printf("ORIGINAL DOWNSAMPLED: Message from user %s with msgID=%s (time since last=%v < window=%v)",
+						userID, msgID, now.Sub(lastSeenTime), downsampleWindow)
+				}
+
+				downMu.Unlock()
+
 				metricsMu.Lock()
 				totalDownsampled++
 				downsampledCounter.AddEvent()
@@ -1544,7 +1619,19 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 				pkt.sourceIP = ""
 				packetPool.Put(pkt)
 				continue
+			} else {
+				// Update the last forward time for this message type and user ID
+				lastForward[msgID][userID] = now
+
+				if debugFlag {
+					log.Printf("ORIGINAL FORWARDED: Message from user %s with msgID=%s (time since last=%v >= window=%v)",
+						userID, msgID, now.Sub(lastSeenTime), downsampleWindow)
+				}
+
+				downMu.Unlock()
 			}
+		} else {
+			downMu.Unlock()
 		}
 
 		// ── Shard & forward raw UDP ────────────────────────────────────────────
@@ -1640,18 +1727,8 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 			DedupedPort: dedupedPort,
 			IsDuplicate: isDuplicate,
 		}
-
-		// Debug log to track execution flow
-		if debugFlag && dedupedPort != nil {
-			log.Printf("DUPLICATE FLOW: Created StreamMessage object with DedupedPort=%d", *dedupedPort)
-		}
 		if includeSource {
 			streamObj.SourceIP = srcIP
-		}
-
-		// Before JSON encoding, log the StreamMessage object
-		if debugFlag && dedupedPort != nil {
-			log.Printf("DUPLICATE BEFORE ENCODING: streamObj=%+v, dedupedPort=%d", streamObj, *dedupedPort)
 		}
 
 		buf := jsonBufPool.Get().(*bytes.Buffer)
@@ -1661,23 +1738,6 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 			log.Printf("ERROR ENCODING JSON: %v", encodeErr)
 		}
 		out := buf.Bytes()
-
-		// Debug log for duplicate messages to verify deduped_port is in the JSON
-		if debugFlag && dedupedPort != nil {
-			log.Printf("DUPLICATE JSON: %s", string(out))
-
-			// Decode the JSON back to verify the field is there
-			var decoded map[string]interface{}
-			if err := json.Unmarshal(out, &decoded); err != nil {
-				log.Printf("ERROR DECODING JSON: %v", err)
-			} else {
-				if dp, ok := decoded["deduped_port"]; ok {
-					log.Printf("DUPLICATE JSON VERIFIED: deduped_port=%v found in JSON", dp)
-				} else {
-					log.Printf("DUPLICATE JSON MISSING FIELD: deduped_port not found in JSON")
-				}
-			}
-		}
 
 		// ── MQTT ───────────────────────────────────────────────────────────────
 		if mqttClient != nil && mqttClient.IsConnected() {
@@ -1710,21 +1770,11 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 		// ── TCP stream to clients ─────────────────────────────────────────────
 		out = append(out, 0)
 
-		// Debug log right before TCP transmission
-		if debugFlag && dedupedPort != nil {
-			log.Printf("DUPLICATE TCP: About to send message with DedupedPort=%d to %d clients", *dedupedPort, len(clients))
-		}
-
 		clientsMu.Lock()
 		for _, c := range clients {
 			for _, s := range c.shards {
 				if s == shardID {
 					c.mu.Lock()
-
-					// Debug log for each client connection
-					if debugFlag && dedupedPort != nil {
-						log.Printf("DUPLICATE TCP CLIENT: Sending to client with shards=%v", c.shards)
-					}
 
 					n, err := c.conn.Write(out)
 					if err == nil {
