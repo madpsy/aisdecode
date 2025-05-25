@@ -974,12 +974,12 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 	if !isDuplicate {
 		_, err := db.Exec(`
 			INSERT INTO vessel_receivers (user_id, raw_sentence, timestamp, message_hash, receiver_ids, last_updated)
-			VALUES ($1, $2, $3, $4, ARRAY[$5], NOW())
+			VALUES ($1, $2, $3, $4, ARRAY[$5::integer], NOW())
 			ON CONFLICT (user_id) DO UPDATE SET
 				raw_sentence = EXCLUDED.raw_sentence,
 				timestamp = EXCLUDED.timestamp,
 				message_hash = EXCLUDED.message_hash,
-				receiver_ids = ARRAY[EXCLUDED.receiver_ids[1]],  -- Reset the array with just this receiver
+				receiver_ids = ARRAY[$5::integer],  -- Reset the array with just this receiver
 				last_updated = NOW()
 		`, userID, rawSentence, timestamp, messageHash, recID)
 		return err
@@ -1001,9 +1001,9 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 		if storedHash == messageHash {
 			_, err := db.Exec(`
 				UPDATE vessel_receivers
-				SET receiver_ids = array_append(receiver_ids, $1),
+				SET receiver_ids = array_append(receiver_ids, $1::integer),
 					last_updated = NOW()
-				WHERE user_id = $2 AND NOT ($1 = ANY(receiver_ids))
+				WHERE user_id = $2 AND NOT ($1::integer = ANY(receiver_ids))
 			`, recID, userID)
 			return err
 		} else {
