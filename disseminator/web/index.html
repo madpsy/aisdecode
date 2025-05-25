@@ -797,9 +797,9 @@
 
 	const vesselSolidTracks = {};
 	const vesselColoredTracks = {};
-	// Store the vessel-to-receiver polyline
-	let receiverPolyline = null;
-	let receiverDistanceLabel = null;
+	// Store the vessel-to-receiver polylines and labels
+	let receiverPolylines = {};
+	let receiverDistanceLabels = {};
 	let lastReceiverUpdateTime = 0;
 	const RECEIVER_UPDATE_THROTTLE = 250; // ms - reduced from 500ms to be more responsive
 	let receiverUpdateInterval = null; // For periodic updates
@@ -983,20 +983,20 @@ map.on('click', () => {
     vesselMarkers[focusedVessel].getTooltip().setContent(vessel.Name);
     vesselMarkers[focusedVessel].setZIndexOffset(0);
     
-    // Remove vessel-receiver connection
-    if (receiverPolyline) {
-      map.removeLayer(receiverPolyline);
-      receiverPolyline = null;
+    // Remove vessel-receiver connections
+    for (const receiverId in receiverPolylines) {
+      map.removeLayer(receiverPolylines[receiverId]);
     }
+    receiverPolylines = {};
     
-    if (receiverDistanceLabel) {
+    for (const receiverId in receiverDistanceLabels) {
       // Handle both marker and tooltip types for backward compatibility
-      if (typeof receiverDistanceLabel.closeTooltip === 'function') {
-        receiverDistanceLabel.closeTooltip();
+      if (typeof receiverDistanceLabels[receiverId].closeTooltip === 'function') {
+        receiverDistanceLabels[receiverId].closeTooltip();
       }
-      map.removeLayer(receiverDistanceLabel);
-      receiverDistanceLabel = null;
+      map.removeLayer(receiverDistanceLabels[receiverId]);
     }
+    receiverDistanceLabels = {};
     
     // Clear any existing update interval
     if (receiverUpdateInterval) {
@@ -4312,9 +4312,6 @@ function calculateBearing(lat1, lon1, lat2, lon2) {
   return bearing;
 }
 
-// Global variable to track the current receiver ID being used for the connection
-let currentConnectionReceiverId = null;
-
 // Function to update the vessel-receiver connection
 function updateVesselReceiverConnection(UserID) {
   // Throttle updates to prevent flickering
@@ -4340,28 +4337,38 @@ function updateVesselReceiverConnection(UserID) {
     return; // Skip if vessel doesn't have valid coordinates
   }
   
-  // Check for receiver ID in different possible fields
-  // First try receiver_id from ais_data events
-  let receiverId = vessel.receiver_id;
+  // Get receiver IDs from the CurrentReceivers field if available
+  let receiverIds = [];
   
-  // If not found, try ReceiverID from state JSON
-  if (receiverId === null || receiverId === undefined) {
-    receiverId = vessel.ReceiverID;
-  }
-  
-  // If we already have a connection established, keep using the same receiver
-  // This prevents flickering when summary data arrives with different receiver info
-  if (currentConnectionReceiverId && receiverMarkers[currentConnectionReceiverId]) {
-    // console.log("[updateVesselReceiverConnection] Using existing receiver:", currentConnectionReceiverId);
-    receiverId = currentConnectionReceiverId;
+  // First check for CurrentReceivers array from summary data
+  if (Array.isArray(vessel.CurrentReceivers) && vessel.CurrentReceivers.length > 0) {
+    receiverIds = vessel.CurrentReceivers;
   } else {
-    // First time or previous receiver no longer exists
-    currentConnectionReceiverId = receiverId;
-    // console.log("[updateVesselReceiverConnection] Setting new receiver:", receiverId);
+    // Fall back to legacy fields if CurrentReceivers is not available
+    // First try receiver_id from ais_data events
+    let receiverId = vessel.receiver_id;
+    
+    // If not found, try ReceiverID from state JSON
+    if (receiverId === null || receiverId === undefined) {
+      receiverId = vessel.ReceiverID;
+    }
+    
+    // Add the single receiver ID if it's valid
+    if (receiverId !== null && receiverId !== undefined) {
+      receiverIds = [receiverId];
+    }
   }
   
-  // Check if we have a valid receiver ID and if that receiver exists
-  if (receiverId !== null && receiverId !== undefined && receiverMarkers[receiverId]) {
+  // Keep track of which receiver IDs we've processed
+  const processedReceiverIds = new Set();
+  
+  // Process each receiver ID
+  for (const receiverId of receiverIds) {
+    // Skip if this receiver doesn't exist on the map
+    if (!receiverMarkers[receiverId]) continue;
+    
+    // Mark this receiver as processed
+    processedReceiverIds.add(receiverId);
     const vesselLatLng = [vessel.Latitude, vessel.Longitude];
     const receiverLatLng = receiverMarkers[receiverId].getLatLng();
     
@@ -4389,20 +4396,19 @@ function updateVesselReceiverConnection(UserID) {
     
     // Create or update the polyline with a single operation
     try {
-      if (!receiverPolyline || !map.hasLayer(receiverPolyline)) {
-        // console.log("[updateVesselReceiverConnection] Creating new polyline");
+      if (!receiverPolylines[receiverId] || !map.hasLayer(receiverPolylines[receiverId])) {
         // First creation or polyline was removed
-        if (receiverPolyline) {
+        if (receiverPolylines[receiverId]) {
           // Try to clean up any existing polyline
           try {
-            map.removeLayer(receiverPolyline);
+            map.removeLayer(receiverPolylines[receiverId]);
           } catch (e) {
             // Ignore errors
           }
         }
         
         // Create a new polyline
-        receiverPolyline = L.polyline([vesselLatLng, receiverLatLng], {
+        receiverPolylines[receiverId] = L.polyline([vesselLatLng, receiverLatLng], {
           color: 'grey',
           weight: 2,
           opacity: 0.7,
@@ -4414,41 +4420,40 @@ function updateVesselReceiverConnection(UserID) {
         
         // Add to map in a separate step to catch any errors
         try {
-          receiverPolyline.addTo(map);
+          receiverPolylines[receiverId].addTo(map);
         } catch (e) {
-          console.warn("Error adding polyline to map:", e);
-          receiverPolyline = null; // Reset so we'll try again next time
-          return;
+          console.warn(`Error adding polyline for receiver ${receiverId} to map:`, e);
+          delete receiverPolylines[receiverId]; // Remove from our tracking
+          continue;
         }
       } else {
         // Just update coordinates - no DOM changes
-        receiverPolyline.setLatLngs([vesselLatLng, receiverLatLng]);
+        receiverPolylines[receiverId].setLatLngs([vesselLatLng, receiverLatLng]);
       }
     } catch (e) {
-      console.warn("Error handling polyline:", e);
+      console.warn(`Error handling polyline for receiver ${receiverId}:`, e);
       // Don't try to recreate immediately - wait for next update cycle
-      receiverPolyline = null;
-      return;
+      delete receiverPolylines[receiverId];
+      continue;
     }
     
     // Create or update the label with minimal DOM changes
     const labelContent = `${distance} km`;
     
     try {
-      if (!receiverDistanceLabel || !map.hasLayer(receiverDistanceLabel)) {
-        // console.log("[updateVesselReceiverConnection] Creating new distance label");
+      if (!receiverDistanceLabels[receiverId] || !map.hasLayer(receiverDistanceLabels[receiverId])) {
         // First creation or label was removed
-        if (receiverDistanceLabel) {
+        if (receiverDistanceLabels[receiverId]) {
           // Try to clean up any existing label
           try {
-            map.removeLayer(receiverDistanceLabel);
+            map.removeLayer(receiverDistanceLabels[receiverId]);
           } catch (e) {
             // Ignore errors
           }
         }
         
         // Create a new tooltip
-        receiverDistanceLabel = L.tooltip({
+        receiverDistanceLabels[receiverId] = L.tooltip({
           permanent: true,
           direction: 'center',
           className: 'distance-label-tooltip',
@@ -4458,32 +4463,55 @@ function updateVesselReceiverConnection(UserID) {
         });
         
         // Set content and position before adding to map
-        receiverDistanceLabel.setLatLng([midLat, midLng]);
-        receiverDistanceLabel.setContent(labelContent);
+        receiverDistanceLabels[receiverId].setLatLng([midLat, midLng]);
+        receiverDistanceLabels[receiverId].setContent(labelContent);
         
         // Add to map in a separate step to catch any errors
         try {
-          receiverDistanceLabel.addTo(map);
+          receiverDistanceLabels[receiverId].addTo(map);
         } catch (e) {
-          console.warn("Error adding distance label to map:", e);
-          receiverDistanceLabel = null; // Reset so we'll try again next time
-          return;
+          console.warn(`Error adding distance label for receiver ${receiverId} to map:`, e);
+          delete receiverDistanceLabels[receiverId]; // Remove from our tracking
+          continue;
         }
       } else {
         // Update position first
-        receiverDistanceLabel.setLatLng([midLat, midLng]);
+        receiverDistanceLabels[receiverId].setLatLng([midLat, midLng]);
         
         // Only update content if it changed significantly
-        const currentContent = receiverDistanceLabel.getContent();
+        const currentContent = receiverDistanceLabels[receiverId].getContent();
         if (currentContent !== labelContent) {
-          receiverDistanceLabel.setContent(labelContent);
+          receiverDistanceLabels[receiverId].setContent(labelContent);
         }
       }
     } catch (e) {
-      console.warn("Error handling distance label:", e);
+      console.warn(`Error handling distance label for receiver ${receiverId}:`, e);
       // Don't try to recreate immediately - wait for next update cycle
-      receiverDistanceLabel = null;
-      return;
+      delete receiverDistanceLabels[receiverId];
+      continue;
+    }
+  }
+  
+  // Remove any polylines and labels for receivers that are no longer in the list
+  for (const receiverId in receiverPolylines) {
+    if (!processedReceiverIds.has(receiverId)) {
+      try {
+        map.removeLayer(receiverPolylines[receiverId]);
+        delete receiverPolylines[receiverId];
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+  }
+  
+  for (const receiverId in receiverDistanceLabels) {
+    if (!processedReceiverIds.has(receiverId)) {
+      try {
+        map.removeLayer(receiverDistanceLabels[receiverId]);
+        delete receiverDistanceLabels[receiverId];
+      } catch (e) {
+        // Ignore errors
+      }
     }
   }
 }
@@ -4500,18 +4528,17 @@ function focusOnVessel(UserID, initialFocus = true) {
   if (focusedVessel !== UserID) {
     // console.log("[focusOnVessel] Removing existing vessel-receiver connection");
     
-    if (receiverPolyline) {
-      map.removeLayer(receiverPolyline);
-      receiverPolyline = null;
+    // Remove all vessel-receiver connections
+    for (const receiverId in receiverPolylines) {
+      map.removeLayer(receiverPolylines[receiverId]);
     }
+    receiverPolylines = {};
     
-    if (receiverDistanceLabel) {
-      map.removeLayer(receiverDistanceLabel);
-      receiverDistanceLabel = null;
+    for (const receiverId in receiverDistanceLabels) {
+      map.removeLayer(receiverDistanceLabels[receiverId]);
     }
+    receiverDistanceLabels = {};
     
-    // Reset the current connection receiver ID when changing vessels
-    currentConnectionReceiverId = null;
   }
   
   // Clear any existing update interval
