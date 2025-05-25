@@ -861,29 +861,24 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 			}
 
 			// Add CurrentReceivers field from vessel_receivers table
-			if receiverIDs, ok := row["receiver_ids"].([]byte); ok {
-				var receivers []int64
-				if err := json.Unmarshal(receiverIDs, &receivers); err == nil {
-					// If a specific receiver ID was requested, only include that one
-					if receiverID > 0 {
-						// Check if the requested receiver is in the list
-						for _, id := range receivers {
-							if id == receiverID {
-								summary["CurrentReceivers"] = []int64{receiverID}
-								log.Printf("Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userIDStr)
-								break
-							}
+			if receiverIDs, ok := row["receiver_ids"].([]int64); ok {
+				// If a specific receiver ID was requested, only include that one
+				if receiverID > 0 {
+					// Check if the requested receiver is in the list
+					for _, id := range receiverIDs {
+						if id == receiverID {
+							summary["CurrentReceivers"] = []int64{receiverID}
+							log.Printf("Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userIDStr)
+							break
 						}
-					} else {
-						// Otherwise include all receivers
-						summary["CurrentReceivers"] = receivers
-						log.Printf("Adding CurrentReceivers with %d IDs for vessel %s", len(receivers), userIDStr)
 					}
 				} else {
-					log.Printf("Error unmarshalling receiver_ids for vessel %s: %v", userIDStr, err)
+					// Otherwise include all receivers
+					summary["CurrentReceivers"] = receiverIDs
+					log.Printf("Adding CurrentReceivers with %d IDs for vessel %s", len(receiverIDs), userIDStr)
 				}
 			} else {
-				log.Printf("No receiver_ids found for vessel %s", userIDStr)
+				log.Printf("No receiver_ids found for vessel %s (or wrong type: %T)", userIDStr, row["receiver_ids"])
 			}
 
 			summarizedResults[userIDStr] = summary
@@ -1183,28 +1178,25 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
 			receiverRows, err := QueryDatabaseForUser(userID, receiverQuery)
 			if err == nil {
 				if receiverRows.Next() {
-					var receiverIDs []byte
+					var receiverIDs []int64
 					if err := receiverRows.Scan(&receiverIDs); err == nil {
-						var receivers []int64
-						if err := json.Unmarshal(receiverIDs, &receivers); err == nil {
-							// If a specific receiver ID was requested, only include that one
-							if receiverID > 0 {
-								// Check if the requested receiver is in the list
-								for _, id := range receivers {
-									if id == receiverID {
-										summary["CurrentReceivers"] = []int64{receiverID}
-										log.Printf("History: Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userID)
-										break
-									}
+						// If a specific receiver ID was requested, only include that one
+						if receiverID > 0 {
+							// Check if the requested receiver is in the list
+							for _, id := range receiverIDs {
+								if id == receiverID {
+									summary["CurrentReceivers"] = []int64{receiverID}
+									log.Printf("History: Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userID)
+									break
 								}
-							} else {
-								// Otherwise include all receivers
-								summary["CurrentReceivers"] = receivers
-								log.Printf("History: Adding CurrentReceivers with %d IDs for vessel %s", len(receivers), userID)
 							}
 						} else {
-							log.Printf("History: Error unmarshalling receiver_ids for vessel %s: %v", userID, err)
+							// Otherwise include all receivers
+							summary["CurrentReceivers"] = receiverIDs
+							log.Printf("History: Adding CurrentReceivers with %d IDs for vessel %s", len(receiverIDs), userID)
 						}
+					} else {
+						log.Printf("History: Error scanning receiver_ids for vessel %s: %v", userID, err)
 					}
 				}
 				receiverRows.Close()
