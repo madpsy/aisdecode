@@ -956,12 +956,7 @@ func createIndexesIfNotExist(db *sql.DB) {
 }
 
 // updateVesselReceivers updates the vessel_receivers table to track which receivers saw the latest message for each vessel
-func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp string, receiverID interface{}, isDuplicate bool) error {
-	// Create a hash of the raw sentence for efficient comparison
-	h := sha256.New()
-	h.Write([]byte(rawSentence))
-	messageHash := fmt.Sprintf("%x", h.Sum(nil))
-
+func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp string, receiverID interface{}, isDuplicate bool, dedupedPort *int) error {
 	// Convert receiverID to int, defaulting to 0 if nil
 	var recID int
 	if receiverID != nil {
@@ -972,6 +967,11 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 
 	// If this is not a duplicate message, create or update the entry with a new message
 	if !isDuplicate {
+		// Create a hash of the raw sentence for reference
+		h := sha256.New()
+		h.Write([]byte(rawSentence))
+		messageHash := fmt.Sprintf("%x", h.Sum(nil))
+
 		_, err := db.Exec(`
 			INSERT INTO vessel_receivers (user_id, raw_sentence, timestamp, message_hash, receiver_ids, last_updated)
 			VALUES ($1, $2, $3, $4, ARRAY[$5::integer], NOW())
@@ -984,34 +984,25 @@ func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp
 		`, userID, rawSentence, timestamp, messageHash, recID)
 		return err
 	} else {
-		// For duplicates, first check if the message hash matches the stored one
-		var storedHash string
-		err := db.QueryRow(`
-			SELECT message_hash FROM vessel_receivers WHERE user_id = $1
-		`, userID).Scan(&storedHash)
+		// For duplicates, trust the ingester's duplicate detection (dedupedPort)
+		// and append this receiver to the array if not already present
+		_, err := db.Exec(`
+			UPDATE vessel_receivers
+			SET receiver_ids = array_append(receiver_ids, $1::integer),
+				last_updated = NOW()
+			WHERE user_id = $2 AND NOT ($1::integer = ANY(receiver_ids))
+		`, recID, userID)
 
-		if err == sql.ErrNoRows {
-			// No record exists yet, treat as non-duplicate
-			return updateVesselReceivers(db, userID, rawSentence, timestamp, receiverID, false)
-		} else if err != nil {
+		if err != nil {
 			return err
 		}
 
-		// If the hash matches, append this receiver to the array if not already present
-		if storedHash == messageHash {
-			_, err := db.Exec(`
-				UPDATE vessel_receivers
-				SET receiver_ids = array_append(receiver_ids, $1::integer),
-					last_updated = NOW()
-				WHERE user_id = $2 AND NOT ($1::integer = ANY(receiver_ids))
-			`, recID, userID)
-			return err
-		} else {
-			// Hash doesn't match, this is a different message despite being marked as duplicate
-			// Just log this anomaly but don't update
-			log.Printf("Warning: Duplicate message for user %d has different content hash", userID)
-			return nil
+		if settings.Debug {
+			log.Printf("Added receiver %d to vessel_receivers for user %d (duplicate from port %d)",
+				recID, userID, *dedupedPort)
 		}
+
+		return nil
 	}
 }
 
@@ -1345,7 +1336,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 
 			// Update vessel_receivers table to track which receivers saw this message
 			isDuplicate := message.DedupedPort != nil
-			if err := updateVesselReceivers(db, userID, rawSentence, message.Timestamp, receiverID, isDuplicate); err != nil {
+			if err := updateVesselReceivers(db, userID, rawSentence, message.Timestamp, receiverID, isDuplicate, message.DedupedPort); err != nil {
 				log.Printf("Error updating vessel receivers: %v", err)
 			}
 		} else if settings.Debug {
