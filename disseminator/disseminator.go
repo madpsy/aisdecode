@@ -907,7 +907,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 						log.Printf("Unexpected array format for vessel %s: %s", userIDStr, arrayStr)
 					}
 				default:
-					log.Printf("Unexpected type for receiver_ids for vessel %s: %T", userIDStr, receiverIDsRaw)
+					// log.Printf("Unexpected type for receiver_ids for vessel %s: %T", userIDStr, receiverIDsRaw)
 				}
 			} else {
 				log.Printf("No receiver_ids found for vessel %s", userIDStr)
