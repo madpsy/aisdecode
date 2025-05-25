@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"flag"
@@ -289,16 +290,33 @@ func main() {
 
 	// Create met_state table for meteorological data
 	_, err = db.Exec(`
-        CREATE TABLE IF NOT EXISTS met_state (
-            user_id INT PRIMARY KEY,
-            receiver_id INT,
-            last_updated TIMESTAMP,
-            met_data JSONB
-        );
-    `)
+	       CREATE TABLE IF NOT EXISTS met_state (
+	           user_id INT PRIMARY KEY,
+	           receiver_id INT,
+	           last_updated TIMESTAMP,
+	           met_data JSONB
+	       );
+	   `)
 	if err != nil {
 		log.Fatal("Error creating met_state table: ", err)
 	}
+
+	// Create vessel_receivers table to track which receivers saw the latest message for each vessel
+	_, err = db.Exec(`
+	       CREATE TABLE IF NOT EXISTS vessel_receivers (
+	           user_id INT PRIMARY KEY,
+	           raw_sentence TEXT NOT NULL,
+	           timestamp TIMESTAMP NOT NULL,
+	           message_hash TEXT NOT NULL,
+	           receiver_ids INT[] NOT NULL,
+	           last_updated TIMESTAMP NOT NULL
+	       );
+	       CREATE INDEX IF NOT EXISTS idx_vessel_receivers_timestamp ON vessel_receivers(timestamp);
+	   `)
+	if err != nil {
+		log.Fatal("Error creating vessel_receivers table: ", err)
+	}
+
 	createIndexesIfNotExist(db)
 
 	// Create index for the udp_port column
@@ -937,6 +955,66 @@ func createIndexesIfNotExist(db *sql.DB) {
 	}
 }
 
+// updateVesselReceivers updates the vessel_receivers table to track which receivers saw the latest message for each vessel
+func updateVesselReceivers(db *sql.DB, userID int, rawSentence string, timestamp string, receiverID interface{}, isDuplicate bool) error {
+	// Create a hash of the raw sentence for efficient comparison
+	h := sha256.New()
+	h.Write([]byte(rawSentence))
+	messageHash := fmt.Sprintf("%x", h.Sum(nil))
+
+	// Convert receiverID to int, defaulting to 0 if nil
+	var recID int
+	if receiverID != nil {
+		if id, ok := receiverID.(int); ok {
+			recID = id
+		}
+	}
+
+	// If this is not a duplicate message, create or update the entry with a new message
+	if !isDuplicate {
+		_, err := db.Exec(`
+			INSERT INTO vessel_receivers (user_id, raw_sentence, timestamp, message_hash, receiver_ids, last_updated)
+			VALUES ($1, $2, $3, $4, ARRAY[$5], NOW())
+			ON CONFLICT (user_id) DO UPDATE SET
+				raw_sentence = EXCLUDED.raw_sentence,
+				timestamp = EXCLUDED.timestamp,
+				message_hash = EXCLUDED.message_hash,
+				receiver_ids = ARRAY[EXCLUDED.receiver_ids[1]],  -- Reset the array with just this receiver
+				last_updated = NOW()
+		`, userID, rawSentence, timestamp, messageHash, recID)
+		return err
+	} else {
+		// For duplicates, first check if the message hash matches the stored one
+		var storedHash string
+		err := db.QueryRow(`
+			SELECT message_hash FROM vessel_receivers WHERE user_id = $1
+		`, userID).Scan(&storedHash)
+
+		if err == sql.ErrNoRows {
+			// No record exists yet, treat as non-duplicate
+			return updateVesselReceivers(db, userID, rawSentence, timestamp, receiverID, false)
+		} else if err != nil {
+			return err
+		}
+
+		// If the hash matches, append this receiver to the array if not already present
+		if storedHash == messageHash {
+			_, err := db.Exec(`
+				UPDATE vessel_receivers
+				SET receiver_ids = array_append(receiver_ids, $1),
+					last_updated = NOW()
+				WHERE user_id = $2 AND NOT ($1 = ANY(receiver_ids))
+			`, recID, userID)
+			return err
+		} else {
+			// Hash doesn't match, this is a different message despite being marked as duplicate
+			// Just log this anomaly but don't update
+			log.Printf("Warning: Duplicate message for user %d has different content hash", userID)
+			return nil
+		}
+	}
+}
+
 func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence string) error {
 	// 1) Unwrap outer JSON
 	var outerMap map[string]interface{}
@@ -1263,6 +1341,12 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 			} else if message.DedupedPort != nil {
 				// Log successful storage of duplicate message
 				log.Printf("DUPLICATE STORED: Successfully stored message with DedupedPort=%d", *message.DedupedPort)
+			}
+
+			// Update vessel_receivers table to track which receivers saw this message
+			isDuplicate := message.DedupedPort != nil
+			if err := updateVesselReceivers(db, userID, rawSentence, message.Timestamp, receiverID, isDuplicate); err != nil {
+				log.Printf("Error updating vessel receivers: %v", err)
 			}
 		} else if settings.Debug {
 			log.Printf("Skipping message storage: UDP port %d doesn't match ingester port %d and no matching receiver found",
