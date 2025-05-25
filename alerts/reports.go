@@ -615,10 +615,9 @@ func sendWeeklyOfflineReceiversReport() {
 		}
 	}
 
-	// If no offline receivers, log and return
+	// Log if no offline receivers, but continue to send the report
 	if len(offlineReceivers) == 0 {
-		log.Println("No receivers offline for over a week, skipping report")
-		return
+		log.Println("No receivers offline for over a week, will send empty report")
 	}
 
 	// Generate the report
@@ -627,7 +626,11 @@ func sendWeeklyOfflineReceiversReport() {
 	// Header
 	report.WriteString(fmt.Sprintf("Weekly Offline Receivers Report\n"))
 	report.WriteString(fmt.Sprintf("Generated on: %s\n\n", time.Now().Format("January 2, 2006 at 15:04:05 (UTC)")))
-	report.WriteString(fmt.Sprintf("The following %d receivers have been offline for over a week:\n\n", len(offlineReceivers)))
+	if len(offlineReceivers) > 0 {
+		report.WriteString(fmt.Sprintf("The following %d receivers have been offline for over a week:\n\n", len(offlineReceivers)))
+	} else {
+		report.WriteString("No receivers have been offline for over a week.\n\n")
+	}
 
 	// List all offline receivers
 	for i, receiver := range offlineReceivers {
@@ -660,7 +663,11 @@ func sendWeeklyOfflineReceiversReport() {
 	}
 
 	// Footer
-	report.WriteString(fmt.Sprintf("\nTotal offline receivers: %d\n", len(offlineReceivers)))
+	if len(offlineReceivers) > 0 {
+		report.WriteString(fmt.Sprintf("\nTotal offline receivers: %d\n", len(offlineReceivers)))
+	} else {
+		report.WriteString("\nAll receivers have been online within the past week.\n")
+	}
 	report.WriteString(fmt.Sprintf("Report generated in %.2f seconds\n\n", time.Since(startTime).Seconds()))
 	report.WriteString(fmt.Sprintf("AIS Decoder Team\nhttps://%s/\n", settings.SiteDomain))
 
