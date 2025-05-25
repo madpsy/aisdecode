@@ -585,14 +585,14 @@ func handleReceiverIDs(receiverIDs []int64, receiverID int64, summary map[string
 		for _, id := range receiverIDs {
 			if id == receiverID {
 				summary["CurrentReceivers"] = []int64{receiverID}
-				log.Printf("Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userIDStr)
+				// log.Printf("Adding CurrentReceivers with single ID %d for vessel %s", receiverID, userIDStr)
 				break
 			}
 		}
 	} else {
 		// Otherwise include all receivers
 		summary["CurrentReceivers"] = receiverIDs
-		log.Printf("Adding CurrentReceivers with %d IDs for vessel %s", len(receiverIDs), userIDStr)
+		// log.Printf("Adding CurrentReceivers with %d IDs for vessel %s", len(receiverIDs), userIDStr)
 	}
 }
 
