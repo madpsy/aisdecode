@@ -80,7 +80,7 @@
 <body>
   <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
-      <h1>Coverage Map</h1>
+      <h1>Coverage & Duplicates Map</h1>
       <div>
         <a href="vhf-lift.html" id="vhf-lift-link" class="btn btn-outline-primary me-2">VHF Lift Analysis</a>
         <button id="copy-link-btn" class="btn btn-outline-secondary">
@@ -96,12 +96,27 @@
     <div class="card">
       <div class="card-body">
         <div class="controls row">
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label for="receiver-select" class="form-label">Receiver:</label>
             <select id="receiver-select" class="form-select">
               <option value="" selected>All</option>
               <!-- Receivers will be loaded dynamically -->
             </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">View Mode:</label>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="viewMode" id="coverageRadio" value="coverage" checked>
+              <label class="form-check-label" for="coverageRadio">
+                Coverage
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="viewMode" id="duplicatesRadio" value="duplicates">
+              <label class="form-check-label" for="duplicatesRadio">
+                Duplicates
+              </label>
+            </div>
           </div>
           <div class="col-md-6">
             <div class="mb-2">
@@ -833,16 +848,18 @@
       return date.toISOString();
     }
     
-    // Load coverage data
+    // Load coverage or duplicates data
     async function loadCoverageData() {
       const receiverId = document.getElementById('receiver-select').value;
       const isDateRange = document.getElementById('dateRangeRadio').checked;
+      const isDuplicatesMode = document.getElementById('duplicatesRadio').checked;
       
       try {
         // Show loading state
         showGlobalLoading();
         
         let url;
+        let endpoint = isDuplicatesMode ? 'duplicates-heatmap' : 'coverage-map';
         
         if (isDateRange) {
           const fromDate = document.getElementById('from-date').value;
@@ -872,8 +889,8 @@
             currentToDate = toDateObj;
             initializeDateRangeNavigation();
             
-            // Fetch coverage data with date range
-            url = `/statistics/stats/coverage-map?from=${formatDateForAPI(fromDateObj)}&to=${formatDateForAPI(toDateObj)}`;
+            // Fetch data with date range
+            url = `/statistics/stats/${endpoint}?from=${formatDateForAPI(fromDateObj)}&to=${formatDateForAPI(toDateObj)}`;
             if (receiverId) {
               url += `&receiver_id=${receiverId}`;
             }
@@ -886,8 +903,8 @@
         } else {
           const days = document.getElementById('days-select').value;
           
-          // Fetch coverage data with days parameter
-          url = `/statistics/stats/coverage-map?days=${days}`;
+          // Fetch data with days parameter
+          url = `/statistics/stats/${endpoint}?days=${days}`;
           if (receiverId) {
             url += `&receiver_id=${receiverId}`;
           }
@@ -899,17 +916,31 @@
         const data = await fetch(url).then(r => r.json());
         
         if (data.length === 0) {
-          alert('No coverage data available for the selected receiver and time period');
+          alert(`No ${isDuplicatesMode ? 'duplicates' : 'coverage'} data available for the selected receiver and time period`);
           return;
         }
         
-        // Convert data to heatmap format
-        const heatData = data.map(point => {
-          // Intensity based on logarithmic scale of count, but amplified for better visibility
-          // Increase the divisor to make low counts more visible
-          const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
-          return [point.lat, point.lon, intensity];
-        });
+        // Process data differently based on mode
+        let heatData;
+        
+        if (isDuplicatesMode) {
+          // For duplicates mode, store the original data for tooltip info
+          window.duplicatesData = data;
+          
+          // Convert duplicates data to heatmap format with higher intensity
+          heatData = data.map(point => {
+            // Intensity based on count, amplified for better visibility of duplicates
+            const intensity = Math.min(1, Math.log10(point.count + 1) / 1.5);
+            return [point.lat, point.lon, intensity];
+          });
+        } else {
+          // For coverage mode, convert data to heatmap format
+          heatData = data.map(point => {
+            // Intensity based on logarithmic scale of count
+            const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
+            return [point.lat, point.lon, intensity];
+          });
+        }
         
         // Calculate and display coverage area
         const coverageAreaSqKm = calculateCoverageArea(heatData);
@@ -918,14 +949,68 @@
         // Clear all previous map layers
         clearMapLayers();
         
-        // Create new heat layer with improved visibility
+        // Create new heat layer with improved visibility and different gradient for duplicates
+        const gradient = isDuplicatesMode
+          ? {0.2: '#FED976', 0.4: '#FEB24C', 0.6: '#FD8D3C', 0.8: '#F03B20', 1: '#BD0026'} // Orange-red for duplicates
+          : {0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}; // Default gradient
+          
         heatLayer = L.heatLayer(heatData, {
-          radius: 20,           // Increased from 15
-          blur: 15,             // Decreased from 20 for sharper points
+          radius: 20,
+          blur: 15,
           maxZoom: 17,
-          minOpacity: 0.4,      // Added minimum opacity
-          gradient: {0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}
+          minOpacity: 0.4,
+          gradient: gradient
         }).addTo(map);
+        
+        // For duplicates mode, add click handler to show receiver information
+        if (isDuplicatesMode) {
+          // Add a click handler to the map to show duplicate details
+          map.on('click', function(e) {
+            // Find the closest duplicate point to the click
+            let closestPoint = null;
+            let minDistance = Infinity;
+            
+            window.duplicatesData.forEach(point => {
+              const pointLatLng = L.latLng(point.lat, point.lon);
+              const distance = e.latlng.distanceTo(pointLatLng);
+              
+              // Consider points within 500 meters of click
+              if (distance < 500 && distance < minDistance) {
+                minDistance = distance;
+                closestPoint = point;
+              }
+            });
+            
+            if (closestPoint) {
+              // Create popup content with receiver information
+              let content = `<div><strong>Duplicate Count: ${closestPoint.count}</strong></div>`;
+              
+              if (closestPoint.receiver_ids && closestPoint.receiver_ids.length > 0) {
+                content += '<div><strong>Receivers:</strong></div><ul>';
+                
+                for (let i = 0; i < closestPoint.receiver_ids.length; i++) {
+                  const receiverId = closestPoint.receiver_ids[i];
+                  const receiverName = closestPoint.receiver_names && closestPoint.receiver_names[i]
+                    ? closestPoint.receiver_names[i]
+                    : `Receiver ${receiverId}`;
+                  
+                  content += `<li>${receiverName} (ID: ${receiverId})</li>`;
+                }
+                
+                content += '</ul>';
+              }
+              
+              // Show popup at the point's location
+              L.popup()
+                .setLatLng([closestPoint.lat, closestPoint.lon])
+                .setContent(content)
+                .openOn(map);
+            }
+          });
+        } else {
+          // Remove click handler for coverage mode
+          map.off('click');
+        }
         
         // Load all receivers
         const receivers = await fetch('/receivers').then(r => r.json());
@@ -986,6 +1071,54 @@
                 L.marker([receiver.latitude, receiver.longitude], {icon: receiverIcon})
                   .addTo(map)
                   .bindPopup(`<b>Receiver:</b> ${receiver.name}`);
+                
+                // Add tooltip with receiver name
+                L.tooltip({
+                  permanent: true,
+                  direction: 'top',
+                  className: 'receiver-tooltip',
+                  offset: [0, -10]
+                })
+                .setContent(`<b>${receiver.name}</b>`)
+                .setLatLng([receiver.latitude, receiver.longitude])
+                .addTo(map);
+              }
+            }
+          });
+        }
+        
+        // For duplicates mode, add markers for all receivers mentioned in the duplicates data
+        if (isDuplicatesMode && window.duplicatesData) {
+          // Create a set of all receiver IDs mentioned in the duplicates data
+          const mentionedReceiverIds = new Set();
+          
+          window.duplicatesData.forEach(point => {
+            if (point.receiver_ids && Array.isArray(point.receiver_ids)) {
+              point.receiver_ids.forEach(id => mentionedReceiverIds.add(id));
+            }
+          });
+          
+          // Create a different icon for receivers mentioned in duplicates
+          const duplicateReceiverIcon = L.divIcon({
+            html: '<div style="background-color: #0074D9; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+            className: 'receiver-marker',
+            iconSize: [12, 12]
+          });
+          
+          // Add markers for all mentioned receivers that aren't already shown
+          receivers.forEach(receiver => {
+            // Skip if this receiver is already shown (selected receiver) or not mentioned in duplicates
+            if (receiver.id === parseInt(receiverId) || !mentionedReceiverIds.has(receiver.id)) {
+              return;
+            }
+            
+            if (receiver.latitude && receiver.longitude) {
+              // Only add markers if receivers should be shown
+              if (showReceivers) {
+                // Add marker with popup
+                L.marker([receiver.latitude, receiver.longitude], {icon: duplicateReceiverIcon})
+                  .addTo(map)
+                  .bindPopup(`<b>Receiver:</b> ${receiver.name}<br><b>ID:</b> ${receiver.id}<br><i>Mentioned in duplicates</i>`);
                 
                 // Add tooltip with receiver name
                 L.tooltip({
@@ -2002,6 +2135,19 @@
     document.addEventListener('DOMContentLoaded', async () => {
       // Add event listeners
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
+      
+      // Add event listeners for view mode radio buttons
+      document.getElementById('coverageRadio').addEventListener('change', function() {
+        if (this.checked) {
+          loadCoverageData();
+        }
+      });
+      
+      document.getElementById('duplicatesRadio').addEventListener('change', function() {
+        if (this.checked) {
+          loadCoverageData();
+        }
+      });
       
       // Add event listeners for replay controls
       document.getElementById('replay-day-btn').addEventListener('click', fetchDayReplayData);
