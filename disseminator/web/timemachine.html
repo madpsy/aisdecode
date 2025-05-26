@@ -1842,7 +1842,18 @@
                 const toDate = new Date(toDateInput.value);
                 
                 // Fetch vessel positions from latestmessages endpoint
-                const url = `/latestmessages?UserID=${id}&start=${formatDateForAPI(fromDate)}&end=${formatDateForAPI(toDate)}&MessageID=1,2,3,9,18,19&limit=10000`;
+                // Get selected receiver
+                const receiverSelect = document.getElementById('receiver-select');
+                const receiverId = receiverSelect ? receiverSelect.value : '';
+                
+                // Build URL with optional receiver parameter
+                let url = `/latestmessages?UserID=${id}&start=${formatDateForAPI(fromDate)}&end=${formatDateForAPI(toDate)}&MessageID=1,2,3,9,18,19&limit=10000`;
+                
+                // Add ReceiverID parameter if a specific receiver is selected
+                // Note: latestmessages endpoint uses "ReceiverID" (capital R and ID)
+                if (receiverId) {
+                    url += `&ReceiverID=${receiverId}`;
+                }
                 
                 const response = await fetch(url);
                 if (!response.ok) {
