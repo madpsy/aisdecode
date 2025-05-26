@@ -1294,6 +1294,7 @@
           vhfLiftUrl.searchParams.delete('receiver_id');
         }
         vhfLiftLink.href = vhfLiftUrl.toString();
+        console.log("Updated VHF Lift link:", vhfLiftLink.href);
       }
       
       if (isDateRange) {
@@ -2239,6 +2240,18 @@
     
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
+      // Check for query parameters and update VHF Lift link immediately
+      const initialParams = getQueryParams();
+      if (initialParams.receiverId) {
+        const vhfLiftLink = document.getElementById('vhf-lift-link');
+        if (vhfLiftLink) {
+          const vhfLiftUrl = new URL(vhfLiftLink.href);
+          vhfLiftUrl.searchParams.set('receiver_id', initialParams.receiverId);
+          vhfLiftLink.href = vhfLiftUrl.toString();
+          console.log("Set initial VHF Lift link with receiver_id:", initialParams.receiverId);
+        }
+      }
+      
       // Add event listeners
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
       

@@ -363,8 +363,11 @@
           option.textContent = receiver.name;
           select.appendChild(option);
         });
+        
+        return Promise.resolve(); // Return a resolved promise for chaining
       } catch (e) {
         // Error already handled in getReceiversData
+        return Promise.reject(e);
       }
     }
     
@@ -1359,6 +1362,7 @@
         }
         
         coverageLink.href = coverageUrl.toString();
+        console.log("Updated coverage link:", coverageLink.href);
       }
     }
     
@@ -1652,6 +1656,19 @@
       // Parse URL parameters first
       parseUrlParameters();
       
+      // Update coverage link immediately with any URL parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const receiverId = urlParams.get('receiver_id');
+      if (receiverId) {
+        const coverageLink = document.getElementById('coverage-link');
+        if (coverageLink) {
+          const coverageUrl = new URL(coverageLink.href);
+          coverageUrl.searchParams.set('receiver_id', receiverId);
+          coverageLink.href = coverageUrl.toString();
+          console.log("Set initial coverage link with receiver_id:", receiverId);
+        }
+      }
+      
       // Add event listeners
       document.getElementById('copy-link-btn').addEventListener('click', copyLinkToClipboard);
       document.getElementById('show-all-btn').addEventListener('click', showAllAnomalies);
@@ -1728,31 +1745,32 @@
       // Initialize receivers data and UI
       getReceiversData().then(receivers => {
         // Load the dropdown
-        loadReceivers();
-        // Check if we need to preselect a receiver from URL parameters
-        const receiverSelect = document.getElementById('receiver-select');
-        if (receiverSelect.dataset.preselect) {
-          const receiverId = receiverSelect.dataset.preselect;
-          for (let i = 0; i < receiverSelect.options.length; i++) {
-            if (receiverSelect.options[i].value === receiverId) {
-              receiverSelect.selectedIndex = i;
-              break;
+        loadReceivers().then(() => {
+          // Check if we need to preselect a receiver from URL parameters
+          const receiverSelect = document.getElementById('receiver-select');
+          if (receiverSelect.dataset.preselect) {
+            const receiverId = receiverSelect.dataset.preselect;
+            for (let i = 0; i < receiverSelect.options.length; i++) {
+              if (receiverSelect.options[i].value === receiverId) {
+                receiverSelect.selectedIndex = i;
+                break;
+              }
             }
+            // Remove the dataset attribute
+            delete receiverSelect.dataset.preselect;
           }
-          // Remove the dataset attribute
-          delete receiverSelect.dataset.preselect;
-        }
-        
-        // Update the coverage link with the current receiver ID
-        updateCoverageLink();
-        
-        // Load initial data based on selected parameters
-        const anomalyType = document.getElementById('anomaly-type').value;
-        if (anomalyType === 'range') {
-          loadRangeAnomalies();
-        } else {
-          loadDirectionAnomalies();
-        }
+          
+          // Update the coverage link with the current receiver ID
+          updateCoverageLink();
+          
+          // Load initial data based on selected parameters
+          const anomalyType = document.getElementById('anomaly-type').value;
+          if (anomalyType === 'range') {
+            loadRangeAnomalies();
+          } else {
+            loadDirectionAnomalies();
+          }
+        });
       });
     });
   </script>
