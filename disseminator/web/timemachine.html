@@ -404,6 +404,13 @@
                 <label for="min-speed">Min Speed (knots):</label>
                 <input type="number" id="min-speed" min="0" max="99.9" value="0.5" step="0.1">
             </div>
+            <div class="control-group">
+                <label for="receiver-select">Receiver:</label>
+                <select id="receiver-select" class="form-control form-control-sm">
+                    <option value="">All</option>
+                    <!-- Will be populated with receivers -->
+                </select>
+            </div>
             <button id="search-btn" class="btn btn-primary btn-sm">Go!</button>
             <button id="toggle-vessels-btn" class="btn btn-secondary btn-sm" disabled>Show Vessels</button>
             <button id="reset-btn" class="btn btn-outline-secondary btn-sm">Reset</button>
@@ -569,7 +576,9 @@
 
         // Fetch vessel types and receivers data
         fetchVesselTypes();
-        fetchReceivers();
+        fetchReceivers().then(() => {
+            populateReceiverDropdown();
+        });
 
         // Event listeners
         // Implement debounce function for map events
@@ -698,6 +707,17 @@
         minSpeedInput.addEventListener('change', function() {
             debouncedSearch();
             if (initialLoadComplete) debouncedUpdateURL();
+        });
+        
+        // Add event listener for receiver dropdown changes
+        document.getElementById('receiver-select').addEventListener('change', function() {
+            if (initialLoadComplete) {
+                debouncedUpdateURL();
+                // Perform a new search if we've already done one
+                if (hasPerformedSearch) {
+                    searchVessels();
+                }
+            }
         });
         
         // Function to check if at least one checkbox is checked
@@ -911,8 +931,44 @@
                 }
                 receivers = await response.json();
                 console.log('Receivers data loaded successfully:', receivers);
+                return receivers;
             } catch (error) {
                 console.error('Error loading receivers data:', error);
+                return null;
+            }
+        }
+        
+        // Populate the receiver dropdown with available receivers
+        function populateReceiverDropdown() {
+            const receiverSelect = document.getElementById('receiver-select');
+            if (!receiverSelect || !receivers) return;
+            
+            // Clear existing options except the first one (All)
+            while (receiverSelect.options.length > 1) {
+                receiverSelect.remove(1);
+            }
+            
+            // Add receivers to dropdown
+            if (Array.isArray(receivers)) {
+                receivers.forEach(receiver => {
+                    const option = document.createElement('option');
+                    option.value = receiver.id;
+                    option.textContent = receiver.name || `Receiver ${receiver.id}`;
+                    receiverSelect.appendChild(option);
+                });
+            }
+            
+            // Set receiver from URL if specified
+            if (window.receiverToSelect) {
+                // Find and select the option with the matching value
+                for (let i = 0; i < receiverSelect.options.length; i++) {
+                    if (receiverSelect.options[i].value === window.receiverToSelect) {
+                        receiverSelect.selectedIndex = i;
+                        break;
+                    }
+                }
+                // Clear the temporary storage
+                delete window.receiverToSelect;
             }
         }
         
@@ -923,6 +979,7 @@
             const fromDate = fromDateInput.value;
             const toDate = toDateInput.value;
             const minSpeed = minSpeedInput.value;
+            const receiverId = document.getElementById('receiver-select').value;
             const classAChecked = document.getElementById('class-a-checkbox').checked;
             const classBChecked = document.getElementById('class-b-checkbox').checked;
             const sarChecked = document.getElementById('sar-checkbox').checked;
@@ -934,6 +991,7 @@
             params.set('from', fromDate);
             params.set('to', toDate);
             params.set('minSpeed', minSpeed);
+            if (receiverId) params.set('receiver', receiverId);
             params.set('classA', classAChecked);
             params.set('classB', classBChecked);
             params.set('sar', sarChecked);
@@ -962,6 +1020,7 @@
             const fromDate = params.get('from');
             const toDate = params.get('to');
             const minSpeed = params.get('minSpeed');
+            const receiverId = params.get('receiver');
             const classA = params.get('classA');
             const classB = params.get('classB');
             const sar = params.get('sar');
@@ -990,6 +1049,12 @@
             
             if (minSpeed && !isNaN(parseFloat(minSpeed))) {
                 minSpeedInput.value = minSpeed;
+            }
+            
+            // Set receiver if specified in URL
+            if (receiverId) {
+                // We'll set this after receivers are loaded
+                window.receiverToSelect = receiverId;
             }
             
             // Set checkbox states from URL parameters if present
@@ -1196,7 +1261,17 @@
                         if (sarChecked) selectedClasses.push('SAR');
                         
                         // Fetch vessels from summaryhistory endpoint
-                        const url = `/summaryhistory?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}&latitude=${lat}&longitude=${lng}&radius=${radius}&minSpeed=${minSpeed}&classes=${selectedClasses.join(',')}`;
+                        // Get selected receiver
+                        const receiverSelect = document.getElementById('receiver-select');
+                        const receiverId = receiverSelect ? receiverSelect.value : '';
+                        
+                        // Build URL with optional receiver parameter
+                        let url = `/summaryhistory?from=${formatDateForAPI(fromDate)}&to=${formatDateForAPI(toDate)}&latitude=${lat}&longitude=${lng}&radius=${radius}&minSpeed=${minSpeed}&classes=${selectedClasses.join(',')}`;
+                        
+                        // Add receiver parameter if a specific receiver is selected
+                        if (receiverId) {
+                            url += `&receiver=${receiverId}`;
+                        }
                         
                         const response = await fetch(url);
                 if (!response.ok) {
