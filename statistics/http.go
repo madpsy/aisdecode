@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -335,9 +336,70 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build query with optional receiver_id filter and time range
+	// First, get a list of user_ids from the messages table if a receiver_id is specified
+	var userIDs []int
+	if receiverID > 0 {
+		var userIDQuery string
+		if timeRange.UseRange {
+			userIDQuery = fmt.Sprintf(`
+                SELECT DISTINCT user_id
+                  FROM messages
+                 WHERE message_id IN (1,2,3,18,19)
+                   AND timestamp >= '%s'
+                   AND timestamp <= '%s'
+                   AND receiver_id = %d
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+		} else {
+			userIDQuery = fmt.Sprintf(`
+                SELECT DISTINCT user_id
+                  FROM messages
+                 WHERE message_id IN (1,2,3,18,19)
+                   AND timestamp >= now() - INTERVAL '%d days'
+                   AND receiver_id = %d
+            `, days, receiverID)
+		}
+
+		userIDResults, err := QueryDatabasesForAllShards(userIDQuery)
+		if err != nil {
+			respondError(w, err)
+			return
+		}
+
+		// Extract user_ids from results
+		userIDMap := make(map[int]bool)
+		for _, recs := range userIDResults {
+			for _, rec := range recs {
+				uid, _ := parseInt(rec["user_id"])
+				if uid > 0 {
+					userIDMap[uid] = true
+				}
+			}
+		}
+
+		// Convert map to slice
+		for uid := range userIDMap {
+			userIDs = append(userIDs, uid)
+		}
+
+		// If no vessels found for this receiver, return empty result
+		if len(userIDs) == 0 {
+			respondJSON(w, []typeCount{})
+			return
+		}
+	}
+
+	// Build query with optional user_id filter from messages and time range
 	var qry string
 	if receiverID > 0 {
+		// Build IN clause for user_ids
+		var userIDsStr strings.Builder
+		for i, uid := range userIDs {
+			if i > 0 {
+				userIDsStr.WriteString(",")
+			}
+			userIDsStr.WriteString(fmt.Sprintf("%d", uid))
+		}
+
 		if timeRange.UseRange {
 			qry = fmt.Sprintf(`
                 SELECT (packet->>'Type') AS vessel_type,
@@ -347,9 +409,9 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
                    AND timestamp <= '%s'
                    AND (packet->>'Type') IS NOT NULL
                    AND TRIM((packet->>'Type')) <> ''
-                   AND receiver_id = %d
+                   AND user_id IN (%s)
                  GROUP BY vessel_type
-            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), userIDsStr.String())
 		} else {
 			qry = fmt.Sprintf(`
                 SELECT (packet->>'Type') AS vessel_type,
@@ -358,9 +420,9 @@ func topTypesHandler(w http.ResponseWriter, r *http.Request) {
                  WHERE timestamp >= now() - INTERVAL '%d days'
                    AND (packet->>'Type') IS NOT NULL
                    AND TRIM((packet->>'Type')) <> ''
-                   AND receiver_id = %d
+                   AND user_id IN (%s)
                  GROUP BY vessel_type
-            `, days, receiverID)
+            `, days, userIDsStr.String())
 		}
 	} else {
 		if timeRange.UseRange {
@@ -457,9 +519,70 @@ func topClassesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build query with optional receiver_id filter and time range
+	// First, get a list of user_ids from the messages table if a receiver_id is specified
+	var userIDs []int
+	if receiverID > 0 {
+		var userIDQuery string
+		if timeRange.UseRange {
+			userIDQuery = fmt.Sprintf(`
+                SELECT DISTINCT user_id
+                  FROM messages
+                 WHERE message_id IN (1,2,3,18,19)
+                   AND timestamp >= '%s'
+                   AND timestamp <= '%s'
+                   AND receiver_id = %d
+            `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+		} else {
+			userIDQuery = fmt.Sprintf(`
+                SELECT DISTINCT user_id
+                  FROM messages
+                 WHERE message_id IN (1,2,3,18,19)
+                   AND timestamp >= now() - INTERVAL '%d days'
+                   AND receiver_id = %d
+            `, days, receiverID)
+		}
+
+		userIDResults, err := QueryDatabasesForAllShards(userIDQuery)
+		if err != nil {
+			respondError(w, err)
+			return
+		}
+
+		// Extract user_ids from results
+		userIDMap := make(map[int]bool)
+		for _, recs := range userIDResults {
+			for _, rec := range recs {
+				uid, _ := parseInt(rec["user_id"])
+				if uid > 0 {
+					userIDMap[uid] = true
+				}
+			}
+		}
+
+		// Convert map to slice
+		for uid := range userIDMap {
+			userIDs = append(userIDs, uid)
+		}
+
+		// If no vessels found for this receiver, return empty result
+		if len(userIDs) == 0 {
+			respondJSON(w, []classCount{})
+			return
+		}
+	}
+
+	// Build query with optional user_id filter from messages and time range
 	var qry string
 	if receiverID > 0 {
+		// Build IN clause for user_ids
+		var userIDsStr strings.Builder
+		for i, uid := range userIDs {
+			if i > 0 {
+				userIDsStr.WriteString(",")
+			}
+			userIDsStr.WriteString(fmt.Sprintf("%d", uid))
+		}
+
 		if timeRange.UseRange {
 			qry = fmt.Sprintf(`
                     SELECT ais_class AS vessel_class,
@@ -469,9 +592,9 @@ func topClassesHandler(w http.ResponseWriter, r *http.Request) {
                        AND timestamp <= '%s'
                        AND ais_class IS NOT NULL
                        AND TRIM(ais_class) <> ''
-                       AND receiver_id = %d
+                       AND user_id IN (%s)
                      GROUP BY vessel_class
-                `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), receiverID)
+                `, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), userIDsStr.String())
 		} else {
 			qry = fmt.Sprintf(`
                     SELECT ais_class AS vessel_class,
@@ -480,9 +603,9 @@ func topClassesHandler(w http.ResponseWriter, r *http.Request) {
                      WHERE timestamp >= now() - INTERVAL '%d days'
                        AND ais_class IS NOT NULL
                        AND TRIM(ais_class) <> ''
-                       AND receiver_id = %d
+                       AND user_id IN (%s)
                      GROUP BY vessel_class
-                `, days, receiverID)
+                `, days, userIDsStr.String())
 		}
 	} else {
 		if timeRange.UseRange {
