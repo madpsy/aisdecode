@@ -1980,8 +1980,7 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 		// Enrich with vessel metadata
 		vessels = enrichDuplicateVessels(vessels)
 
-		// Enrich with receiver names
-		vessels = enrichDuplicateVesselReceivers(vessels)
+		// Receiver name enrichment removed as fetchReceivers doesn't work
 
 		respondJSON(w, vessels)
 		return
@@ -2145,8 +2144,7 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 	// Enrich with vessel metadata
 	vessels = enrichDuplicateVessels(vessels)
 
-	// Enrich with receiver names
-	vessels = enrichDuplicateVesselReceivers(vessels)
+	// Receiver name enrichment removed as fetchReceivers doesn't work
 
 	cacheSet(cacheKey, vessels)
 	respondJSON(w, vessels)
@@ -2175,81 +2173,10 @@ func enrichDuplicateVessels(vs []duplicateVessel) []duplicateVessel {
 }
 
 // enrichDuplicateVesselReceivers looks up and injects ReceiverName for each vessel in-place.
-func enrichDuplicateVesselReceivers(vs []duplicateVessel) []duplicateVessel {
-	// Get unique receiver IDs
-	receiverIDs := make(map[int]bool)
-	for _, v := range vs {
-		receiverIDs[v.ReceiverID] = true
-	}
-
-	// Convert to slice
-	ids := make([]int, 0, len(receiverIDs))
-	for id := range receiverIDs {
-		ids = append(ids, id)
-	}
-
-	// Fetch receiver names
-	receivers, err := fetchReceivers(ids)
-	if err != nil {
-		log.Printf("enrichDuplicateVesselReceivers: receiver fetch error: %v", err)
-		return vs
-	}
-
-	// Update vessel records
-	for i := range vs {
-		if r, ok := receivers[vs[i].ReceiverID]; ok {
-			vs[i].ReceiverName = r
-		} else {
-			vs[i].ReceiverName = fmt.Sprintf("Receiver %d", vs[i].ReceiverID)
-		}
-	}
-
-	return vs
-}
+// enrichDuplicateVesselReceivers was removed as it depends on fetchReceivers which doesn't work
 
 // fetchReceivers fetches receiver names by ID
-func fetchReceivers(ids []int) (map[int]string, error) {
-	if len(ids) == 0 {
-		return make(map[int]string), nil
-	}
-
-	// Debug log the IDs being fetched
-	log.Printf("Fetching receivers for IDs: %v", ids)
-
-	// Convert IDs to string for query
-	idStrs := make([]string, len(ids))
-	for i, id := range ids {
-		idStrs[i] = strconv.Itoa(id)
-	}
-
-	// Query receivers API
-	resp, err := http.Get("/receivers")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("receivers API returned status %d", resp.StatusCode)
-	}
-
-	var receiverList []struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&receiverList); err != nil {
-		return nil, err
-	}
-
-	// Create map of ID to name
-	result := make(map[int]string)
-	for _, r := range receiverList {
-		result[r.ID] = r.Name
-	}
-
-	return result, nil
-}
+// fetchReceivers was removed as it doesn't work
 
 // fetchDuplicateTimeSeries retrieves duplicate message counts grouped by time period and original receiver
 func fetchDuplicateTimeSeries(period TimeSeriesPeriod, days int, receiverID int) ([]TimeSeriesDataPoint, error) {
@@ -2469,14 +2396,7 @@ func vhfRangeAnomaliesHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if len(receiverIDs) > 0 {
-				receivers, err := fetchReceivers(receiverIDs)
-				if err == nil {
-					for i := range anomalies {
-						if name, ok := receivers[anomalies[i].ReceiverID]; ok {
-							anomalies[i].ReceiverName = name
-						}
-					}
-				}
+				// Receiver name enrichment removed as fetchReceivers doesn't work
 			}
 		}
 
@@ -2788,14 +2708,7 @@ func vhfDirectionAnomaliesHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if len(receiverIDs) > 0 {
-				receivers, err := fetchReceivers(receiverIDs)
-				if err == nil {
-					for i := range anomalies {
-						if name, ok := receivers[anomalies[i].ReceiverID]; ok {
-							anomalies[i].ReceiverName = name
-						}
-					}
-				}
+				// Receiver name enrichment removed as fetchReceivers doesn't work
 			}
 		}
 
@@ -3250,44 +3163,11 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fetch receiver names for all receiver IDs
-	receiverIDsList := make([]int, 0, len(allReceiverIDs))
-	for id := range allReceiverIDs {
-		receiverIDsList = append(receiverIDsList, id)
-	}
-	// Fetch receiver names for all receiver IDs
-	receiverNames, err := fetchReceivers(receiverIDsList)
-	if err != nil {
-		log.Printf("duplicatesHeatmapHandler: Error fetching receiver names: %v", err)
-	}
-
-	// Convert map to slice and add receiver names
+	// Convert map to slice (without receiver name enrichment)
 	heatmapData = make([]GridCell, 0, len(cellMap))
-	for key, cell := range cellMap {
+	for _, cell := range cellMap {
 		// Debug log the cell's receiver IDs
-		log.Printf("Cell %s has receiver IDs: %v", key, cell.ReceiverIDs)
-
-		// Add receiver names if available
-		if len(cell.ReceiverIDs) > 0 && len(receiverNames) > 0 {
-			names := make([]string, 0, len(cell.ReceiverIDs))
-			for _, id := range cell.ReceiverIDs {
-				if name, ok := receiverNames[id]; ok {
-					names = append(names, name)
-					log.Printf("Added receiver name %s for ID %d", name, id)
-				} else {
-					names = append(names, fmt.Sprintf("Receiver %d", id))
-					log.Printf("No name found for receiver ID %d", id)
-				}
-			}
-			cell.ReceiverNames = names
-			// Update the cell in the map with the new ReceiverNames
-			cellMap[key] = cell
-
-			// Debug log the cell's receiver names
-			log.Printf("Cell %s now has receiver names: %v", key, cell.ReceiverNames)
-		} else {
-			log.Printf("Cell %s has no receiver IDs or no receiver names available", key)
-		}
+		log.Printf("Cell has receiver IDs: %v", cell.ReceiverIDs)
 		heatmapData = append(heatmapData, cell)
 	}
 
