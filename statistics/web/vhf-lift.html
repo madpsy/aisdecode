@@ -572,7 +572,7 @@
             
             if (anomaly.max_vessel_name) {
               // Create a link to vesselhistory.html with relevant parameters
-              const vesselLink = `<a href="/disseminator/web/vesselhistory.html?UserID=${anomaly.max_user_id || ''}&start=${anomaly.start_time}&end=${anomaly.end_time}&ReceiverID=${anomaly.receiver_id}" target="_blank">${anomaly.max_vessel_name}</a>`;
+              const vesselLink = `<a href="/vesselhistory.html?UserID=${anomaly.max_user_id || ''}&start=${anomaly.start_time}&end=${anomaly.end_time}&ReceiverID=${anomaly.receiver_id}" target="_blank">${anomaly.max_vessel_name}</a>`;
               maxMarker.bindPopup(`<b>Vessel:</b> ${vesselLink}`);
             }
           }
@@ -880,7 +880,7 @@
         
         if (anomaly.max_vessel_name) {
           // Create a link to vesselhistory.html with relevant parameters
-          const vesselLink = `<a href="/disseminator/web/vesselhistory.html?UserID=${anomaly.max_user_id || ''}&start=${anomaly.start_time}&end=${anomaly.end_time}&ReceiverID=${anomaly.receiver_id}" target="_blank">${anomaly.max_vessel_name}</a>`;
+          const vesselLink = `<a href="/vesselhistory.html?UserID=${anomaly.max_user_id || ''}&start=${anomaly.start_time}&end=${anomaly.end_time}&ReceiverID=${anomaly.receiver_id}" target="_blank">${anomaly.max_vessel_name}</a>`;
           detailsTable.innerHTML += `
             <tr>
               <th>Max Vessel</th>
