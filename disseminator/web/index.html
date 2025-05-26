@@ -864,67 +864,41 @@
 	  "OSM": osm
 	};
 
-	// Define time travel callback function
-	function timeTravelCallback(e) {
-		const lat = e.latlng.lat;
-		const lng = e.latlng.lng;
-		const zoom = Math.max(8, map.getZoom()); // Ensure zoom is not less than 8
-		
-		// Get current time for 'to' parameter
-		const now = new Date();
-		
-		// Calculate 'from' time based on age-slider value
-		const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
-		const fromTime = new Date(now.getTime() - maxAgeHours * 60 * 60 * 1000);
-		
-		// Format dates for URL parameters with timezone adjustment (YYYY-MM-DDThh:mm format)
-		// Add the timezone offset to convert from UTC to local time
-		function formatDateWithTimezone(date) {
-			// Get timezone offset in minutes and convert to milliseconds
-			const tzOffset = date.getTimezoneOffset() * 60000;
-			// Create a new date adjusted for timezone
-			const localDate = new Date(date.getTime() - tzOffset);
-			// Return ISO string without the timezone part
-			return localDate.toISOString().slice(0, 16);
-		}
-		
-		const toParam = formatDateWithTimezone(now);
-		const fromParam = formatDateWithTimezone(fromTime);
-		
-		// Build the URL with base parameters
-		let timeUrl = `/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`;
-		
-		// Add receiver parameter if a receiver is selected
-		if (selectedReceiverId && receiverData[selectedReceiverId]) {
-			const receiverName = receiverData[selectedReceiverId].Name;
-			timeUrl += `&receiver=${selectedReceiverId}`;
-			
-			// Show a notification with the receiver name
-			const notification = document.createElement('div');
-			notification.textContent = `Time traveling with receiver: ${receiverName}`;
-			notification.style.position = 'absolute';
-			notification.style.top = '100px';
-			notification.style.left = '50%';
-			notification.style.transform = 'translateX(-50%)';
-			notification.style.background = 'rgba(255,255,255,0.8)';
-			notification.style.padding = '10px';
-			notification.style.borderRadius = '5px';
-			notification.style.zIndex = '1000';
-			document.body.appendChild(notification);
-			setTimeout(() => document.body.removeChild(notification), 2000);
-		}
-		
-		// Open Time Machine with all parameters
-		window.open(timeUrl, '_blank');
-	}
-
 	// Initialize the map with a default base layer
 	const map = L.map('map', {
 		contextmenu: true,
-		contextmenuWidth: 180,
+		contextmenuWidth: 140,
 		contextmenuItems: [{
 			text: 'Time Travel Here',
-			callback: timeTravelCallback
+			callback: function(e) {
+				const lat = e.latlng.lat;
+				const lng = e.latlng.lng;
+				const zoom = Math.max(8, map.getZoom()); // Ensure zoom is not less than 8
+				
+				// Get current time for 'to' parameter
+				const now = new Date();
+				
+				// Calculate 'from' time based on age-slider value
+				const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
+				const fromTime = new Date(now.getTime() - maxAgeHours * 60 * 60 * 1000);
+				
+				// Format dates for URL parameters with timezone adjustment (YYYY-MM-DDThh:mm format)
+				// Add the timezone offset to convert from UTC to local time
+				function formatDateWithTimezone(date) {
+					// Get timezone offset in minutes and convert to milliseconds
+					const tzOffset = date.getTimezoneOffset() * 60000;
+					// Create a new date adjusted for timezone
+					const localDate = new Date(date.getTime() - tzOffset);
+					// Return ISO string without the timezone part
+					return localDate.toISOString().slice(0, 16);
+				}
+				
+				const toParam = formatDateWithTimezone(now);
+				const fromParam = formatDateWithTimezone(fromTime);
+				
+				// Open Time Machine with all parameters
+				window.open(`/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`, '_blank');
+			}
 		}]
 	}).setView([55.0, -3.0], 5);
 	osm.addTo(map);
