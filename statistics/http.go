@@ -1907,14 +1907,15 @@ func fetchVesselTimeSeries(period TimeSeriesPeriod, days int, receiverID int) ([
 
 // duplicateVessel is the JSON shape returned by /statistics/stats/top-duplicates.
 type duplicateVessel struct {
-	UserID         int    `json:"user_id"`
-	Name           string `json:"name,omitempty"`
-	ImageURL       string `json:"image_url,omitempty"`
-	AISClass       string `json:"ais_class,omitempty"`
-	Type           string `json:"type,omitempty"`
-	DuplicateCount int    `json:"duplicate_count"`
-	ReceiverID     int    `json:"receiver_id"`
-	ReceiverName   string `json:"receiver_name,omitempty"`
+	UserID         int       `json:"user_id"`
+	Name           string    `json:"name,omitempty"`
+	ImageURL       string    `json:"image_url,omitempty"`
+	AISClass       string    `json:"ais_class,omitempty"`
+	Type           string    `json:"type,omitempty"`
+	DuplicateCount int       `json:"duplicate_count"`
+	ReceiverID     int       `json:"receiver_id"`
+	ReceiverName   string    `json:"receiver_name,omitempty"`
+	LastSeen       time.Time `json:"last_seen,omitempty"`
 }
 
 // topDuplicatesHandler provides the top 10 vessels with the most duplicate messages
@@ -1968,7 +1969,8 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 				SELECT
 					m.user_id,
 					m.receiver_id_duplicated AS receiver_id,
-					COUNT(*) AS duplicate_count
+					COUNT(*) AS duplicate_count,
+					MAX(m.timestamp) AS last_seen
 				FROM
 					messages m
 				WHERE
@@ -1987,7 +1989,8 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 				SELECT
 					m.user_id,
 					m.receiver_id_duplicated AS receiver_id,
-					COUNT(*) AS duplicate_count
+					COUNT(*) AS duplicate_count,
+					MAX(m.timestamp) AS last_seen
 				FROM
 					messages m
 				WHERE
@@ -2007,7 +2010,8 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 				SELECT
 					m.user_id,
 					m.receiver_id_duplicated AS receiver_id,
-					COUNT(*) AS duplicate_count
+					COUNT(*) AS duplicate_count,
+					MAX(m.timestamp) AS last_seen
 				FROM
 					messages m
 				WHERE
@@ -2025,7 +2029,8 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 				SELECT
 					m.user_id,
 					m.receiver_id_duplicated AS receiver_id,
-					COUNT(*) AS duplicate_count
+					COUNT(*) AS duplicate_count,
+					MAX(m.timestamp) AS last_seen
 				FROM
 					messages m
 				WHERE
@@ -2052,26 +2057,43 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 		receiverID int
 	}
 
-	dupMap := make(map[dupKey]int)
+	dupMap := make(map[dupKey]struct {
+		count    int
+		lastSeen time.Time
+	})
 
 	for _, recs := range shardResults {
 		for _, rec := range recs {
 			userID, _ := parseInt(rec["user_id"])
 			receiverID, _ := parseInt(rec["receiver_id"])
 			count, _ := parseInt(rec["duplicate_count"])
+			lastSeen, _ := parseTime(rec["last_seen"])
 
 			key := dupKey{userID, receiverID}
-			dupMap[key] += count
+			existing, exists := dupMap[key]
+			if !exists || lastSeen.After(existing.lastSeen) {
+				dupMap[key] = struct {
+					count    int
+					lastSeen time.Time
+				}{count, lastSeen}
+			} else if exists {
+				// Keep the latest timestamp but add the counts
+				dupMap[key] = struct {
+					count    int
+					lastSeen time.Time
+				}{existing.count + count, existing.lastSeen}
+			}
 		}
 	}
 
 	// Convert to slice for sorting
 	vessels = make([]duplicateVessel, 0, len(dupMap))
-	for key, count := range dupMap {
+	for key, data := range dupMap {
 		vessels = append(vessels, duplicateVessel{
 			UserID:         key.userID,
 			ReceiverID:     key.receiverID,
-			DuplicateCount: count,
+			DuplicateCount: data.count,
+			LastSeen:       data.lastSeen,
 		})
 	}
 
