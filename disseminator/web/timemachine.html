@@ -578,6 +578,10 @@
         fetchVesselTypes();
         fetchReceivers().then(() => {
             populateReceiverDropdown();
+            // Plot receivers on the map immediately when page loads
+            if (receivers && Array.isArray(receivers)) {
+                plotAllReceivers();
+            }
         });
 
         // Event listeners
@@ -2063,7 +2067,44 @@
             });
         }
         
-        // Function to plot receivers on the map
+        // Function to plot all receivers on the map
+        function plotAllReceivers() {
+            // Skip if receivers data isn't loaded yet
+            if (!receivers || !Array.isArray(receivers)) {
+                console.log('Receivers data not available yet');
+                return;
+            }
+            
+            // For each receiver, plot it on the map
+            receivers.forEach(receiver => {
+                // Skip if we've already plotted this receiver
+                if (receiverMarkers[receiver.id]) return;
+                
+                // Add validation for receiver coordinates
+                if (receiver && receiver.latitude && receiver.longitude &&
+                    Math.abs(receiver.latitude) <= 90 && Math.abs(receiver.longitude) <= 180) {
+                    // Create a marker for the receiver
+                    const receiverMarker = L.marker([receiver.latitude, receiver.longitude], {
+                        icon: createReceiverIcon()
+                    });
+                    
+                    // Add a permanent tooltip with the receiver name
+                    receiverMarker.bindTooltip(receiver.name, {
+                        permanent: true,
+                        direction: 'top',
+                        offset: [0, -10],
+                        className: 'receiver-tooltip',
+                        interactive: true
+                    }).openTooltip();
+                    
+                    // Add to map and store reference
+                    receiverMarker.addTo(map);
+                    receiverMarkers[receiver.id] = receiverMarker;
+                }
+            });
+        }
+        
+        // Function to plot receivers on the map from vessel positions
         function plotReceivers(positions) {
             // Skip if receivers data isn't loaded yet
             if (!receivers || !Array.isArray(receivers)) {
