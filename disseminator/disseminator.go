@@ -953,10 +953,10 @@ func getSummaryHistoryResults(lat, lon, radius float64, limit int, minSpeed floa
 		query += fmt.Sprintf(" AND user_id = '%d'", userid)
 	}
 
-	// If ReceiverID is provided, filter using vessel_receivers table
+	// If ReceiverID is provided, filter directly on receiver_id column
 	if receiverID > 0 {
-		log.Printf("History: Filtering by receiver ID %d using vessel_receivers table", receiverID)
-		query += fmt.Sprintf(" AND messages.user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
+		log.Printf("History: Filtering by receiver ID %d", receiverID)
+		query += fmt.Sprintf(" AND receiver_id = %d", receiverID)
 	}
 
 	// If minSpeed is provided, filter by speed
