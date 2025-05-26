@@ -955,6 +955,9 @@
             // Add receivers to dropdown
             if (Array.isArray(receivers)) {
                 receivers.forEach(receiver => {
+                    // Skip receiver ID 0
+                    if (receiver.id === 0) return;
+                    
                     const option = document.createElement('option');
                     option.value = receiver.id;
                     option.textContent = receiver.name || `Receiver ${receiver.id}`;
