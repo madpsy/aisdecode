@@ -393,6 +393,27 @@
               </div>
             </div>
           </div>
+          
+          <!-- Duplicate Receivers Table (only shown in duplicates mode) -->
+          <div id="duplicate-receivers-container" class="mt-4" style="display: none;">
+            <div class="card">
+              <div class="card-header">Duplicate Messages by Receiver</div>
+              <div class="card-body">
+                <table class="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Receiver</th>
+                      <th>Messages</th>
+                      <th>Percentage</th>
+                    </tr>
+                  </thead>
+                  <tbody id="duplicate-receivers-stats">
+                    <!-- Will be populated dynamically -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -696,6 +717,7 @@
       const distanceStatsTable = document.getElementById('distance-stats');
       const directionStatsTable = document.getElementById('direction-stats');
       const directionStatsCard = directionStatsTable.closest('.card').parentElement;
+      const duplicateReceiversContainer = document.getElementById('duplicate-receivers-container');
       const isDuplicatesMode = document.getElementById('duplicatesRadio').checked;
       
       if (!stats) {
@@ -713,6 +735,9 @@
       
       // Show/hide direction stats based on parameter
       directionStatsCard.style.display = showDirectionStats ? 'block' : 'none';
+      
+      // Show/hide duplicate receivers table based on mode
+      duplicateReceiversContainer.style.display = isDuplicatesMode ? 'block' : 'none';
       
       // Clear previous stats
       distanceStatsTable.innerHTML = '';
@@ -1018,11 +1043,24 @@
               receiverNames[r.id] = r.name;
             });
             
+            // Create a map to count messages by receiver ID
+            const receiverMessageCounts = {};
+            let totalDuplicateMessages = 0;
+            
             // Process each point in the data
             data.forEach(point => {
               if (point.receiver_ids && Array.isArray(point.receiver_ids)) {
                 // Filter out the selected receiver
                 const otherReceivers = point.receiver_ids.filter(id => id !== selectedReceiverId);
+                
+                // Count messages for each receiver
+                otherReceivers.forEach(id => {
+                  if (!receiverMessageCounts[id]) {
+                    receiverMessageCounts[id] = 0;
+                  }
+                  receiverMessageCounts[id] += point.count || 1;
+                  totalDuplicateMessages += point.count || 1;
+                });
                 
                 // Only add annotation if there are other receivers
                 if (otherReceivers.length > 0) {
@@ -1063,6 +1101,40 @@
                     console.error("Error adding marker:", e);
                   }
                 }
+              }
+              // Populate the duplicate receivers table
+              const duplicateReceiversTable = document.getElementById('duplicate-receivers-stats');
+              if (duplicateReceiversTable) {
+                // Clear previous content
+                duplicateReceiversTable.innerHTML = '';
+                
+                // Convert to array for sorting
+                const receiversArray = Object.entries(receiverMessageCounts).map(([id, count]) => ({
+                  id: parseInt(id),
+                  name: receiverNames[id] || `Receiver ${id}`,
+                  count: count
+                }));
+                
+                // Sort by message count (descending)
+                receiversArray.sort((a, b) => b.count - a.count);
+                
+                // Add rows to the table
+                receiversArray.forEach(receiver => {
+                  const percentage = totalDuplicateMessages > 0
+                    ? ((receiver.count / totalDuplicateMessages) * 100).toFixed(1)
+                    : '0.0';
+                  
+                  duplicateReceiversTable.innerHTML += `
+                    <tr>
+                      <td>${receiver.name}</td>
+                      <td>${receiver.count}</td>
+                      <td>${percentage}%</td>
+                    </tr>
+                  `;
+                });
+                
+                // Show the container
+                document.getElementById('duplicate-receivers-container').style.display = 'block';
               }
             });
           }).catch(err => {
@@ -2217,8 +2289,21 @@
         }
       });
       
+      // Get duplicate receivers stats if available
+      const isDuplicatesMode = document.getElementById('duplicatesRadio').checked;
+      if (isDuplicatesMode) {
+        const duplicateRows = document.getElementById('duplicate-receivers-stats').querySelectorAll('tr');
+        duplicateRows.forEach(row => {
+          const cells = row.querySelectorAll('td');
+          if (cells.length === 3) {
+            csvContent += `Receiver,${cells[0].textContent},${cells[1].textContent},${cells[2].textContent}\n`;
+          }
+        });
+      }
+      
       // Download the CSV
-      downloadCSV(csvContent, 'coverage_statistics.csv');
+      const filename = isDuplicatesMode ? 'duplicate_statistics.csv' : 'coverage_statistics.csv';
+      downloadCSV(csvContent, filename);
     }
     
     // Update CSV button visibility based on replay state
