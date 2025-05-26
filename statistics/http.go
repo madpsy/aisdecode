@@ -899,12 +899,6 @@ func respondJSON(w http.ResponseWriter, v interface{}) {
 	// Debug log the response for duplicates-heatmap endpoint
 	if heatmapData, ok := v.([]GridCell); ok {
 		log.Printf("Responding with %d grid cells", len(heatmapData))
-		if len(heatmapData) > 0 {
-			log.Printf("First grid cell: %+v", heatmapData[0])
-			if len(heatmapData[0].ReceiverIDs) > 0 {
-				log.Printf("First grid cell has receiver IDs: %v", heatmapData[0].ReceiverIDs)
-			}
-		}
 	}
 
 	json.NewEncoder(w).Encode(v)
