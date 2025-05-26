@@ -1318,7 +1318,7 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 				log.Printf("Error storing message: %v", err)
 			} else if message.DedupedPort != nil {
 				// Log successful storage of duplicate message
-				log.Printf("DUPLICATE STORED: Successfully stored message with DedupedPort=%d", *message.DedupedPort)
+				// log.Printf("DUPLICATE STORED: Successfully stored message with DedupedPort=%d", *message.DedupedPort)
 			}
 
 			// Update vessel_receivers table to track which receivers saw this message
