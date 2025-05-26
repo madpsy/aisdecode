@@ -528,10 +528,10 @@
         const radiusMeters = maxDistance * i / 3;
         const radiusNM = Math.round(radiusMeters / 1852); // Convert meters to nautical miles and round to nearest whole number
         
-        // Create circle
+        // Create circle - use red color for the main selected receiver
         const circle = L.circle(receiverLatLng, {
           radius: radiusMeters,
-          color: '#3388ff',
+          color: '#ff4136', // Red color for main receiver
           fillColor: 'transparent',
           weight: 1.5,
           opacity: 0.7,
@@ -1234,11 +1234,36 @@
             }
           });
           
-          // Create a different icon for receivers mentioned in duplicates
-          const duplicateReceiverIcon = L.divIcon({
-            html: '<div style="background-color: #0074D9; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
-            className: 'receiver-marker',
-            iconSize: [12, 12]
+          // Generate a palette of vivid colors for receivers
+          const vividColors = [
+            '#0074D9', // Blue
+            '#2ECC40', // Green
+            '#FFDC00', // Yellow
+            '#FF851B', // Orange
+            '#B10DC9', // Purple
+            '#01FF70', // Lime
+            '#F012BE', // Fuchsia
+            '#7FDBFF', // Aqua
+            '#39CCCC', // Teal
+            '#3D9970', // Olive
+            '#85144b', // Maroon
+            '#AAAAAA'  // Silver
+          ];
+          
+          // Map to store receiver colors
+          const receiverColors = {};
+          
+          // Assign colors to receivers
+          let colorIndex = 0;
+          receivers.forEach(receiver => {
+            if (receiver.id === parseInt(receiverId)) {
+              // Main receiver is always red
+              receiverColors[receiver.id] = '#ff4136';
+            } else if (mentionedReceiverIds.has(receiver.id)) {
+              // Assign a vivid color from the palette
+              receiverColors[receiver.id] = vividColors[colorIndex % vividColors.length];
+              colorIndex++;
+            }
           });
           
           // Add markers for all mentioned receivers that aren't already shown
@@ -1251,8 +1276,18 @@
             if (receiver.latitude && receiver.longitude) {
               // Only add markers if receivers should be shown
               if (showReceivers) {
+                // Get the color for this receiver
+                const receiverColor = receiverColors[receiver.id] || '#0074D9'; // Default to blue if no color assigned
+                
+                // Create a custom icon with the receiver's color
+                const customIcon = L.divIcon({
+                  html: `<div style="background-color: ${receiverColor}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>`,
+                  className: 'receiver-marker',
+                  iconSize: [12, 12]
+                });
+                
                 // Add marker with popup
-                L.marker([receiver.latitude, receiver.longitude], {icon: duplicateReceiverIcon})
+                L.marker([receiver.latitude, receiver.longitude], {icon: customIcon})
                   .addTo(map)
                   .bindPopup(`<b>Receiver:</b> ${receiver.name}<br><i>Mentioned in duplicates</i>`);
                 
@@ -1288,9 +1323,12 @@
                   const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
                   
                   // Create a single circle showing the maximum range for this receiver
+                  // Use the same color as the receiver marker
+                  const receiverColor = receiverColors[receiver.id] || '#0074D9'; // Default to blue if no color assigned
+                  
                   const circle = L.circle(receiverLatLng, {
                     radius: receiverMaxDistance,
-                    color: '#FF4500', // Orange color for duplicate receivers
+                    color: receiverColor,
                     fillColor: 'transparent',
                     weight: 2,
                     opacity: 0.8,
