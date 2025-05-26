@@ -3062,46 +3062,11 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Debug log the SQL query
-	log.Printf("SQL query for duplicates-heatmap: %s", qry)
-
 	// Query all shards
 	shardResults, err := QueryDatabasesForAllShards(qry)
 	if err != nil {
 		respondError(w, err)
 		return
-	}
-
-	// Debug log the raw query results
-	log.Printf("Raw query results count: %d shards", len(shardResults))
-
-	// Debug log all records to see what's coming back from the database
-	for shardName, recs := range shardResults {
-		log.Printf("Shard %s has %d records", shardName, len(recs))
-		if len(recs) > 0 {
-			log.Printf("First record from shard %s: %+v", shardName, recs[0])
-
-			// Check for receiver_ids specifically
-			if receiverIDs, ok := recs[0]["receiver_ids"]; ok {
-				log.Printf("receiver_ids found: %v (type: %T)", receiverIDs, receiverIDs)
-
-				// Try to inspect the value more deeply
-				switch v := receiverIDs.(type) {
-				case string:
-					log.Printf("receiver_ids is string: '%s'", v)
-				case []interface{}:
-					log.Printf("receiver_ids is slice with %d elements", len(v))
-					for i, elem := range v {
-						log.Printf("  Element %d: %v (type: %T)", i, elem, elem)
-					}
-				default:
-					log.Printf("receiver_ids is unknown type: %T", v)
-				}
-			} else {
-				log.Printf("receiver_ids not found in record")
-				log.Printf("Available keys: %v", getMapKeys(recs[0]))
-			}
-		}
 	}
 
 	// Process results from all shards
@@ -3116,78 +3081,48 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 
 			// Create a key for the grid cell to aggregate across shards
 			key := fmt.Sprintf("%.6f:%.6f", lat, lon)
-			log.Printf("Processing grid cell with key: %s", key)
 
 			// Get receiver_ids array
 			var receiverIDs []int
 			if receiverIDsStr, ok := rec["receiver_ids"]; ok && receiverIDsStr != nil {
-				// Debug log the raw receiver_ids value
-				log.Printf("Processing record with receiver_ids: %v (type: %T)", receiverIDsStr, receiverIDsStr)
-
 				// Handle different possible return types from PostgreSQL array_agg
 				switch v := receiverIDsStr.(type) {
 				case string:
 					// Parse the PostgreSQL array format: {1,2,3}
-					log.Printf("Parsing receiver_ids as string: '%s'", v)
 					if strings.HasPrefix(v, "{") && strings.HasSuffix(v, "}") {
 						// Remove the braces and split by comma
 						pgArray := v[1 : len(v)-1]
 						if pgArray != "" {
 							idStrs := strings.Split(pgArray, ",")
-							log.Printf("Split into %d elements: %v", len(idStrs), idStrs)
 							for _, idStr := range idStrs {
 								id, err := strconv.Atoi(idStr)
 								if err == nil && id > 0 {
 									receiverIDs = append(receiverIDs, id)
 									allReceiverIDs[id] = true
-									log.Printf("Added receiver ID from string: %d to allReceiverIDs", id)
-								} else if err != nil {
-									log.Printf("Error parsing ID '%s': %v", idStr, err)
 								}
 							}
-						} else {
-							log.Printf("Empty array content")
 						}
-					} else {
-						log.Printf("String doesn't match PostgreSQL array format: '%s'", v)
 					}
 				case []interface{}:
 					// Handle array returned as slice of interface{}
-					log.Printf("Parsing receiver_ids as slice with %d elements", len(v))
-					for i, item := range v {
-						log.Printf("Processing element %d: %v (type: %T)", i, item, item)
+					for _, item := range v {
 						if idVal, ok := item.(float64); ok {
 							id := int(idVal)
 							if id > 0 {
 								receiverIDs = append(receiverIDs, id)
 								allReceiverIDs[id] = true
-								log.Printf("Added receiver ID from float64: %d to allReceiverIDs", id)
 							}
 						} else if idStr, ok := item.(string); ok {
 							id, err := strconv.Atoi(idStr)
 							if err == nil && id > 0 {
 								receiverIDs = append(receiverIDs, id)
 								allReceiverIDs[id] = true
-								log.Printf("Added receiver ID from string: %d to allReceiverIDs", id)
-							} else if err != nil {
-								log.Printf("Error parsing ID string '%s': %v", idStr, err)
 							}
-						} else {
-							log.Printf("Unknown element type: %T", item)
 						}
 					}
-				case map[string]interface{}:
-					// Some drivers might return a complex object
-					log.Printf("Received map for receiver_ids, keys: %v", getMapKeys(v))
-				case nil:
-					log.Printf("receiver_ids is nil")
 				case []uint8:
 					// Handle PostgreSQL array returned as byte array
-					log.Printf("Parsing receiver_ids as []uint8: %v", v)
-
-					// Convert byte array to string
 					pgArrayStr := string(v)
-					log.Printf("Converted to string: '%s'", pgArrayStr)
 
 					// Parse the PostgreSQL array format: {1,2,3}
 					if strings.HasPrefix(pgArrayStr, "{") && strings.HasSuffix(pgArrayStr, "}") {
@@ -3195,35 +3130,19 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 						pgArray := pgArrayStr[1 : len(pgArrayStr)-1]
 						if pgArray != "" {
 							idStrs := strings.Split(pgArray, ",")
-							log.Printf("Split into %d elements: %v", len(idStrs), idStrs)
 							for _, idStr := range idStrs {
 								id, err := strconv.Atoi(idStr)
 								if err == nil && id > 0 {
 									receiverIDs = append(receiverIDs, id)
 									allReceiverIDs[id] = true
-									log.Printf("Added receiver ID from byte array: %d to allReceiverIDs", id)
-								} else if err != nil {
-									log.Printf("Error parsing ID '%s' from byte array: %v", idStr, err)
 								}
 							}
-						} else {
-							log.Printf("Empty array content in byte array")
 						}
-					} else {
-						log.Printf("Byte array doesn't match PostgreSQL array format: '%s'", pgArrayStr)
 					}
-				default:
-					log.Printf("Unhandled receiver_ids type: %T", v)
 				}
-
-				log.Printf("Final parsed receiver_ids: %v", receiverIDs)
-			} else {
-				log.Printf("No receiver_ids found in record: %v", rec)
-				log.Printf("Available keys in record: %v", getMapKeys(rec))
 			}
 
 			if cell, exists := cellMap[key]; exists {
-				log.Printf("Cell already exists with %d receiver IDs", len(cell.ReceiverIDs))
 				cell.Count += count
 
 				// Add these receiver IDs if they're not already in the list
@@ -3237,25 +3156,19 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 							}
 						}
 						if !found {
-							log.Printf("Adding receiver ID %d to existing cell", newID)
 							cell.ReceiverIDs = append(cell.ReceiverIDs, newID)
-						} else {
-							log.Printf("Receiver ID %d already in cell", newID)
 						}
 					}
 				}
 
 				cellMap[key] = cell
-				log.Printf("Updated cell now has %d receiver IDs", len(cell.ReceiverIDs))
 			} else {
-				log.Printf("Creating new cell with %d receiver IDs", len(receiverIDs))
 				cellMap[key] = GridCell{
 					Lat:         lat,
 					Lon:         lon,
 					Count:       count,
 					ReceiverIDs: receiverIDs,
 				}
-				log.Printf("New cell created with receiver IDs: %v", receiverIDs)
 			}
 		}
 	}
@@ -3263,29 +3176,7 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	// Convert map to slice (without receiver name enrichment)
 	heatmapData = make([]GridCell, 0, len(cellMap))
 	for _, cell := range cellMap {
-		// Debug log the cell's receiver IDs
-		log.Printf("Cell at %.6f,%.6f has %d receiver IDs: %v", cell.Lat, cell.Lon, len(cell.ReceiverIDs), cell.ReceiverIDs)
 		heatmapData = append(heatmapData, cell)
-	}
-
-	// Log the final result
-	log.Printf("Responding with %d grid cells", len(heatmapData))
-	if len(heatmapData) > 0 {
-		log.Printf("First grid cell: %+v", heatmapData[0])
-
-		// Check if any grid cells have receiver IDs
-		hasReceiverIDs := false
-		for _, cell := range heatmapData {
-			if len(cell.ReceiverIDs) > 0 {
-				hasReceiverIDs = true
-				log.Printf("Found cell with receiver IDs: %+v", cell)
-				break
-			}
-		}
-
-		if !hasReceiverIDs {
-			log.Printf("WARNING: No grid cells have receiver IDs!")
-		}
 	}
 
 	// Cache the result
