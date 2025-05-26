@@ -897,6 +897,21 @@ func parseTimeRangeParams(r *http.Request) (TimeRange, error) {
 // respondJSON serializes v as JSON to the response.
 func respondJSON(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
+
+	// Debug log the response for duplicates-heatmap endpoint
+	if heatmapData, ok := v.([]GridCell); ok {
+		log.Printf("Responding with %d grid cells", len(heatmapData))
+		if len(heatmapData) > 0 {
+			log.Printf("First grid cell: %+v", heatmapData[0])
+			if len(heatmapData[0].ReceiverIDs) > 0 {
+				log.Printf("First grid cell has receiver IDs: %v", heatmapData[0].ReceiverIDs)
+			}
+			if len(heatmapData[0].ReceiverNames) > 0 {
+				log.Printf("First grid cell has receiver names: %v", heatmapData[0].ReceiverNames)
+			}
+		}
+	}
+
 	json.NewEncoder(w).Encode(v)
 }
 
@@ -2198,6 +2213,9 @@ func fetchReceivers(ids []int) (map[int]string, error) {
 		return make(map[int]string), nil
 	}
 
+	// Debug log the IDs being fetched
+	log.Printf("Fetching receivers for IDs: %v", ids)
+
 	// Convert IDs to string for query
 	idStrs := make([]string, len(ids))
 	for i, id := range ids {
@@ -3008,7 +3026,7 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	                       %f
 	                   ))) AS lon,
 	                   COUNT(*) AS count,
-	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
+	                   receiver_id_duplicated AS receiver_id
 	               FROM messages
 	               WHERE receiver_id_duplicated IS NOT NULL
 	                   AND timestamp >= '%s'
@@ -3017,14 +3035,6 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	                   AND (packet->>'Longitude')::float IS NOT NULL
 	                   AND (packet->>'Latitude')::float BETWEEN -90 AND 90
 	                   AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-	               GROUP BY
-	                   ST_SnapToGrid(
-	                       ST_SetSRID(ST_MakePoint(
-	                           (packet->>'Longitude')::float,
-	                           (packet->>'Latitude')::float
-	                       ), 4326),
-	                       %f
-	                   )
 	           `, gridSize, gridSize, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), gridSize)
 		} else {
 			qry = fmt.Sprintf(`
@@ -3044,7 +3054,7 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	                       %f
 	                   ))) AS lon,
 	                   COUNT(*) AS count,
-	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
+	                   receiver_id_duplicated AS receiver_id
 	               FROM messages
 	               WHERE receiver_id_duplicated IS NOT NULL
 	                   AND timestamp >= now() - INTERVAL '%d days'
@@ -3052,14 +3062,6 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	                   AND (packet->>'Longitude')::float IS NOT NULL
 	                   AND (packet->>'Latitude')::float BETWEEN -90 AND 90
 	                   AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-	               GROUP BY
-	                   ST_SnapToGrid(
-	                       ST_SetSRID(ST_MakePoint(
-	                           (packet->>'Longitude')::float,
-	                           (packet->>'Latitude')::float
-	                       ), 4326),
-	                       %f
-	                   )
 	           `, gridSize, gridSize, days, gridSize)
 		}
 	} else {
@@ -3140,11 +3142,31 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Debug log the SQL query
+	log.Printf("SQL query: %s", qry)
+
 	// Query all shards
 	shardResults, err := QueryDatabasesForAllShards(qry)
 	if err != nil {
 		respondError(w, err)
 		return
+	}
+
+	// Debug log the raw query results
+	log.Printf("Raw query results: %+v", shardResults)
+
+	// Debug log the first few records to see if receiver_id is present
+	for shardName, recs := range shardResults {
+		if len(recs) > 0 {
+			log.Printf("First record from shard %s: %+v", shardName, recs[0])
+			if receiverID, ok := recs[0]["receiver_id"]; ok {
+				log.Printf("receiver_id found: %v (type: %T)", receiverID, receiverID)
+			} else {
+				log.Printf("receiver_id not found in record")
+				log.Printf("Available keys: %v", getMapKeys(recs[0]))
+			}
+			break
+		}
 	}
 
 	// Process results from all shards
@@ -3157,19 +3179,26 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 			lon, _ := parseFloat(rec["lon"])
 			count, _ := parseInt(rec["count"])
 
-			// Parse receiver_ids from array_agg
-			var receiverIDs []int
-			if receiverIDsStr, ok := rec["receiver_ids"]; ok && receiverIDsStr != nil {
-				// Parse PostgreSQL array format: {1,2,3}
-				idStr := strings.Trim(fmt.Sprintf("%v", receiverIDsStr), "{}")
-				if idStr != "" {
-					for _, idPart := range strings.Split(idStr, ",") {
-						if id, err := strconv.Atoi(strings.TrimSpace(idPart)); err == nil {
-							receiverIDs = append(receiverIDs, id)
-							allReceiverIDs[id] = true
-						}
-					}
+			// Get receiver_id directly
+			var receiverID int
+			if receiverIDStr, ok := rec["receiver_id"]; ok && receiverIDStr != nil {
+				// Debug log the raw receiver_id value
+				log.Printf("Raw receiver_id: %v (type: %T)", receiverIDStr, receiverIDStr)
+
+				receiverID, _ = parseInt(rec["receiver_id"])
+				if receiverID > 0 {
+					allReceiverIDs[receiverID] = true
+					log.Printf("Added receiver ID: %d", receiverID)
 				}
+			} else {
+				log.Printf("No receiver_id found in record: %v", rec)
+				log.Printf("Available keys in record: %v", getMapKeys(rec))
+			}
+
+			// Create a receiverIDs slice with just this one ID
+			var receiverIDs []int
+			if receiverID > 0 {
+				receiverIDs = []int{receiverID}
 			}
 
 			// Create a key for the grid cell to aggregate across shards
@@ -3178,21 +3207,19 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 			if cell, exists := cellMap[key]; exists {
 				cell.Count += count
 
-				// Merge receiver IDs
-				idMap := make(map[int]bool)
-				for _, id := range cell.ReceiverIDs {
-					idMap[id] = true
+				// Add this receiver ID if it's not already in the list
+				if receiverID > 0 {
+					found := false
+					for _, id := range cell.ReceiverIDs {
+						if id == receiverID {
+							found = true
+							break
+						}
+					}
+					if !found {
+						cell.ReceiverIDs = append(cell.ReceiverIDs, receiverID)
+					}
 				}
-				for _, id := range receiverIDs {
-					idMap[id] = true
-				}
-
-				// Convert back to slice
-				mergedIDs := make([]int, 0, len(idMap))
-				for id := range idMap {
-					mergedIDs = append(mergedIDs, id)
-				}
-				cell.ReceiverIDs = mergedIDs
 
 				cellMap[key] = cell
 			} else {
@@ -3219,19 +3246,29 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	// Convert map to slice and add receiver names
 	heatmapData = make([]GridCell, 0, len(cellMap))
 	for key, cell := range cellMap {
+		// Debug log the cell's receiver IDs
+		log.Printf("Cell %s has receiver IDs: %v", key, cell.ReceiverIDs)
+
 		// Add receiver names if available
 		if len(cell.ReceiverIDs) > 0 && len(receiverNames) > 0 {
 			names := make([]string, 0, len(cell.ReceiverIDs))
 			for _, id := range cell.ReceiverIDs {
 				if name, ok := receiverNames[id]; ok {
 					names = append(names, name)
+					log.Printf("Added receiver name %s for ID %d", name, id)
 				} else {
 					names = append(names, fmt.Sprintf("Receiver %d", id))
+					log.Printf("No name found for receiver ID %d", id)
 				}
 			}
 			cell.ReceiverNames = names
 			// Update the cell in the map with the new ReceiverNames
 			cellMap[key] = cell
+
+			// Debug log the cell's receiver names
+			log.Printf("Cell %s now has receiver names: %v", key, cell.ReceiverNames)
+		} else {
+			log.Printf("Cell %s has no receiver IDs or no receiver names available", key)
 		}
 		heatmapData = append(heatmapData, cell)
 	}
@@ -3239,6 +3276,15 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	// Cache the result
 	cacheSet(cacheKey, heatmapData)
 	respondJSON(w, heatmapData)
+}
+
+// Helper function to get the keys of a map
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func detectDirectionAnomalies(shardResults map[string][]map[string]interface{}) []DirectionAnomaly {
