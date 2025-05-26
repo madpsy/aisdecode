@@ -144,14 +144,51 @@
             </select>
           </div>
           <div class="col-md-4">
-            <label for="days-select" class="form-label">Time window:</label>
-            <select id="days-select" class="form-select">
-              <option value="1">1 day</option>
-              <option value="2">2 days</option>
-              <option value="7" selected>7 days</option>
-              <option value="14">14 days</option>
-              <option value="30">30 days</option>
-            </select>
+            <div class="mb-2">
+              <label class="form-label">Select time range:</label>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="timeRangeType" id="fixedWindowRadio" value="fixed" checked>
+                <label class="form-check-label" for="fixedWindowRadio">
+                  Fixed time window
+                </label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="timeRangeType" id="dateRangeRadio" value="dateRange">
+                <label class="form-check-label" for="dateRangeRadio">
+                  Custom date range
+                </label>
+              </div>
+            </div>
+            
+            <!-- Fixed time window -->
+            <div id="fixedWindowContainer">
+              <label for="days-select" class="form-label">Time window:</label>
+              <select id="days-select" class="form-select">
+                <option value="1">1 day</option>
+                <option value="2">2 days</option>
+                <option value="7" selected>7 days</option>
+                <option value="14">14 days</option>
+                <option value="30">30 days</option>
+              </select>
+            </div>
+            
+            <!-- Date range -->
+            <div id="dateRangeContainer" style="display: none;">
+              <div class="row">
+                <div class="col-md-6">
+                  <label for="from-date" class="form-label">From:</label>
+                  <input type="datetime-local" id="from-date" class="form-control">
+                </div>
+                <div class="col-md-6">
+                  <label for="to-date" class="form-label">To:</label>
+                  <input type="datetime-local" id="to-date" class="form-control">
+                </div>
+              </div>
+              <div class="mt-2">
+                <button id="date-range-go" class="btn btn-primary">Go</button>
+                <div id="date-range-error" class="text-danger mt-2" style="display: none;"></div>
+              </div>
+            </div>
           </div>
           <div class="col-md-4">
             <label for="anomaly-type" class="form-label">Anomaly Type:</label>
@@ -295,16 +332,66 @@
       }
     }
     
+    // Format date for API
+    function formatDateForAPI(date) {
+      return date.toISOString();
+    }
+    
     // Load range anomalies
     async function loadRangeAnomalies() {
       showMapLoading();
       
       const receiverId = document.getElementById('receiver-select').value;
-      const days = document.getElementById('days-select').value;
+      const isDateRange = document.getElementById('dateRangeRadio').checked;
       
       try {
         // Build URL
-        let url = `/statistics/stats/vhf-range-anomalies?days=${days}`;
+        let url = `/statistics/stats/vhf-range-anomalies`;
+        
+        if (isDateRange) {
+          const fromDate = document.getElementById('from-date').value;
+          const toDate = document.getElementById('to-date').value;
+          
+          if (!fromDate || !toDate) {
+            hideMapLoading();
+            document.getElementById('date-range-error').textContent = 'Please select both from and to dates';
+            document.getElementById('date-range-error').style.display = 'block';
+            return;
+          }
+          
+          try {
+            const fromDateObj = new Date(fromDate);
+            const toDateObj = new Date(toDate);
+            
+            if (fromDateObj >= toDateObj) {
+              hideMapLoading();
+              document.getElementById('date-range-error').textContent = 'From date must be before to date';
+              document.getElementById('date-range-error').style.display = 'block';
+              return;
+            }
+            
+            // Check if range exceeds 30 days
+            const maxDuration = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+            if (toDateObj - fromDateObj > maxDuration) {
+              hideMapLoading();
+              document.getElementById('date-range-error').textContent = 'Date range cannot exceed 30 days';
+              document.getElementById('date-range-error').style.display = 'block';
+              return;
+            }
+            
+            url += `?from=${formatDateForAPI(fromDateObj)}&to=${formatDateForAPI(toDateObj)}`;
+            document.getElementById('date-range-error').style.display = 'none';
+          } catch (e) {
+            hideMapLoading();
+            document.getElementById('date-range-error').textContent = 'Invalid date format';
+            document.getElementById('date-range-error').style.display = 'block';
+            return;
+          }
+        } else {
+          const days = document.getElementById('days-select').value;
+          url += `?days=${days}`;
+        }
+        
         if (receiverId) {
           url += `&receiver_id=${receiverId}`;
         }
@@ -354,11 +441,56 @@
       showMapLoading();
       
       const receiverId = document.getElementById('receiver-select').value;
-      const days = document.getElementById('days-select').value;
+      const isDateRange = document.getElementById('dateRangeRadio').checked;
       
       try {
         // Build URL
-        let url = `/statistics/stats/vhf-direction-anomalies?days=${days}`;
+        let url = `/statistics/stats/vhf-direction-anomalies`;
+        
+        if (isDateRange) {
+          const fromDate = document.getElementById('from-date').value;
+          const toDate = document.getElementById('to-date').value;
+          
+          if (!fromDate || !toDate) {
+            hideMapLoading();
+            document.getElementById('date-range-error').textContent = 'Please select both from and to dates';
+            document.getElementById('date-range-error').style.display = 'block';
+            return;
+          }
+          
+          try {
+            const fromDateObj = new Date(fromDate);
+            const toDateObj = new Date(toDate);
+            
+            if (fromDateObj >= toDateObj) {
+              hideMapLoading();
+              document.getElementById('date-range-error').textContent = 'From date must be before to date';
+              document.getElementById('date-range-error').style.display = 'block';
+              return;
+            }
+            
+            // Check if range exceeds 30 days
+            const maxDuration = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+            if (toDateObj - fromDateObj > maxDuration) {
+              hideMapLoading();
+              document.getElementById('date-range-error').textContent = 'Date range cannot exceed 30 days';
+              document.getElementById('date-range-error').style.display = 'block';
+              return;
+            }
+            
+            url += `?from=${formatDateForAPI(fromDateObj)}&to=${formatDateForAPI(toDateObj)}`;
+            document.getElementById('date-range-error').style.display = 'none';
+          } catch (e) {
+            hideMapLoading();
+            document.getElementById('date-range-error').textContent = 'Invalid date format';
+            document.getElementById('date-range-error').style.display = 'block';
+            return;
+          }
+        } else {
+          const days = document.getElementById('days-select').value;
+          url += `?days=${days}`;
+        }
+        
         if (receiverId) {
           url += `&receiver_id=${receiverId}`;
         }
@@ -1147,10 +1279,10 @@
       });
     }
     
-    // Update the coverage link with the current receiver ID and days
+    // Update the coverage link with the current receiver ID and time range
     function updateCoverageLink() {
       const receiverId = document.getElementById('receiver-select').value;
-      const days = document.getElementById('days-select').value;
+      const isDateRange = document.getElementById('dateRangeRadio').checked;
       const coverageLink = document.getElementById('coverage-link');
       
       if (coverageLink) {
@@ -1163,11 +1295,33 @@
           coverageUrl.searchParams.delete('receiver_id');
         }
         
-        // Set days parameter
-        if (days) {
-          coverageUrl.searchParams.set('days', days);
+        if (isDateRange) {
+          const fromDate = document.getElementById('from-date').value;
+          const toDate = document.getElementById('to-date').value;
+          
+          if (fromDate && toDate) {
+            try {
+              const fromDateObj = new Date(fromDate);
+              const toDateObj = new Date(toDate);
+              
+              coverageUrl.searchParams.set('from', formatDateForAPI(fromDateObj));
+              coverageUrl.searchParams.set('to', formatDateForAPI(toDateObj));
+              coverageUrl.searchParams.delete('days');
+            } catch (e) {
+              console.error('Error formatting dates for coverage URL:', e);
+            }
+          }
         } else {
-          coverageUrl.searchParams.delete('days');
+          const days = document.getElementById('days-select').value;
+          
+          if (days) {
+            coverageUrl.searchParams.set('days', days);
+          } else {
+            coverageUrl.searchParams.delete('days');
+          }
+          
+          coverageUrl.searchParams.delete('from');
+          coverageUrl.searchParams.delete('to');
         }
         
         coverageLink.href = coverageUrl.toString();
@@ -1177,7 +1331,7 @@
     // Update URL with current parameters
     function updateUrlParameters() {
       const receiverId = document.getElementById('receiver-select').value;
-      const days = document.getElementById('days-select').value;
+      const isDateRange = document.getElementById('dateRangeRadio').checked;
       const anomalyType = document.getElementById('anomaly-type').value;
       
       // Create URL object from current URL
@@ -1190,7 +1344,35 @@
         url.searchParams.delete('receiver_id');
       }
       
-      url.searchParams.set('days', days);
+      if (isDateRange) {
+        const fromDate = document.getElementById('from-date').value;
+        const toDate = document.getElementById('to-date').value;
+        
+        if (fromDate && toDate) {
+          try {
+            const fromDateObj = new Date(fromDate);
+            const toDateObj = new Date(toDate);
+            
+            url.searchParams.set('from', formatDateForAPI(fromDateObj));
+            url.searchParams.set('to', formatDateForAPI(toDateObj));
+            url.searchParams.delete('days');
+          } catch (e) {
+            console.error('Error formatting dates for URL:', e);
+          }
+        }
+      } else {
+        const days = document.getElementById('days-select').value;
+        
+        if (days) {
+          url.searchParams.set('days', days);
+        } else {
+          url.searchParams.delete('days');
+        }
+        
+        url.searchParams.delete('from');
+        url.searchParams.delete('to');
+      }
+      
       url.searchParams.set('type', anomalyType);
       
       // Update URL without reloading the page
@@ -1207,6 +1389,8 @@
       // Get parameters
       const receiverId = urlParams.get('receiver_id');
       const days = urlParams.get('days');
+      const from = urlParams.get('from');
+      const to = urlParams.get('to');
       const anomalyType = urlParams.get('type');
       
       // Set dropdown values if parameters exist
@@ -1216,7 +1400,29 @@
         receiverSelect.dataset.preselect = receiverId;
       }
       
-      if (days) {
+      // Set time range type based on parameters
+      if (from && to) {
+        document.getElementById('dateRangeRadio').checked = true;
+        document.getElementById('fixedWindowRadio').checked = false;
+        document.getElementById('fixedWindowContainer').style.display = 'none';
+        document.getElementById('dateRangeContainer').style.display = 'block';
+        
+        try {
+          // Format dates for datetime-local input
+          const fromDate = new Date(from);
+          const toDate = new Date(to);
+          
+          document.getElementById('from-date').value = fromDate.toISOString().slice(0, 16);
+          document.getElementById('to-date').value = toDate.toISOString().slice(0, 16);
+        } catch (e) {
+          console.error('Error parsing dates from URL:', e);
+        }
+      } else if (days) {
+        document.getElementById('fixedWindowRadio').checked = true;
+        document.getElementById('dateRangeRadio').checked = false;
+        document.getElementById('fixedWindowContainer').style.display = 'block';
+        document.getElementById('dateRangeContainer').style.display = 'none';
+        
         const daysSelect = document.getElementById('days-select');
         // Check if the value exists in the options
         for (let i = 0; i < daysSelect.options.length; i++) {
@@ -1418,6 +1624,43 @@
       document.getElementById('sort-time-btn').addEventListener('click', sortAnomaliesByTime);
       document.getElementById('sort-percent-btn').addEventListener('click', sortAnomaliesByPercent);
       document.getElementById('sort-duration-btn').addEventListener('click', sortAnomaliesByDuration);
+      
+      // Add event listeners for time range radio buttons
+      document.getElementById('fixedWindowRadio').addEventListener('change', function() {
+        if (this.checked) {
+          document.getElementById('fixedWindowContainer').style.display = 'block';
+          document.getElementById('dateRangeContainer').style.display = 'none';
+          document.getElementById('date-range-error').style.display = 'none';
+        }
+      });
+      
+      document.getElementById('dateRangeRadio').addEventListener('change', function() {
+        if (this.checked) {
+          document.getElementById('fixedWindowContainer').style.display = 'none';
+          document.getElementById('dateRangeContainer').style.display = 'block';
+          
+          // Set default dates if not already set
+          if (!document.getElementById('from-date').value) {
+            const toDate = new Date();
+            const fromDate = new Date();
+            fromDate.setDate(fromDate.getDate() - 7); // Default to 7 days ago
+            
+            document.getElementById('to-date').value = toDate.toISOString().slice(0, 16);
+            document.getElementById('from-date').value = fromDate.toISOString().slice(0, 16);
+          }
+        }
+      });
+      
+      // Add event listener for date range go button
+      document.getElementById('date-range-go').addEventListener('click', () => {
+        const anomalyType = document.getElementById('anomaly-type').value;
+        updateUrlParameters();
+        if (anomalyType === 'range') {
+          loadRangeAnomalies();
+        } else {
+          loadDirectionAnomalies();
+        }
+      });
       
       document.getElementById('receiver-select').addEventListener('change', () => {
         const anomalyType = document.getElementById('anomaly-type').value;
