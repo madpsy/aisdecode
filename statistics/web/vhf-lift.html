@@ -174,16 +174,18 @@
             
             <!-- Date range -->
             <div id="dateRangeContainer" style="display: none;">
-              <div class="row">
-                <div class="col-md-6">
-                  <label for="from-date" class="form-label">From:</label>
-                  <input type="datetime-local" id="from-date" class="form-control">
-                </div>
-                <div class="col-md-6">
-                  <label for="to-date" class="form-label">To:</label>
-                  <input type="datetime-local" id="to-date" class="form-control">
-                </div>
+              <!-- From date -->
+              <div class="mb-2">
+                <label for="from-date" class="form-label">From:</label>
+                <input type="datetime-local" id="from-date" class="form-control">
               </div>
+              
+              <!-- To date -->
+              <div class="mb-2">
+                <label for="to-date" class="form-label">To:</label>
+                <input type="datetime-local" id="to-date" class="form-control">
+              </div>
+              
               <div class="mt-2">
                 <button id="date-range-go" class="btn btn-primary">Go</button>
                 <div id="date-range-error" class="text-danger mt-2" style="display: none;"></div>
