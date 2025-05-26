@@ -1983,6 +1983,7 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 				WHERE
 					m.receiver_id_duplicated IS NOT NULL
 					AND m.receiver_id = %d
+					AND m.receiver_id_duplicated != %d
 					AND m.timestamp >= '%s'
 					AND m.timestamp <= '%s'
 				GROUP BY
@@ -1990,7 +1991,7 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 				ORDER BY
 					duplicate_count DESC
 				LIMIT 10
-			`, receiverID, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
+			`, receiverID, receiverID, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339))
 		} else {
 			qry = fmt.Sprintf(`
 				SELECT
@@ -2003,13 +2004,14 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 				WHERE
 					m.receiver_id_duplicated IS NOT NULL
 					AND m.receiver_id = %d
+					AND m.receiver_id_duplicated != %d
 					AND m.timestamp >= now() - INTERVAL '%d days'
 				GROUP BY
 					m.user_id, m.receiver_id_duplicated
 				ORDER BY
 					duplicate_count DESC
 				LIMIT 10
-			`, receiverID, days)
+			`, receiverID, receiverID, days)
 		}
 	} else {
 		if timeRange.UseRange {
