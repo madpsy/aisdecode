@@ -864,59 +864,52 @@
 	  "OSM": osm
 	};
 
+	// Define time travel callback function
+	function timeTravelCallback(e) {
+		const lat = e.latlng.lat;
+		const lng = e.latlng.lng;
+		const zoom = Math.max(8, map.getZoom()); // Ensure zoom is not less than 8
+		
+		// Get current time for 'to' parameter
+		const now = new Date();
+		
+		// Calculate 'from' time based on age-slider value
+		const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
+		const fromTime = new Date(now.getTime() - maxAgeHours * 60 * 60 * 1000);
+		
+		// Format dates for URL parameters with timezone adjustment (YYYY-MM-DDThh:mm format)
+		// Add the timezone offset to convert from UTC to local time
+		function formatDateWithTimezone(date) {
+			// Get timezone offset in minutes and convert to milliseconds
+			const tzOffset = date.getTimezoneOffset() * 60000;
+			// Create a new date adjusted for timezone
+			const localDate = new Date(date.getTime() - tzOffset);
+			// Return ISO string without the timezone part
+			return localDate.toISOString().slice(0, 16);
+		}
+		
+		const toParam = formatDateWithTimezone(now);
+		const fromParam = formatDateWithTimezone(fromTime);
+		
+		// Build the URL with base parameters
+		let timeUrl = `/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`;
+		
+		// Add receiver parameter if a receiver is selected
+		if (selectedReceiverId) {
+			timeUrl += `&receiver=${selectedReceiverId}`;
+		}
+		
+		// Open Time Machine with all parameters
+		window.open(timeUrl, '_blank');
+	}
+
 	// Initialize the map with a default base layer
 	const map = L.map('map', {
 		contextmenu: true,
 		contextmenuWidth: 180,
 		contextmenuItems: [{
-			text: function() {
-				// Dynamically generate menu text
-				let menuText = 'Time Travel Here';
-				
-				// Add receiver name if one is selected
-				if (selectedReceiverId && receiverData[selectedReceiverId]) {
-					menuText += ` (${receiverData[selectedReceiverId].Name})`;
-				}
-				
-				return menuText;
-			},
-			callback: function(e) {
-				const lat = e.latlng.lat;
-				const lng = e.latlng.lng;
-				const zoom = Math.max(8, map.getZoom()); // Ensure zoom is not less than 8
-				
-				// Get current time for 'to' parameter
-				const now = new Date();
-				
-				// Calculate 'from' time based on age-slider value
-				const maxAgeHours = parseInt(document.getElementById("age-slider").value, 10);
-				const fromTime = new Date(now.getTime() - maxAgeHours * 60 * 60 * 1000);
-				
-				// Format dates for URL parameters with timezone adjustment (YYYY-MM-DDThh:mm format)
-				// Add the timezone offset to convert from UTC to local time
-				function formatDateWithTimezone(date) {
-					// Get timezone offset in minutes and convert to milliseconds
-					const tzOffset = date.getTimezoneOffset() * 60000;
-					// Create a new date adjusted for timezone
-					const localDate = new Date(date.getTime() - tzOffset);
-					// Return ISO string without the timezone part
-					return localDate.toISOString().slice(0, 16);
-				}
-				
-				const toParam = formatDateWithTimezone(now);
-				const fromParam = formatDateWithTimezone(fromTime);
-				
-				// Build the URL with base parameters
-				let timeUrl = `/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`;
-				
-				// Add receiver parameter if a receiver is selected
-				if (selectedReceiverId) {
-					timeUrl += `&receiver=${selectedReceiverId}`;
-				}
-				
-				// Open Time Machine with all parameters
-				window.open(timeUrl, '_blank');
-			}
+			text: 'Time Travel Here',
+			callback: timeTravelCallback
 		}]
 	}).setView([55.0, -3.0], 5);
 	osm.addTo(map);
@@ -972,6 +965,12 @@ map.on('click', () => {
     
     // Clear any radius circles
     clearRadiusCircles();
+    
+    // Update context menu text when receiver is deselected
+    map.contextmenu.setItems([{
+      text: 'Time Travel Here',
+      callback: timeTravelCallback
+    }]);
     
     // Show a notification that filter is removed
     const notification = document.createElement('div');
@@ -1607,6 +1606,12 @@ function refreshReceivers() {
                 
                 // Store the receiver coordinates for later use
                 selectedReceiverCoords = [lat, lng];
+                
+                // Update context menu text to include receiver name
+                map.contextmenu.setItems([{
+                  text: `Time Travel Here (${receiver.name})`,
+                  callback: timeTravelCallback
+                }]);
                 
                 // Note: We'll draw the circles after receiving data from the server
                 
