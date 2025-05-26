@@ -3168,6 +3168,11 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	// Convert map to slice (without receiver name enrichment)
 	heatmapData = make([]GridCell, 0, len(cellMap))
 	for _, cell := range cellMap {
+		// If a specific receiver_id is specified, exclude grid cells where that receiver
+		// is the only receiver_id in the grid result
+		if receiverId > 0 && len(cell.ReceiverIDs) == 1 && cell.ReceiverIDs[0] == receiverId {
+			continue
+		}
 		heatmapData = append(heatmapData, cell)
 	}
 
