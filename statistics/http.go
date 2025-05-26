@@ -28,17 +28,16 @@ type vessel struct {
 
 // distanceVessel is the JSON shape returned by /statistics/stats/top-distance.
 type distanceVessel struct {
-	UserID       int       `json:"user_id"`
-	Name         string    `json:"name,omitempty"`
-	ImageURL     string    `json:"image_url,omitempty"`
-	AISClass     string    `json:"ais_class,omitempty"`
-	Type         string    `json:"type,omitempty"`
-	Distance     int       `json:"distance"`
-	Timestamp    time.Time `json:"timestamp,omitempty"`
-	Lat          float64   `json:"lat,omitempty"`
-	Lon          float64   `json:"lon,omitempty"`
-	ReceiverID   int       `json:"receiver_id,omitempty"`
-	ReceiverName string    `json:"receiver_name,omitempty"`
+	UserID     int       `json:"user_id"`
+	Name       string    `json:"name,omitempty"`
+	ImageURL   string    `json:"image_url,omitempty"`
+	AISClass   string    `json:"ais_class,omitempty"`
+	Type       string    `json:"type,omitempty"`
+	Distance   int       `json:"distance"`
+	Timestamp  time.Time `json:"timestamp,omitempty"`
+	Lat        float64   `json:"lat,omitempty"`
+	Lon        float64   `json:"lon,omitempty"`
+	ReceiverID int       `json:"receiver_id,omitempty"`
 }
 
 // typeCount is the JSON shape returned by /statistics/stats/top-types.
@@ -72,11 +71,10 @@ type posVessel struct {
 
 // GridCell is the JSON shape returned by /statistics/stats/coverage-map and /statistics/stats/duplicates-heatmap.
 type GridCell struct {
-	Lat           float64  `json:"lat"`
-	Lon           float64  `json:"lon"`
-	Count         int      `json:"count"`
-	ReceiverIDs   []int    `json:"receiver_ids,omitempty"`   // For duplicates-heatmap
-	ReceiverNames []string `json:"receiver_names,omitempty"` // For duplicates-heatmap
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	Count       int     `json:"count"`
+	ReceiverIDs []int   `json:"receiver_ids,omitempty"` // For duplicates-heatmap
 }
 
 // enrichVessels looks up and injects Name/ImageURL/AISClass/Type for each vessel in-place.
@@ -905,9 +903,6 @@ func respondJSON(w http.ResponseWriter, v interface{}) {
 			log.Printf("First grid cell: %+v", heatmapData[0])
 			if len(heatmapData[0].ReceiverIDs) > 0 {
 				log.Printf("First grid cell has receiver IDs: %v", heatmapData[0].ReceiverIDs)
-			}
-			if len(heatmapData[0].ReceiverNames) > 0 {
-				log.Printf("First grid cell has receiver names: %v", heatmapData[0].ReceiverNames)
 			}
 		}
 	}
@@ -1940,7 +1935,6 @@ type duplicateVessel struct {
 	Type           string    `json:"type,omitempty"`
 	DuplicateCount int       `json:"duplicate_count"`
 	ReceiverID     int       `json:"receiver_id"`
-	ReceiverName   string    `json:"receiver_name,omitempty"`
 	LastSeen       time.Time `json:"last_seen,omitempty"`
 }
 
@@ -2172,7 +2166,6 @@ func enrichDuplicateVessels(vs []duplicateVessel) []duplicateVessel {
 	return vs
 }
 
-// enrichDuplicateVesselReceivers looks up and injects ReceiverName for each vessel in-place.
 // enrichDuplicateVesselReceivers was removed as it depends on fetchReceivers which doesn't work
 
 // fetchReceivers fetches receiver names by ID
@@ -2327,7 +2320,6 @@ func getIntervalName(period TimeSeriesPeriod) string {
 // RangeAnomaly represents a period of unusual reception range
 type RangeAnomaly struct {
 	ReceiverID        int       `json:"receiver_id"`
-	ReceiverName      string    `json:"receiver_name,omitempty"`
 	StartTime         time.Time `json:"start_time"`
 	EndTime           time.Time `json:"end_time"`
 	NormalRangeKm     float64   `json:"normal_range_km"`
@@ -2343,7 +2335,6 @@ type RangeAnomaly struct {
 // DirectionAnomaly represents an unusual directional pattern in reception
 type DirectionAnomaly struct {
 	ReceiverID        int       `json:"receiver_id"`
-	ReceiverName      string    `json:"receiver_name,omitempty"`
 	Direction         string    `json:"direction"`
 	StartTime         time.Time `json:"start_time"`
 	EndTime           time.Time `json:"end_time"`
