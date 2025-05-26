@@ -1025,49 +1025,8 @@
             console.error("Error fetching receivers:", err);
           });
           
-          // Add a click handler to the map to show duplicate details
-          map.on('click', function(e) {
-            // Find the closest duplicate point to the click
-            let closestPoint = null;
-            let minDistance = Infinity;
-            
-            window.duplicatesData.forEach(point => {
-              const pointLatLng = L.latLng(point.lat, point.lon);
-              const distance = e.latlng.distanceTo(pointLatLng);
-              
-              // Consider points within 500 meters of click
-              if (distance < 500 && distance < minDistance) {
-                minDistance = distance;
-                closestPoint = point;
-              }
-            });
-            
-            if (closestPoint) {
-              // Create popup content with receiver information
-              let content = `<div><strong>Duplicate Count: ${closestPoint.count}</strong></div>`;
-              
-              if (closestPoint.receiver_ids && closestPoint.receiver_ids.length > 0) {
-                content += '<div><strong>Receivers:</strong></div><ul>';
-                
-                for (let i = 0; i < closestPoint.receiver_ids.length; i++) {
-                  const receiverId = closestPoint.receiver_ids[i];
-                  const receiverName = closestPoint.receiver_names && closestPoint.receiver_names[i]
-                    ? closestPoint.receiver_names[i]
-                    : `Receiver ${receiverId}`;
-                  
-                  content += `<li>${receiverName} (ID: ${receiverId})</li>`;
-                }
-                
-                content += '</ul>';
-              }
-              
-              // Show popup at the point's location
-              L.popup()
-                .setLatLng([closestPoint.lat, closestPoint.lon])
-                .setContent(content)
-                .openOn(map);
-            }
-          });
+          // We're not adding a click handler to the map here anymore
+          // The annotations added above will have their own popups
         } else {
           // Remove click handler for coverage mode
           map.off('click');
