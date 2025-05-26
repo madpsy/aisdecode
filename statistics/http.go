@@ -3218,7 +3218,7 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Convert map to slice and add receiver names
 	heatmapData = make([]GridCell, 0, len(cellMap))
-	for _, cell := range cellMap {
+	for key, cell := range cellMap {
 		// Add receiver names if available
 		if len(cell.ReceiverIDs) > 0 && len(receiverNames) > 0 {
 			names := make([]string, 0, len(cell.ReceiverIDs))
@@ -3230,6 +3230,8 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			cell.ReceiverNames = names
+			// Update the cell in the map with the new ReceiverNames
+			cellMap[key] = cell
 		}
 		heatmapData = append(heatmapData, cell)
 	}
