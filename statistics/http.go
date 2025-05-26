@@ -2914,59 +2914,75 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 		// Query for all receivers
 		if timeRange.UseRange {
 			qry = fmt.Sprintf(`
-	               SELECT
-	                   ST_Y(ST_Centroid(ST_SnapToGrid(
-	                       ST_SetSRID(ST_MakePoint(
-	                           (packet->>'Longitude')::float,
-	                           (packet->>'Latitude')::float
-	                       ), 4326),
-	                       %f
-	                   ))) AS lat,
-	                   ST_X(ST_Centroid(ST_SnapToGrid(
-	                       ST_SetSRID(ST_MakePoint(
-	                           (packet->>'Longitude')::float,
-	                           (packet->>'Latitude')::float
-	                       ), 4326),
-	                       %f
-	                   ))) AS lon,
-	                   COUNT(*) AS count,
-	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
-	               FROM messages
-	               WHERE receiver_id_duplicated IS NOT NULL
-	                   AND timestamp >= '%s'
-	                   AND timestamp <= '%s'
-	                   AND (packet->>'Latitude')::float IS NOT NULL
-	                   AND (packet->>'Longitude')::float IS NOT NULL
-	                   AND (packet->>'Latitude')::float BETWEEN -90 AND 90
-	                   AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-	           `, gridSize, gridSize, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), gridSize)
+		              SELECT
+		                  ST_Y(ST_Centroid(ST_SnapToGrid(
+		                      ST_SetSRID(ST_MakePoint(
+		                          (packet->>'Longitude')::float,
+		                          (packet->>'Latitude')::float
+		                      ), 4326),
+		                      %f
+		                  ))) AS lat,
+		                  ST_X(ST_Centroid(ST_SnapToGrid(
+		                      ST_SetSRID(ST_MakePoint(
+		                          (packet->>'Longitude')::float,
+		                          (packet->>'Latitude')::float
+		                      ), 4326),
+		                      %f
+		                  ))) AS lon,
+		                  COUNT(*) AS count,
+		                  array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
+		              FROM messages
+		              WHERE receiver_id_duplicated IS NOT NULL
+		                  AND timestamp >= '%s'
+		                  AND timestamp <= '%s'
+		                  AND (packet->>'Latitude')::float IS NOT NULL
+		                  AND (packet->>'Longitude')::float IS NOT NULL
+		                  AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+		                  AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+		              GROUP BY
+		                  ST_SnapToGrid(
+		                      ST_SetSRID(ST_MakePoint(
+		                          (packet->>'Longitude')::float,
+		                          (packet->>'Latitude')::float
+		                      ), 4326),
+		                      %f
+		                  )
+		          `, gridSize, gridSize, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), gridSize)
 		} else {
 			qry = fmt.Sprintf(`
-	               SELECT
-	                   ST_Y(ST_Centroid(ST_SnapToGrid(
-	                       ST_SetSRID(ST_MakePoint(
-	                           (packet->>'Longitude')::float,
-	                           (packet->>'Latitude')::float
-	                       ), 4326),
-	                       %f
-	                   ))) AS lat,
-	                   ST_X(ST_Centroid(ST_SnapToGrid(
-	                       ST_SetSRID(ST_MakePoint(
-	                           (packet->>'Longitude')::float,
-	                           (packet->>'Latitude')::float
-	                       ), 4326),
-	                       %f
-	                   ))) AS lon,
-	                   COUNT(*) AS count,
-	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
-	               FROM messages
-	               WHERE receiver_id_duplicated IS NOT NULL
-	                   AND timestamp >= now() - INTERVAL '%d days'
-	                   AND (packet->>'Latitude')::float IS NOT NULL
-	                   AND (packet->>'Longitude')::float IS NOT NULL
-	                   AND (packet->>'Latitude')::float BETWEEN -90 AND 90
-	                   AND (packet->>'Longitude')::float BETWEEN -180 AND 180
-	           `, gridSize, gridSize, days, gridSize)
+		              SELECT
+		                  ST_Y(ST_Centroid(ST_SnapToGrid(
+		                      ST_SetSRID(ST_MakePoint(
+		                          (packet->>'Longitude')::float,
+		                          (packet->>'Latitude')::float
+		                      ), 4326),
+		                      %f
+		                  ))) AS lat,
+		                  ST_X(ST_Centroid(ST_SnapToGrid(
+		                      ST_SetSRID(ST_MakePoint(
+		                          (packet->>'Longitude')::float,
+		                          (packet->>'Latitude')::float
+		                      ), 4326),
+		                      %f
+		                  ))) AS lon,
+		                  COUNT(*) AS count,
+		                  array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
+		              FROM messages
+		              WHERE receiver_id_duplicated IS NOT NULL
+		                  AND timestamp >= now() - INTERVAL '%d days'
+		                  AND (packet->>'Latitude')::float IS NOT NULL
+		                  AND (packet->>'Longitude')::float IS NOT NULL
+		                  AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+		                  AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+		              GROUP BY
+		                  ST_SnapToGrid(
+		                      ST_SetSRID(ST_MakePoint(
+		                          (packet->>'Longitude')::float,
+		                          (packet->>'Latitude')::float
+		                      ), 4326),
+		                      %f
+		                  )
+		          `, gridSize, gridSize, days, gridSize)
 		}
 	} else {
 		// Query for a specific receiver
@@ -3057,19 +3073,34 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Debug log the raw query results
-	log.Printf("Raw query results: %+v", shardResults)
+	log.Printf("Raw query results count: %d shards", len(shardResults))
 
-	// Debug log the first few records to see if receiver_id is present
+	// Debug log all records to see what's coming back from the database
 	for shardName, recs := range shardResults {
+		log.Printf("Shard %s has %d records", shardName, len(recs))
 		if len(recs) > 0 {
 			log.Printf("First record from shard %s: %+v", shardName, recs[0])
-			if receiverID, ok := recs[0]["receiver_id"]; ok {
-				log.Printf("receiver_id found: %v (type: %T)", receiverID, receiverID)
+
+			// Check for receiver_ids specifically
+			if receiverIDs, ok := recs[0]["receiver_ids"]; ok {
+				log.Printf("receiver_ids found: %v (type: %T)", receiverIDs, receiverIDs)
+
+				// Try to inspect the value more deeply
+				switch v := receiverIDs.(type) {
+				case string:
+					log.Printf("receiver_ids is string: '%s'", v)
+				case []interface{}:
+					log.Printf("receiver_ids is slice with %d elements", len(v))
+					for i, elem := range v {
+						log.Printf("  Element %d: %v (type: %T)", i, elem, elem)
+					}
+				default:
+					log.Printf("receiver_ids is unknown type: %T", v)
+				}
 			} else {
-				log.Printf("receiver_id not found in record")
+				log.Printf("receiver_ids not found in record")
 				log.Printf("Available keys: %v", getMapKeys(recs[0]))
 			}
-			break
 		}
 	}
 
@@ -3087,52 +3118,80 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 			var receiverIDs []int
 			if receiverIDsStr, ok := rec["receiver_ids"]; ok && receiverIDsStr != nil {
 				// Debug log the raw receiver_ids value
-				log.Printf("Raw receiver_ids: %v (type: %T)", receiverIDsStr, receiverIDsStr)
+				log.Printf("Processing record with receiver_ids: %v (type: %T)", receiverIDsStr, receiverIDsStr)
+
+				// Try to extract the receiver ID directly from the record
+				if receiverIDDuplicated, ok := rec["receiver_id_duplicated"]; ok && receiverIDDuplicated != nil {
+					log.Printf("Found receiver_id_duplicated: %v (type: %T)", receiverIDDuplicated, receiverIDDuplicated)
+					if id, err := parseInt(receiverIDDuplicated); err == nil && id > 0 {
+						receiverIDs = append(receiverIDs, id)
+						allReceiverIDs[id] = true
+						log.Printf("Added direct receiver ID: %d to allReceiverIDs", id)
+					}
+				}
 
 				// Handle different possible return types from PostgreSQL array_agg
 				switch v := receiverIDsStr.(type) {
 				case string:
 					// Parse the PostgreSQL array format: {1,2,3}
+					log.Printf("Parsing receiver_ids as string: '%s'", v)
 					if strings.HasPrefix(v, "{") && strings.HasSuffix(v, "}") {
 						// Remove the braces and split by comma
 						pgArray := v[1 : len(v)-1]
 						if pgArray != "" {
 							idStrs := strings.Split(pgArray, ",")
+							log.Printf("Split into %d elements: %v", len(idStrs), idStrs)
 							for _, idStr := range idStrs {
 								id, err := strconv.Atoi(idStr)
 								if err == nil && id > 0 {
 									receiverIDs = append(receiverIDs, id)
 									allReceiverIDs[id] = true
-									log.Printf("Added receiver ID: %d to allReceiverIDs", id)
+									log.Printf("Added receiver ID from string: %d to allReceiverIDs", id)
+								} else if err != nil {
+									log.Printf("Error parsing ID '%s': %v", idStr, err)
 								}
 							}
+						} else {
+							log.Printf("Empty array content")
 						}
+					} else {
+						log.Printf("String doesn't match PostgreSQL array format: '%s'", v)
 					}
 				case []interface{}:
 					// Handle array returned as slice of interface{}
-					for _, item := range v {
+					log.Printf("Parsing receiver_ids as slice with %d elements", len(v))
+					for i, item := range v {
+						log.Printf("Processing element %d: %v (type: %T)", i, item, item)
 						if idVal, ok := item.(float64); ok {
 							id := int(idVal)
 							if id > 0 {
 								receiverIDs = append(receiverIDs, id)
 								allReceiverIDs[id] = true
-								log.Printf("Added receiver ID: %d to allReceiverIDs", id)
+								log.Printf("Added receiver ID from float64: %d to allReceiverIDs", id)
 							}
 						} else if idStr, ok := item.(string); ok {
 							id, err := strconv.Atoi(idStr)
 							if err == nil && id > 0 {
 								receiverIDs = append(receiverIDs, id)
 								allReceiverIDs[id] = true
-								log.Printf("Added receiver ID: %d to allReceiverIDs", id)
+								log.Printf("Added receiver ID from string: %d to allReceiverIDs", id)
+							} else if err != nil {
+								log.Printf("Error parsing ID string '%s': %v", idStr, err)
 							}
+						} else {
+							log.Printf("Unknown element type: %T", item)
 						}
 					}
 				case map[string]interface{}:
 					// Some drivers might return a complex object
 					log.Printf("Received map for receiver_ids, keys: %v", getMapKeys(v))
+				case nil:
+					log.Printf("receiver_ids is nil")
+				default:
+					log.Printf("Unhandled receiver_ids type: %T", v)
 				}
 
-				log.Printf("Parsed receiver_ids: %v", receiverIDs)
+				log.Printf("Final parsed receiver_ids: %v", receiverIDs)
 			} else {
 				log.Printf("No receiver_ids found in record: %v", rec)
 				log.Printf("Available keys in record: %v", getMapKeys(rec))
@@ -3184,8 +3243,14 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	heatmapData = make([]GridCell, 0, len(cellMap))
 	for _, cell := range cellMap {
 		// Debug log the cell's receiver IDs
-		log.Printf("Cell has receiver IDs: %v", cell.ReceiverIDs)
+		log.Printf("Cell at %.6f,%.6f has %d receiver IDs: %v", cell.Lat, cell.Lon, len(cell.ReceiverIDs), cell.ReceiverIDs)
 		heatmapData = append(heatmapData, cell)
+	}
+
+	// Log the final result
+	log.Printf("Responding with %d grid cells", len(heatmapData))
+	if len(heatmapData) > 0 {
+		log.Printf("First grid cell: %+v", heatmapData[0])
 	}
 
 	// Cache the result
