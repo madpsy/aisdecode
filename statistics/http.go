@@ -70,6 +70,15 @@ type posVessel struct {
 	Count    int    `json:"count"`
 }
 
+// GridCell is the JSON shape returned by /statistics/stats/coverage-map and /statistics/stats/duplicates-heatmap.
+type GridCell struct {
+	Lat           float64  `json:"lat"`
+	Lon           float64  `json:"lon"`
+	Count         int      `json:"count"`
+	ReceiverIDs   []int    `json:"receiver_ids,omitempty"`   // For duplicates-heatmap
+	ReceiverNames []string `json:"receiver_names,omitempty"` // For duplicates-heatmap
+}
+
 // enrichVessels looks up and injects Name/ImageURL/AISClass/Type for each vessel in-place.
 func enrichVessels(vs []vessel) []vessel {
 	ids := make([]int, len(vs))
@@ -135,6 +144,7 @@ func registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/statistics/stats/coverage-map", coverageMapHandler)
 	mux.HandleFunc("/statistics/stats/time-series", timeSeriesHandler)
 	mux.HandleFunc("/statistics/stats/top-duplicates", topDuplicatesHandler)
+	mux.HandleFunc("/statistics/stats/duplicates-heatmap", duplicatesHeatmapHandler)
 
 	// VHF lift detection endpoints
 	mux.HandleFunc("/statistics/stats/vhf-range-anomalies", vhfRangeAnomaliesHandler)
@@ -1312,11 +1322,6 @@ func coverageMapHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Define the response structure
-	type GridCell struct {
-		Lat   float64 `json:"lat"`
-		Lon   float64 `json:"lon"`
-		Count int     `json:"count"`
-	}
 
 	var coverageData []GridCell
 
@@ -2938,6 +2943,302 @@ func buildDirectionAnomalyQuery(from, to time.Time, receiverID int) string {
 }
 
 // detectDirectionAnomalies processes query results to find unusual directional patterns
+// duplicatesHeatmapHandler provides a grid-based heatmap of duplicate messages
+func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
+	days := parseDaysParam(r)
+	receiverId := parseReceiverIDParam(r)
+	timeRange, err := parseTimeRangeParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Define cache key with time range if provided
+	var cacheKey string
+	if timeRange.UseRange {
+		if receiverId < 0 {
+			cacheKey = fmt.Sprintf("duplicates-heatmap:%s-%s:all",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"))
+		} else {
+			cacheKey = fmt.Sprintf("duplicates-heatmap:%s-%s:r%d",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"),
+				receiverId)
+		}
+	} else {
+		if receiverId < 0 {
+			cacheKey = fmt.Sprintf("duplicates-heatmap:%dd:all", days)
+		} else {
+			cacheKey = fmt.Sprintf("duplicates-heatmap:%dd:r%d", days, receiverId)
+		}
+	}
+
+	// Define the response structure - reusing GridCell from coverageMapHandler
+	var heatmapData []GridCell
+
+	// Try to get from cache
+	if ok, _ := cacheGet(cacheKey, &heatmapData); ok {
+		respondJSON(w, heatmapData)
+		return
+	}
+
+	// Grid size in degrees (approximately 1km at the equator)
+	const gridSize = 0.01
+
+	// Build query with PostGIS functions
+	var qry string
+	if receiverId < 0 {
+		// Query for all receivers
+		if timeRange.UseRange {
+			qry = fmt.Sprintf(`
+	               SELECT
+	                   ST_Y(ST_Centroid(ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   ))) AS lat,
+	                   ST_X(ST_Centroid(ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   ))) AS lon,
+	                   COUNT(*) AS count,
+	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
+	               FROM messages
+	               WHERE receiver_id_duplicated IS NOT NULL
+	                   AND timestamp >= '%s'
+	                   AND timestamp <= '%s'
+	                   AND (packet->>'Latitude')::float IS NOT NULL
+	                   AND (packet->>'Longitude')::float IS NOT NULL
+	                   AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+	                   AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+	               GROUP BY
+	                   ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   )
+	           `, gridSize, gridSize, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), gridSize)
+		} else {
+			qry = fmt.Sprintf(`
+	               SELECT
+	                   ST_Y(ST_Centroid(ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   ))) AS lat,
+	                   ST_X(ST_Centroid(ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   ))) AS lon,
+	                   COUNT(*) AS count,
+	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
+	               FROM messages
+	               WHERE receiver_id_duplicated IS NOT NULL
+	                   AND timestamp >= now() - INTERVAL '%d days'
+	                   AND (packet->>'Latitude')::float IS NOT NULL
+	                   AND (packet->>'Longitude')::float IS NOT NULL
+	                   AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+	                   AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+	               GROUP BY
+	                   ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   )
+	           `, gridSize, gridSize, days, gridSize)
+		}
+	} else {
+		// Query for a specific receiver
+		if timeRange.UseRange {
+			qry = fmt.Sprintf(`
+	               SELECT
+	                   ST_Y(ST_Centroid(ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   ))) AS lat,
+	                   ST_X(ST_Centroid(ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   ))) AS lon,
+	                   COUNT(*) AS count,
+	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
+	               FROM messages
+	               WHERE receiver_id_duplicated IS NOT NULL
+	                   AND receiver_id = %d
+	                   AND timestamp >= '%s'
+	                   AND timestamp <= '%s'
+	                   AND (packet->>'Latitude')::float IS NOT NULL
+	                   AND (packet->>'Longitude')::float IS NOT NULL
+	                   AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+	                   AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+	               GROUP BY
+	                   ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   )
+	           `, gridSize, gridSize, receiverId, timeRange.From.Format(time.RFC3339), timeRange.To.Format(time.RFC3339), gridSize)
+		} else {
+			qry = fmt.Sprintf(`
+	               SELECT
+	                   ST_Y(ST_Centroid(ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   ))) AS lat,
+	                   ST_X(ST_Centroid(ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   ))) AS lon,
+	                   COUNT(*) AS count,
+	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
+	               FROM messages
+	               WHERE receiver_id_duplicated IS NOT NULL
+	                   AND receiver_id = %d
+	                   AND timestamp >= now() - INTERVAL '%d days'
+	                   AND (packet->>'Latitude')::float IS NOT NULL
+	                   AND (packet->>'Longitude')::float IS NOT NULL
+	                   AND (packet->>'Latitude')::float BETWEEN -90 AND 90
+	                   AND (packet->>'Longitude')::float BETWEEN -180 AND 180
+	               GROUP BY
+	                   ST_SnapToGrid(
+	                       ST_SetSRID(ST_MakePoint(
+	                           (packet->>'Longitude')::float,
+	                           (packet->>'Latitude')::float
+	                       ), 4326),
+	                       %f
+	                   )
+	           `, gridSize, gridSize, receiverId, days, gridSize)
+		}
+	}
+
+	// Query all shards
+	shardResults, err := QueryDatabasesForAllShards(qry)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+
+	// Process results from all shards
+	cellMap := make(map[string]GridCell)
+	allReceiverIDs := make(map[int]bool)
+
+	for _, recs := range shardResults {
+		for _, rec := range recs {
+			lat, _ := parseFloat(rec["lat"])
+			lon, _ := parseFloat(rec["lon"])
+			count, _ := parseInt(rec["count"])
+
+			// Parse receiver_ids from array_agg
+			var receiverIDs []int
+			if receiverIDsStr, ok := rec["receiver_ids"]; ok && receiverIDsStr != nil {
+				// Parse PostgreSQL array format: {1,2,3}
+				idStr := strings.Trim(fmt.Sprintf("%v", receiverIDsStr), "{}")
+				if idStr != "" {
+					for _, idPart := range strings.Split(idStr, ",") {
+						if id, err := strconv.Atoi(strings.TrimSpace(idPart)); err == nil {
+							receiverIDs = append(receiverIDs, id)
+							allReceiverIDs[id] = true
+						}
+					}
+				}
+			}
+
+			// Create a key for the grid cell to aggregate across shards
+			key := fmt.Sprintf("%.6f:%.6f", lat, lon)
+
+			if cell, exists := cellMap[key]; exists {
+				cell.Count += count
+
+				// Merge receiver IDs
+				idMap := make(map[int]bool)
+				for _, id := range cell.ReceiverIDs {
+					idMap[id] = true
+				}
+				for _, id := range receiverIDs {
+					idMap[id] = true
+				}
+
+				// Convert back to slice
+				mergedIDs := make([]int, 0, len(idMap))
+				for id := range idMap {
+					mergedIDs = append(mergedIDs, id)
+				}
+				cell.ReceiverIDs = mergedIDs
+
+				cellMap[key] = cell
+			} else {
+				cellMap[key] = GridCell{
+					Lat:         lat,
+					Lon:         lon,
+					Count:       count,
+					ReceiverIDs: receiverIDs,
+				}
+			}
+		}
+	}
+
+	// Fetch receiver names for all receiver IDs
+	receiverIDsList := make([]int, 0, len(allReceiverIDs))
+	for id := range allReceiverIDs {
+		receiverIDsList = append(receiverIDsList, id)
+	}
+	receiverNames, err := fetchReceivers(receiverIDsList)
+	if err != nil {
+		log.Printf("duplicatesHeatmapHandler: Error fetching receiver names: %v", err)
+	}
+
+	// Convert map to slice and add receiver names
+	heatmapData = make([]GridCell, 0, len(cellMap))
+	for _, cell := range cellMap {
+		// Add receiver names if available
+		if len(cell.ReceiverIDs) > 0 && len(receiverNames) > 0 {
+			names := make([]string, 0, len(cell.ReceiverIDs))
+			for _, id := range cell.ReceiverIDs {
+				if name, ok := receiverNames[id]; ok {
+					names = append(names, name)
+				} else {
+					names = append(names, fmt.Sprintf("Receiver %d", id))
+				}
+			}
+			cell.ReceiverNames = names
+		}
+		heatmapData = append(heatmapData, cell)
+	}
+
+	// Cache the result
+	cacheSet(cacheKey, heatmapData)
+	respondJSON(w, heatmapData)
+}
+
 func detectDirectionAnomalies(shardResults map[string][]map[string]interface{}) []DirectionAnomaly {
 	// Group by receiver, hour, and direction
 	type directionData struct {
