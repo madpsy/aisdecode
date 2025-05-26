@@ -3026,8 +3026,7 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	                       %f
 	                   ))) AS lon,
 	                   COUNT(*) AS count,
-	                   receiver_id_duplicated AS receiver_id,
-	                   'debug' AS debug_field
+	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
 	               FROM messages
 	               WHERE receiver_id_duplicated IS NOT NULL
 	                   AND timestamp >= '%s'
@@ -3055,8 +3054,7 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	                       %f
 	                   ))) AS lon,
 	                   COUNT(*) AS count,
-	                   receiver_id_duplicated AS receiver_id,
-	                   'debug' AS debug_field
+	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
 	               FROM messages
 	               WHERE receiver_id_duplicated IS NOT NULL
 	                   AND timestamp >= now() - INTERVAL '%d days'
@@ -3181,33 +3179,33 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 			lon, _ := parseFloat(rec["lon"])
 			count, _ := parseInt(rec["count"])
 
-			// Get receiver_id directly
-			var receiverID int
-			if receiverIDStr, ok := rec["receiver_id"]; ok && receiverIDStr != nil {
-				// Debug log the raw receiver_id value
-				log.Printf("Raw receiver_id: %v (type: %T)", receiverIDStr, receiverIDStr)
-
-				receiverID, _ = parseInt(rec["receiver_id"])
-				log.Printf("Parsed receiver_id: %d", receiverID)
-
-				if receiverID > 0 {
-					allReceiverIDs[receiverID] = true
-					log.Printf("Added receiver ID: %d to allReceiverIDs", receiverID)
-				} else {
-					log.Printf("Receiver ID is zero or negative: %d", receiverID)
-				}
-			} else {
-				log.Printf("No receiver_id found in record: %v", rec)
-				log.Printf("Available keys in record: %v", getMapKeys(rec))
-			}
-
-			// Create a receiverIDs slice with just this one ID
+			// Get receiver_ids array
 			var receiverIDs []int
-			if receiverID > 0 {
-				receiverIDs = []int{receiverID}
-				log.Printf("Created receiverIDs slice with ID: %d", receiverID)
+			if receiverIDsStr, ok := rec["receiver_ids"]; ok && receiverIDsStr != nil {
+				// Debug log the raw receiver_ids value
+				log.Printf("Raw receiver_ids: %v (type: %T)", receiverIDsStr, receiverIDsStr)
+
+				// Parse the PostgreSQL array format: {1,2,3}
+				if pgArray, ok := receiverIDsStr.(string); ok && strings.HasPrefix(pgArray, "{") && strings.HasSuffix(pgArray, "}") {
+					// Remove the braces and split by comma
+					pgArray = pgArray[1 : len(pgArray)-1]
+					if pgArray != "" {
+						idStrs := strings.Split(pgArray, ",")
+						for _, idStr := range idStrs {
+							id, err := strconv.Atoi(idStr)
+							if err == nil && id > 0 {
+								receiverIDs = append(receiverIDs, id)
+								allReceiverIDs[id] = true
+								log.Printf("Added receiver ID: %d to allReceiverIDs", id)
+							}
+						}
+					}
+				}
+
+				log.Printf("Parsed receiver_ids: %v", receiverIDs)
 			} else {
-				log.Printf("Not creating receiverIDs slice because receiverID <= 0")
+				log.Printf("No receiver_ids found in record: %v", rec)
+				log.Printf("Available keys in record: %v", getMapKeys(rec))
 			}
 
 			// Create a key for the grid cell to aggregate across shards
@@ -3218,23 +3216,23 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Cell already exists with %d receiver IDs", len(cell.ReceiverIDs))
 				cell.Count += count
 
-				// Add this receiver ID if it's not already in the list
-				if receiverID > 0 {
-					found := false
-					for _, id := range cell.ReceiverIDs {
-						if id == receiverID {
-							found = true
-							break
+				// Add these receiver IDs if they're not already in the list
+				for _, newID := range receiverIDs {
+					if newID > 0 {
+						found := false
+						for _, existingID := range cell.ReceiverIDs {
+							if existingID == newID {
+								found = true
+								break
+							}
+						}
+						if !found {
+							log.Printf("Adding receiver ID %d to existing cell", newID)
+							cell.ReceiverIDs = append(cell.ReceiverIDs, newID)
+						} else {
+							log.Printf("Receiver ID %d already in cell", newID)
 						}
 					}
-					if !found {
-						log.Printf("Adding receiver ID %d to existing cell", receiverID)
-						cell.ReceiverIDs = append(cell.ReceiverIDs, receiverID)
-					} else {
-						log.Printf("Receiver ID %d already in cell", receiverID)
-					}
-				} else {
-					log.Printf("Not adding receiver ID because it's <= 0: %d", receiverID)
 				}
 
 				cellMap[key] = cell
@@ -3257,34 +3255,39 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	for id := range allReceiverIDs {
 		receiverIDsList = append(receiverIDsList, id)
 	}
-	// We're not using receiverNames anymore since we're hardcoding them
-	_, err = fetchReceivers(receiverIDsList)
+	// Fetch receiver names for all receiver IDs
+	receiverNames, err := fetchReceivers(receiverIDsList)
 	if err != nil {
 		log.Printf("duplicatesHeatmapHandler: Error fetching receiver names: %v", err)
 	}
 
 	// Convert map to slice and add receiver names
 	heatmapData = make([]GridCell, 0, len(cellMap))
-
-	// For testing: Add some hardcoded receiver IDs to each cell
 	for key, cell := range cellMap {
-		// Add some test receiver IDs if none were found
-		if len(cell.ReceiverIDs) == 0 {
-			// Add some test receiver IDs (1, 2, 3)
-			cell.ReceiverIDs = []int{1, 2, 3}
-			cellMap[key] = cell
-		}
+		// Debug log the cell's receiver IDs
+		log.Printf("Cell %s has receiver IDs: %v", key, cell.ReceiverIDs)
 
-		// Add receiver names
-		if len(cell.ReceiverIDs) > 0 {
+		// Add receiver names if available
+		if len(cell.ReceiverIDs) > 0 && len(receiverNames) > 0 {
 			names := make([]string, 0, len(cell.ReceiverIDs))
 			for _, id := range cell.ReceiverIDs {
-				names = append(names, fmt.Sprintf("Test Receiver %d", id))
+				if name, ok := receiverNames[id]; ok {
+					names = append(names, name)
+					log.Printf("Added receiver name %s for ID %d", name, id)
+				} else {
+					names = append(names, fmt.Sprintf("Receiver %d", id))
+					log.Printf("No name found for receiver ID %d", id)
+				}
 			}
 			cell.ReceiverNames = names
+			// Update the cell in the map with the new ReceiverNames
 			cellMap[key] = cell
-		}
 
+			// Debug log the cell's receiver names
+			log.Printf("Cell %s now has receiver names: %v", key, cell.ReceiverNames)
+		} else {
+			log.Printf("Cell %s has no receiver IDs or no receiver names available", key)
+		}
 		heatmapData = append(heatmapData, cell)
 	}
 
