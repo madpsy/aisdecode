@@ -1043,13 +1043,17 @@
                 zIndexOffset: 1000
               }).addTo(map);
               
-              // Add a text label with the receiver ID
+              // Add a text label with the receiver name (shortened if needed)
+              const shortName = point.name.length > 5 ?
+                point.name.substring(0, 4) + '...' :
+                point.name;
+                
               const label = L.marker([point.lat, point.lon], {
                 icon: L.divIcon({
-                  html: receiverId.toString(),
+                  html: shortName,
                   className: 'receiver-label',
-                  iconSize: [20, 20],
-                  iconAnchor: [10, 10]
+                  iconSize: [40, 20],  // Wider to accommodate text
+                  iconAnchor: [20, 10]
                 }),
                 zIndexOffset: 1001
               }).addTo(map);
