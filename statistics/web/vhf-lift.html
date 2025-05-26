@@ -858,7 +858,7 @@
             const fromDate = new Date(anomaly.start_time).toISOString().slice(0, 16);
             const toDate = new Date(anomaly.end_time).toISOString().slice(0, 16);
             
-            timemachineLink = `<a href="/timemachine.html?lat=${receiver.latitude}&lng=${receiver.longitude}&zoom=9&from=${fromDate}&to=${toDate}&receiver=${anomaly.receiver_id}" target="_blank">${receiverName}</a>`;
+            timemachineLink = `<a href="/timemachine.html?minSpeed=0&lat=${receiver.latitude}&lng=${receiver.longitude}&zoom=9&from=${fromDate}&to=${toDate}&receiver=${anomaly.receiver_id}" target="_blank">${receiverName}</a>`;
           }
           
           detailsTable.innerHTML = `
@@ -916,7 +916,7 @@
           const fromDate = new Date(anomaly.start_time).toISOString().slice(0, 16);
           const toDate = new Date(anomaly.end_time).toISOString().slice(0, 16);
           
-          timemachineLink = `<a href="/timemachine.html?lat=${receiver.latitude}&lng=${receiver.longitude}&zoom=9&from=${fromDate}&to=${toDate}&receiver=${anomaly.receiver_id}" target="_blank">${receiverName}</a>`;
+          timemachineLink = `<a href="/timemachine.html?minSpeed=0&lat=${receiver.latitude}&lng=${receiver.longitude}&zoom=9&from=${fromDate}&to=${toDate}&receiver=${anomaly.receiver_id}" target="_blank">${receiverName}</a>`;
         }
         
         detailsTable.innerHTML = `
