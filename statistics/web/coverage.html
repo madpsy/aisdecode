@@ -964,63 +964,39 @@
         
         // For duplicates mode, add click handler to show receiver information
         if (isDuplicatesMode) {
-          // Create a map to track grid cells with multiple receivers
-          const receiversByGrid = new Map();
-          
-          // Process all duplicate points to identify grid cells with multiple receivers
+          // Add annotations directly to each duplicate point
           window.duplicatesData.forEach(point => {
             if (point.receiver_ids && Array.isArray(point.receiver_ids) && point.receiver_ids.length > 1) {
-              // Use a larger grid size to reduce clutter (0.05 degrees, roughly 5km)
-              const gridSize = 0.05;
-              const latCell = Math.floor(point.lat / gridSize);
-              const lonCell = Math.floor(point.lon / gridSize);
-              const cellKey = `${latCell},${lonCell}`;
-              
-              if (!receiversByGrid.has(cellKey)) {
-                receiversByGrid.set(cellKey, {
-                  lat: point.lat,
-                  lon: point.lon,
-                  receivers: new Set(),
-                  receiverNames: []
-                });
-              }
-              
-              // Add all receivers for this point to the grid cell
-              const cellInfo = receiversByGrid.get(cellKey);
+              // Get receiver names
+              const receiverNames = [];
               for (let i = 0; i < point.receiver_ids.length; i++) {
                 const receiverId = point.receiver_ids[i];
-                if (!cellInfo.receivers.has(receiverId)) {
-                  cellInfo.receivers.add(receiverId);
-                  const receiverName = point.receiver_names && point.receiver_names[i]
-                    ? point.receiver_names[i]
-                    : `Receiver ${receiverId}`;
-                  cellInfo.receiverNames.push(receiverName);
-                }
+                const receiverName = point.receiver_names && point.receiver_names[i]
+                  ? point.receiver_names[i]
+                  : `Receiver ${receiverId}`;
+                receiverNames.push(receiverName);
               }
-            }
-          });
-          
-          // Add visible annotations for grid cells with multiple receivers
-          receiversByGrid.forEach((cellInfo, cellKey) => {
-            if (cellInfo.receivers.size > 1) {
-              // Create a more visible marker for the annotation
-              const receiverCount = cellInfo.receivers.size;
               
-              // Create a custom icon with better visibility
+              // Create a very visible marker
+              const receiverCount = point.receiver_ids.length;
+              
+              // Create a custom icon with high visibility
               const annotationIcon = L.divIcon({
-                html: `<div style="background-color: rgba(255, 165, 0, 0.9); color: white; padding: 3px 6px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.5);">${receiverCount}</div>`,
+                html: `<div style="background-color: #FF4500; color: white; padding: 4px 8px; border-radius: 12px; font-size: 14px; font-weight: bold; border: 3px solid white; box-shadow: 0 0 6px rgba(0,0,0,0.7);">${receiverCount}</div>`,
                 className: 'receiver-count-marker',
-                iconSize: [24, 24],
-                iconAnchor: [12, 12]
+                iconSize: [30, 30],
+                iconAnchor: [15, 15]
               });
               
               // Add marker with popup showing detailed receiver information
-              L.marker([cellInfo.lat, cellInfo.lon], {icon: annotationIcon})
+              L.marker([point.lat, point.lon], {icon: annotationIcon})
                 .addTo(map)
                 .bindPopup(`
-                  <div><strong>${receiverCount} Receivers detected this location:</strong></div>
-                  <ul style="padding-left: 20px; margin-top: 5px;">
-                    ${cellInfo.receiverNames.map(name => `<li>${name}</li>`).join('')}
+                  <div style="font-weight: bold; font-size: 14px; margin-bottom: 8px;">
+                    ${receiverCount} Receivers at this location:
+                  </div>
+                  <ul style="padding-left: 20px; margin: 0;">
+                    ${receiverNames.map(name => `<li>${name}</li>`).join('')}
                   </ul>
                 `);
             }
@@ -1193,31 +1169,42 @@
                 .setLatLng([receiver.latitude, receiver.longitude])
                 .addTo(map);
                 
-                // Draw concentric rings for this receiver too with a different color
-                const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
-                const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
+                // Find the maximum distance from this receiver to its detected points
+                let receiverMaxDistance = 0;
+                window.duplicatesData.forEach(point => {
+                  if (point.receiver_ids && Array.isArray(point.receiver_ids)) {
+                    // Check if this receiver detected this point
+                    if (point.receiver_ids.includes(receiver.id)) {
+                      const pointLatLng = L.latLng(point.lat, point.lon);
+                      const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+                      const distance = receiverLatLng.distanceTo(pointLatLng);
+                      if (distance > receiverMaxDistance) {
+                        receiverMaxDistance = distance;
+                      }
+                    }
+                  }
+                });
                 
-                // Create 3 equally spaced circles with a different color for duplicate receivers
-                for (let i = 1; i <= 3; i++) {
-                  const radiusMeters = maxDistance * i / 3;
-                  const radiusNM = Math.round(radiusMeters / 1852); // Convert meters to nautical miles
+                // Only draw circles if we found points for this receiver
+                if (receiverMaxDistance > 0) {
+                  const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
                   
-                  // Create circle with a different color for duplicate receivers
+                  // Create a single circle showing the maximum range for this receiver
                   const circle = L.circle(receiverLatLng, {
-                    radius: radiusMeters,
-                    color: '#0074D9', // Blue color for duplicate receivers
+                    radius: receiverMaxDistance,
+                    color: '#FF4500', // Orange color for duplicate receivers
                     fillColor: 'transparent',
-                    weight: 1.5,
-                    opacity: 0.7,
-                    dashArray: '5, 5' // Make the circles dashed
+                    weight: 2,
+                    opacity: 0.8,
+                    dashArray: '5, 5' // Make the circle dashed
                   }).addTo(map);
                   
                   rangeCircles.push(circle);
                   
-                  // Calculate position for the label (east of the center)
-                  const labelLatLng = calculateLabelPosition(receiverLatLng, radiusMeters);
+                  // Add a label showing the distance
+                  const radiusNM = Math.round(receiverMaxDistance / 1852); // Convert meters to nautical miles
+                  const labelLatLng = calculateLabelPosition(receiverLatLng, receiverMaxDistance);
                   
-                  // Create label
                   const label = L.tooltip({
                     permanent: true,
                     direction: 'center',
