@@ -288,7 +288,8 @@
     let currentAnomalies = [];
     let selectedAnomaly = null;
     let anomalyChart = null;
-    let receiversData = []; // Store receivers data globally
+    let receiversData = null; // Store receivers data globally
+    let receiversPromise = null; // Promise to track ongoing fetch
     
     // Show map loading overlay
     function showMapLoading() {
@@ -310,18 +311,50 @@
       document.getElementById('noDataOverlay').style.display = 'none';
     }
     
-    // Load receivers
+    // Get receivers data - returns a promise that resolves to receivers data
+    // Uses a cache mechanism to ensure we only fetch once
+    async function getReceiversData() {
+      // If we already have the data, return it immediately
+      if (receiversData !== null) {
+        return receiversData;
+      }
+      
+      // If we're already fetching, return the existing promise
+      if (receiversPromise !== null) {
+        return receiversPromise;
+      }
+      
+      // Otherwise, start a new fetch
+      console.log('Fetching receivers data from server');
+      receiversPromise = fetch('/receivers')
+        .then(r => r.json())
+        .then(data => {
+          // Store the data globally
+          receiversData = data;
+          // Sort receivers by name
+          receiversData.sort((a, b) => a.name.localeCompare(b.name));
+          console.log('Receivers data fetched and stored globally');
+          return receiversData;
+        })
+        .catch(e => {
+          console.error('Failed to load receivers:', e);
+          alert('Failed to load receivers. Please try again later.');
+          // Reset promise so we can try again
+          receiversPromise = null;
+          throw e;
+        });
+      
+      return receiversPromise;
+    }
+    
+    // Load receivers into dropdown
     async function loadReceivers() {
       try {
-        // Fetch receivers data once and store it globally
-        receiversData = await fetch('/receivers').then(r => r.json());
+        const receivers = await getReceiversData();
         const select = document.getElementById('receiver-select');
         
-        // Sort receivers by name
-        receiversData.sort((a, b) => a.name.localeCompare(b.name));
-        
         // Add receivers to dropdown (excluding receiver ID 0)
-        receiversData.forEach(receiver => {
+        receivers.forEach(receiver => {
           // Skip receiver ID 0
           if (receiver.id === 0) return;
           
@@ -331,8 +364,7 @@
           select.appendChild(option);
         });
       } catch (e) {
-        console.error('Failed to load receivers:', e);
-        alert('Failed to load receivers. Please try again later.');
+        // Error already handled in getReceiversData
       }
     }
     
@@ -403,10 +435,12 @@
         // Fetch data
         const anomalies = await fetch(url).then(r => r.json());
         
-        // Use the globally stored receivers data
+        // Get receivers data using our cache function
+        const receivers = await getReceiversData();
+        
         // Add receiver names to anomalies
         anomalies.forEach(anomaly => {
-          const receiver = receiversData.find(r => r.id === anomaly.receiver_id);
+          const receiver = receivers.find(r => r.id === anomaly.receiver_id);
           if (receiver) {
             anomaly.receiver_name = receiver.name;
           }
@@ -500,10 +534,12 @@
         // Fetch data
         const anomalies = await fetch(url).then(r => r.json());
         
-        // Use the globally stored receivers data
+        // Get receivers data using our cache function
+        const receivers = await getReceiversData();
+        
         // Add receiver names to anomalies
         anomalies.forEach(anomaly => {
-          const receiver = receiversData.find(r => r.id === anomaly.receiver_id);
+          const receiver = receivers.find(r => r.id === anomaly.receiver_id);
           if (receiver) {
             anomaly.receiver_name = receiver.name;
           }
@@ -972,8 +1008,8 @@
       // Clear table
       detailsTable.innerHTML = '';
       
-      // Use the globally stored receivers data for the timemachine link
-      const receiver = receiversData.find(r => r.id === anomaly.receiver_id);
+      // Get receivers data using our cache function (synchronously since we know it's loaded)
+      const receiver = (receiversData || []).find(r => r.id === anomaly.receiver_id);
       
       // Add details to table
       if (type === 'range') {
@@ -1582,12 +1618,13 @@
       } else {
         addDirectionAnomaliesToMap(currentAnomalies);
         
-        // Create bounds from receiver locations using the globally stored data
-        const bounds = L.latLngBounds();
-        let validBounds = false;
-        
-        currentAnomalies.forEach(anomaly => {
-          const receiver = receiversData.find(r => r.id === anomaly.receiver_id);
+        // Get receivers data and create bounds
+        getReceiversData().then(receivers => {
+          const bounds = L.latLngBounds();
+          let validBounds = false;
+          
+          currentAnomalies.forEach(anomaly => {
+            const receiver = receivers.find(r => r.id === anomaly.receiver_id);
             if (receiver && receiver.latitude && receiver.longitude) {
               bounds.extend([receiver.latitude, receiver.longitude]);
               
@@ -1601,11 +1638,12 @@
               bounds.extend(extendedPoint);
               validBounds = true;
             }
+          });
+          
+          if (validBounds) {
+            map.fitBounds(bounds, { padding: [50, 50] });
+          }
         });
-        
-        if (validBounds) {
-          map.fitBounds(bounds, { padding: [50, 50] });
-        }
       }
     }
     
@@ -1687,8 +1725,10 @@
         }
       });
       
-      // Load receivers
-      loadReceivers().then(() => {
+      // Initialize receivers data and UI
+      getReceiversData().then(receivers => {
+        // Load the dropdown
+        loadReceivers();
         // Check if we need to preselect a receiver from URL parameters
         const receiverSelect = document.getElementById('receiver-select');
         if (receiverSelect.dataset.preselect) {
