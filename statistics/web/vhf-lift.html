@@ -840,44 +840,68 @@
       // Clear table
       detailsTable.innerHTML = '';
       
-      // Add details to table
-      if (type === 'range') {
-        const receiverName = anomaly.receiver_name || `Receiver #${anomaly.receiver_id}`;
-        const startTime = new Date(anomaly.start_time).toLocaleString();
-        const endTime = new Date(anomaly.end_time).toLocaleString();
-        const duration = getTimeDuration(anomaly.start_time, anomaly.end_time);
+      // Fetch receivers to get coordinates for the timemachine link
+      fetch('/receivers').then(r => r.json()).then(receivers => {
+        const receiver = receivers.find(r => r.id === anomaly.receiver_id);
         
-        detailsTable.innerHTML = `
-          <tr>
-            <th>Receiver</th>
-            <td>${receiverName}</td>
-          </tr>
-          <tr>
-            <th>Start Time</th>
-            <td>${startTime}</td>
-          </tr>
-          <tr>
-            <th>End Time</th>
-            <td>${endTime}</td>
-          </tr>
-          <tr>
-            <th>Duration</th>
-            <td>${duration}</td>
-          </tr>
-          <tr>
-            <th>Normal Range</th>
-            <td>${anomaly.normal_range_km.toFixed(1)} km</td>
-          </tr>
-          <tr>
-            <th>Anomaly Range</th>
-            <td>${anomaly.anomaly_range_km.toFixed(1)} km</td>
-          </tr>
-          <tr>
-            <th>Increase</th>
-            <td>${anomaly.percent_increase.toFixed(1)}%</td>
-          </tr>
-        `;
+        // Add details to table
+        if (type === 'range') {
+          const receiverName = anomaly.receiver_name || `Receiver #${anomaly.receiver_id}`;
+          const startTime = new Date(anomaly.start_time).toLocaleString();
+          const endTime = new Date(anomaly.end_time).toLocaleString();
+          const duration = getTimeDuration(anomaly.start_time, anomaly.end_time);
+          
+          // Create timemachine link with appropriate parameters
+          let timemachineLink = receiverName;
+          if (receiver && receiver.latitude && receiver.longitude) {
+            // Format dates for URL parameters (ISO format)
+            const fromDate = new Date(anomaly.start_time).toISOString().slice(0, 16);
+            const toDate = new Date(anomaly.end_time).toISOString().slice(0, 16);
+            
+            timemachineLink = `<a href="/timemachine.html?lat=${receiver.latitude}&lng=${receiver.longitude}&zoom=9&from=${fromDate}&to=${toDate}&receiver=${anomaly.receiver_id}" target="_blank">${receiverName}</a>`;
+          }
+          
+          detailsTable.innerHTML = `
+            <tr>
+              <th>Receiver</th>
+              <td>${timemachineLink}</td>
+            </tr>
+            <tr>
+              <th>Start Time</th>
+              <td>${startTime}</td>
+            </tr>
+            <tr>
+              <th>End Time</th>
+              <td>${endTime}</td>
+            </tr>
+            <tr>
+              <th>Duration</th>
+              <td>${duration}</td>
+            </tr>
+            <tr>
+              <th>Normal Range</th>
+              <td>${anomaly.normal_range_km.toFixed(1)} km</td>
+            </tr>
+            <tr>
+              <th>Anomaly Range</th>
+              <td>${anomaly.anomaly_range_km.toFixed(1)} km</td>
+            </tr>
+            <tr>
+              <th>Increase</th>
+              <td>${anomaly.percent_increase.toFixed(1)}%</td>
+            </tr>
+          `;
         
+        if (anomaly.max_vessel_name) {
+          // Create a link to vesselhistory.html with relevant parameters
+          const vesselLink = `<a href="/vesselhistory.html?UserID=${anomaly.max_user_id || ''}&start=${anomaly.start_time}&end=${anomaly.end_time}&ReceiverID=${anomaly.receiver_id}" target="_blank">${anomaly.max_vessel_name}</a>`;
+          detailsTable.innerHTML += `
+            <tr>
+              <th>Max Vessel</th>
+              <td>${vesselLink}</td>
+            </tr>
+          `;
+        }
         if (anomaly.max_vessel_name) {
           // Create a link to vesselhistory.html with relevant parameters
           const vesselLink = `<a href="/vesselhistory.html?UserID=${anomaly.max_user_id || ''}&start=${anomaly.start_time}&end=${anomaly.end_time}&ReceiverID=${anomaly.receiver_id}" target="_blank">${anomaly.max_vessel_name}</a>`;
@@ -894,10 +918,20 @@
         const endTime = new Date(anomaly.end_time).toLocaleString();
         const duration = getTimeDuration(anomaly.start_time, anomaly.end_time);
         
+        // Create timemachine link with appropriate parameters
+        let timemachineLink = receiverName;
+        if (receiver && receiver.latitude && receiver.longitude) {
+          // Format dates for URL parameters (ISO format)
+          const fromDate = new Date(anomaly.start_time).toISOString().slice(0, 16);
+          const toDate = new Date(anomaly.end_time).toISOString().slice(0, 16);
+          
+          timemachineLink = `<a href="/timemachine.html?lat=${receiver.latitude}&lng=${receiver.longitude}&zoom=9&from=${fromDate}&to=${toDate}&receiver=${anomaly.receiver_id}" target="_blank">${receiverName}</a>`;
+        }
+        
         detailsTable.innerHTML = `
           <tr>
             <th>Receiver</th>
-            <td>${receiverName}</td>
+            <td>${timemachineLink}</td>
           </tr>
           <tr>
             <th>Direction</th>
@@ -936,6 +970,7 @@
       
       // Create chart
       createAnomalyChart(anomaly, type);
+      });
     }
     
     // Create anomaly chart
