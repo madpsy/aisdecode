@@ -382,6 +382,7 @@
                         <th>Direction</th>
                         <th>Messages</th>
                         <th>Percentage</th>
+                        <th>Max Distance</th>
                       </tr>
                     </thead>
                     <tbody id="direction-stats">
@@ -630,6 +631,12 @@
         'S': 0, 'SW': 0, 'W': 0, 'NW': 0
       };
       
+      // Track maximum distance for each direction
+      const directionMaxDistance = {
+        'N': 0, 'NE': 0, 'E': 0, 'SE': 0,
+        'S': 0, 'SW': 0, 'W': 0, 'NW': 0
+      };
+      
       let totalPoints = 0;
       
       // Calculate ring boundaries
@@ -661,12 +668,18 @@
         // Count by direction
         directionStats[direction]++;
         
+        // Update max distance for this direction if greater
+        if (distance > directionMaxDistance[direction]) {
+          directionMaxDistance[direction] = distance;
+        }
+        
         totalPoints++;
       });
       
       return {
         distanceStats,
         directionStats,
+        directionMaxDistance,
         totalPoints,
         rings: {
           ring1: ring1,
@@ -706,7 +719,7 @@
       directionStatsTable.innerHTML = '';
       
       // Format distance stats
-      const { distanceStats, directionStats, totalPoints, rings } = stats;
+      const { distanceStats, directionStats, directionMaxDistance, totalPoints, rings } = stats;
       
       // Add distance stats rows
       const ring1NM = Math.round(rings.ring1 / 1852);
@@ -740,11 +753,15 @@
         // Add direction stats rows
         sortedDirections.forEach(([direction, count]) => {
           if (count > 0) {
+            // Convert max distance to nautical miles
+            const maxDistanceNM = Math.round(directionMaxDistance[direction] / 1852);
+            
             directionStatsTable.innerHTML += `
               <tr>
                 <td>${direction}</td>
                 <td>${count}</td>
                 <td>${((count / totalPoints) * 100).toFixed(1)}%</td>
+                <td>${maxDistanceNM} NM</td>
               </tr>
             `;
           }
