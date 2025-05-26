@@ -895,8 +895,23 @@
 		let timeUrl = `/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`;
 		
 		// Add receiver parameter if a receiver is selected
-		if (selectedReceiverId) {
+		if (selectedReceiverId && receiverData[selectedReceiverId]) {
+			const receiverName = receiverData[selectedReceiverId].Name;
 			timeUrl += `&receiver=${selectedReceiverId}`;
+			
+			// Show a notification with the receiver name
+			const notification = document.createElement('div');
+			notification.textContent = `Time traveling with receiver: ${receiverName}`;
+			notification.style.position = 'absolute';
+			notification.style.top = '100px';
+			notification.style.left = '50%';
+			notification.style.transform = 'translateX(-50%)';
+			notification.style.background = 'rgba(255,255,255,0.8)';
+			notification.style.padding = '10px';
+			notification.style.borderRadius = '5px';
+			notification.style.zIndex = '1000';
+			document.body.appendChild(notification);
+			setTimeout(() => document.body.removeChild(notification), 2000);
 		}
 		
 		// Open Time Machine with all parameters
@@ -965,12 +980,6 @@ map.on('click', () => {
     
     // Clear any radius circles
     clearRadiusCircles();
-    
-    // Update context menu text when receiver is deselected
-    map.contextmenu.setItems([{
-      text: 'Time Travel Here',
-      callback: timeTravelCallback
-    }]);
     
     // Show a notification that filter is removed
     const notification = document.createElement('div');
@@ -1606,12 +1615,6 @@ function refreshReceivers() {
                 
                 // Store the receiver coordinates for later use
                 selectedReceiverCoords = [lat, lng];
-                
-                // Update context menu text to include receiver name
-                map.contextmenu.setItems([{
-                  text: `Time Travel Here (${receiver.name})`,
-                  callback: timeTravelCallback
-                }]);
                 
                 // Note: We'll draw the circles after receiving data from the server
                 
