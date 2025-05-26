@@ -964,20 +964,20 @@
         
         // For duplicates mode, add click handler to show receiver information
         if (isDuplicatesMode) {
-          // IMPORTANT: Add annotations for duplicate points
-          console.log("Adding annotations for duplicate points");
+          // IMPORTANT: Add annotations for all receivers except the selected one
+          console.log("Adding annotations for receivers");
           
           // Add a style tag to ensure markers are visible
           const styleTag = document.createElement('style');
           styleTag.textContent = `
-            .duplicate-marker {
+            .receiver-marker {
               stroke: #fff;
               stroke-width: 2px;
               fill: #ff0000;
               fill-opacity: 1;
               z-index: 1000 !important;
             }
-            .duplicate-label {
+            .receiver-label {
               background: none !important;
               border: none !important;
               box-shadow: none !important;
@@ -990,64 +990,82 @@
           `;
           document.head.appendChild(styleTag);
           
-          // Count how many points have multiple receivers
-          let multiReceiverCount = 0;
+          // Get the selected receiver ID
+          const selectedReceiverId = receiverId ? parseInt(receiverId) : null;
+          console.log("Selected receiver ID:", selectedReceiverId);
           
-          // Process each point in the original data (not the heatData)
+          // Group points by receiver ID (excluding the selected receiver)
+          const receiverPoints = new Map(); // Map of receiver ID -> array of points
+          
+          // Process each point in the original data
           data.forEach(point => {
-            // Check if this point has receiver_ids and more than one receiver
-            if (point.receiver_ids && Array.isArray(point.receiver_ids) && point.receiver_ids.length > 1) {
-              multiReceiverCount++;
-              console.log(`Found point ${multiReceiverCount} with multiple receivers:`, point);
-              
-              try {
-                // Use CircleMarker instead of Marker with DivIcon
-                const circleMarker = L.circleMarker([point.lat, point.lon], {
-                  radius: 15,
-                  className: 'duplicate-marker',
-                  weight: 2,
-                  opacity: 1,
-                  fillOpacity: 0.8,
-                  zIndexOffset: 1000
-                }).addTo(map);
+            if (point.receiver_ids && Array.isArray(point.receiver_ids)) {
+              // For each receiver ID in this point
+              point.receiver_ids.forEach((id, index) => {
+                // Skip if this is the selected receiver
+                if (id === selectedReceiverId) return;
                 
-                // Add a text label
-                const label = L.marker([point.lat, point.lon], {
-                  icon: L.divIcon({
-                    html: point.receiver_ids.length.toString(),
-                    className: 'duplicate-label',
-                    iconSize: [20, 20],
-                    iconAnchor: [10, 10]
-                  }),
-                  zIndexOffset: 1001
-                }).addTo(map);
-                
-                // Create popup content
-                let popupContent = `<div><strong>${point.receiver_ids.length} receivers detected this point:</strong></div><ul>`;
-                
-                // Add each receiver to the popup
-                for (let i = 0; i < point.receiver_ids.length; i++) {
-                  const receiverId = point.receiver_ids[i];
-                  const receiverName = point.receiver_names && point.receiver_names[i]
-                    ? point.receiver_names[i]
-                    : `Receiver ${receiverId}`;
-                  
-                  popupContent += `<li>${receiverName} (ID: ${receiverId})</li>`;
+                // Get or create array for this receiver
+                if (!receiverPoints.has(id)) {
+                  receiverPoints.set(id, []);
                 }
                 
-                popupContent += '</ul>';
+                // Add this point to the receiver's array
+                const receiverName = point.receiver_names && point.receiver_names[index]
+                  ? point.receiver_names[index]
+                  : `Receiver ${id}`;
                 
-                // Add popup to marker
-                circleMarker.bindPopup(popupContent);
-                
-                console.log(`Successfully added marker ${multiReceiverCount} at`, point.lat, point.lon);
-              } catch (e) {
-                console.error("Error adding marker:", e);
-              }
+                receiverPoints.get(id).push({
+                  lat: point.lat,
+                  lon: point.lon,
+                  name: receiverName,
+                  id: id
+                });
+              });
             }
           });
           
-          console.log(`Total points with multiple receivers: ${multiReceiverCount}`);
+          console.log(`Found ${receiverPoints.size} different receivers in the data`);
+          
+          // Add a marker for each receiver
+          receiverPoints.forEach((points, receiverId) => {
+            try {
+              // Use the first point for this receiver as the marker location
+              const point = points[0];
+              
+              // Create a circle marker
+              const circleMarker = L.circleMarker([point.lat, point.lon], {
+                radius: 15,
+                className: 'receiver-marker',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8,
+                zIndexOffset: 1000
+              }).addTo(map);
+              
+              // Add a text label with the receiver ID
+              const label = L.marker([point.lat, point.lon], {
+                icon: L.divIcon({
+                  html: receiverId.toString(),
+                  className: 'receiver-label',
+                  iconSize: [20, 20],
+                  iconAnchor: [10, 10]
+                }),
+                zIndexOffset: 1001
+              }).addTo(map);
+              
+              // Create popup content
+              let popupContent = `<div><strong>Receiver ${receiverId}: ${point.name}</strong></div>`;
+              popupContent += `<div>Detected ${points.length} points</div>`;
+              
+              // Add popup to marker
+              circleMarker.bindPopup(popupContent);
+              
+              console.log(`Added marker for receiver ${receiverId} at ${point.lat}, ${point.lon}`);
+            } catch (e) {
+              console.error(`Error adding marker for receiver ${receiverId}:`, e);
+            }
+          });
           
           // Add a click handler to the map to show duplicate details
           map.on('click', function(e) {
