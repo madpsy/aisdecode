@@ -3026,7 +3026,8 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	                       %f
 	                   ))) AS lon,
 	                   COUNT(*) AS count,
-	                   receiver_id_duplicated AS receiver_id
+	                   receiver_id_duplicated AS receiver_id,
+	                   'debug' AS debug_field
 	               FROM messages
 	               WHERE receiver_id_duplicated IS NOT NULL
 	                   AND timestamp >= '%s'
@@ -3054,7 +3055,8 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	                       %f
 	                   ))) AS lon,
 	                   COUNT(*) AS count,
-	                   receiver_id_duplicated AS receiver_id
+	                   receiver_id_duplicated AS receiver_id,
+	                   'debug' AS debug_field
 	               FROM messages
 	               WHERE receiver_id_duplicated IS NOT NULL
 	                   AND timestamp >= now() - INTERVAL '%d days'
@@ -3186,9 +3188,13 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Raw receiver_id: %v (type: %T)", receiverIDStr, receiverIDStr)
 
 				receiverID, _ = parseInt(rec["receiver_id"])
+				log.Printf("Parsed receiver_id: %d", receiverID)
+
 				if receiverID > 0 {
 					allReceiverIDs[receiverID] = true
-					log.Printf("Added receiver ID: %d", receiverID)
+					log.Printf("Added receiver ID: %d to allReceiverIDs", receiverID)
+				} else {
+					log.Printf("Receiver ID is zero or negative: %d", receiverID)
 				}
 			} else {
 				log.Printf("No receiver_id found in record: %v", rec)
@@ -3199,12 +3205,17 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 			var receiverIDs []int
 			if receiverID > 0 {
 				receiverIDs = []int{receiverID}
+				log.Printf("Created receiverIDs slice with ID: %d", receiverID)
+			} else {
+				log.Printf("Not creating receiverIDs slice because receiverID <= 0")
 			}
 
 			// Create a key for the grid cell to aggregate across shards
 			key := fmt.Sprintf("%.6f:%.6f", lat, lon)
+			log.Printf("Processing grid cell with key: %s", key)
 
 			if cell, exists := cellMap[key]; exists {
+				log.Printf("Cell already exists with %d receiver IDs", len(cell.ReceiverIDs))
 				cell.Count += count
 
 				// Add this receiver ID if it's not already in the list
@@ -3217,18 +3228,26 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 					if !found {
+						log.Printf("Adding receiver ID %d to existing cell", receiverID)
 						cell.ReceiverIDs = append(cell.ReceiverIDs, receiverID)
+					} else {
+						log.Printf("Receiver ID %d already in cell", receiverID)
 					}
+				} else {
+					log.Printf("Not adding receiver ID because it's <= 0: %d", receiverID)
 				}
 
 				cellMap[key] = cell
+				log.Printf("Updated cell now has %d receiver IDs", len(cell.ReceiverIDs))
 			} else {
+				log.Printf("Creating new cell with %d receiver IDs", len(receiverIDs))
 				cellMap[key] = GridCell{
 					Lat:         lat,
 					Lon:         lon,
 					Count:       count,
 					ReceiverIDs: receiverIDs,
 				}
+				log.Printf("New cell created with receiver IDs: %v", receiverIDs)
 			}
 		}
 	}
