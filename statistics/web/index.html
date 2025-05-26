@@ -357,6 +357,7 @@
                     <th>Original Receiver</th>
                     <th>Class</th>
                     <th>Type</th>
+                    <th>Last Seen</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -947,13 +948,17 @@
             // Get type description
             const typeDesc = item.type ? getTypeDescription(item.ais_class, item.type) : '';
             
+            // Format timestamp to local time
+            const lastSeen = item.last_seen ? new Date(item.last_seen).toLocaleString() : 'N/A';
+            
             duplicateTable.row.add([
               nameCell,
               imageCell,
               item.duplicate_count,
               receiverLink,
               item.ais_class || '',
-              typeDesc
+              typeDesc,
+              lastSeen
             ]);
             
             // Add to chart
