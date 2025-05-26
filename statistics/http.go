@@ -895,12 +895,6 @@ func parseTimeRangeParams(r *http.Request) (TimeRange, error) {
 // respondJSON serializes v as JSON to the response.
 func respondJSON(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-
-	// Debug log the response for duplicates-heatmap endpoint
-	if heatmapData, ok := v.([]GridCell); ok {
-		log.Printf("Responding with %d grid cells", len(heatmapData))
-	}
-
 	json.NewEncoder(w).Encode(v)
 }
 
