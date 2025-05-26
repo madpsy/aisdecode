@@ -2920,7 +2920,8 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 		                  COUNT(*) AS count,
 		                  array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
 		              FROM messages
-		              WHERE receiver_id_duplicated IS NOT NULL
+		              WHERE message_id IN (1,2,3,18,19)
+		                  AND receiver_id_duplicated IS NOT NULL
 		                  AND timestamp >= '%s'
 		                  AND timestamp <= '%s'
 		                  AND (packet->>'Latitude')::float IS NOT NULL
@@ -2956,7 +2957,8 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 		                  COUNT(*) AS count,
 		                  array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
 		              FROM messages
-		              WHERE receiver_id_duplicated IS NOT NULL
+		              WHERE message_id IN (1,2,3,18,19)
+		                  AND receiver_id_duplicated IS NOT NULL
 		                  AND timestamp >= now() - INTERVAL '%d days'
 		                  AND (packet->>'Latitude')::float IS NOT NULL
 		                  AND (packet->>'Longitude')::float IS NOT NULL
@@ -2994,7 +2996,8 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	                   COUNT(*) AS count,
 	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
 	               FROM messages
-	               WHERE receiver_id_duplicated IS NOT NULL
+	               WHERE message_id IN (1,2,3,18,19)
+	                   AND receiver_id_duplicated IS NOT NULL
 	                   AND receiver_id = %d
 	                   AND timestamp >= '%s'
 	                   AND timestamp <= '%s'
@@ -3031,7 +3034,8 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	                   COUNT(*) AS count,
 	                   array_agg(DISTINCT receiver_id_duplicated) AS receiver_ids
 	               FROM messages
-	               WHERE receiver_id_duplicated IS NOT NULL
+	               WHERE message_id IN (1,2,3,18,19)
+	                   AND receiver_id_duplicated IS NOT NULL
 	                   AND receiver_id = %d
 	                   AND timestamp >= now() - INTERVAL '%d days'
 	                   AND (packet->>'Latitude')::float IS NOT NULL
