@@ -3181,6 +3181,37 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 					log.Printf("Received map for receiver_ids, keys: %v", getMapKeys(v))
 				case nil:
 					log.Printf("receiver_ids is nil")
+				case []uint8:
+					// Handle PostgreSQL array returned as byte array
+					log.Printf("Parsing receiver_ids as []uint8: %v", v)
+
+					// Convert byte array to string
+					pgArrayStr := string(v)
+					log.Printf("Converted to string: '%s'", pgArrayStr)
+
+					// Parse the PostgreSQL array format: {1,2,3}
+					if strings.HasPrefix(pgArrayStr, "{") && strings.HasSuffix(pgArrayStr, "}") {
+						// Remove the braces and split by comma
+						pgArray := pgArrayStr[1 : len(pgArrayStr)-1]
+						if pgArray != "" {
+							idStrs := strings.Split(pgArray, ",")
+							log.Printf("Split into %d elements: %v", len(idStrs), idStrs)
+							for _, idStr := range idStrs {
+								id, err := strconv.Atoi(idStr)
+								if err == nil && id > 0 {
+									receiverIDs = append(receiverIDs, id)
+									allReceiverIDs[id] = true
+									log.Printf("Added receiver ID from byte array: %d to allReceiverIDs", id)
+								} else if err != nil {
+									log.Printf("Error parsing ID '%s' from byte array: %v", idStr, err)
+								}
+							}
+						} else {
+							log.Printf("Empty array content in byte array")
+						}
+					} else {
+						log.Printf("Byte array doesn't match PostgreSQL array format: '%s'", pgArrayStr)
+					}
 				default:
 					log.Printf("Unhandled receiver_ids type: %T", v)
 				}
