@@ -262,7 +262,10 @@ func topSogHandler(w http.ResponseWriter, r *http.Request) {
 		for _, rec := range recs {
 			uid, _ := parseInt(rec["user_id"])
 			sog, _ := parseFloat(rec["max_sog"])
-			ts, _ := parseTime(rec["timestamp"])
+			ts, err := parseTime(rec["timestamp"])
+			if err != nil {
+				ts = time.Now()
+			}
 			lat, _ := parseFloat(rec["lat"])
 			lon, _ := parseFloat(rec["lon"])
 			prev := maxMap[uid]
@@ -1050,7 +1053,10 @@ func topDistanceHandler(w http.ResponseWriter, r *http.Request) {
 		for _, rec := range recs {
 			uid, _ := parseInt(rec["user_id"])
 			dist, _ := parseInt(rec["distance"])
-			ts, _ := parseTime(rec["timestamp"])
+			ts, err := parseTime(rec["timestamp"])
+			if err != nil {
+				ts = time.Now()
+			}
 			lat, _ := parseFloat(rec["lat"])
 			lon, _ := parseFloat(rec["lon"])
 			rid, _ := parseInt(rec["receiver_id"])
@@ -2067,7 +2073,16 @@ func topDuplicatesHandler(w http.ResponseWriter, r *http.Request) {
 			userID, _ := parseInt(rec["user_id"])
 			receiverID, _ := parseInt(rec["receiver_id"])
 			count, _ := parseInt(rec["duplicate_count"])
-			lastSeen, _ := parseTime(rec["last_seen"])
+			lastSeen, err := parseTime(rec["last_seen"])
+			if err != nil {
+				// Log the error to help diagnose the issue
+				log.Printf("Warning: Could not parse last_seen timestamp for user_id=%d, receiver_id=%d: %v, raw value: %v",
+					userID, receiverID, err, rec["last_seen"])
+
+				// If we can't parse the timestamp, use the current time instead
+				// This ensures we don't return the zero value
+				lastSeen = time.Now()
+			}
 
 			key := dupKey{userID, receiverID}
 			existing, exists := dupMap[key]
@@ -2586,7 +2601,10 @@ func detectRangeAnomalies(shardResults map[string][]map[string]interface{}) []Ra
 
 	for _, recs := range shardResults {
 		for _, rec := range recs {
-			hour, _ := parseTime(rec["hour_start"])
+			hour, err := parseTime(rec["hour_start"])
+			if err != nil {
+				hour = time.Now()
+			}
 			receiverID, _ := parseInt(rec["receiver_id"])
 			userID, _ := parseInt(rec["user_id"])
 			lat, _ := parseFloat(rec["lat"])
@@ -2934,7 +2952,10 @@ func detectDirectionAnomalies(shardResults map[string][]map[string]interface{}) 
 
 	for _, recs := range shardResults {
 		for _, rec := range recs {
-			hour, _ := parseTime(rec["hour_start"])
+			hour, err := parseTime(rec["hour_start"])
+			if err != nil {
+				hour = time.Now()
+			}
 			receiverID, _ := parseInt(rec["receiver_id"])
 			direction, _ := parseString(rec["direction"])
 			count, _ := parseInt(rec["message_count"])
