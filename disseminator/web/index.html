@@ -867,9 +867,19 @@
 	// Initialize the map with a default base layer
 	const map = L.map('map', {
 		contextmenu: true,
-		contextmenuWidth: 140,
+		contextmenuWidth: 180,
 		contextmenuItems: [{
-			text: 'Time Travel Here',
+			text: function() {
+				// Dynamically generate menu text
+				let menuText = 'Time Travel Here';
+				
+				// Add receiver name if one is selected
+				if (selectedReceiverId && receiverData[selectedReceiverId]) {
+					menuText += ` (${receiverData[selectedReceiverId].Name})`;
+				}
+				
+				return menuText;
+			},
 			callback: function(e) {
 				const lat = e.latlng.lat;
 				const lng = e.latlng.lng;
