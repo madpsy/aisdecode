@@ -288,6 +288,7 @@
     let currentAnomalies = [];
     let selectedAnomaly = null;
     let anomalyChart = null;
+    let receiversData = []; // Store receivers data globally
     
     // Show map loading overlay
     function showMapLoading() {
@@ -312,14 +313,15 @@
     // Load receivers
     async function loadReceivers() {
       try {
-        const receivers = await fetch('/receivers').then(r => r.json());
+        // Fetch receivers data once and store it globally
+        receiversData = await fetch('/receivers').then(r => r.json());
         const select = document.getElementById('receiver-select');
         
         // Sort receivers by name
-        receivers.sort((a, b) => a.name.localeCompare(b.name));
+        receiversData.sort((a, b) => a.name.localeCompare(b.name));
         
         // Add receivers to dropdown (excluding receiver ID 0)
-        receivers.forEach(receiver => {
+        receiversData.forEach(receiver => {
           // Skip receiver ID 0
           if (receiver.id === 0) return;
           
@@ -401,12 +403,10 @@
         // Fetch data
         const anomalies = await fetch(url).then(r => r.json());
         
-        // Fetch receivers to get names
-        const receivers = await fetch('/receivers').then(r => r.json());
-        
+        // Use the globally stored receivers data
         // Add receiver names to anomalies
         anomalies.forEach(anomaly => {
-          const receiver = receivers.find(r => r.id === anomaly.receiver_id);
+          const receiver = receiversData.find(r => r.id === anomaly.receiver_id);
           if (receiver) {
             anomaly.receiver_name = receiver.name;
           }
@@ -500,12 +500,10 @@
         // Fetch data
         const anomalies = await fetch(url).then(r => r.json());
         
-        // Fetch receivers to get names and locations
-        const receivers = await fetch('/receivers').then(r => r.json());
-        
+        // Use the globally stored receivers data
         // Add receiver names to anomalies
         anomalies.forEach(anomaly => {
-          const receiver = receivers.find(r => r.id === anomaly.receiver_id);
+          const receiver = receiversData.find(r => r.id === anomaly.receiver_id);
           if (receiver) {
             anomaly.receiver_name = receiver.name;
           }
@@ -1586,13 +1584,12 @@
       } else {
         addDirectionAnomaliesToMap(currentAnomalies);
         
-        // Create bounds from receiver locations
-        fetch('/receivers').then(r => r.json()).then(receivers => {
-          const bounds = L.latLngBounds();
-          let validBounds = false;
-          
-          currentAnomalies.forEach(anomaly => {
-            const receiver = receivers.find(r => r.id === anomaly.receiver_id);
+        // Create bounds from receiver locations using the globally stored data
+        const bounds = L.latLngBounds();
+        let validBounds = false;
+        
+        currentAnomalies.forEach(anomaly => {
+          const receiver = receiversData.find(r => r.id === anomaly.receiver_id);
             if (receiver && receiver.latitude && receiver.longitude) {
               bounds.extend([receiver.latitude, receiver.longitude]);
               
@@ -1606,12 +1603,11 @@
               bounds.extend(extendedPoint);
               validBounds = true;
             }
-          });
-          
-          if (validBounds) {
-            map.fitBounds(bounds, { padding: [50, 50] });
-          }
         });
+        
+        if (validBounds) {
+          map.fitBounds(bounds, { padding: [50, 50] });
+        }
       }
     }
     
