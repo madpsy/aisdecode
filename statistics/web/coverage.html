@@ -964,6 +964,76 @@
         
         // For duplicates mode, add click handler to show receiver information
         if (isDuplicatesMode) {
+          // Create a map to store grid cells and their receiver information
+          const gridCells = new Map();
+          const gridSize = 0.01; // Grid cell size in degrees (roughly 1km at equator)
+          
+          // Process all duplicate points to group by grid cell
+          window.duplicatesData.forEach(point => {
+            if (point.receiver_ids && Array.isArray(point.receiver_ids)) {
+              // Calculate grid cell coordinates
+              const latCell = Math.floor(point.lat / gridSize);
+              const lonCell = Math.floor(point.lon / gridSize);
+              const cellKey = `${latCell},${lonCell}`;
+              
+              // Get or create cell info
+              if (!gridCells.has(cellKey)) {
+                gridCells.set(cellKey, {
+                  lat: point.lat,
+                  lon: point.lon,
+                  count: point.count,
+                  receivers: new Set(),
+                  receiverNames: []
+                });
+              }
+              
+              // Add receivers to this cell
+              const cellInfo = gridCells.get(cellKey);
+              for (let i = 0; i < point.receiver_ids.length; i++) {
+                const receiverId = point.receiver_ids[i];
+                if (!cellInfo.receivers.has(receiverId)) {
+                  cellInfo.receivers.add(receiverId);
+                  const receiverName = point.receiver_names && point.receiver_names[i]
+                    ? point.receiver_names[i]
+                    : `Receiver ${receiverId}`;
+                  cellInfo.receiverNames.push(receiverName);
+                }
+              }
+            }
+          });
+          
+          // Add annotations for grid cells with multiple receivers
+          gridCells.forEach((cellInfo, cellKey) => {
+            // Only add annotations for cells with multiple receivers
+            if (cellInfo.receivers.size > 1) {
+              // Create a compact label showing the number of receivers
+              const receiverCount = cellInfo.receivers.size;
+              
+              // Create a custom icon for the annotation
+              const annotationIcon = L.divIcon({
+                html: `<div style="background-color: rgba(255,255,255,0.8); color: #333; padding: 2px 5px; border-radius: 10px; font-size: 10px; font-weight: bold; border: 1px solid #666;">${receiverCount}</div>`,
+                className: 'receiver-count-marker',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+              });
+              
+              // Add marker with popup showing detailed receiver information
+              L.marker([cellInfo.lat, cellInfo.lon], {icon: annotationIcon})
+                .addTo(map)
+                .bindPopup(() => {
+                  let content = `<div><strong>Duplicate Count: ${cellInfo.count}</strong></div>`;
+                  content += '<div><strong>Receivers:</strong></div><ul>';
+                  
+                  cellInfo.receiverNames.forEach(name => {
+                    content += `<li>${name}</li>`;
+                  });
+                  
+                  content += '</ul>';
+                  return content;
+                });
+            }
+          });
+          
           // Add a click handler to the map to show duplicate details
           map.on('click', function(e) {
             // Find the closest duplicate point to the click
@@ -1130,6 +1200,11 @@
                 .setContent(`<b>${receiver.name}</b>`)
                 .setLatLng([receiver.latitude, receiver.longitude])
                 .addTo(map);
+                
+                // Draw concentric rings for this receiver too
+                const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+                const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
+                drawRangeCircles(receiverLatLng, maxDistance);
               }
             }
           });
