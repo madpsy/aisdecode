@@ -184,6 +184,7 @@ type Message struct {
 	RawSentence string          `json:"raw_sentence"`
 	UDPPort     int             `json:"udp_port"`
 	DedupedPort *int            `json:"deduped_port,omitempty"`
+	IsDuplicate bool            `json:"is_duplicate"`
 }
 
 // ── MAIN ─────────────────────────────────────────────────────────────────────
@@ -842,14 +843,18 @@ func processMessage(message []byte, db *sql.DB, settings *Settings) error {
 		"udp_port":     msg.UDPPort,
 	}
 
-	// 7) Emit to any subscribers
-	userSubscribersMu.RLock()
-	subs := userSubscribers[uidKey]
-	userSubscribersMu.RUnlock()
-	for sid := range subs {
-		if sock, ok := connectedClients[sid]; ok {
-			sock.Emit("ais_data", emitPayload)
+	// 7) Emit to any subscribers (skip if message is marked as duplicate)
+	if !msg.IsDuplicate {
+		userSubscribersMu.RLock()
+		subs := userSubscribers[uidKey]
+		userSubscribersMu.RUnlock()
+		for sid := range subs {
+			if sock, ok := connectedClients[sid]; ok {
+				sock.Emit("ais_data", emitPayload)
+			}
 		}
+	} else if settings.Debug {
+		log.Printf("[DEBUG] Skipping emit for duplicate message with UserID=%s", uidKey)
 	}
 
 	return nil
