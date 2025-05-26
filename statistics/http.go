@@ -3089,13 +3089,36 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 				// Debug log the raw receiver_ids value
 				log.Printf("Raw receiver_ids: %v (type: %T)", receiverIDsStr, receiverIDsStr)
 
-				// Parse the PostgreSQL array format: {1,2,3}
-				if pgArray, ok := receiverIDsStr.(string); ok && strings.HasPrefix(pgArray, "{") && strings.HasSuffix(pgArray, "}") {
-					// Remove the braces and split by comma
-					pgArray = pgArray[1 : len(pgArray)-1]
-					if pgArray != "" {
-						idStrs := strings.Split(pgArray, ",")
-						for _, idStr := range idStrs {
+				// Handle different possible return types from PostgreSQL array_agg
+				switch v := receiverIDsStr.(type) {
+				case string:
+					// Parse the PostgreSQL array format: {1,2,3}
+					if strings.HasPrefix(v, "{") && strings.HasSuffix(v, "}") {
+						// Remove the braces and split by comma
+						pgArray := v[1 : len(v)-1]
+						if pgArray != "" {
+							idStrs := strings.Split(pgArray, ",")
+							for _, idStr := range idStrs {
+								id, err := strconv.Atoi(idStr)
+								if err == nil && id > 0 {
+									receiverIDs = append(receiverIDs, id)
+									allReceiverIDs[id] = true
+									log.Printf("Added receiver ID: %d to allReceiverIDs", id)
+								}
+							}
+						}
+					}
+				case []interface{}:
+					// Handle array returned as slice of interface{}
+					for _, item := range v {
+						if idVal, ok := item.(float64); ok {
+							id := int(idVal)
+							if id > 0 {
+								receiverIDs = append(receiverIDs, id)
+								allReceiverIDs[id] = true
+								log.Printf("Added receiver ID: %d to allReceiverIDs", id)
+							}
+						} else if idStr, ok := item.(string); ok {
 							id, err := strconv.Atoi(idStr)
 							if err == nil && id > 0 {
 								receiverIDs = append(receiverIDs, id)
@@ -3104,6 +3127,9 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 							}
 						}
 					}
+				case map[string]interface{}:
+					// Some drivers might return a complex object
+					log.Printf("Received map for receiver_ids, keys: %v", getMapKeys(v))
 				}
 
 				log.Printf("Parsed receiver_ids: %v", receiverIDs)
