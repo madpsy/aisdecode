@@ -1259,7 +1259,8 @@
         receiverId: params.get('receiver_id'),
         days: params.get('days'),
         from: params.get('from'),
-        to: params.get('to')
+        to: params.get('to'),
+        mode: params.get('mode')
       };
     }
     
@@ -1267,12 +1268,20 @@
     function updateURL() {
       const receiverId = document.getElementById('receiver-select').value;
       const isDateRange = document.getElementById('dateRangeRadio').checked;
+      const isDuplicatesMode = document.getElementById('duplicatesRadio').checked;
       const url = new URL(window.location.href);
       
       if (receiverId) {
         url.searchParams.set('receiver_id', receiverId);
       } else {
         url.searchParams.delete('receiver_id');
+      }
+      
+      // Add view mode to URL
+      if (isDuplicatesMode) {
+        url.searchParams.set('mode', 'duplicates');
+      } else {
+        url.searchParams.set('mode', 'coverage');
       }
       
       // Update the VHF Lift Analysis link with receiver ID if selected
@@ -1565,6 +1574,15 @@
         if (receiverId) {
           browserUrl.searchParams.set('receiver_id', receiverId);
         }
+        
+        // Preserve view mode in URL
+        const isDuplicatesMode = document.getElementById('duplicatesRadio').checked;
+        if (isDuplicatesMode) {
+          browserUrl.searchParams.set('mode', 'duplicates');
+        } else {
+          browserUrl.searchParams.set('mode', 'coverage');
+        }
+        
         window.history.replaceState({}, '', browserUrl);
         
         // Fetch data
@@ -2323,6 +2341,15 @@
       // Set the dropdown values to match query parameters if available
       if (params.receiverId) {
         document.getElementById('receiver-select').value = params.receiverId;
+      }
+      
+      // Set the view mode based on URL parameter
+      if (params.mode === 'duplicates') {
+        document.getElementById('duplicatesRadio').checked = true;
+        document.getElementById('coverageRadio').checked = false;
+      } else {
+        document.getElementById('coverageRadio').checked = true;
+        document.getElementById('duplicatesRadio').checked = false;
       }
       
       // Check if we have from/to parameters
