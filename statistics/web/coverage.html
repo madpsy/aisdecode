@@ -1001,13 +1001,13 @@
                     
                     popupContent += '</ul>';
                     
-                    // Use a regular marker with a custom icon instead of circleMarker
+                    // Use a regular marker with a custom icon instead of circleMarker (smaller size)
                     const marker = L.marker([point.lat, point.lon], {
                       icon: L.divIcon({
-                        html: `<div style="background-color: #FF4500; border-radius: 50%; width: 24px; height: 24px; border: 2px solid white;"></div>`,
+                        html: `<div style="background-color: #FF4500; border-radius: 50%; width: 10px; height: 10px; border: 1px solid white;"></div>`,
                         className: 'custom-marker',
-                        iconSize: [24, 24],
-                        iconAnchor: [12, 12]
+                        iconSize: [12, 12],
+                        iconAnchor: [6, 6]
                       }),
                       interactive: true,  // Ensure marker is interactive
                       bubblingMouseEvents: false  // Prevent event bubbling
