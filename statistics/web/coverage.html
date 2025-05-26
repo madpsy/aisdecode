@@ -946,7 +946,14 @@
         const data = await fetch(url).then(r => r.json());
         
         if (data.length === 0) {
+          // Clear all previous map layers when no data is found
+          clearMapLayers();
+          
+          // Reset coverage area display
+          document.getElementById('coverage-area-text').textContent = `0 sq km`;
+          
           alert(`No ${isDuplicatesMode ? 'duplicates' : 'coverage'} data available for the selected receiver and time period`);
+          hideGlobalLoading();
           return;
         }
         
@@ -1607,6 +1614,12 @@
         const data = await fetch(url).then(r => r.json());
         
         if (data.length === 0) {
+          // Clear all previous map layers when no data is found
+          clearMapLayers();
+          
+          // Reset coverage area display
+          document.getElementById('coverage-area-text').textContent = `0 sq km`;
+          
           alert('No coverage data available for the selected time period');
           hideMapLoading();
           return;
