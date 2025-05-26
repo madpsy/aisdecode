@@ -454,7 +454,7 @@
       // Clear any other receiver markers that might have been added
       map.eachLayer(function(layer) {
         if (layer instanceof L.Marker || layer instanceof L.Tooltip) {
-          if (layer._icon && layer._icon.className.includes('receiver-marker') ||
+          if (layer._icon && (layer._icon.className.includes('receiver-marker') || layer._icon.className.includes('custom-marker')) ||
               layer.options && layer.options.className === 'receiver-tooltip') {
             map.removeLayer(layer);
           }
@@ -679,9 +679,11 @@
     // Update the statistics display
     function updateStatsDisplay(stats, showDirectionStats) {
       const statsContainer = document.getElementById('coverage-stats');
+      const statsHeader = document.querySelector('#coverage-stats h4');
       const distanceStatsTable = document.getElementById('distance-stats');
       const directionStatsTable = document.getElementById('direction-stats');
       const directionStatsCard = directionStatsTable.closest('.card').parentElement;
+      const isDuplicatesMode = document.getElementById('duplicatesRadio').checked;
       
       if (!stats) {
         statsContainer.style.display = 'none';
@@ -690,6 +692,11 @@
       
       // Show the stats container
       statsContainer.style.display = 'block';
+      
+      // Update header text based on view mode
+      if (statsHeader) {
+        statsHeader.textContent = isDuplicatesMode ? 'Duplicate Statistics' : 'Coverage Statistics';
+      }
       
       // Show/hide direction stats based on parameter
       directionStatsCard.style.display = showDirectionStats ? 'block' : 'none';
@@ -853,6 +860,12 @@
       const receiverId = document.getElementById('receiver-select').value;
       const isDateRange = document.getElementById('dateRangeRadio').checked;
       const isDuplicatesMode = document.getElementById('duplicatesRadio').checked;
+      
+      // Show/hide replay section based on view mode
+      const replaySection = document.querySelector('.mt-4.mb-3');
+      if (replaySection) {
+        replaySection.style.display = isDuplicatesMode ? 'none' : 'block';
+      }
       
       try {
         // Show loading state
@@ -2177,7 +2190,7 @@
       // Clear all receiver markers
       map.eachLayer(function(layer) {
         if (layer instanceof L.Marker || layer instanceof L.Tooltip) {
-          if (layer._icon && layer._icon.className.includes('receiver-marker') ||
+          if (layer._icon && (layer._icon.className.includes('receiver-marker') || layer._icon.className.includes('custom-marker')) ||
               layer.options && layer.options.className === 'receiver-tooltip') {
             map.removeLayer(layer);
           }
