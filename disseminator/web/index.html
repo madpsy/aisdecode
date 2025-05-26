@@ -896,8 +896,16 @@
 				const toParam = formatDateWithTimezone(now);
 				const fromParam = formatDateWithTimezone(fromTime);
 				
+				// Build the URL with base parameters
+				let timeUrl = `/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`;
+				
+				// Add receiver parameter if a receiver is selected
+				if (selectedReceiverId) {
+					timeUrl += `&receiver=${selectedReceiverId}`;
+				}
+				
 				// Open Time Machine with all parameters
-				window.open(`/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`, '_blank');
+				window.open(timeUrl, '_blank');
 			}
 		}]
 	}).setView([55.0, -3.0], 5);
