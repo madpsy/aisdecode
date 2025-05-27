@@ -1263,12 +1263,17 @@
         // Load all receivers
         const receivers = await fetch('/receivers').then(r => r.json());
         
-        // Create a receiver icon
-        const receiverIcon = L.divIcon({
-          html: '<div style="background-color: #ff4136; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
-          className: 'receiver-marker',
-          iconSize: [12, 12]
-        });
+        // Create a function to generate receiver icons with specific colors
+        const createReceiverIcon = (color) => {
+          return L.divIcon({
+            html: `<div style="background-color: ${color}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>`,
+            className: 'receiver-marker',
+            iconSize: [12, 12]
+          });
+        };
+        
+        // Create a default receiver icon with red color
+        const receiverIcon = createReceiverIcon('#ff4136');
         
         // Points for bounds calculation
         const points = heatData.map(p => [p[0], p[1]]);
@@ -1280,7 +1285,14 @@
           if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
             // Add marker with popup and store reference if receivers should be shown
             if (showReceivers) {
-              receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: receiverIcon})
+              // For the main receiver, use the color from window.currentReceiverColors if available
+              const mainReceiverColor = window.currentReceiverColors && window.currentReceiverColors[selectedReceiver.id]
+                ? window.currentReceiverColors[selectedReceiver.id]
+                : '#ff4136'; // Default to red if no color is defined
+              
+              console.log(`Main receiver ${selectedReceiver.id} color: ${mainReceiverColor}`);
+              
+              receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: createReceiverIcon(mainReceiverColor)})
                 .addTo(map)
                 .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
               
@@ -1315,8 +1327,8 @@
               
               // Only add markers if receivers should be shown
               if (showReceivers) {
-                // Add marker with popup
-                L.marker([receiver.latitude, receiver.longitude], {icon: receiverIcon})
+                // Add marker with popup - use the default red color
+                L.marker([receiver.latitude, receiver.longitude], {icon: createReceiverIcon('#ff4136')})
                   .addTo(map)
                   .bindPopup(`<b>Receiver:</b> ${receiver.name}`);
                 
@@ -1358,11 +1370,13 @@
             if (receiver.latitude && receiver.longitude) {
               // Only add markers if receivers should be shown
               if (showReceivers) {
-                // Use the same color as in the heatmap and table
+                // Use the same color as in the circles and table
                 // Access the colors we stored in the window object
                 const receiverColor = window.currentReceiverColors && window.currentReceiverColors[receiver.id]
                   ? window.currentReceiverColors[receiver.id]
                   : vividColors[receiver.id % vividColors.length]; // Fallback
+                
+                console.log(`Receiver ${receiver.id} circle color: ${receiverColor}`);
                 
                 // Create a custom icon with the receiver's color
                 const customIcon = L.divIcon({
