@@ -521,7 +521,7 @@
     }
     
     // Draw concentric circles around the receiver
-    function drawRangeCircles(receiverLatLng, maxDistance) {
+    function drawRangeCircles(receiverLatLng, maxDistance, isMainReceiver = true) {
       // Clear any existing circles and labels
       rangeCircles.forEach(circle => {
         if (circle) map.removeLayer(circle);
@@ -533,8 +533,12 @@
       });
       rangeLabels = [];
       
-      // Create 3 equally spaced circles
-      for (let i = 1; i <= 3; i++) {
+      // For main receiver, only draw the largest circle
+      // For duplicate receivers, draw all three circles as before
+      const iterations = isMainReceiver ? 1 : 3;
+      const startIndex = isMainReceiver ? 3 : 1; // For main receiver, start at i=3 (largest circle)
+      
+      for (let i = startIndex; i <= 3; i++) {
         const radiusMeters = maxDistance * i / 3;
         const radiusNM = Math.round(radiusMeters / 1852); // Convert meters to nautical miles and round to nearest whole number
         
@@ -564,6 +568,9 @@
         .addTo(map);
         
         rangeLabels.push(label);
+        
+        // For main receiver, we only want the largest circle, so break after first iteration
+        if (isMainReceiver) break;
       }
     }
     
@@ -1189,13 +1196,12 @@
                     // Scale radius based on count (min 15, max 30)
                     const radius = Math.min(30, Math.max(15, Math.log10(point.count + 1) * 10));
                     
-                    // Create a circle with the receiver's color
+                    // Create a circle with the receiver's color - no border
                     const circle = L.circleMarker([point.lat, point.lon], {
                       renderer: renderer,
                       radius: radius,
-                      color: 'black',
-                      weight: 2,
-                      opacity: 1.0,
+                      color: color,
+                      weight: 0, // No border
                       fillColor: color,
                       fillOpacity: 0.8,
                       pane: 'duplicatePointsPane'
@@ -1392,7 +1398,7 @@
             const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
             const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
             if (showReceivers) {
-              drawRangeCircles(receiverLatLng, maxDistance);
+              drawRangeCircles(receiverLatLng, maxDistance, true); // true = main receiver
             }
             
             // Add receiver location to points for bounds calculation
@@ -1984,7 +1990,7 @@
             const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
             const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
             if (showReceivers) {
-              drawRangeCircles(receiverLatLng, maxDistance);
+              drawRangeCircles(receiverLatLng, maxDistance, true); // true = main receiver
             }
             
             // Add receiver location to points for bounds calculation
