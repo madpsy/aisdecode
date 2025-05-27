@@ -1174,6 +1174,12 @@
               function processBatch(batchIndex) {
                 if (batchIndex >= batches) {
                   console.log(`Finished adding all ${receiverData[receiverId].length} circles for receiver ${receiverId}`);
+                  
+                  // After all batches are processed, ensure the duplicate receivers table is populated
+                  if (batchIndex === 0) { // Only do this once after the first receiver is processed
+                    populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages);
+                  }
+                  
                   return;
                 }
                 
@@ -1231,6 +1237,57 @@
               
               // Bring the circles group to front
               circlesGroup.bringToFront();
+              
+              // Helper function to populate the duplicate receivers table
+              function populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages) {
+                console.log("Populating duplicate receivers table with data:", receiverMessageCounts);
+                
+                const duplicateReceiversTable = document.getElementById('duplicate-receivers-stats');
+                if (duplicateReceiversTable) {
+                  // Clear previous content
+                  duplicateReceiversTable.innerHTML = '';
+                  
+                  // Convert to array for sorting
+                  const receiversArray = Object.entries(receiverMessageCounts).map(([id, count]) => ({
+                    id: parseInt(id),
+                    name: receiverNames[id] || `Receiver ${id}`,
+                    count: count,
+                    color: receiverColors[id] || '#0074D9' // Get the color for this receiver
+                  }));
+                  
+                  console.log("Receivers array for table:", receiversArray);
+                  
+                  // Sort by message count (descending)
+                  receiversArray.sort((a, b) => b.count - a.count);
+                  
+                  // Add rows to the table
+                  receiversArray.forEach(receiver => {
+                    const percentage = totalDuplicateMessages > 0
+                      ? ((receiver.count / totalDuplicateMessages) * 100).toFixed(1)
+                      : '0.0';
+                    
+                    // Get the color from the receiverColors map
+                    const receiverColor = receiverColors[receiver.id] || '#0074D9';
+                    
+                    duplicateReceiversTable.innerHTML += `
+                      <tr>
+                        <td>
+                          <div style="display: flex; align-items: center;">
+                            <div style="background-color: ${receiverColor}; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;"></div>
+                            ${receiver.name}
+                          </div>
+                        </td>
+                        <td>${receiver.count}</td>
+                        <td>${percentage}%</td>
+                      </tr>
+                    `;
+                  });
+                  
+                  // Show the container
+                  document.getElementById('duplicate-receivers-container').style.display = 'block';
+                  console.log("Duplicate receivers table populated and displayed");
+                }
+              }
               
               // Store the heatmap layer for cleanup
               rangeCircles.push(heatmapLayer);
@@ -1292,49 +1349,8 @@
                 }
               }
             });
-            // Populate the duplicate receivers table
-            const duplicateReceiversTable = document.getElementById('duplicate-receivers-stats');
-            if (duplicateReceiversTable) {
-              // Clear previous content
-              duplicateReceiversTable.innerHTML = '';
-              
-              // Convert to array for sorting
-              const receiversArray = Object.entries(receiverMessageCounts).map(([id, count]) => ({
-                id: parseInt(id),
-                name: receiverNames[id] || `Receiver ${id}`,
-                count: count,
-                color: receiverColors[id] || '#0074D9' // Get the color for this receiver
-              }));
-              
-              // Sort by message count (descending)
-              receiversArray.sort((a, b) => b.count - a.count);
-              
-              // Add rows to the table
-              receiversArray.forEach(receiver => {
-                const percentage = totalDuplicateMessages > 0
-                  ? ((receiver.count / totalDuplicateMessages) * 100).toFixed(1)
-                  : '0.0';
-                
-                // Get the color from the receiverColors map we created earlier
-                const receiverColor = receiverColors[receiver.id] || '#0074D9';
-                
-                duplicateReceiversTable.innerHTML += `
-                  <tr>
-                    <td>
-                      <div style="display: flex; align-items: center;">
-                        <div style="background-color: ${receiverColor}; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;"></div>
-                        ${receiver.name}
-                      </div>
-                    </td>
-                    <td>${receiver.count}</td>
-                    <td>${percentage}%</td>
-                  </tr>
-                `;
-              });
-                
-              // Show the container
-              document.getElementById('duplicate-receivers-container').style.display = 'block';
-            }
+            // The duplicate receivers table is now populated in the populateDuplicateReceiversTable function
+            // which is called after all batches are processed
           }).catch(err => {
             console.error("Error fetching receivers:", err);
           });
