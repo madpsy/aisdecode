@@ -1139,51 +1139,90 @@
               // Create a layer group for this receiver
               receiverLayers[receiverId] = L.layerGroup().addTo(map);
               
-              console.log(`Creating circle markers for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
+              console.log(`Creating markers for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
-              // CRITICAL DEBUG: Force display of at least one test circle to verify rendering
-              const testCircle = L.circleMarker([51.5, -0.09], {
-                radius: 50,
-                color: 'red',
-                weight: 5,
-                opacity: 1.0,
-                fillColor: 'yellow',
-                fillOpacity: 1.0
-              }).addTo(map);
-              console.log("Added test circle to map at 51.5, -0.09");
+              // Create a FeatureGroup for better management and ensure it's added to the map
+              const pointsGroup = new L.FeatureGroup().addTo(map);
               
-              // Add circle markers for each point - DIRECT APPROACH
+              // COMPLETELY NEW APPROACH: Use div icons instead of circle markers
               receiverData[receiverId].forEach((point, index) => {
                 try {
-                  // Scale the radius based on count (min 25, max 50) - even larger for visibility
-                  const radius = Math.min(50, Math.max(25, Math.log10(point.count + 1) * 20));
+                  // Validate coordinates
+                  if (isNaN(point.lat) || isNaN(point.lon) ||
+                      point.lat < -90 || point.lat > 90 ||
+                      point.lon < -180 || point.lon > 180) {
+                    console.error(`Invalid coordinates: ${point.lat}, ${point.lon}`);
+                    return;
+                  }
                   
-                  // Create and immediately add the circle marker to the map
-                  const circle = L.circleMarker([point.lat, point.lon], {
-                    radius: radius,
-                    color: 'black', // Black border for maximum contrast
-                    weight: 4,
-                    opacity: 1.0,
-                    fillColor: color,
-                    fillOpacity: 1.0
-                  }).addTo(map);
+                  // Scale size based on count (min 20, max 40)
+                  const size = Math.min(40, Math.max(20, Math.log10(point.count + 1) * 15));
+                  
+                  // Create a custom HTML icon with the receiver's color
+                  const customIcon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div style="
+                      background-color: ${color};
+                      border: 3px solid black;
+                      width: ${size}px;
+                      height: ${size}px;
+                      border-radius: 50%;
+                      opacity: 1.0;
+                      box-shadow: 0 0 5px white;
+                      z-index: 1000;
+                    "></div>`,
+                    iconSize: [size, size],
+                    iconAnchor: [size/2, size/2]
+                  });
+                  
+                  // Create a marker with the custom icon and add it to the feature group
+                  const marker = L.marker([point.lat, point.lon], {
+                    icon: customIcon,
+                    zIndexOffset: 1000 // Ensure high z-index
+                  }).addTo(pointsGroup);
+                  
+                  // Add a popup with information
+                  marker.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
                   
                   // Log every 10th point for debugging
                   if (index % 10 === 0) {
-                    console.log(`Added point at ${point.lat}, ${point.lon} with radius ${radius}`);
+                    console.log(`Added marker at ${point.lat}, ${point.lon} with size ${size}px`);
                   }
                   
-                  // Add a popup with information about the duplicate
-                  circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
-                  
-                  // Store the circle in rangeCircles array so it gets cleared properly
-                  rangeCircles.push(circle);
+                  // Store reference for cleanup
+                  rangeCircles.push(marker);
                 } catch (e) {
-                  console.error(`Error creating circle for point:`, e, point);
+                  console.error(`Error creating marker for point:`, e, point);
                 }
               });
               
-              console.log(`Attempted to add ${receiverData[receiverId].length} points directly to map for receiver ${receiverId}`);
+              // Add a test marker at a fixed location with a very distinct appearance
+              const testIcon = L.divIcon({
+                className: 'test-div-icon',
+                html: `<div style="
+                  background-color: red;
+                  border: 5px solid yellow;
+                  width: 60px;
+                  height: 60px;
+                  border-radius: 50%;
+                  opacity: 1.0;
+                  box-shadow: 0 0 10px black;
+                  z-index: 2000;
+                "></div>`,
+                iconSize: [60, 60],
+                iconAnchor: [30, 30]
+              });
+              
+              const testMarker = L.marker([51.5, -0.09], {
+                icon: testIcon,
+                zIndexOffset: 2000
+              }).addTo(map);
+              console.log("Added test marker to map at 51.5, -0.09");
+              
+              // Bring the feature group to front
+              pointsGroup.bringToFront();
+              
+              console.log(`Added ${receiverData[receiverId].length} markers to feature group for receiver ${receiverId}`);
               
               // We're adding circles directly to the map now, not using layer groups
               
