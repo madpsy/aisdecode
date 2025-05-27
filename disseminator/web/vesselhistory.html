@@ -4513,6 +4513,7 @@
           results.reverse().forEach(result => {
             const item = document.createElement('div');
             item.className = 'search-result-item';
+            item.style.position = 'relative'; // Add position relative for flag positioning
             
             // Format the last updated time
             const lastUpdated = new Date(result.LastUpdated);
@@ -4530,6 +4531,28 @@
             content += `<br>Seen: ${timeAgo}`;
             
             item.innerHTML = content;
+            
+            // Add flag to the search result
+            // Get country code from MID (first 3 digits of UserID)
+            const mid = result.UserID.toString().substring(0, 3);
+            if (midsMapping[mid] && midsMapping[mid][0]) {
+              const countryCode = midsMapping[mid][0].toLowerCase();
+              const flagUrl = `/flags/${countryCode}.svg`;
+              
+              // Create flag image element
+              const flagImg = document.createElement('img');
+              flagImg.src = flagUrl;
+              flagImg.alt = `${midsMapping[mid][3]} Flag`;
+              flagImg.style.position = 'absolute';
+              flagImg.style.top = '5px';
+              flagImg.style.right = '5px';
+              flagImg.style.width = '24px';
+              flagImg.style.height = 'auto';
+              flagImg.style.border = '1px solid #ddd';
+              
+              // Add flag to the item
+              item.appendChild(flagImg);
+            }
             
             // Add click event to load vessel history
             item.addEventListener('click', function() {
