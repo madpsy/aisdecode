@@ -1096,10 +1096,6 @@
         
         // Helper function to populate the duplicate receivers table
         function populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages) {
-          console.log("POPULATING TABLE - receiverMessageCounts:", JSON.stringify(receiverMessageCounts));
-          console.log("POPULATING TABLE - receiverNames:", JSON.stringify(receiverNames));
-          console.log("POPULATING TABLE - receiverColors:", JSON.stringify(receiverColors));
-          console.log("POPULATING TABLE - totalDuplicateMessages:", totalDuplicateMessages);
           
           const duplicateReceiversTable = document.getElementById('duplicate-receivers-stats');
           if (duplicateReceiversTable) {
@@ -1181,9 +1177,9 @@
             statsContainer.style.display = 'block';
             statsContainer.style.visibility = 'visible';
             
-            console.log("Duplicate receivers table populated with " + receiversArray.length + " rows");
-            console.log("Table HTML:", duplicateReceiversTable.innerHTML);
-            console.log("Container display style:", container.style.display);
+            // console.log("Duplicate receivers table populated with " + receiversArray.length + " rows");
+            // console.log("Table HTML:", duplicateReceiversTable.innerHTML);
+            // console.log("Container display style:", container.style.display);
           }
         }
         
@@ -1255,7 +1251,7 @@
                   // Add this point to the receiver's data
                   receiverData[id].push({lat: point.lat, lon: point.lon, count: point.count || 1});
                   
-                  console.log(`Added point for receiver ${id}, count: ${point.count || 1}, total now: ${receiverMessageCounts[id]}`);
+                 // console.log(`Added point for receiver ${id}, count: ${point.count || 1}, total now: ${receiverMessageCounts[id]}`);
                 });
               }
             });
