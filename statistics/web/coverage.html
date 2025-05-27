@@ -1328,8 +1328,8 @@
               
               // The populateDuplicateReceiversTable function has been moved outside the loop
               
-              // Store the circle group for cleanup
-              rangeCircles.push(circlesGroup);
+              // Note: We don't need to store circlesGroup in rangeCircles as individual circles are already stored
+              // and circlesGroup is already added to the map on line 1247
               
               console.log(`Added circle markers for receiver ${receiverId} with ${receiverData[receiverId].length} points`);
               
