@@ -1149,107 +1149,57 @@
               // Create a layer group for this receiver
               receiverLayers[receiverId] = L.layerGroup().addTo(map);
               
-              console.log(`Creating points for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
+              console.log(`Creating heatmap for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
-              // Create a new pane with high z-index for our points
-              if (!map.getPane('duplicatePointsPane')) {
-                map.createPane('duplicatePointsPane');
-                map.getPane('duplicatePointsPane').style.zIndex = 650; // Higher than markers (600)
+              // Create a custom pane for heatmaps if it doesn't exist
+              if (!map.getPane('heatmapPane')) {
+                map.createPane('heatmapPane');
+                map.getPane('heatmapPane').style.zIndex = 450; // Below markers but above tiles
               }
               
-              // Create a layer group specifically for this receiver's points
-              const pointsLayer = L.layerGroup().addTo(map);
-              
-              // Process points in batches to avoid browser freezing
-              const batchSize = 50;
-              const batches = Math.ceil(receiverData[receiverId].length / batchSize);
-              
-              function processBatch(batchIndex) {
-                if (batchIndex >= batches) {
-                  console.log(`Finished adding all ${receiverData[receiverId].length} points for receiver ${receiverId}`);
-                  return;
+              // Convert data to heatmap format with intensity based on count
+              const heatData = receiverData[receiverId].map(point => {
+                // Validate coordinates
+                if (isNaN(point.lat) || isNaN(point.lon) ||
+                    point.lat < -90 || point.lat > 90 ||
+                    point.lon < -180 || point.lon > 180) {
+                  console.error(`Invalid coordinates: ${point.lat}, ${point.lon}`);
+                  return null;
                 }
                 
-                const start = batchIndex * batchSize;
-                const end = Math.min(start + batchSize, receiverData[receiverId].length);
-                console.log(`Processing batch ${batchIndex + 1}/${batches} (points ${start}-${end-1})`);
-                
-                for (let i = start; i < end; i++) {
-                  const point = receiverData[receiverId][i];
-                  
-                  try {
-                    // Validate coordinates
-                    if (isNaN(point.lat) || isNaN(point.lon) ||
-                        point.lat < -90 || point.lat > 90 ||
-                        point.lon < -180 || point.lon > 180) {
-                      console.error(`Invalid coordinates: ${point.lat}, ${point.lon}`);
-                      continue;
-                    }
-                    
-                    // Scale size based on count (min 20, max 40)
-                    const size = Math.min(40, Math.max(20, Math.log10(point.count + 1) * 15));
-                    
-                    // Create a custom icon with HTML content
-                    const customIcon = L.divIcon({
-                      className: 'duplicate-point-icon',
-                      html: `<div class="duplicate-point-inner" style="
-                        width: ${size}px;
-                        height: ${size}px;
-                        background-color: ${color};
-                        border: 3px solid black;
-                        border-radius: 50%;
-                      "></div>`,
-                      iconSize: [size, size],
-                      iconAnchor: [size/2, size/2]
-                    });
-                    
-                    // Create marker with the custom icon and add to layer
-                    const marker = L.marker([point.lat, point.lon], {
-                      icon: customIcon,
-                      pane: 'duplicatePointsPane' // Use our custom pane
-                    }).addTo(pointsLayer);
-                    
-                    // Add popup
-                    marker.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
-                    
-                    // Store for cleanup
-                    rangeCircles.push(marker);
-                    
-                    // Log every 10th point
-                    if (i % 10 === 0) {
-                      console.log(`Added point at ${point.lat}, ${point.lon} with size ${size}px`);
-                    }
-                  } catch (e) {
-                    console.error(`Error creating point:`, e, point);
-                  }
-                }
-                
-                // Process next batch after a short delay
-                setTimeout(() => processBatch(batchIndex + 1), 10);
-              }
+                // Intensity based on count (0.0-1.0)
+                // Use logarithmic scale for better visualization
+                const intensity = Math.min(1.0, Math.log10(point.count + 1) / 2);
+                return [point.lat, point.lon, intensity];
+              }).filter(point => point !== null); // Remove invalid points
               
-              // Start processing batches
-              processBatch(0);
+              console.log(`Prepared ${heatData.length} valid heatmap points for receiver ${receiverId}`);
               
-              // Add a test marker at a fixed location
-              const testIcon = L.divIcon({
-                className: 'duplicate-point-icon',
-                html: `<div class="duplicate-point-inner" style="
-                  width: 60px;
-                  height: 60px;
-                  background-color: red;
-                  border: 5px solid yellow;
-                  border-radius: 50%;
-                "></div>`,
-                iconSize: [60, 60],
-                iconAnchor: [30, 30]
-              });
+              // Create a custom gradient based on the receiver's color
+              // Start with transparent, then fade to the receiver's color
+              const gradient = {};
+              gradient[0.0] = 'rgba(0,0,0,0)';      // Transparent
+              gradient[0.2] = `${color}33`;         // Very transparent color (20% opacity)
+              gradient[0.4] = `${color}66`;         // Semi-transparent color (40% opacity)
+              gradient[0.6] = `${color}99`;         // More visible color (60% opacity)
+              gradient[0.8] = `${color}CC`;         // Almost opaque color (80% opacity)
+              gradient[1.0] = color;                // Full color
               
-              const testMarker = L.marker([51.5, -0.09], {
-                icon: testIcon,
-                pane: 'duplicatePointsPane'
+              // Create the heatmap layer with custom options
+              const heatmapLayer = L.heatLayer(heatData, {
+                radius: 25,                // Larger radius for better visibility
+                blur: 15,                  // Moderate blur for smooth appearance
+                maxZoom: 17,               // Maximum zoom level for the heatmap
+                max: 1.0,                  // Maximum intensity
+                minOpacity: 0.3,           // Minimum opacity for better visibility
+                gradient: gradient,        // Custom gradient based on receiver color
+                pane: 'heatmapPane'        // Use our custom pane
               }).addTo(map);
-              console.log("Added test marker to map at 51.5, -0.09");
+              
+              // Store the heatmap layer for cleanup
+              rangeCircles.push(heatmapLayer);
+              
+              console.log(`Added heatmap layer for receiver ${receiverId} with ${heatData.length} points`);
               
               // We're adding circles directly to the map now, not using layer groups
               
