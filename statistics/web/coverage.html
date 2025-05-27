@@ -45,6 +45,24 @@
       font-weight: bold;
       white-space: nowrap;
     }
+    /* Ensure our custom markers are visible */
+    .custom-div-icon {
+      z-index: 9999 !important;
+      pointer-events: auto !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      display: block !important;
+    }
+    .heatmap-point {
+      position: absolute;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 9999;
+      pointer-events: auto;
+      visibility: visible;
+      opacity: 1;
+      display: block;
+    }
     /* Loading overlay styles */
     .loading-overlay {
       position: absolute;
@@ -1139,90 +1157,115 @@
               // Create a layer group for this receiver
               receiverLayers[receiverId] = L.layerGroup().addTo(map);
               
-              console.log(`Creating markers for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
+              console.log(`Creating points for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
-              // Create a FeatureGroup for better management and ensure it's added to the map
-              const pointsGroup = new L.FeatureGroup().addTo(map);
+              // RADICAL APPROACH: Add points directly to the DOM
+              // First, get the map container element
+              const mapContainer = document.getElementById('coverage-map');
               
-              // COMPLETELY NEW APPROACH: Use div icons instead of circle markers
-              receiverData[receiverId].forEach((point, index) => {
-                try {
-                  // Validate coordinates
-                  if (isNaN(point.lat) || isNaN(point.lon) ||
-                      point.lat < -90 || point.lat > 90 ||
-                      point.lon < -180 || point.lon > 180) {
-                    console.error(`Invalid coordinates: ${point.lat}, ${point.lon}`);
-                    return;
+              // Add a test point directly to the DOM
+              const testPoint = document.createElement('div');
+              testPoint.className = 'heatmap-point';
+              testPoint.style.backgroundColor = 'red';
+              testPoint.style.border = '5px solid yellow';
+              testPoint.style.width = '60px';
+              testPoint.style.height = '60px';
+              testPoint.style.left = '50%';
+              testPoint.style.top = '50%';
+              mapContainer.appendChild(testPoint);
+              console.log("Added test point directly to DOM at center of map");
+              
+              // Create a container for all our points
+              const pointsContainer = document.createElement('div');
+              pointsContainer.id = `points-container-${receiverId}`;
+              pointsContainer.style.position = 'absolute';
+              pointsContainer.style.top = '0';
+              pointsContainer.style.left = '0';
+              pointsContainer.style.width = '100%';
+              pointsContainer.style.height = '100%';
+              pointsContainer.style.zIndex = '1000';
+              pointsContainer.style.pointerEvents = 'none';
+              mapContainer.appendChild(pointsContainer);
+              
+              // Delay adding points to ensure map is ready
+              setTimeout(() => {
+                // Add points with a delay between each to avoid overwhelming the browser
+                receiverData[receiverId].forEach((point, index) => {
+                  try {
+                    // Validate coordinates
+                    if (isNaN(point.lat) || isNaN(point.lon) ||
+                        point.lat < -90 || point.lat > 90 ||
+                        point.lon < -180 || point.lon > 180) {
+                      console.error(`Invalid coordinates: ${point.lat}, ${point.lon}`);
+                      return;
+                    }
+                    
+                    // Convert lat/lon to pixel coordinates
+                    const latLng = L.latLng(point.lat, point.lon);
+                    const pixelPoint = map.latLngToContainerPoint(latLng);
+                    
+                    // Scale size based on count (min 20, max 40)
+                    const size = Math.min(40, Math.max(20, Math.log10(point.count + 1) * 15));
+                    
+                    // Create a div element for the point
+                    const pointElement = document.createElement('div');
+                    pointElement.className = 'heatmap-point';
+                    pointElement.style.backgroundColor = color;
+                    pointElement.style.border = '3px solid black';
+                    pointElement.style.width = `${size}px`;
+                    pointElement.style.height = `${size}px`;
+                    pointElement.style.left = `${pixelPoint.x}px`;
+                    pointElement.style.top = `${pixelPoint.y}px`;
+                    
+                    // Add the point to the container
+                    pointsContainer.appendChild(pointElement);
+                    
+                    // Log every 10th point for debugging
+                    if (index % 10 === 0) {
+                      console.log(`Added DOM point at ${pixelPoint.x}, ${pixelPoint.y} (${point.lat}, ${point.lon}) with size ${size}px`);
+                    }
+                    
+                  } catch (e) {
+                    console.error(`Error creating point for coordinates ${point.lat}, ${point.lon}:`, e);
                   }
-                  
-                  // Scale size based on count (min 20, max 40)
-                  const size = Math.min(40, Math.max(20, Math.log10(point.count + 1) * 15));
-                  
-                  // Create a custom HTML icon with the receiver's color
-                  const customIcon = L.divIcon({
-                    className: 'custom-div-icon',
-                    html: `<div style="
-                      background-color: ${color};
-                      border: 3px solid black;
-                      width: ${size}px;
-                      height: ${size}px;
-                      border-radius: 50%;
-                      opacity: 1.0;
-                      box-shadow: 0 0 5px white;
-                      z-index: 1000;
-                    "></div>`,
-                    iconSize: [size, size],
-                    iconAnchor: [size/2, size/2]
+                });
+                
+                console.log(`Added ${receiverData[receiverId].length} DOM points for receiver ${receiverId}`);
+                
+                // Set up a MutationObserver to detect if our points are removed
+                const observer = new MutationObserver((mutations) => {
+                  mutations.forEach((mutation) => {
+                    if (mutation.removedNodes.length > 0) {
+                      console.log('Elements were removed from the DOM:', mutation.removedNodes);
+                    }
                   });
-                  
-                  // Create a marker with the custom icon and add it to the feature group
-                  const marker = L.marker([point.lat, point.lon], {
-                    icon: customIcon,
-                    zIndexOffset: 1000 // Ensure high z-index
-                  }).addTo(pointsGroup);
-                  
-                  // Add a popup with information
-                  marker.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
-                  
-                  // Log every 10th point for debugging
-                  if (index % 10 === 0) {
-                    console.log(`Added marker at ${point.lat}, ${point.lon} with size ${size}px`);
-                  }
-                  
-                  // Store reference for cleanup
-                  rangeCircles.push(marker);
-                } catch (e) {
-                  console.error(`Error creating marker for point:`, e, point);
-                }
-              });
-              
-              // Add a test marker at a fixed location with a very distinct appearance
-              const testIcon = L.divIcon({
-                className: 'test-div-icon',
-                html: `<div style="
-                  background-color: red;
-                  border: 5px solid yellow;
-                  width: 60px;
-                  height: 60px;
-                  border-radius: 50%;
-                  opacity: 1.0;
-                  box-shadow: 0 0 10px black;
-                  z-index: 2000;
-                "></div>`,
-                iconSize: [60, 60],
-                iconAnchor: [30, 30]
-              });
-              
-              const testMarker = L.marker([51.5, -0.09], {
-                icon: testIcon,
-                zIndexOffset: 2000
-              }).addTo(map);
-              console.log("Added test marker to map at 51.5, -0.09");
-              
-              // Bring the feature group to front
-              pointsGroup.bringToFront();
-              
-              console.log(`Added ${receiverData[receiverId].length} markers to feature group for receiver ${receiverId}`);
+                });
+                
+                // Start observing the points container
+                observer.observe(pointsContainer, { childList: true, subtree: true });
+                
+                // Update points position when the map is moved
+                map.on('moveend', () => {
+                  console.log('Map moved, updating point positions');
+                  Array.from(pointsContainer.children).forEach((pointElement) => {
+                    try {
+                      // Get the original lat/lon from the element's dataset
+                      const lat = parseFloat(pointElement.dataset.lat);
+                      const lon = parseFloat(pointElement.dataset.lon);
+                      
+                      // Convert lat/lon to new pixel coordinates
+                      const latLng = L.latLng(lat, lon);
+                      const pixelPoint = map.latLngToContainerPoint(latLng);
+                      
+                      // Update the position
+                      pointElement.style.left = `${pixelPoint.x}px`;
+                      pointElement.style.top = `${pixelPoint.y}px`;
+                    } catch (e) {
+                      console.error('Error updating point position:', e);
+                    }
+                  });
+                });
+              }, 500); // 500ms delay to ensure map is ready
               
               // We're adding circles directly to the map now, not using layer groups
               
