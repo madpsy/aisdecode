@@ -1011,24 +1011,28 @@
         // Clear all previous map layers
         clearMapLayers();
         
-        // Create new heat layer with improved visibility and different gradient for duplicates
-        const gradient = isDuplicatesMode
-          ? {0.2: '#FED976', 0.4: '#FEB24C', 0.6: '#FD8D3C', 0.8: '#F03B20', 1: '#BD0026'} // Orange-red for duplicates
-          : {0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}; // Default gradient
-          
-        heatLayer = L.heatLayer(heatData, {
-          radius: 20,
-          blur: 15,
-          maxZoom: 17,
-          minOpacity: 0.4,
-          gradient: gradient
-        }).addTo(map);
-        
-        // For duplicates mode, add click handler to show receiver information
+        // Create heat layer based on mode
         if (isDuplicatesMode) {
-          // IMPORTANT: Add annotations for duplicate points
-          console.log("Adding annotations for duplicate points");
+          // For duplicates mode, we'll create separate heatmap layers for each receiver
+          // The main heatLayer variable will remain null as we'll use an array instead
+          console.log("Creating separate heatmap layers for each receiver");
           
+          // We'll handle this after fetching receivers
+        } else {
+          // For coverage mode, create a single heatmap with the default gradient
+          const gradient = {0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1: 'red'};
+          
+          heatLayer = L.heatLayer(heatData, {
+            radius: 20,
+            blur: 15,
+            maxZoom: 17,
+            minOpacity: 0.4,
+            gradient: gradient
+          }).addTo(map);
+        }
+        
+        // For duplicates mode, create separate heatmap layers for each receiver
+        if (isDuplicatesMode) {
           // Get the selected receiver ID
           const selectedReceiverId = receiverId ? parseInt(receiverId) : null;
           console.log("Selected receiver ID:", selectedReceiverId);
@@ -1047,6 +1051,41 @@
             const receiverMessageCounts = {};
             let totalDuplicateMessages = 0;
             
+            // Generate a palette of vivid colors for receivers
+            const vividColors = [
+              '#0074D9', // Blue
+              '#2ECC40', // Green
+              '#FFDC00', // Yellow
+              '#FF851B', // Orange
+              '#B10DC9', // Purple
+              '#01FF70', // Lime
+              '#F012BE', // Fuchsia
+              '#7FDBFF', // Aqua
+              '#39CCCC', // Teal
+              '#3D9970', // Olive
+              '#85144b', // Maroon
+              '#AAAAAA'  // Silver
+            ];
+            
+            // Map to store receiver colors
+            const receiverColors = {};
+            
+            // Assign colors to receivers
+            let colorIndex = 0;
+            allReceivers.forEach(receiver => {
+              if (receiver.id === selectedReceiverId) {
+                // Main receiver is always red
+                receiverColors[receiver.id] = '#ff4136';
+              } else {
+                // Assign a vivid color from the palette
+                receiverColors[receiver.id] = vividColors[colorIndex % vividColors.length];
+                colorIndex++;
+              }
+            });
+            
+            // Group data points by receiver
+            const receiverData = {};
+            
             // Process each point in the data
             data.forEach(point => {
               if (point.receiver_ids && Array.isArray(point.receiver_ids)) {
@@ -1057,92 +1096,86 @@
                 otherReceivers.forEach(id => {
                   if (!receiverMessageCounts[id]) {
                     receiverMessageCounts[id] = 0;
+                    receiverData[id] = [];
                   }
                   receiverMessageCounts[id] += point.count || 1;
                   totalDuplicateMessages += point.count || 1;
-                });
-                
-                // Only add annotation if there are other receivers
-                if (otherReceivers.length > 0) {
-                  try {
-                    // Create popup content with proper receiver names
-                    let popupContent = `<div style="font-weight: bold; margin-bottom: 5px;">Duplicate with:</div><ul style="margin: 0; padding-left: 20px;">`;
-                    
-                    otherReceivers.forEach(id => {
-                      // Get the receiver name from our map, or fall back to "Receiver ID"
-                      const name = receiverNames[id] || `Receiver ${id}`;
-                      popupContent += `<li>${name}</li>`;
-                    });
-                    
-                    popupContent += '</ul>';
-                    
-                    // Use a regular marker with a custom icon instead of circleMarker (smaller size)
-                    const marker = L.marker([point.lat, point.lon], {
-                      icon: L.divIcon({
-                        html: `<div style="background-color: #FF4500; border-radius: 50%; width: 10px; height: 10px; border: 1px solid white;"></div>`,
-                        className: 'custom-marker',
-                        iconSize: [12, 12],
-                        iconAnchor: [6, 6]
-                      }),
-                      interactive: true,  // Ensure marker is interactive
-                      bubblingMouseEvents: false  // Prevent event bubbling
-                    }).addTo(map);
-                    
-                    // Add popup to marker and make it open on click
-                    marker.bindPopup(popupContent);
-                    
-                    // Add a click handler directly to the marker
-                    marker.on('click', function() {
-                      this.openPopup();
-                    });
-                    
-                    console.log(`Added marker at ${point.lat}, ${point.lon} for receivers: ${otherReceivers.join(', ')}`);
-                  } catch (e) {
-                    console.error("Error adding marker:", e);
-                  }
-                }
-              }
-              // Populate the duplicate receivers table
-              const duplicateReceiversTable = document.getElementById('duplicate-receivers-stats');
-              if (duplicateReceiversTable) {
-                // Clear previous content
-                duplicateReceiversTable.innerHTML = '';
-                
-                // Convert to array for sorting
-                const receiversArray = Object.entries(receiverMessageCounts).map(([id, count]) => ({
-                  id: parseInt(id),
-                  name: receiverNames[id] || `Receiver ${id}`,
-                  count: count
-                }));
-                
-                // Sort by message count (descending)
-                receiversArray.sort((a, b) => b.count - a.count);
-                
-                // Add rows to the table
-                receiversArray.forEach(receiver => {
-                  const percentage = totalDuplicateMessages > 0
-                    ? ((receiver.count / totalDuplicateMessages) * 100).toFixed(1)
-                    : '0.0';
                   
-                  duplicateReceiversTable.innerHTML += `
-                    <tr>
-                      <td>${receiver.name}</td>
-                      <td>${receiver.count}</td>
-                      <td>${percentage}%</td>
-                    </tr>
-                  `;
+                  // Add this point to the receiver's data
+                  // Intensity based on count, amplified for better visibility
+                  const intensity = Math.min(1, Math.log10(point.count + 1) / 1.5);
+                  receiverData[id].push([point.lat, point.lon, intensity]);
                 });
-                
-                // Show the container
-                document.getElementById('duplicate-receivers-container').style.display = 'block';
               }
             });
+            
+            // Create a separate heatmap layer for each receiver
+            Object.keys(receiverData).forEach(receiverId => {
+              const color = receiverColors[receiverId] || '#0074D9'; // Default to blue if no color assigned
+              
+              // Create a single-color gradient with varying intensities
+              const gradient = {};
+              for (let i = 1; i <= 5; i++) {
+                const key = i * 0.2;
+                // Create a gradient of the same color with different opacities
+                gradient[key] = color;
+              }
+              
+              // Create the heatmap layer for this receiver
+              const receiverHeatLayer = L.heatLayer(receiverData[receiverId], {
+                radius: 20,
+                blur: 15,
+                maxZoom: 17,
+                minOpacity: 0.4,
+                gradient: gradient
+              }).addTo(map);
+              
+              // Store the layer in the rangeCircles array so it gets cleared properly
+              rangeCircles.push(receiverHeatLayer);
+            });
+            // Populate the duplicate receivers table
+            const duplicateReceiversTable = document.getElementById('duplicate-receivers-stats');
+            if (duplicateReceiversTable) {
+              // Clear previous content
+              duplicateReceiversTable.innerHTML = '';
+              
+              // Convert to array for sorting
+              const receiversArray = Object.entries(receiverMessageCounts).map(([id, count]) => ({
+                id: parseInt(id),
+                name: receiverNames[id] || `Receiver ${id}`,
+                count: count,
+                color: receiverColors[id] || '#0074D9' // Get the color for this receiver
+              }));
+              
+              // Sort by message count (descending)
+              receiversArray.sort((a, b) => b.count - a.count);
+              
+              // Add rows to the table
+              receiversArray.forEach(receiver => {
+                const percentage = totalDuplicateMessages > 0
+                  ? ((receiver.count / totalDuplicateMessages) * 100).toFixed(1)
+                  : '0.0';
+                
+                duplicateReceiversTable.innerHTML += `
+                  <tr>
+                    <td>
+                      <div style="display: flex; align-items: center;">
+                        <div style="background-color: ${receiver.color}; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;"></div>
+                        ${receiver.name}
+                      </div>
+                    </td>
+                    <td>${receiver.count}</td>
+                    <td>${percentage}%</td>
+                  </tr>
+                `;
+              });
+                
+              // Show the container
+              document.getElementById('duplicate-receivers-container').style.display = 'block';
+            }
           }).catch(err => {
             console.error("Error fetching receivers:", err);
           });
-          
-          // We're not adding a click handler to the map here anymore
-          // The annotations added above will have their own popups
         } else {
           // Remove click handler for coverage mode
           map.off('click');
@@ -1234,37 +1267,8 @@
             }
           });
           
-          // Generate a palette of vivid colors for receivers
-          const vividColors = [
-            '#0074D9', // Blue
-            '#2ECC40', // Green
-            '#FFDC00', // Yellow
-            '#FF851B', // Orange
-            '#B10DC9', // Purple
-            '#01FF70', // Lime
-            '#F012BE', // Fuchsia
-            '#7FDBFF', // Aqua
-            '#39CCCC', // Teal
-            '#3D9970', // Olive
-            '#85144b', // Maroon
-            '#AAAAAA'  // Silver
-          ];
-          
-          // Map to store receiver colors
-          const receiverColors = {};
-          
-          // Assign colors to receivers
-          let colorIndex = 0;
-          receivers.forEach(receiver => {
-            if (receiver.id === parseInt(receiverId)) {
-              // Main receiver is always red
-              receiverColors[receiver.id] = '#ff4136';
-            } else if (mentionedReceiverIds.has(receiver.id)) {
-              // Assign a vivid color from the palette
-              receiverColors[receiver.id] = vividColors[colorIndex % vividColors.length];
-              colorIndex++;
-            }
-          });
+          // We've already assigned colors to receivers above, so we don't need this section anymore
+          // The receiverColors map is now created earlier when we create the heatmap layers
           
           // Add markers for all mentioned receivers that aren't already shown
           receivers.forEach(receiver => {
