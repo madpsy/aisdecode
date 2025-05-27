@@ -2601,7 +2601,12 @@ function createPopupContent(data) {
     name += ` (${data.CallSign})`;
   }
   if (data.AISClass) {
-    name += ` | ${data.AISClass}`;
+    // Check if vessel is AtoN class and has VirtualAtoN flag set to true
+    if (data.AISClass === "AtoN" && data.VirtualAtoN === true) {
+      name += ` | AtoN (Virtual)`;
+    } else {
+      name += ` | ${data.AISClass}`;
+    }
   }
   lines.push(`<strong>${name}</strong>`);
 
