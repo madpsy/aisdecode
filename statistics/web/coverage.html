@@ -130,12 +130,15 @@
             <!-- Minimum Count dropdown (only shown in duplicates mode) -->
             <div id="mincount-container" style="display: none; margin-top: 10px;">
               <label for="mincount-select" class="form-label">Minimum Count:</label>
-              <select id="mincount-select" class="form-select form-select-sm">
-                <option value="1">1</option>
-                <option value="10" selected>10</option>
-                <option value="100">100</option>
-                <option value="1000">1000</option>
-              </select>
+              <div class="d-flex align-items-center">
+                <select id="mincount-select" class="form-select form-select-sm">
+                  <option value="1">1</option>
+                  <option value="10" selected>10</option>
+                  <option value="100">100</option>
+                  <option value="1000">1000</option>
+                </select>
+                <span id="mincount-indicator" class="ms-2 badge bg-info" style="display: none;">Active</span>
+              </div>
             </div>
           </div>
           <div class="col-md-6">
@@ -1050,9 +1053,12 @@
           window.duplicatesData = data;
           
           // Convert duplicates data to heatmap format with higher intensity
+          const mincount = parseInt(document.getElementById('mincount-select').value);
           heatData = data.map(point => {
             // Intensity based on count, amplified for better visibility of duplicates
-            const intensity = Math.min(1, Math.log10(point.count + 1) / 1.5);
+            // Adjust intensity calculation based on mincount value
+            const divisor = mincount <= 10 ? 1.5 : (mincount <= 100 ? 1.2 : 1.0);
+            const intensity = Math.min(1, Math.log10(point.count + 1) / divisor);
             return [point.lat, point.lon, intensity];
           });
         } else {
@@ -1339,8 +1345,11 @@
                       continue;
                     }
                     
-                    // Scale radius based on count (min 15, max 30)
-                    const radius = Math.min(30, Math.max(15, Math.log10(point.count + 1) * 10));
+                    // Scale radius based on count (min 20, max 40)
+                    // Use a more visible scaling for higher mincount values
+                    const mincount = parseInt(document.getElementById('mincount-select').value);
+                    const scaleFactor = mincount <= 10 ? 10 : (mincount <= 100 ? 15 : 20);
+                    const radius = Math.min(40, Math.max(20, Math.log10(point.count + 1) * scaleFactor));
                     
                     // Create a circle with the receiver's color - no border
                     const circle = L.circleMarker([point.lat, point.lon], {
@@ -1349,7 +1358,8 @@
                       color: color,
                       weight: 0, // No border
                       fillColor: color,
-                      fillOpacity: 0.8,
+                      // Increase opacity for higher mincount values to make them more visible
+                      fillOpacity: Math.min(0.9, 0.7 + parseInt(document.getElementById('mincount-select').value) / 1000),
                       pane: 'duplicatePointsPane'
                     }).addTo(circlesGroup);
                     
@@ -2807,6 +2817,15 @@
       
       // Add event listener for mincount dropdown
       document.getElementById('mincount-select').addEventListener('change', function() {
+        // Show/hide the indicator based on the selected value
+        const mincountValue = parseInt(this.value);
+        const indicator = document.getElementById('mincount-indicator');
+        if (mincountValue > 1) {
+          indicator.style.display = 'inline-block';
+        } else {
+          indicator.style.display = 'none';
+        }
+        
         updateURL();
         loadCoverageData();
       });
@@ -2918,6 +2937,15 @@
         // Check if the value is valid (1, 10, 100, 1000)
         if (['1', '10', '100', '1000'].includes(params.mincount)) {
           mincountSelect.value = params.mincount;
+          
+          // Show/hide the indicator based on the selected value
+          const mincountValue = parseInt(params.mincount);
+          const indicator = document.getElementById('mincount-indicator');
+          if (mincountValue > 1) {
+            indicator.style.display = 'inline-block';
+          } else {
+            indicator.style.display = 'none';
+          }
         }
       }
       
