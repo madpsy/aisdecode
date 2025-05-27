@@ -1054,9 +1054,8 @@
         
         // Create heat layer based on mode
         if (isDuplicatesMode) {
-          // For duplicates mode, we'll create separate heatmap layers for each receiver
-          // The main heatLayer variable will remain null as we'll use an array instead
-          console.log("Creating separate heatmap layers for each receiver");
+          // For duplicates mode, we'll create circle markers for each receiver
+          console.log("Creating circle markers for duplicate data");
           
           // We'll handle this after fetching receivers
         } else {
@@ -1244,68 +1243,53 @@
             console.log("Receiver message counts:", JSON.stringify(receiverMessageCounts));
             console.log("Total duplicate messages:", totalDuplicateMessages);
             
-            // Create heatmap layers for each receiver's data points
+            // Process all duplicate data points into a single heatmap
+            console.log("Creating combined heatmap for all duplicate data");
+            
+            // Collect all visible receiver data points
+            let allVisiblePoints = [];
+            
             Object.keys(receiverData).forEach(receiverId => {
               const receiverId_num = parseInt(receiverId);
-              const color = receiverColors[receiverId_num] || '#0074D9'; // Default to blue if no color assigned
               
-              console.log(`Creating heatmap for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
+              // Store the layer reference for this receiver (even if empty)
+              receiverLayers[receiverId] = { points: receiverData[receiverId] };
               
-              if (receiverData[receiverId].length === 0) {
-                console.log(`No data points for receiver ${receiverId}, skipping`);
-                return;
+              // Only include points from visible receivers
+              if (duplicateReceiverVisibility[receiverId_num] !== false) {
+                allVisiblePoints = allVisiblePoints.concat(receiverData[receiverId]);
               }
+            });
+            
+            console.log(`Combined ${allVisiblePoints.length} points from all visible receivers`);
+            
+            // Convert all points to heatmap format
+            const heatData = allVisiblePoints.map(point => {
+              // Intensity based on count, amplified for better visibility
+              const intensity = Math.min(1, Math.log10(point.count + 1) / 1.5);
+              return [point.lat, point.lon, intensity];
+            });
+            
+            // Create a single heatmap layer for all duplicate data
+            if (heatData.length > 0) {
+              console.log(`Creating heatmap with ${heatData.length} points`);
               
-              // Create a layer group for this receiver
-              receiverLayers[receiverId] = L.layerGroup();
-              
-              // Convert receiver data to heatmap format
-              const heatData = receiverData[receiverId].map(point => {
-                // Intensity based on count, amplified for better visibility
-                const intensity = Math.min(1, Math.log10(point.count + 1) / 1.5);
-                return [point.lat, point.lon, intensity];
-              });
-              
-              console.log(`Creating heatmap for receiver ${receiverId} with ${heatData.length} points`);
-              
-              // Create a custom gradient using the receiver's color
-              const customGradient = {};
-              customGradient[0.2] = color;
-              customGradient[0.4] = color;
-              customGradient[0.6] = color;
-              customGradient[0.8] = color;
-              customGradient[1.0] = color;
-              
-              // Create a heatmap layer for this receiver
-              const heatmapLayer = L.heatLayer(heatData, {
+              // Create the heatmap layer with a gradient similar to coverage view
+              heatLayer = L.heatLayer(heatData, {
                 radius: 20,
                 blur: 15,
                 maxZoom: 17,
                 minOpacity: 0.4,
-                gradient: customGradient
-              });
+                gradient: {0.2: 'blue', 0.4: 'cyan', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}
+              }).addTo(map);
               
-              // Add to layer group
-              receiverLayers[receiverId].addLayer(heatmapLayer);
-              
-              // Only add to map if this receiver is visible
-              if (duplicateReceiverVisibility[receiverId_num] !== false) {
-                receiverLayers[receiverId].addTo(map);
-              }
-              
-              // Store for cleanup
-              rangeCircles.push(heatmapLayer);
-              
-              console.log(`Created heatmap for receiver ${receiverId} with ${heatData.length} points`);
-              
-              // After processing, ensure the duplicate receivers table is populated
-              const receiverIds = Object.keys(receiverData);
-              const lastReceiverId = receiverIds[receiverIds.length - 1];
-              
-              if (receiverId === lastReceiverId) {
-                console.log("This is the last receiver, populating table now");
-                populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages);
-              }
+              console.log("Heatmap added to map");
+            } else {
+              console.log("No points to display in heatmap");
+            }
+            
+            // Populate the duplicate receivers table
+            populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages);
               
               // Find the receiver in the allReceivers array
               const receiver = allReceivers.find(r => r.id === receiverId_num);
@@ -2648,9 +2632,25 @@
       // Store the visibility state
       duplicateReceiverVisibility[receiverId] = isVisible;
       
-      // We need to reload the coverage data to apply the visibility changes
-      // This is more reliable than trying to find and toggle individual elements
+      // Toggle the receiver marker and range circle if they exist
+      toggleReceiverMarkerVisibility(receiverId, isVisible);
+      
+      // Reload the coverage data to rebuild the heatmap with the updated visibility settings
       loadCoverageData();
+    }
+    
+    // Function to toggle visibility of a receiver's marker and range circle
+    function toggleReceiverMarkerVisibility(receiverId, isVisible) {
+      // Find markers and circles for this receiver
+      map.eachLayer(function(layer) {
+        if (layer._tooltip && layer._tooltip.options && layer._tooltip.options.receiverId === receiverId) {
+          if (isVisible) {
+            layer.addTo(map);
+          } else {
+            map.removeLayer(layer);
+          }
+        }
+      });
     }
     
     // Initialize
