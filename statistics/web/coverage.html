@@ -1148,10 +1148,10 @@
               
               console.log(`Creating heatmap for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
-              // Create a custom pane for heatmaps if it doesn't exist
+              // Create a custom pane for heatmaps if it doesn't exist - with HIGHER z-index
               if (!map.getPane('heatmapPane')) {
                 map.createPane('heatmapPane');
-                map.getPane('heatmapPane').style.zIndex = 450; // Below markers but above tiles
+                map.getPane('heatmapPane').style.zIndex = 625; // Just below markers (600) but above other layers
               }
               
               // Convert data to heatmap format with intensity based on count
@@ -1164,34 +1164,40 @@
                   return null;
                 }
                 
-                // Intensity based on count (0.0-1.0)
+                // Intensity based on count (0.0-1.0) - INCREASED for better visibility
                 // Use logarithmic scale for better visualization
-                const intensity = Math.min(1.0, Math.log10(point.count + 1) / 2);
+                const intensity = Math.min(1.0, Math.log10(point.count + 1) / 1.5);
                 return [point.lat, point.lon, intensity];
               }).filter(point => point !== null); // Remove invalid points
               
               console.log(`Prepared ${heatData.length} valid heatmap points for receiver ${receiverId}`);
               
-              // Create a custom gradient based on the receiver's color
-              // Start with transparent, then fade to the receiver's color
-              const gradient = {};
-              gradient[0.0] = 'rgba(0,0,0,0)';      // Transparent
-              gradient[0.2] = `${color}33`;         // Very transparent color (20% opacity)
-              gradient[0.4] = `${color}66`;         // Semi-transparent color (40% opacity)
-              gradient[0.6] = `${color}99`;         // More visible color (60% opacity)
-              gradient[0.8] = `${color}CC`;         // Almost opaque color (80% opacity)
-              gradient[1.0] = color;                // Full color
+              // Create a simpler gradient with stronger colors
+              const gradient = {
+                0.0: 'rgba(0,0,0,0)',
+                0.4: color + '99', // 60% opacity
+                0.7: color + 'CC', // 80% opacity
+                1.0: color         // 100% opacity
+              };
               
-              // Create the heatmap layer with custom options
+              console.log(`Using gradient for receiver ${receiverId}:`, gradient);
+              
+              // Create the heatmap layer with custom options - INCREASED visibility
               const heatmapLayer = L.heatLayer(heatData, {
-                radius: 25,                // Larger radius for better visibility
-                blur: 15,                  // Moderate blur for smooth appearance
+                radius: 30,                // Larger radius for better visibility
+                blur: 20,                  // More blur for smoother appearance
                 maxZoom: 17,               // Maximum zoom level for the heatmap
                 max: 1.0,                  // Maximum intensity
-                minOpacity: 0.3,           // Minimum opacity for better visibility
+                minOpacity: 0.5,           // Higher minimum opacity for better visibility
                 gradient: gradient,        // Custom gradient based on receiver color
                 pane: 'heatmapPane'        // Use our custom pane
               }).addTo(map);
+              
+              // Force the heatmap to redraw
+              setTimeout(() => {
+                map.fire('moveend');
+                console.log(`Forced redraw of heatmap for receiver ${receiverId}`);
+              }, 100);
               
               // Store the heatmap layer for cleanup
               rangeCircles.push(heatmapLayer);
