@@ -1051,21 +1051,7 @@
             const receiverMessageCounts = {};
             let totalDuplicateMessages = 0;
             
-            // Generate a palette of vivid colors for receivers
-            const vividColors = [
-              '#0074D9', // Blue
-              '#2ECC40', // Green
-              '#FFDC00', // Yellow
-              '#FF851B', // Orange
-              '#B10DC9', // Purple
-              '#01FF70', // Lime
-              '#F012BE', // Fuchsia
-              '#7FDBFF', // Aqua
-              '#39CCCC', // Teal
-              '#3D9970', // Olive
-              '#85144b', // Maroon
-              '#AAAAAA'  // Silver
-            ];
+            // We're using the vividColors array defined at a higher scope
             
             // Map to store receiver colors
             const receiverColors = {};
@@ -1255,6 +1241,22 @@
             }
           });
         }
+        
+        // Define a palette of vivid colors for receivers - at global scope so it's accessible everywhere
+        const vividColors = [
+          '#0074D9', // Blue
+          '#2ECC40', // Green
+          '#FFDC00', // Yellow
+          '#FF851B', // Orange
+          '#B10DC9', // Purple
+          '#01FF70', // Lime
+          '#F012BE', // Fuchsia
+          '#7FDBFF', // Aqua
+          '#39CCCC', // Teal
+          '#3D9970', // Olive
+          '#85144b', // Maroon
+          '#AAAAAA'  // Silver
+        ];
         
         // For duplicates mode, add markers for all receivers mentioned in the duplicates data
         if (isDuplicatesMode && window.duplicatesData) {
