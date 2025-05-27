@@ -2671,6 +2671,7 @@
     function updateReceiverVisibility() {
       // Get current state of checkbox
       showReceivers = document.getElementById('show-receivers-checkbox').checked;
+      const isDuplicatesMode = document.getElementById('duplicatesRadio').checked;
       
       // Clear all receiver markers
       map.eachLayer(function(layer) {
@@ -2684,17 +2685,39 @@
       
       // Clear range circles and labels when receivers are hidden
       if (!showReceivers) {
-        // Remove range circles
-        rangeCircles.forEach(circle => {
-          if (circle) map.removeLayer(circle);
-        });
-        rangeCircles = [];
-        
-        // Remove range labels
-        rangeLabels.forEach(label => {
-          if (label) map.removeLayer(label);
-        });
-        rangeLabels = [];
+        // In duplicates mode, we need to be careful not to remove the heatmap circles
+        if (isDuplicatesMode) {
+          // Only remove circles that are associated with receivers (dashed circles)
+          // Keep the heatmap circles intact
+          rangeCircles.forEach(circle => {
+            // Check if this is a receiver range circle (has dashArray property)
+            if (circle && circle.options && circle.options.dashArray) {
+              map.removeLayer(circle);
+            }
+          });
+          
+          // Only remove the range labels
+          rangeLabels.forEach(label => {
+            if (label) map.removeLayer(label);
+          });
+          
+          // Don't reset the arrays completely as they may contain heatmap circles
+          // Just filter out the removed circles
+          rangeCircles = rangeCircles.filter(circle =>
+            !(circle && circle.options && circle.options.dashArray));
+          rangeLabels = [];
+        } else {
+          // In coverage mode, we can remove all circles and labels
+          rangeCircles.forEach(circle => {
+            if (circle) map.removeLayer(circle);
+          });
+          rangeCircles = [];
+          
+          rangeLabels.forEach(label => {
+            if (label) map.removeLayer(label);
+          });
+          rangeLabels = [];
+        }
       }
       
       // If receivers should be shown, add them back
