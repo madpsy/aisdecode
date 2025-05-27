@@ -618,8 +618,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	}
 
 	// If ReceiverID is provided, filter using vessel_receivers table
-	if receiverID > 0 {
-		log.Printf("Filtering by receiver ID %d using vessel_receivers table", receiverID)
+	if receiverID > 0 {ID)
 		if whereAdded {
 			query += fmt.Sprintf(" AND s.user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
 		} else {
@@ -768,11 +767,6 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	// Apply LIMIT only if it's greater than 0
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
-	}
-
-	// Log the final query when filtering by receiver ID
-	if receiverID > 0 {
-		log.Printf("Final SQL query with receiver filter: %s", query)
 	}
 
 	// Query the database
