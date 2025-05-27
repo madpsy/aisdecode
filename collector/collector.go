@@ -92,7 +92,7 @@ var (
 // In-memory fallbacks when Redis is unavailable
 var (
 	lastPosMu     sync.Mutex
-	lastPositions = make(map[int]Position) // userID → last seen lat/lon
+	lastPositions = make(map[int]map[int]Position) // userID → receiverID → last seen lat/lon
 
 	lastNavStatusMu        sync.Mutex
 	lastNavigationalStatus = make(map[int]float64) // userID → last NavigationalStatus
@@ -109,7 +109,7 @@ var (
 
 // Redis key prefixes
 const (
-	positionKeyPrefix  = "collector:position:"
+	positionKeyPrefix  = "collector:position:" // Will be used as "collector:position:{shardID}:{userID}:{receiverID}"
 	navStatusKeyPrefix = "collector:navstatus:"
 )
 
@@ -1129,135 +1129,6 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 		}
 	}
 
-	if _, isMovement := movementMsgTypes[mid]; isMovement {
-		lat, lok := packetMap["Latitude"].(float64)
-		lon, lok2 := packetMap["Longitude"].(float64)
-		if !lok || !lok2 {
-			shouldInsert = false
-		} else {
-			// Create a key for this vessel's position in Redis
-			posKey := fmt.Sprintf("%s%d:%d", positionKeyPrefix, message.ShardID, userID)
-
-			// Try to get previous position from Redis
-			posData, err := redisClient.Get(ctx, posKey).Result()
-
-			if err == redis.Nil {
-				// Key doesn't exist - first time seeing this vessel in Redis
-
-				// Check in-memory fallback
-				lastPosMu.Lock()
-				prevPos, seenBefore := lastPositions[userID]
-
-				if !seenBefore {
-					// First time seeing this vessel anywhere
-					lastPositions[userID] = Position{Lat: lat, Lon: lon}
-				} else {
-					// We've seen it in memory but not in Redis
-					dist := haversine(prevPos.Lat, prevPos.Lon, lat, lon)
-					if dist >= minimumDistance {
-						lastPositions[userID] = Position{Lat: lat, Lon: lon}
-					} else {
-						shouldInsert = false
-					}
-				}
-				lastPosMu.Unlock()
-
-				// Store the new position in Redis
-				newPos := Position{Lat: lat, Lon: lon}
-				posJSON, _ := json.Marshal(newPos)
-				if err := redisClient.Set(ctx, posKey, posJSON, 0).Err(); err != nil && settings.Debug {
-					log.Printf("Warning: Failed to store position in Redis: %v", err)
-				}
-			} else if err != nil {
-				// Redis error - fall back to in-memory position tracking
-				if settings.Debug {
-					log.Printf("Warning: Redis error when getting position: %v", err)
-				}
-
-				// Mark Redis as unavailable for later sync
-				redisAvailableMu.Lock()
-				redisWasUnavailable = true
-				redisAvailableMu.Unlock()
-
-				// Use in-memory fallback
-				lastPosMu.Lock()
-				prevPos, seenBefore := lastPositions[userID]
-				if !seenBefore {
-					lastPositions[userID] = Position{Lat: lat, Lon: lon}
-				} else {
-					dist := haversine(prevPos.Lat, prevPos.Lon, lat, lon)
-					if dist >= minimumDistance {
-						lastPositions[userID] = Position{Lat: lat, Lon: lon}
-					} else {
-						shouldInsert = false
-					}
-				}
-				lastPosMu.Unlock()
-			} else {
-				// Key exists - compare with current position
-				var prevPos Position
-				if err := json.Unmarshal([]byte(posData), &prevPos); err != nil {
-					log.Printf("Warning: Invalid position data in Redis: %v", err)
-				} else {
-					dist := haversine(prevPos.Lat, prevPos.Lon, lat, lon)
-					if dist >= minimumDistance {
-						// Update position in Redis
-						newPos := Position{Lat: lat, Lon: lon}
-						posJSON, _ := json.Marshal(newPos)
-						if err := redisClient.Set(ctx, posKey, posJSON, 0).Err(); err != nil && settings.Debug {
-							log.Printf("Warning: Failed to update position in Redis: %v", err)
-						}
-
-						// Also update in-memory
-						lastPosMu.Lock()
-						lastPositions[userID] = Position{Lat: lat, Lon: lon}
-						lastPosMu.Unlock()
-					} else {
-						shouldInsert = false
-
-						// Update in-memory even if unchanged
-						lastPosMu.Lock()
-						lastPositions[userID] = Position{Lat: lat, Lon: lon}
-						lastPosMu.Unlock()
-					}
-				}
-			}
-		}
-	}
-
-	// Override shouldInsert if NavigationalStatus changed
-	if navStatusChanged {
-		shouldInsert = true
-	}
-
-	// Override shouldInsert for duplicate messages
-	if message.DedupedPort != nil {
-		shouldInsert = true
-	}
-
-	// 6) Generic time-based filtering
-	if window, ok := timeFilters[mid]; ok {
-		t, err := time.Parse(time.RFC3339, message.Timestamp)
-		if err != nil {
-			log.Printf("Warning: could not parse timestamp for rate-limit on mid=%d: %v", mid, err)
-		} else {
-			lastTimeMu.Lock()
-			// initialize inner map if needed
-			if _, found := lastTimeSeen[mid]; !found {
-				lastTimeSeen[mid] = make(map[int]time.Time)
-			}
-			if prevT, seen := lastTimeSeen[mid][userID]; seen && t.Sub(prevT) < window {
-				// Only apply time filtering if NavigationalStatus hasn't changed
-				if !navStatusChanged {
-					shouldInsert = false
-				}
-			} else {
-				lastTimeSeen[mid][userID] = t
-			}
-			lastTimeMu.Unlock()
-		}
-	}
-
 	// 7) Look up receiver ID from source IP or port
 	var receiverID interface{} = nil // Use nil (SQL NULL) as default
 	receiverMapMutex.RLock()
@@ -1285,6 +1156,187 @@ func storeMessage(db *sql.DB, message Message, settings *Settings, rawSentence s
 		receiverID = id
 	}
 	receiverMapMutex.RUnlock()
+
+	if _, isMovement := movementMsgTypes[mid]; isMovement {
+		lat, lok := packetMap["Latitude"].(float64)
+		lon, lok2 := packetMap["Longitude"].(float64)
+		if !lok || !lok2 {
+			shouldInsert = false
+		} else {
+			// Get receiverID as int for position tracking
+			recID := 0
+			if receiverID != nil {
+				if rid, ok := receiverID.(int); ok {
+					recID = rid
+				}
+			}
+
+			// Create a key for this vessel's position in Redis that includes the receiver ID
+			posKey := fmt.Sprintf("%s%d:%d:%d", positionKeyPrefix, message.ShardID, userID, recID)
+
+			// Try to get previous position from Redis
+			posData, err := redisClient.Get(ctx, posKey).Result()
+
+			if err == redis.Nil {
+				// Key doesn't exist - first time seeing this vessel in Redis
+
+				// Check in-memory fallback
+				lastPosMu.Lock()
+
+				// Initialize the nested map if needed
+				if _, exists := lastPositions[userID]; !exists {
+					lastPositions[userID] = make(map[int]Position)
+				}
+
+				prevPos, seenBefore := lastPositions[userID][recID]
+
+				if !seenBefore {
+					// First time seeing this vessel from this receiver
+					lastPositions[userID][recID] = Position{Lat: lat, Lon: lon}
+				} else {
+					// We've seen it in memory but not in Redis
+					dist := haversine(prevPos.Lat, prevPos.Lon, lat, lon)
+					if dist >= minimumDistance {
+						lastPositions[userID][recID] = Position{Lat: lat, Lon: lon}
+					} else {
+						shouldInsert = false
+					}
+				}
+				lastPosMu.Unlock()
+
+				// Store the new position in Redis
+				newPos := Position{Lat: lat, Lon: lon}
+				posJSON, _ := json.Marshal(newPos)
+				if err := redisClient.Set(ctx, posKey, posJSON, 0).Err(); err != nil && settings.Debug {
+					log.Printf("Warning: Failed to store position in Redis: %v", err)
+				}
+			} else if err != nil {
+				// Redis error - fall back to in-memory position tracking
+				if settings.Debug {
+					log.Printf("Warning: Redis error when getting position: %v", err)
+				}
+
+				// Mark Redis as unavailable for later sync
+				redisAvailableMu.Lock()
+				redisWasUnavailable = true
+				redisAvailableMu.Unlock()
+
+				// Use in-memory fallback
+				lastPosMu.Lock()
+
+				// Initialize the nested map if needed
+				if _, exists := lastPositions[userID]; !exists {
+					lastPositions[userID] = make(map[int]Position)
+				}
+
+				// Get receiverID as int for position tracking
+				recID := 0
+				if receiverID != nil {
+					if rid, ok := receiverID.(int); ok {
+						recID = rid
+					}
+				}
+
+				prevPos, seenBefore := lastPositions[userID][recID]
+				if !seenBefore {
+					lastPositions[userID][recID] = Position{Lat: lat, Lon: lon}
+				} else {
+					dist := haversine(prevPos.Lat, prevPos.Lon, lat, lon)
+					if dist >= minimumDistance {
+						lastPositions[userID][recID] = Position{Lat: lat, Lon: lon}
+					} else {
+						shouldInsert = false
+					}
+				}
+				lastPosMu.Unlock()
+			} else {
+				// Key exists - compare with current position
+				var prevPos Position
+				if err := json.Unmarshal([]byte(posData), &prevPos); err != nil {
+					log.Printf("Warning: Invalid position data in Redis: %v", err)
+				} else {
+					dist := haversine(prevPos.Lat, prevPos.Lon, lat, lon)
+					if dist >= minimumDistance {
+						// Update position in Redis
+						newPos := Position{Lat: lat, Lon: lon}
+						posJSON, _ := json.Marshal(newPos)
+						if err := redisClient.Set(ctx, posKey, posJSON, 0).Err(); err != nil && settings.Debug {
+							log.Printf("Warning: Failed to update position in Redis: %v", err)
+						}
+
+						// Also update in-memory
+						// Get receiverID as int for position tracking
+						recID := 0
+						if receiverID != nil {
+							if rid, ok := receiverID.(int); ok {
+								recID = rid
+							}
+						}
+
+						lastPosMu.Lock()
+						// Initialize the nested map if needed
+						if _, exists := lastPositions[userID]; !exists {
+							lastPositions[userID] = make(map[int]Position)
+						}
+						lastPositions[userID][recID] = Position{Lat: lat, Lon: lon}
+						lastPosMu.Unlock()
+					} else {
+						shouldInsert = false
+
+						// Update in-memory even if unchanged
+						// Get receiverID as int for position tracking
+						recID := 0
+						if receiverID != nil {
+							if rid, ok := receiverID.(int); ok {
+								recID = rid
+							}
+						}
+
+						lastPosMu.Lock()
+						// Initialize the nested map if needed
+						if _, exists := lastPositions[userID]; !exists {
+							lastPositions[userID] = make(map[int]Position)
+						}
+						lastPositions[userID][recID] = Position{Lat: lat, Lon: lon}
+						lastPosMu.Unlock()
+					}
+				}
+			}
+		}
+	}
+
+	// Override shouldInsert if NavigationalStatus changed
+	if navStatusChanged {
+		shouldInsert = true
+	}
+
+	// Note: Duplicate messages (DedupedPort != nil) now follow the same minimum_distance logic
+	// No override for duplicate messages - they must meet the same distance criteria
+
+	// 6) Generic time-based filtering
+	if window, ok := timeFilters[mid]; ok {
+		t, err := time.Parse(time.RFC3339, message.Timestamp)
+		if err != nil {
+			log.Printf("Warning: could not parse timestamp for rate-limit on mid=%d: %v", mid, err)
+		} else {
+			lastTimeMu.Lock()
+			// initialize inner map if needed
+			if _, found := lastTimeSeen[mid]; !found {
+				lastTimeSeen[mid] = make(map[int]time.Time)
+			}
+			if prevT, seen := lastTimeSeen[mid][userID]; seen && t.Sub(prevT) < window {
+				// Only apply time filtering if NavigationalStatus hasn't changed
+				if !navStatusChanged {
+					shouldInsert = false
+				}
+			} else {
+				lastTimeSeen[mid][userID] = t
+			}
+			lastTimeMu.Unlock()
+		}
+	}
+
+	// receiverID has already been determined above
 
 	// 8) Conditionally update the state table
 	// Only update the state table if:
@@ -1801,15 +1853,17 @@ func syncInMemoryToRedis() {
 	// Sync positions
 	lastPosMu.Lock()
 	posCount := 0
-	for userID, pos := range lastPositions {
-		// For each shard (since we don't know which shard the userID belongs to)
-		for _, shardID := range settings.Shards {
-			posKey := fmt.Sprintf("%s%d:%d", positionKeyPrefix, shardID, userID)
-			posJSON, _ := json.Marshal(pos)
-			if err := redisClient.Set(ctx, posKey, posJSON, 0).Err(); err != nil {
-				log.Printf("Warning: Failed to sync position for user %d to Redis: %v", userID, err)
-			} else {
-				posCount++
+	for userID, receiverMap := range lastPositions {
+		for recID, pos := range receiverMap {
+			// For each shard (since we don't know which shard the userID belongs to)
+			for _, shardID := range settings.Shards {
+				posKey := fmt.Sprintf("%s%d:%d:%d", positionKeyPrefix, shardID, userID, recID)
+				posJSON, _ := json.Marshal(pos)
+				if err := redisClient.Set(ctx, posKey, posJSON, 0).Err(); err != nil {
+					log.Printf("Warning: Failed to sync position for user %d, receiver %d to Redis: %v", userID, recID, err)
+				} else {
+					posCount++
+				}
 			}
 		}
 	}
