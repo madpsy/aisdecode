@@ -519,7 +519,14 @@
     function calculateMaxDistance(receiverLatLng, heatData) {
       let maxDistance = 0;
       
+      // Check if receiverLatLng is valid
+      if (!receiverLatLng || !heatData || !heatData.length) {
+        return 50000; // Default to 50km if no data or invalid receiver
+      }
+      
       heatData.forEach(point => {
+        if (!point || point.length < 2) return; // Skip invalid points
+        
         const pointLatLng = L.latLng(point[0], point[1]);
         const distance = receiverLatLng.distanceTo(pointLatLng);
         if (distance > maxDistance) {
@@ -527,7 +534,7 @@
         }
       });
       
-      return maxDistance; // in meters
+      return maxDistance || 50000; // in meters, default to 50km if calculation fails
     }
     
     // Draw concentric circles around the receiver
@@ -661,7 +668,16 @@
     
     // Calculate coverage statistics
     function calculateCoverageStats(heatData, receiverLatLng, maxDistance) {
-      if (!receiverLatLng) return null;
+      // Return null if any required parameter is missing or invalid
+      if (!receiverLatLng || !heatData || !heatData.length || !maxDistance) {
+        console.log("Invalid parameters for calculateCoverageStats", {
+          hasReceiverLatLng: !!receiverLatLng,
+          hasHeatData: !!heatData,
+          heatDataLength: heatData ? heatData.length : 0,
+          maxDistance: maxDistance
+        });
+        return null;
+      }
       
       // Initialize statistics objects
       const distanceStats = {
@@ -694,28 +710,50 @@
       
       // Process each point
       dataToProcess.forEach(point => {
+        // Skip invalid points
+        if (!point) return;
+        
         // Handle both original data format and heatData format
-        const lat = point.lat || point[0];
-        const lon = point.lon || point[1];
+        const lat = point.lat || (Array.isArray(point) ? point[0] : null);
+        const lon = point.lon || (Array.isArray(point) ? point[1] : null);
+        
+        // Skip if lat/lon are invalid
+        if (lat === null || lon === null) return;
+        
         const count = point.count || 1;
         
-        const pointLatLng = L.latLng(lat, lon);
-        const distance = receiverLatLng.distanceTo(pointLatLng);
-        const bearing = calculateBearing(
-          receiverLatLng.lat, receiverLatLng.lng,
-          pointLatLng.lat, pointLatLng.lng
-        );
-        const direction = bearingToDirection(bearing);
-        
-        // Count by distance
-        if (distance <= ring1) {
-          distanceStats.ring1 += count;
-        } else if (distance <= ring2) {
-          distanceStats.ring2 += count;
-        } else if (distance <= ring3) {
-          distanceStats.ring3 += count;
-        } else {
-          distanceStats.beyond += count;
+        try {
+          const pointLatLng = L.latLng(lat, lon);
+          const distance = receiverLatLng.distanceTo(pointLatLng);
+          const bearing = calculateBearing(
+            receiverLatLng.lat, receiverLatLng.lng,
+            pointLatLng.lat, pointLatLng.lng
+          );
+          const direction = bearingToDirection(bearing);
+          
+          // Count by distance
+          if (distance <= ring1) {
+            distanceStats.ring1 += count;
+          } else if (distance <= ring2) {
+            distanceStats.ring2 += count;
+          } else if (distance <= ring3) {
+            distanceStats.ring3 += count;
+          } else {
+            distanceStats.beyond += count;
+          }
+          
+          // Count by direction
+          directionStats[direction] += count;
+          
+          // Update max distance for this direction
+          if (distance > directionMaxDistance[direction]) {
+            directionMaxDistance[direction] = distance;
+          }
+          
+          totalPoints += count;
+        } catch (err) {
+          console.log("Error processing point:", err, { point, lat, lon });
+          // Continue with next point
         }
         
         // Count by direction
@@ -1797,10 +1835,15 @@
           // For specific receiver, show both distance and direction stats
           const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
           if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
-            const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
-            const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
-            const stats = calculateCoverageStats(heatData, receiverLatLng, maxDistance);
-            updateStatsDisplay(stats, true); // Show direction stats for specific receiver
+            try {
+              const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
+              const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
+              const stats = calculateCoverageStats(heatData, receiverLatLng, maxDistance);
+              updateStatsDisplay(stats, true); // Show direction stats for specific receiver
+            } catch (err) {
+              console.error('Error calculating coverage stats:', err);
+              updateStatsDisplay(null, false);
+            }
           } else {
             updateStatsDisplay(null, false);
           }
