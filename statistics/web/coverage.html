@@ -130,21 +130,12 @@
             <!-- Minimum Count dropdown (only shown in duplicates mode) -->
             <div id="mincount-container" style="display: none; margin-top: 10px;">
               <label for="mincount-select" class="form-label">Minimum Count:</label>
-              <div class="d-flex align-items-center">
-                <select id="mincount-select" class="form-select form-select-sm">
-                  <option value="1">1</option>
-                  <option value="10" selected>10</option>
-                  <option value="100">100</option>
-                  <option value="1000">1000</option>
-                </select>
-                <span id="mincount-indicator" class="ms-2 badge bg-info" style="display: none;">Active</span>
-              </div>
-              <!-- Current filter indicator -->
-              <div id="mincount-filter-info" class="mt-2 small" style="display: none;">
-                <div class="alert alert-info py-1 px-2 mb-0">
-                  <small>Showing points with <strong>≥<span id="mincount-value-display">10</span> messages</strong></small>
-                </div>
-              </div>
+              <select id="mincount-select" class="form-select form-select-sm">
+                <option value="1">1</option>
+                <option value="10" selected>10</option>
+                <option value="100">100</option>
+                <option value="1000">1000</option>
+              </select>
             </div>
           </div>
           <div class="col-md-6">
@@ -1310,8 +1301,8 @@
                 circlesGroup.addTo(map);
               }
               
-              // Process points in batches to avoid browser freezing
-              const batchSize = 50;
+              // Process points in smaller batches to avoid browser freezing
+              const batchSize = 20; // Smaller batch size
               const batches = Math.ceil(receiverData[receiverId].length / batchSize);
               
               function processBatch(batchIndex) {
@@ -1351,38 +1342,37 @@
                       continue;
                     }
                     
-                    // Get the mincount value once for use in both radius and circle properties
+                    // Get the mincount value
                     const mincountValue = parseInt(document.getElementById('mincount-select').value);
-                    // Dramatically increase size for higher mincount values
-                    const scaleFactor = mincountValue <= 10 ? 10 : (mincountValue <= 100 ? 25 : 35);
-                    // Minimum radius of 30, maximum of 60
-                    const radius = Math.min(60, Math.max(30, Math.log10(point.count + 1) * scaleFactor));
                     
-                    // Create a circle with the receiver's color - add border for higher mincount values
-                    const circle = L.circleMarker([point.lat, point.lon], {
-                      renderer: renderer,
-                      radius: radius,
-                      color: 'white', // White border for contrast
-                      weight: mincountValue >= 100 ? 2 : 0, // Add border for higher mincount values
-                      fillColor: color,
-                      // Maximum opacity for higher mincount values
-                      fillOpacity: mincountValue <= 10 ? 0.8 : 1.0,
+                    // Create a custom icon for the point
+                    // Size increases with mincount value and point count
+                    const size = mincountValue <= 10 ? 20 : (mincountValue <= 100 ? 30 : 40);
+                    const adjustedSize = Math.min(60, Math.max(size, Math.log10(point.count + 1) * 10));
+                    
+                    const customIcon = L.divIcon({
+                      html: `<div style="
+                        background-color: ${color};
+                        width: ${adjustedSize}px;
+                        height: ${adjustedSize}px;
+                        border-radius: 50%;
+                        border: 3px solid white;
+                        box-shadow: 0 0 5px rgba(0,0,0,0.5);
+                        opacity: 1.0;
+                      "></div>`,
+                      className: 'custom-marker',
+                      iconSize: [adjustedSize, adjustedSize],
+                      iconAnchor: [adjustedSize/2, adjustedSize/2]
+                    });
+                    
+                    // Create a marker with the custom icon
+                    const circle = L.marker([point.lat, point.lon], {
+                      icon: customIcon,
                       pane: 'duplicatePointsPane'
                     }).addTo(circlesGroup);
                     
-                    // Add a more detailed popup with information
-                    const popupContent = `
-                      <div style="text-align: center;">
-                        <h5 style="margin: 0; color: #333; font-weight: bold;">Duplicate Point</h5>
-                        <div style="margin: 5px 0; font-size: 14px;">
-                          <b>Receiver:</b> ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}
-                        </div>
-                        <div style="font-size: ${mincountValue >= 100 ? '16px' : '14px'}; color: ${mincountValue >= 100 ? '#d9534f' : '#333'}; font-weight: bold;">
-                          Count: ${point.count}
-                        </div>
-                      </div>
-                    `;
-                    circle.bindPopup(popupContent);
+                    // Add a simple popup with information
+                    circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
                     
                     // Store for cleanup
                     rangeCircles.push(circle);
@@ -1396,15 +1386,23 @@
                   }
                 }
                 
-                // Process next batch after a short delay
-                setTimeout(() => processBatch(batchIndex + 1), 10);
+                // Process next batch after a longer delay to ensure rendering
+                setTimeout(() => processBatch(batchIndex + 1), 50);
               }
               
               // Start processing batches
               processBatch(0);
               
-              // Bring the circles group to front
-              circlesGroup.bringToFront();
+              // Bring the circles group to front with higher priority
+              setTimeout(() => {
+                circlesGroup.bringToFront();
+                // Force each marker to be brought to front as well
+                circlesGroup.eachLayer(layer => {
+                  if (layer instanceof L.Marker) {
+                    layer.setZIndexOffset(1000); // Give markers a high z-index
+                  }
+                });
+              }, 100);
               
               // The populateDuplicateReceiversTable function has been moved outside the loop
               
@@ -2835,31 +2833,6 @@
       
       // Add event listener for mincount dropdown
       document.getElementById('mincount-select').addEventListener('change', function() {
-        // Show/hide the indicator based on the selected value
-        const mincountValue = parseInt(this.value);
-        const indicator = document.getElementById('mincount-indicator');
-        const filterInfo = document.getElementById('mincount-filter-info');
-        const valueDisplay = document.getElementById('mincount-value-display');
-        
-        if (mincountValue > 1) {
-          indicator.style.display = 'inline-block';
-          filterInfo.style.display = 'block';
-          valueDisplay.textContent = mincountValue;
-          
-          // Change alert color based on mincount value
-          const alertElement = filterInfo.querySelector('.alert');
-          if (mincountValue >= 1000) {
-            alertElement.className = 'alert alert-danger py-1 px-2 mb-0';
-          } else if (mincountValue >= 100) {
-            alertElement.className = 'alert alert-warning py-1 px-2 mb-0';
-          } else {
-            alertElement.className = 'alert alert-info py-1 px-2 mb-0';
-          }
-        } else {
-          indicator.style.display = 'none';
-          filterInfo.style.display = 'none';
-        }
-        
         updateURL();
         loadCoverageData();
       });
@@ -2972,30 +2945,7 @@
         if (['1', '10', '100', '1000'].includes(params.mincount)) {
           mincountSelect.value = params.mincount;
           
-          // Show/hide the indicator based on the selected value
-          const mincountValue = parseInt(params.mincount);
-          const indicator = document.getElementById('mincount-indicator');
-          const filterInfo = document.getElementById('mincount-filter-info');
-          const valueDisplay = document.getElementById('mincount-value-display');
-          
-          if (mincountValue > 1) {
-            indicator.style.display = 'inline-block';
-            filterInfo.style.display = 'block';
-            valueDisplay.textContent = mincountValue;
-            
-            // Change alert color based on mincount value
-            const alertElement = filterInfo.querySelector('.alert');
-            if (mincountValue >= 1000) {
-              alertElement.className = 'alert alert-danger py-1 px-2 mb-0';
-            } else if (mincountValue >= 100) {
-              alertElement.className = 'alert alert-warning py-1 px-2 mb-0';
-            } else {
-              alertElement.className = 'alert alert-info py-1 px-2 mb-0';
-            }
-          } else {
-            indicator.style.display = 'none';
-            filterInfo.style.display = 'none';
-          }
+          // No additional UI updates needed
         }
       }
       
