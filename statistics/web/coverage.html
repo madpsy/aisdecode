@@ -1341,29 +1341,11 @@
                     // Get the mincount value
                     const mincountValue = parseInt(document.getElementById('mincount-select').value);
                     
-                    // Create a custom icon for the point
-                    // Size increases with mincount value and point count
-                    const size = mincountValue <= 10 ? 20 : (mincountValue <= 100 ? 30 : 40);
-                    const adjustedSize = Math.min(60, Math.max(size, Math.log10(point.count + 1) * 10));
+                    // TEMPORARY TEST: Using default pin marker instead of custom icon
+                    console.log(`Creating default pin marker at ${point.lat}, ${point.lon}`);
                     
-                    const customIcon = L.divIcon({
-                      html: `<div style="
-                        background-color: ${color};
-                        width: ${adjustedSize}px;
-                        height: ${adjustedSize}px;
-                        border-radius: 50%;
-                        border: 0px;
-                        box-shadow: 0 0 5px rgba(0,0,0,0.5);
-                        opacity: 1.0;
-                      "></div>`,
-                      className: 'custom-marker',
-                      iconSize: [adjustedSize, adjustedSize],
-                      iconAnchor: [adjustedSize/2, adjustedSize/2]
-                    });
-                    
-                    // Create a marker with the custom icon
+                    // Create a marker with the default pin icon
                     const circle = L.marker([point.lat, point.lon], {
-                      icon: customIcon,
                       pane: 'duplicatePointsPane'
                     }).addTo(circlesGroup);
                     
