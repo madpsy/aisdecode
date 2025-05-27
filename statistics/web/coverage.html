@@ -742,12 +742,14 @@
             distanceStats.beyond += count;
           }
           
-          // Count by direction
-          directionStats[direction] += count;
-          
-          // Update max distance for this direction
-          if (distance > directionMaxDistance[direction]) {
-            directionMaxDistance[direction] = distance;
+          // Count by direction - only if direction is valid
+          if (direction && directionStats[direction] !== undefined) {
+            directionStats[direction] += count;
+            
+            // Update max distance for this direction
+            if (distance > directionMaxDistance[direction]) {
+              directionMaxDistance[direction] = distance;
+            }
           }
           
           totalPoints += count;
@@ -756,15 +758,7 @@
           // Continue with next point
         }
         
-        // Count by direction
-        directionStats[direction] += count;
-        
-        // Update max distance for this direction if greater
-        if (distance > directionMaxDistance[direction]) {
-          directionMaxDistance[direction] = distance;
-        }
-        
-        totalPoints += count;
+        // This code is now handled inside the try/catch block above
       });
       
       return {
@@ -1836,10 +1830,24 @@
           const selectedReceiver = receivers.find(r => r.id === parseInt(receiverId));
           if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
             try {
+              // Check if receiver coordinates are valid
+              if (!selectedReceiver.latitude || !selectedReceiver.longitude) {
+                console.warn('Invalid receiver coordinates:', selectedReceiver);
+                updateStatsDisplay(null, false);
+                return;
+              }
+              
               const receiverLatLng = L.latLng(selectedReceiver.latitude, selectedReceiver.longitude);
               const maxDistance = calculateMaxDistance(receiverLatLng, heatData);
               const stats = calculateCoverageStats(heatData, receiverLatLng, maxDistance);
-              updateStatsDisplay(stats, true); // Show direction stats for specific receiver
+              
+              // Only show stats if they were calculated successfully
+              if (stats) {
+                updateStatsDisplay(stats, true); // Show direction stats for specific receiver
+              } else {
+                console.warn('No stats calculated');
+                updateStatsDisplay(null, false);
+              }
             } catch (err) {
               console.error('Error calculating coverage stats:', err);
               updateStatsDisplay(null, false);
