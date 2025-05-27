@@ -899,6 +899,23 @@
     
     // Load coverage or duplicates data
     async function loadCoverageData() {
+      // Define a palette of vivid colors for receivers - at the beginning of the function
+      // so it's accessible throughout the entire function
+      const vividColors = [
+        '#0074D9', // Blue
+        '#2ECC40', // Green
+        '#FFDC00', // Yellow
+        '#FF851B', // Orange
+        '#B10DC9', // Purple
+        '#01FF70', // Lime
+        '#F012BE', // Fuchsia
+        '#7FDBFF', // Aqua
+        '#39CCCC', // Teal
+        '#3D9970', // Olive
+        '#85144b', // Maroon
+        '#AAAAAA'  // Silver
+      ];
+      
       const receiverId = document.getElementById('receiver-select').value;
       const isDateRange = document.getElementById('dateRangeRadio').checked;
       const isDuplicatesMode = document.getElementById('duplicatesRadio').checked;
@@ -1241,22 +1258,6 @@
             }
           });
         }
-        
-        // Define a palette of vivid colors for receivers - at global scope so it's accessible everywhere
-        const vividColors = [
-          '#0074D9', // Blue
-          '#2ECC40', // Green
-          '#FFDC00', // Yellow
-          '#FF851B', // Orange
-          '#B10DC9', // Purple
-          '#01FF70', // Lime
-          '#F012BE', // Fuchsia
-          '#7FDBFF', // Aqua
-          '#39CCCC', // Teal
-          '#3D9970', // Olive
-          '#85144b', // Maroon
-          '#AAAAAA'  // Silver
-        ];
         
         // For duplicates mode, add markers for all receivers mentioned in the duplicates data
         if (isDuplicatesMode && window.duplicatesData) {
