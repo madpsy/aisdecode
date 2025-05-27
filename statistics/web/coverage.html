@@ -1174,24 +1174,7 @@
             // Clear previous content
             duplicateReceiversTable.innerHTML = '';
             
-            // Add a legend showing the opacity gradient
-            duplicateReceiversTable.innerHTML = `
-              <tr class="table-light">
-                <td colspan="3">
-                  <div class="small mb-1">
-                    <div style="display: flex; align-items: center; margin-top: 3px;">
-                      <div style="width: 12px; height: 12px; border-radius: 50%; opacity: 0.3; background: #666; margin-right: 5px;"></div>
-                      <div style="flex-grow: 1; height: 4px; background: linear-gradient(to right, rgba(102,102,102,0.3), rgba(102,102,102,0.9));"></div>
-                      <div style="width: 12px; height: 12px; border-radius: 50%; opacity: 0.9; background: #666; margin-left: 5px;"></div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666;">
-                      <span>Minimum</span>
-                      <span>Maximum</span>
-                    </div>
-                  </div>
-                </td>
-              </tr>
-            `;
+            // No legend needed - removed as requested
             
             // Convert to array for sorting
             const receiversArray = Object.entries(receiverMessageCounts).map(([id, count]) => ({
