@@ -1113,49 +1113,100 @@
                   totalDuplicateMessages += point.count || 1;
                   
                   // Add this point to the receiver's data
-                  // Fixed intensity to ensure visibility
-                  receiverData[id].push([point.lat, point.lon, 1.0]); // Use maximum intensity
+                  receiverData[id].push({lat: point.lat, lon: point.lon, count: point.count || 1});
                 });
               }
             });
             
             console.log("Receiver data prepared:", Object.keys(receiverData).length, "receivers");
             
-            // Create a separate heatmap layer for each receiver
+            // Create a layer group for each receiver's circles
+            const receiverLayers = {};
+            
+            // Create circle markers for each receiver's data points
             Object.keys(receiverData).forEach(receiverId => {
               const receiverId_num = parseInt(receiverId);
               const color = receiverColors[receiverId_num] || '#0074D9'; // Default to blue if no color assigned
               
-              console.log(`Creating heatmap for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
+              console.log(`Creating circles for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
               if (receiverData[receiverId].length === 0) {
-                console.log(`No data points for receiver ${receiverId}, skipping heatmap creation`);
+                console.log(`No data points for receiver ${receiverId}, skipping`);
                 return;
               }
               
-              // Use a simpler approach with a solid color
-              // Create a custom gradient with just the receiver's color
-              const gradient = {};
-              gradient[0.0] = color;
-              gradient[1.0] = color;
+              // Create a layer group for this receiver
+              receiverLayers[receiverId] = L.layerGroup().addTo(map);
               
-              // Create the heatmap layer for this receiver with higher intensity
-              try {
-                const receiverHeatLayer = L.heatLayer(receiverData[receiverId], {
-                  radius: 30, // Larger radius for better visibility
-                  blur: 10,
-                  maxZoom: 17,
-                  minOpacity: 0.7, // Higher minimum opacity
-                  max: 1.0,
-                  gradient: gradient
-                }).addTo(map);
+              // Add circle markers for each point
+              receiverData[receiverId].forEach(point => {
+                // Scale the radius based on count (min 5, max 15)
+                const radius = Math.min(15, Math.max(5, Math.log10(point.count + 1) * 5));
                 
-                // Store the layer in the rangeCircles array so it gets cleared properly
-                rangeCircles.push(receiverHeatLayer);
+                // Create a circle marker with the receiver's color
+                const circle = L.circleMarker([point.lat, point.lon], {
+                  radius: radius,
+                  color: color,
+                  weight: 1,
+                  opacity: 0.8,
+                  fillColor: color,
+                  fillOpacity: 0.5
+                }).addTo(receiverLayers[receiverId]);
+              });
+              
+              // Store the layer group in the rangeCircles array so it gets cleared properly
+              rangeCircles.push(receiverLayers[receiverId]);
+              
+              console.log(`Created ${receiverData[receiverId].length} circles for receiver ${receiverId}`);
+              
+              // Find the receiver in the allReceivers array
+              const receiver = allReceivers.find(r => r.id === receiverId_num);
+              
+              // If we have the receiver's location, draw a concentric circle
+              if (receiver && receiver.latitude && receiver.longitude) {
+                console.log(`Drawing concentric circle for receiver ${receiverId} at ${receiver.latitude}, ${receiver.longitude}`);
                 
-                console.log(`Heatmap created for receiver ${receiverId}`);
-              } catch (e) {
-                console.error(`Error creating heatmap for receiver ${receiverId}:`, e);
+                // Find the maximum distance from this receiver to its detected points
+                let maxDistance = 0;
+                receiverData[receiverId].forEach(point => {
+                  const pointLatLng = L.latLng(point.lat, point.lon);
+                  const receiverLatLng = L.latLng(receiver.latitude, receiver.longitude);
+                  const distance = receiverLatLng.distanceTo(pointLatLng);
+                  if (distance > maxDistance) {
+                    maxDistance = distance;
+                  }
+                });
+                
+                if (maxDistance > 0) {
+                  console.log(`Maximum distance for receiver ${receiverId}: ${maxDistance} meters`);
+                  
+                  // Create a circle showing the maximum range
+                  const circle = L.circle([receiver.latitude, receiver.longitude], {
+                    radius: maxDistance,
+                    color: color,
+                    fillColor: 'transparent',
+                    weight: 2,
+                    opacity: 0.8,
+                    dashArray: '5, 5' // Make the circle dashed
+                  }).addTo(map);
+                  
+                  rangeCircles.push(circle);
+                  
+                  // Add a label showing the distance
+                  const radiusNM = Math.round(maxDistance / 1852); // Convert meters to nautical miles
+                  const labelLatLng = calculateLabelPosition(L.latLng(receiver.latitude, receiver.longitude), maxDistance);
+                  
+                  const label = L.tooltip({
+                    permanent: true,
+                    direction: 'center',
+                    className: 'receiver-tooltip'
+                  })
+                  .setLatLng(labelLatLng)
+                  .setContent(`${radiusNM} NM`)
+                  .addTo(map);
+                  
+                  rangeLabels.push(label);
+                }
               }
             });
             // Populate the duplicate receivers table
