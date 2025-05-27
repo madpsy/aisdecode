@@ -375,13 +375,13 @@
           <div class="row">
             <div class="col-md-6">
               <div class="card">
-                <div class="card-header">Locations by Distance</div>
+                <div class="card-header">Messages by Distance</div>
                 <div class="card-body">
                   <table class="table table-sm">
                     <thead>
                       <tr>
                         <th>Range</th>
-                        <th>Locations</th>
+                        <th>Messages</th>
                         <th>Percentage</th>
                       </tr>
                     </thead>
@@ -394,13 +394,13 @@
             </div>
             <div class="col-md-6">
               <div class="card">
-                <div class="card-header">Locations by Direction</div>
+                <div class="card-header">Messages by Direction</div>
                 <div class="card-body">
                   <table class="table table-sm">
                     <thead>
                       <tr>
                         <th>Direction</th>
-                        <th>Locations</th>
+                        <th>Messages</th>
                         <th>Percentage</th>
                         <th>Max Distance</th>
                       </tr>
@@ -689,9 +689,17 @@
       const ring2 = maxDistance * 2 / 3;
       const ring3 = maxDistance;
       
+      // Use the original data if available, otherwise fall back to heatData
+      const dataToProcess = window.originalData || heatData;
+      
       // Process each point
-      heatData.forEach(point => {
-        const pointLatLng = L.latLng(point[0], point[1]);
+      dataToProcess.forEach(point => {
+        // Handle both original data format and heatData format
+        const lat = point.lat || point[0];
+        const lon = point.lon || point[1];
+        const count = point.count || 1;
+        
+        const pointLatLng = L.latLng(lat, lon);
         const distance = receiverLatLng.distanceTo(pointLatLng);
         const bearing = calculateBearing(
           receiverLatLng.lat, receiverLatLng.lng,
@@ -701,24 +709,24 @@
         
         // Count by distance
         if (distance <= ring1) {
-          distanceStats.ring1++;
+          distanceStats.ring1 += count;
         } else if (distance <= ring2) {
-          distanceStats.ring2++;
+          distanceStats.ring2 += count;
         } else if (distance <= ring3) {
-          distanceStats.ring3++;
+          distanceStats.ring3 += count;
         } else {
-          distanceStats.beyond++;
+          distanceStats.beyond += count;
         }
         
         // Count by direction
-        directionStats[direction]++;
+        directionStats[direction] += count;
         
         // Update max distance for this direction if greater
         if (distance > directionMaxDistance[direction]) {
           directionMaxDistance[direction] = distance;
         }
         
-        totalPoints++;
+        totalPoints += count;
       });
       
       return {
@@ -1051,6 +1059,9 @@
           
           // Convert duplicates data to heatmap format with higher intensity
           const mincount = parseInt(document.getElementById('mincount-select').value);
+          // Store the original data for statistics calculation
+          window.originalData = data;
+          
           heatData = data.map(point => {
             // Intensity based on count, amplified for better visibility of duplicates
             // Adjust intensity calculation based on mincount value
@@ -1060,6 +1071,9 @@
           });
         } else {
           // For coverage mode, convert data to heatmap format
+          // Store the original data for statistics calculation
+          window.originalData = data;
+          
           heatData = data.map(point => {
             // Intensity based on logarithmic scale of count
             const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
@@ -2169,6 +2183,9 @@
         }
         
         // Convert data to heatmap format
+        // Store the original data for statistics calculation
+        window.originalData = data;
+        
         const heatData = data.map(point => {
           const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
           return [point.lat, point.lon, intensity];
