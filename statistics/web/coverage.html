@@ -407,7 +407,7 @@
           <!-- Duplicate Receivers Table (only shown in duplicates mode) -->
           <div id="duplicate-receivers-container" class="mt-4" style="display: block;">
             <div class="card">
-              <div class="card-header">Duplicate Messages by Receiver</div>
+              <div class="card-header">Duplicate Messages by Receiver (Toggle to show/hide on map)</div>
               <div class="card-body">
                 <table class="table table-sm">
                   <thead>
@@ -1097,6 +1097,13 @@
             // Sort by message count (descending)
             receiversArray.sort((a, b) => b.count - a.count);
             
+            // Initialize visibility for receivers if not already set
+            receiversArray.forEach(receiver => {
+              if (duplicateReceiverVisibility[receiver.id] === undefined) {
+                duplicateReceiverVisibility[receiver.id] = true; // Default to visible
+              }
+            });
+            
             // Add rows to the table
             receiversArray.forEach(receiver => {
               const percentage = totalDuplicateMessages > 0
@@ -1106,10 +1113,19 @@
               // Get the color from the receiverColors map
               const receiverColor = receiverColors[receiver.id] || '#0074D9';
               
+              // Get current visibility state
+              const isVisible = duplicateReceiverVisibility[receiver.id];
+              
               duplicateReceiversTable.innerHTML += `
                 <tr>
                   <td>
                     <div style="display: flex; align-items: center;">
+                      <div class="form-check" style="margin-right: 8px;">
+                        <input class="form-check-input receiver-toggle" type="checkbox"
+                               id="receiver-toggle-${receiver.id}"
+                               data-receiver-id="${receiver.id}"
+                               ${isVisible ? 'checked' : ''}>
+                      </div>
                       <div style="background-color: ${receiverColor}; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;"></div>
                       ${receiver.name}
                     </div>
@@ -1119,6 +1135,18 @@
                 </tr>
               `;
             });
+            
+            // Add event listeners to the toggle checkboxes
+            setTimeout(() => {
+              const toggles = document.querySelectorAll('.receiver-toggle');
+              toggles.forEach(toggle => {
+                toggle.addEventListener('change', function() {
+                  const receiverId = parseInt(this.getAttribute('data-receiver-id'));
+                  duplicateReceiverVisibility[receiverId] = this.checked;
+                  toggleDuplicateReceiverVisibility(receiverId, this.checked);
+                });
+              });
+            }, 100);
             
             // Show the container and force it to be visible
             const container = document.getElementById('duplicate-receivers-container');
@@ -1244,7 +1272,12 @@
               const renderer = L.canvas({ pane: 'duplicatePointsPane' });
               
               // Create a feature group to hold all the circles
-              const circlesGroup = L.featureGroup().addTo(map);
+              const circlesGroup = L.featureGroup();
+              
+              // Only add to map if this receiver is visible
+              if (duplicateReceiverVisibility[receiverId_num] !== false) {
+                circlesGroup.addTo(map);
+              }
               
               // Process points in batches to avoid browser freezing
               const batchSize = 50;
@@ -1367,7 +1400,12 @@
                     weight: 1.5, // Match main receiver's weight
                     opacity: 1.0, // Full opacity
                     dashArray: '5, 5' // Make the circle dashed
-                  }).addTo(map);
+                  });
+                  
+                  // Only add to map if this receiver is visible
+                  if (duplicateReceiverVisibility[receiver.id] !== false) {
+                    circle.addTo(map);
+                  }
                   
                   rangeCircles.push(circle);
                   
@@ -1381,8 +1419,12 @@
                     className: 'receiver-tooltip'
                   })
                   .setLatLng(labelLatLng)
-                  .setContent(`${radiusNM} NM`)
-                  .addTo(map);
+                  .setContent(`${radiusNM} NM`);
+                  
+                  // Only add to map if this receiver is visible
+                  if (duplicateReceiverVisibility[receiver.id] !== false) {
+                    label.addTo(map);
+                  }
                   
                   rangeLabels.push(label);
                 }
@@ -1532,21 +1574,29 @@
                   iconSize: [12, 12]
                 });
                 
-                // Add marker with popup
-                L.marker([receiver.latitude, receiver.longitude], {icon: customIcon})
-                  .addTo(map)
+                // Create marker with popup
+                const marker = L.marker([receiver.latitude, receiver.longitude], {icon: customIcon})
                   .bindPopup(`<b>Receiver:</b> ${receiver.name}<br><i>Mentioned in duplicates</i>`);
                 
-                // Add tooltip with receiver name
-                L.tooltip({
+                // Only add to map if this receiver is visible
+                if (duplicateReceiverVisibility[receiver.id] !== false) {
+                  marker.addTo(map);
+                }
+                
+                // Create tooltip with receiver name
+                const tooltip = L.tooltip({
                   permanent: true,
                   direction: 'top',
                   className: 'receiver-tooltip',
                   offset: [0, -10]
                 })
                 .setContent(`<b>${receiver.name}</b>`)
-                .setLatLng([receiver.latitude, receiver.longitude])
-                .addTo(map);
+                .setLatLng([receiver.latitude, receiver.longitude]);
+                
+                // Only add to map if this receiver is visible
+                if (duplicateReceiverVisibility[receiver.id] !== false) {
+                  tooltip.addTo(map);
+                }
                 
                 // Find the maximum distance from this receiver to its detected points
                 let receiverMaxDistance = 0;
@@ -1584,7 +1634,12 @@
                     weight: 1.5, // Match main receiver's weight
                     opacity: 1.0, // Full opacity
                     dashArray: '5, 5' // Make the circle dashed
-                  }).addTo(map);
+                  });
+                  
+                  // Only add to map if this receiver is visible
+                  if (duplicateReceiverVisibility[receiver.id] !== false) {
+                    circle.addTo(map);
+                  }
                   
                   rangeCircles.push(circle);
                   
@@ -1598,8 +1653,12 @@
                     className: 'receiver-tooltip'
                   })
                   .setLatLng(labelLatLng)
-                  .setContent(`${radiusNM} NM`)
-                  .addTo(map);
+                  .setContent(`${radiusNM} NM`);
+                  
+                  // Only add to map if this receiver is visible
+                  if (duplicateReceiverVisibility[receiver.id] !== false) {
+                    label.addTo(map);
+                  }
                   
                   rangeLabels.push(label);
                 }
@@ -2142,6 +2201,9 @@
     let cachedReceivers = null; // Cache receivers to avoid fetching on every time step
     let lastNavigationType = 'hour'; // Track which navigation type was last used ('hour' or 'day')
     
+    // Duplicate receivers visibility tracking
+    let duplicateReceiverVisibility = {}; // Map of receiver ID to visibility state (true = visible, false = hidden)
+    
     // Replay functionality
     let replayData = [];
     let replayIndex = 0;
@@ -2640,6 +2702,18 @@
         // Reload the map data to add receivers back
         loadCoverageData();
       }
+    }
+    
+    // Function to toggle visibility of a duplicate receiver on the map
+    function toggleDuplicateReceiverVisibility(receiverId, isVisible) {
+      console.log(`Toggling receiver ${receiverId} visibility to ${isVisible}`);
+      
+      // Store the visibility state
+      duplicateReceiverVisibility[receiverId] = isVisible;
+      
+      // We need to reload the coverage data to apply the visibility changes
+      // This is more reliable than trying to find and toggle individual elements
+      loadCoverageData();
     }
     
     // Initialize
