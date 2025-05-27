@@ -4544,11 +4544,12 @@
               flagImg.src = flagUrl;
               flagImg.alt = `${midsMapping[mid][3]} Flag`;
               flagImg.style.position = 'absolute';
-              flagImg.style.top = '0px'; // Align with the top of the vessel name
+              flagImg.style.top = '8px'; // Adjust to align with the top of the vessel name
               flagImg.style.right = '5px';
-              flagImg.style.width = '32px'; // Make the flag bigger
+              flagImg.style.width = '40px'; // Make the flag even bigger
               flagImg.style.height = 'auto';
               flagImg.style.border = '1px solid #ddd';
+              flagImg.style.verticalAlign = 'top'; // Ensure vertical alignment
               
               // Add flag to the item
               item.appendChild(flagImg);
