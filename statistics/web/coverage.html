@@ -1096,6 +1096,8 @@
             const receiverData = {};
             
             // Process each point in the data
+            console.log("Processing duplicate data points:", data.length);
+            
             data.forEach(point => {
               if (point.receiver_ids && Array.isArray(point.receiver_ids)) {
                 // Filter out the selected receiver
@@ -1111,43 +1113,50 @@
                   totalDuplicateMessages += point.count || 1;
                   
                   // Add this point to the receiver's data
-                  // Intensity based on count, amplified for better visibility
-                  const intensity = Math.min(1, Math.log10(point.count + 1) / 1.5);
-                  receiverData[id].push([point.lat, point.lon, intensity]);
+                  // Fixed intensity to ensure visibility
+                  receiverData[id].push([point.lat, point.lon, 1.0]); // Use maximum intensity
                 });
               }
             });
+            
+            console.log("Receiver data prepared:", Object.keys(receiverData).length, "receivers");
             
             // Create a separate heatmap layer for each receiver
             Object.keys(receiverData).forEach(receiverId => {
               const receiverId_num = parseInt(receiverId);
               const color = receiverColors[receiverId_num] || '#0074D9'; // Default to blue if no color assigned
               
-              console.log(`Creating heatmap for receiver ${receiverId} with color ${color}`);
+              console.log(`Creating heatmap for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
-              // Create a custom gradient that uses the receiver's color
-              // Instead of using the same color with different opacities, create a gradient from transparent to the color
-              const gradient = {
-                0.0: 'rgba(0,0,0,0)',
-                0.2: color,
-                0.4: color,
-                0.6: color,
-                0.8: color,
-                1.0: color
-              };
+              if (receiverData[receiverId].length === 0) {
+                console.log(`No data points for receiver ${receiverId}, skipping heatmap creation`);
+                return;
+              }
+              
+              // Use a simpler approach with a solid color
+              // Create a custom gradient with just the receiver's color
+              const gradient = {};
+              gradient[0.0] = color;
+              gradient[1.0] = color;
               
               // Create the heatmap layer for this receiver with higher intensity
-              const receiverHeatLayer = L.heatLayer(receiverData[receiverId], {
-                radius: 25,
-                blur: 15,
-                maxZoom: 17,
-                minOpacity: 0.5,
-                max: 1.0,
-                gradient: gradient
-              }).addTo(map);
-              
-              // Store the layer in the rangeCircles array so it gets cleared properly
-              rangeCircles.push(receiverHeatLayer);
+              try {
+                const receiverHeatLayer = L.heatLayer(receiverData[receiverId], {
+                  radius: 30, // Larger radius for better visibility
+                  blur: 10,
+                  maxZoom: 17,
+                  minOpacity: 0.7, // Higher minimum opacity
+                  max: 1.0,
+                  gradient: gradient
+                }).addTo(map);
+                
+                // Store the layer in the rangeCircles array so it gets cleared properly
+                rangeCircles.push(receiverHeatLayer);
+                
+                console.log(`Heatmap created for receiver ${receiverId}`);
+              } catch (e) {
+                console.error(`Error creating heatmap for receiver ${receiverId}:`, e);
+              }
             });
             // Populate the duplicate receivers table
             const duplicateReceiversTable = document.getElementById('duplicate-receivers-stats');
