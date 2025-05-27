@@ -1190,8 +1190,9 @@
             
             // We're using the vividColors array defined at a higher scope
             
-            // Map to store receiver colors
+            // Map to store receiver colors and layers
             const receiverColors = {};
+            const receiverLayers = {};
             
             // Assign colors to receivers
             let colorIndex = 0;
@@ -1242,9 +1243,6 @@
             console.log("Receiver data prepared:", Object.keys(receiverData).length, "receivers");
             console.log("Receiver message counts:", JSON.stringify(receiverMessageCounts));
             console.log("Total duplicate messages:", totalDuplicateMessages);
-            
-            // Create a layer group for each receiver's circles
-            const receiverLayers = {};
             
             // Create heatmap layers for each receiver's data points
             Object.keys(receiverData).forEach(receiverId => {
