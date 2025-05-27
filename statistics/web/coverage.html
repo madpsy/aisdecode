@@ -1051,38 +1051,6 @@
             const receiverMessageCounts = {};
             let totalDuplicateMessages = 0;
             
-            // Generate a palette of vivid colors for receivers
-            const vividColors = [
-              '#0074D9', // Blue
-              '#2ECC40', // Green
-              '#FFDC00', // Yellow
-              '#FF851B', // Orange
-              '#B10DC9', // Purple
-              '#01FF70', // Lime
-              '#F012BE', // Fuchsia
-              '#7FDBFF', // Aqua
-              '#39CCCC', // Teal
-              '#3D9970', // Olive
-              '#85144b', // Maroon
-              '#AAAAAA'  // Silver
-            ];
-            
-            // Map to store receiver colors
-            const receiverColors = {};
-            
-            // Assign colors to receivers
-            let colorIndex = 0;
-            allReceivers.forEach(receiver => {
-              if (receiver.id === selectedReceiverId) {
-                // Main receiver is always red
-                receiverColors[receiver.id] = '#ff4136';
-              } else {
-                // Assign a vivid color from the palette
-                receiverColors[receiver.id] = vividColors[colorIndex % vividColors.length];
-                colorIndex++;
-              }
-            });
-            
             // Group data points by receiver
             const receiverData = {};
             
@@ -1261,9 +1229,41 @@
           // Create a set of all receiver IDs mentioned in the duplicates data
           const mentionedReceiverIds = new Set();
           
+          // Map to store receiver colors - defined at this scope so it's accessible to all code below
+          const receiverColors = {};
+          
           window.duplicatesData.forEach(point => {
             if (point.receiver_ids && Array.isArray(point.receiver_ids)) {
               point.receiver_ids.forEach(id => mentionedReceiverIds.add(id));
+            }
+          });
+          
+          // Generate a palette of vivid colors for receivers
+          const vividColors = [
+            '#0074D9', // Blue
+            '#2ECC40', // Green
+            '#FFDC00', // Yellow
+            '#FF851B', // Orange
+            '#B10DC9', // Purple
+            '#01FF70', // Lime
+            '#F012BE', // Fuchsia
+            '#7FDBFF', // Aqua
+            '#39CCCC', // Teal
+            '#3D9970', // Olive
+            '#85144b', // Maroon
+            '#AAAAAA'  // Silver
+          ];
+          
+          // Assign colors to receivers
+          let colorIndex = 0;
+          receivers.forEach(receiver => {
+            if (receiver.id === parseInt(receiverId)) {
+              // Main receiver is always red
+              receiverColors[receiver.id] = '#ff4136';
+            } else if (mentionedReceiverIds.has(receiver.id)) {
+              // Assign a vivid color from the palette
+              receiverColors[receiver.id] = vividColors[colorIndex % vividColors.length];
+              colorIndex++;
             }
           });
           
