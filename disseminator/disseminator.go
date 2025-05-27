@@ -618,7 +618,7 @@ func getSummaryResults(lat, lon, radius float64, limit int, maxAge int, minSpeed
 	}
 
 	// If ReceiverID is provided, filter using vessel_receivers table
-	if receiverID > 0 {ID)
+	if receiverID > 0 {
 		if whereAdded {
 			query += fmt.Sprintf(" AND s.user_id IN (SELECT user_id FROM vessel_receivers WHERE %d = ANY(receiver_ids))", receiverID)
 		} else {
