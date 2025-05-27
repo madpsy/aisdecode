@@ -1290,13 +1290,11 @@
               // Create a canvas renderer for better performance
               const renderer = L.canvas({ pane: 'duplicatePointsPane' });
               
-              // Create a feature group to hold all the circles
+              // Create a feature group for reference (not used for adding circles anymore)
               const circlesGroup = L.featureGroup();
               
-              // Only add to map if this receiver is visible
-              if (duplicateReceiverVisibility[receiverId_num] !== false) {
-                circlesGroup.addTo(map);
-              }
+              // We're now adding circles directly to the map in the loop below
+              // This is just kept for compatibility with the rest of the code
               
               // Process points in smaller batches to avoid browser freezing
               const batchSize = 20; // Smaller batch size
@@ -1319,37 +1317,20 @@
                     console.log("This is the last receiver, populating table now");
                     populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages);
                     
-                    // ADDED: Special handling for small datasets
-                    if (window.debugMarkers && window.debugMarkers.length < 10) {
-                      console.log(`Small dataset detected (${window.debugMarkers.length} markers), applying special handling`);
+                    // Ensure all points are visible on the map
+                    if (window.debugMarkers && window.debugMarkers.length > 0) {
+                      console.log(`Ensuring all ${window.debugMarkers.length} points are visible on the map`);
                       
-                      // Force a map refresh after a delay
-                      setTimeout(() => {
-                        // Create points array for bounds calculation
-                        const points = window.debugMarkers.map(marker => {
-                          const latLng = marker.getLatLng();
-                          return [latLng.lat, latLng.lng];
-                        });
-                        
-                        if (points.length > 0) {
-                          // Fit bounds to include all markers with extra padding
-                          const bounds = L.latLngBounds(points);
-                          map.fitBounds(bounds, { padding: [100, 100] });
-                          
-                          // Bring all markers to front
-                          window.debugMarkers.forEach(marker => {
-                            marker.setZIndexOffset(10000);
-                            if (marker._icon) {
-                              console.log("Marker has icon element, bringing to front");
-                              marker._icon.style.zIndex = 10000;
-                            } else {
-                              console.log("Marker doesn't have icon element yet");
-                            }
-                          });
-                          
-                          console.log("Applied special handling for small dataset");
-                        }
-                      }, 500);
+                      // Create points array for bounds calculation
+                      const points = window.debugMarkers.map(marker => {
+                        const latLng = marker.getLatLng();
+                        return [latLng.lat, latLng.lng];
+                      });
+                      
+                      // Fit bounds to include all markers with extra padding
+                      const bounds = L.latLngBounds(points);
+                      map.fitBounds(bounds, { padding: [100, 100] });
+                      console.log("Map bounds adjusted to show all points");
                     }
                   }
                   
@@ -1375,35 +1356,33 @@
                     // Get the mincount value
                     const mincountValue = parseInt(document.getElementById('mincount-select').value);
                     
-                    // Create a custom icon for the point
+                    // COMPLETELY DIFFERENT APPROACH: Use L.circleMarker instead of L.marker with custom icon
                     // Size increases with mincount value and point count
-                    const size = mincountValue <= 10 ? 20 : (mincountValue <= 100 ? 30 : 40);
-                    const adjustedSize = Math.min(60, Math.max(size, Math.log10(point.count + 1) * 10));
+                    const size = mincountValue <= 10 ? 10 : (mincountValue <= 100 ? 15 : 20);
+                    const adjustedSize = Math.min(30, Math.max(size, Math.log10(point.count + 1) * 5));
                     
-                    const customIcon = L.divIcon({
-                      html: `<div style="
-                        background-color: ${color};
-                        width: ${adjustedSize}px;
-                        height: ${adjustedSize}px;
-                        border-radius: 50%;
-                        border: 2px solid white; /* Added white border for better visibility */
-                        box-shadow: 0 0 5px rgba(0,0,0,0.5);
-                        opacity: 1.0;
-                      "></div>`,
-                      className: 'custom-marker',
-                      iconSize: [adjustedSize, adjustedSize],
-                      iconAnchor: [adjustedSize/2, adjustedSize/2]
-                    });
+                    console.log(`Creating circleMarker at ${point.lat}, ${point.lon} with radius ${adjustedSize}`);
                     
-                    // Create a marker with the custom icon
-                    const circle = L.marker([point.lat, point.lon], {
-                      icon: customIcon,
+                    // Create a circleMarker (renders as an actual circle on the map)
+                    const circle = L.circleMarker([point.lat, point.lon], {
+                      radius: adjustedSize,
+                      color: 'white',          // Border color
+                      weight: 2,               // Border width
+                      opacity: 1,              // Border opacity
+                      fillColor: color,        // Fill color
+                      fillOpacity: 0.8,        // Fill opacity
                       pane: 'duplicatePointsPane'
-                    }).addTo(circlesGroup);
+                    }).addTo(map);  // Add directly to map instead of circlesGroup
+                    
+                    // Add a popup with information
+                    circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
                     
                     // Store the marker in a global array for debugging
                     if (!window.debugMarkers) window.debugMarkers = [];
                     window.debugMarkers.push(circle);
+                    
+                    // Store for cleanup
+                    rangeCircles.push(circle);
                     
                     // Add a simple popup with information
                     circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
@@ -1427,16 +1406,9 @@
               // Start processing batches
               processBatch(0);
               
-              // Bring the circles group to front with higher priority
-              setTimeout(() => {
-                circlesGroup.bringToFront();
-                // Force each marker to be brought to front as well
-                circlesGroup.eachLayer(layer => {
-                  if (layer instanceof L.Marker) {
-                    layer.setZIndexOffset(1000); // Give markers a high z-index
-                  }
-                });
-              }, 100);
+              // No need to bring circles to front since we're adding them directly to the map
+              // and L.circleMarker doesn't use icons
+              console.log(`All ${receiverData[receiverId].length} circleMarkers should now be visible on the map`);
               
               // The populateDuplicateReceiversTable function has been moved outside the loop
               
