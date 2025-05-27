@@ -1138,20 +1138,25 @@
               // Create a layer group for this receiver
               receiverLayers[receiverId] = L.layerGroup().addTo(map);
               
+              console.log(`Creating circle markers for receiver ${receiverId} with color ${color}`);
+              
               // Add circle markers for each point
               receiverData[receiverId].forEach(point => {
-                // Scale the radius based on count (min 5, max 15)
-                const radius = Math.min(15, Math.max(5, Math.log10(point.count + 1) * 5));
+                // Scale the radius based on count (min 8, max 20) - increased for better visibility
+                const radius = Math.min(20, Math.max(8, Math.log10(point.count + 1) * 8));
                 
-                // Create a circle marker with the receiver's color
+                // Create a circle marker with the receiver's color - make it more visible
                 const circle = L.circleMarker([point.lat, point.lon], {
-                  radius: radius,
+                  radius: radius * 2, // Double the radius for better visibility
                   color: color,
-                  weight: 1,
-                  opacity: 0.8,
+                  weight: 2, // Thicker border
+                  opacity: 1.0, // Full opacity for border
                   fillColor: color,
-                  fillOpacity: 0.5
+                  fillOpacity: 0.7 // Higher fill opacity
                 }).addTo(receiverLayers[receiverId]);
+                
+                // Add a popup with information about the duplicate
+                circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
               });
               
               // Store the layer group in the rangeCircles array so it gets cleared properly
