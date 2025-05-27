@@ -1329,8 +1329,15 @@
                       }
                       window.debugMarkers = [];
                       
-                      // Process each stored point
-                      window.pointsToProcess.forEach((point, index) => {
+                      // Filter out points from deselected receivers
+                      const visiblePoints = window.pointsToProcess.filter(point =>
+                        duplicateReceiverVisibility[point.receiverId] !== false
+                      );
+                      
+                      console.log(`Filtered points: ${visiblePoints.length} visible out of ${window.pointsToProcess.length} total`);
+                      
+                      // Process each visible point
+                      visiblePoints.forEach((point, index) => {
                         // Create a simple HTML marker with absolute positioning
                         const markerId = `emergency-marker-${index}`;
                         
@@ -1368,8 +1375,14 @@
                       
                       // Add event listener to reposition markers when the map moves
                       map.on('moveend', function() {
-                        if (window.pointsToProcess && window.debugMarkers) {
-                          window.pointsToProcess.forEach((point, index) => {
+                        if (window.debugMarkers) {
+                          // Filter points again in case visibility has changed
+                          const visiblePoints = window.pointsToProcess.filter(point =>
+                            duplicateReceiverVisibility[point.receiverId] !== false
+                          );
+                          
+                          // Only reposition markers that should be visible
+                          visiblePoints.forEach((point, index) => {
                             if (window.debugMarkers[index]) {
                               const latLng = L.latLng(point.lat, point.lon);
                               const pixelPoint = map.latLngToContainerPoint(latLng);
@@ -1380,12 +1393,14 @@
                         }
                       });
                       
-                      // Ensure all points are visible on the map
-                      if (window.pointsToProcess.length > 0) {
-                        const points = window.pointsToProcess.map(point => [point.lat, point.lon]);
+                      // Ensure all visible points are visible on the map
+                      if (visiblePoints.length > 0) {
+                        const points = visiblePoints.map(point => [point.lat, point.lon]);
                         const bounds = L.latLngBounds(points);
                         map.fitBounds(bounds, { padding: [100, 100] });
-                        console.log("Map bounds adjusted to show all points");
+                        console.log(`Map bounds adjusted to show ${visiblePoints.length} visible points`);
+                      } else {
+                        console.log("No visible points to show");
                       }
                     }
                   }
