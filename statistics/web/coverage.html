@@ -1141,27 +1141,37 @@
               
               console.log(`Creating circle markers for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
-              // Create a layer group for this receiver's points
-              const pointsLayer = L.layerGroup().addTo(map);
+              // CRITICAL DEBUG: Force display of at least one test circle to verify rendering
+              const testCircle = L.circleMarker([51.5, -0.09], {
+                radius: 50,
+                color: 'red',
+                weight: 5,
+                opacity: 1.0,
+                fillColor: 'yellow',
+                fillOpacity: 1.0
+              }).addTo(map);
+              console.log("Added test circle to map at 51.5, -0.09");
               
-              // Add circle markers for each point
-              receiverData[receiverId].forEach(point => {
+              // Add circle markers for each point - DIRECT APPROACH
+              receiverData[receiverId].forEach((point, index) => {
                 try {
-                  // Scale the radius based on count (min 20, max 40) - significantly increased for better visibility
-                  const radius = Math.min(40, Math.max(20, Math.log10(point.count + 1) * 15));
+                  // Scale the radius based on count (min 25, max 50) - even larger for visibility
+                  const radius = Math.min(50, Math.max(25, Math.log10(point.count + 1) * 20));
                   
-                  // Create a circle marker with the receiver's color - make it much more visible
+                  // Create and immediately add the circle marker to the map
                   const circle = L.circleMarker([point.lat, point.lon], {
-                    radius: radius, // Much larger radius for visibility
-                    color: 'white', // White border for contrast
-                    weight: 3, // Thicker border for better visibility
-                    opacity: 1.0, // Full opacity for border
+                    radius: radius,
+                    color: 'black', // Black border for maximum contrast
+                    weight: 4,
+                    opacity: 1.0,
                     fillColor: color,
-                    fillOpacity: 1.0 // Full opacity for maximum visibility
-                  });
+                    fillOpacity: 1.0
+                  }).addTo(map);
                   
-                  // Add the circle to the layer group
-                  circle.addTo(pointsLayer);
+                  // Log every 10th point for debugging
+                  if (index % 10 === 0) {
+                    console.log(`Added point at ${point.lat}, ${point.lon} with radius ${radius}`);
+                  }
                   
                   // Add a popup with information about the duplicate
                   circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
@@ -1173,8 +1183,7 @@
                 }
               });
               
-              // Debug log to confirm points were added
-              console.log(`Added ${receiverData[receiverId].length} points to layer group for receiver ${receiverId}`);
+              console.log(`Attempted to add ${receiverData[receiverId].length} points directly to map for receiver ${receiverId}`);
               
               // We're adding circles directly to the map now, not using layer groups
               
@@ -1205,9 +1214,9 @@
                   const circle = L.circle([receiver.latitude, receiver.longitude], {
                     radius: maxDistance,
                     color: color,
-                    fillColor: color,
-                    fillOpacity: 0.1, // Light fill for better visibility
-                    weight: 3, // Increased weight
+                    fillColor: 'transparent',
+                    fillOpacity: 0, // Completely transparent fill
+                    weight: 1.5, // Match main receiver's weight
                     opacity: 1.0, // Full opacity
                     dashArray: '5, 5' // Make the circle dashed
                   }).addTo(map);
@@ -1454,9 +1463,9 @@
                   const circle = L.circle(receiverLatLng, {
                     radius: receiverMaxDistance,
                     color: receiverColor,
-                    fillColor: receiverColor,
-                    fillOpacity: 0.1, // Light fill for better visibility
-                    weight: 3, // Increased weight
+                    fillColor: 'transparent',
+                    fillOpacity: 0, // Completely transparent fill
+                    weight: 1.5, // Match main receiver's weight
                     opacity: 1.0, // Full opacity
                     dashArray: '5, 5' // Make the circle dashed
                   }).addTo(map);
