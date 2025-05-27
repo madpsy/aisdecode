@@ -1280,10 +1280,11 @@
               
               console.log(`Creating circle markers for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
-              // Create a new pane with appropriate z-index for our points
+              // Create a new pane with very high z-index for our points
               if (!map.getPane('duplicatePointsPane')) {
                 map.createPane('duplicatePointsPane');
-                map.getPane('duplicatePointsPane').style.zIndex = 650; // Higher z-index to ensure visibility
+                map.getPane('duplicatePointsPane').style.zIndex = 1000; // Much higher z-index to ensure visibility
+                console.log("Created duplicatePointsPane with z-index 1000");
               }
               
               // Create a canvas renderer for better performance
@@ -1317,6 +1318,39 @@
                   if (receiverId === lastReceiverId) {
                     console.log("This is the last receiver, populating table now");
                     populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages);
+                    
+                    // ADDED: Special handling for small datasets
+                    if (window.debugMarkers && window.debugMarkers.length < 10) {
+                      console.log(`Small dataset detected (${window.debugMarkers.length} markers), applying special handling`);
+                      
+                      // Force a map refresh after a delay
+                      setTimeout(() => {
+                        // Create points array for bounds calculation
+                        const points = window.debugMarkers.map(marker => {
+                          const latLng = marker.getLatLng();
+                          return [latLng.lat, latLng.lng];
+                        });
+                        
+                        if (points.length > 0) {
+                          // Fit bounds to include all markers with extra padding
+                          const bounds = L.latLngBounds(points);
+                          map.fitBounds(bounds, { padding: [100, 100] });
+                          
+                          // Bring all markers to front
+                          window.debugMarkers.forEach(marker => {
+                            marker.setZIndexOffset(10000);
+                            if (marker._icon) {
+                              console.log("Marker has icon element, bringing to front");
+                              marker._icon.style.zIndex = 10000;
+                            } else {
+                              console.log("Marker doesn't have icon element yet");
+                            }
+                          });
+                          
+                          console.log("Applied special handling for small dataset");
+                        }
+                      }, 500);
+                    }
                   }
                   
                   return;
@@ -1341,13 +1375,35 @@
                     // Get the mincount value
                     const mincountValue = parseInt(document.getElementById('mincount-select').value);
                     
-                    // TEMPORARY TEST: Using default pin marker instead of custom icon
-                    console.log(`Creating default pin marker at ${point.lat}, ${point.lon}`);
+                    // Create a custom icon for the point
+                    // Size increases with mincount value and point count
+                    const size = mincountValue <= 10 ? 20 : (mincountValue <= 100 ? 30 : 40);
+                    const adjustedSize = Math.min(60, Math.max(size, Math.log10(point.count + 1) * 10));
                     
-                    // Create a marker with the default pin icon
+                    const customIcon = L.divIcon({
+                      html: `<div style="
+                        background-color: ${color};
+                        width: ${adjustedSize}px;
+                        height: ${adjustedSize}px;
+                        border-radius: 50%;
+                        border: 2px solid white; /* Added white border for better visibility */
+                        box-shadow: 0 0 5px rgba(0,0,0,0.5);
+                        opacity: 1.0;
+                      "></div>`,
+                      className: 'custom-marker',
+                      iconSize: [adjustedSize, adjustedSize],
+                      iconAnchor: [adjustedSize/2, adjustedSize/2]
+                    });
+                    
+                    // Create a marker with the custom icon
                     const circle = L.marker([point.lat, point.lon], {
+                      icon: customIcon,
                       pane: 'duplicatePointsPane'
                     }).addTo(circlesGroup);
+                    
+                    // Store the marker in a global array for debugging
+                    if (!window.debugMarkers) window.debugMarkers = [];
+                    window.debugMarkers.push(circle);
                     
                     // Add a simple popup with information
                     circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
