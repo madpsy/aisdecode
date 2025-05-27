@@ -1088,33 +1088,7 @@
             
             // Store the colors in window so they can be accessed from other parts of the code
             window.currentReceiverColors = receiverColors;
-            
-            // If this is the selected receiver, update its marker color immediately
-            if (selectedReceiverId && document.getElementById('duplicatesRadio').checked) {
-              try {
-                // Find the main receiver marker
-                if (receiverMarker) {
-                  // Remove the old marker
-                  map.removeLayer(receiverMarker);
-                  
-                  // Create a new marker with the correct color
-                  const mainReceiverColor = receiverColors[selectedReceiverId] || '#ff4136';
-                  console.log(`Updating main receiver ${selectedReceiverId} marker color to: ${mainReceiverColor}`);
-                  
-                  const selectedReceiver = allReceivers.find(r => r.id === selectedReceiverId);
-                  if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
-                    // Create new marker with the correct color
-                    receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {
-                      icon: createReceiverIcon(mainReceiverColor)
-                    })
-                    .addTo(map)
-                    .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
-                  }
-                }
-              } catch (e) {
-                console.error("Error updating main receiver marker color:", e);
-              }
-            }
+            console.log("Stored receiver colors in window:", receiverColors);
             
             // Store the colors in window so they can be accessed from other parts of the code
             window.currentReceiverColors = receiverColors;
@@ -1165,29 +1139,35 @@
               // Create a layer group for this receiver
               receiverLayers[receiverId] = L.layerGroup().addTo(map);
               
-              console.log(`Creating circle markers for receiver ${receiverId} with color ${color}`);
+              console.log(`Creating circle markers for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
               // Add circle markers for each point
               receiverData[receiverId].forEach(point => {
-                // Scale the radius based on count (min 8, max 20) - increased for better visibility
-                const radius = Math.min(20, Math.max(8, Math.log10(point.count + 1) * 8));
-                
-                // Create a circle marker with the receiver's color - make it more visible
-                const circle = L.circleMarker([point.lat, point.lon], {
-                  radius: radius * 2, // Double the radius for better visibility
-                  color: color,
-                  weight: 2, // Thicker border
-                  opacity: 1.0, // Full opacity for border
-                  fillColor: color,
-                  fillOpacity: 0.7 // Higher fill opacity
-                }).addTo(receiverLayers[receiverId]);
-                
-                // Add a popup with information about the duplicate
-                circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
+                try {
+                  // Scale the radius based on count (min 10, max 25) - increased for better visibility
+                  const radius = Math.min(25, Math.max(10, Math.log10(point.count + 1) * 10));
+                  
+                  // Create a circle marker with the receiver's color - make it more visible
+                  const circle = L.circleMarker([point.lat, point.lon], {
+                    radius: radius, // Large radius for visibility
+                    color: color,
+                    weight: 3, // Thicker border
+                    opacity: 1.0, // Full opacity for border
+                    fillColor: color,
+                    fillOpacity: 0.8 // Higher fill opacity
+                  }).addTo(map); // Add directly to map instead of layer group
+                  
+                  // Add a popup with information about the duplicate
+                  circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
+                  
+                  // Store the circle in rangeCircles array so it gets cleared properly
+                  rangeCircles.push(circle);
+                } catch (e) {
+                  console.error(`Error creating circle for point:`, e, point);
+                }
               });
               
-              // Store the layer group in the rangeCircles array so it gets cleared properly
-              rangeCircles.push(receiverLayers[receiverId]);
+              // We're adding circles directly to the map now, not using layer groups
               
               console.log(`Created ${receiverData[receiverId].length} circles for receiver ${receiverId}`);
               
@@ -1317,11 +1297,12 @@
           if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
             // Add marker with popup and store reference if receivers should be shown
             if (showReceivers) {
-              // For the main receiver, always use red initially
-              // The color will be updated later when we have the receiver colors from the duplicate data
-              const mainReceiverColor = '#ff4136'; // Red
+              // For the main receiver, check if we have a color from duplicate data
+              const mainReceiverColor = window.currentReceiverColors && window.currentReceiverColors[selectedReceiver.id]
+                ? window.currentReceiverColors[selectedReceiver.id]
+                : '#ff4136'; // Default to red if no color is defined
               
-              console.log(`Initial main receiver ${selectedReceiver.id} color: ${mainReceiverColor}`);
+              console.log(`Main receiver ${selectedReceiver.id} color: ${mainReceiverColor}`);
               
               receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: createReceiverIcon(mainReceiverColor)})
                 .addTo(map)
