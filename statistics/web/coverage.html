@@ -1486,15 +1486,9 @@
                       receiverName: receiverNames[receiverId_num] || `Receiver ${receiverId}`
                     });
                     
-                    console.log(`Stored point at ${point.lat}, ${point.lon} for later processing`);
-                    
                     // We're not creating circles here anymore, just storing points for later processing
                     // The circle references below were causing "circle is not defined" errors
                     
-                    // Log every 20th point
-                    if (i % 20 === 0) {
-                      console.log(`Stored point at ${point.lat}, ${point.lon} for later processing`);
-                    }
                   } catch (e) {
                     console.error(`Error creating circle:`, e, point);
                   }
