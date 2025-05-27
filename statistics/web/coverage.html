@@ -419,7 +419,6 @@
             <div class="card">
               <div class="card-header">
                 Duplicate Messages by Receiver
-                <div class="small text-muted">Toggle to show/hide on map. Circle opacity indicates relative message count within each receiver's range.</div>
               </div>
               <div class="card-body">
                 <table class="table table-sm">
@@ -1175,12 +1174,11 @@
             // Clear previous content
             duplicateReceiversTable.innerHTML = '';
             
-            // Add a legend explaining the opacity gradient
+            // Add a legend showing the opacity gradient
             duplicateReceiversTable.innerHTML = `
               <tr class="table-light">
                 <td colspan="3">
                   <div class="small mb-1">
-                    <strong>Note:</strong> Circle opacity indicates relative message count within each receiver's range.
                     <div style="display: flex; align-items: center; margin-top: 3px;">
                       <div style="width: 12px; height: 12px; border-radius: 50%; opacity: 0.3; background: #666; margin-right: 5px;"></div>
                       <div style="flex-grow: 1; height: 4px; background: linear-gradient(to right, rgba(102,102,102,0.3), rgba(102,102,102,0.9));"></div>
