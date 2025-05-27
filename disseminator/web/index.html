@@ -2711,7 +2711,12 @@ function createDetailContent(data) {
   addLine(lines, "Last Update", lastSeen);
   addLine(lines, "Messages", data.NumMessages);
   addLine(lines, "MMSI", data.UserID);
-  addLine(lines, "AIS Class", data.AISClass);
+  // Check if vessel is AtoN class and has VirtualAtoN flag set to true
+  if (data.AISClass === "AtoN" && data.VirtualAtoN === true) {
+    addLine(lines, "AIS Class", "AtoN (Virtual)");
+  } else {
+    addLine(lines, "AIS Class", data.AISClass);
+  }
 
   if (data.Type != null) {
     // If it’s an AtoN report, use the special AtoN mapping; otherwise the normal one
