@@ -1262,10 +1262,10 @@
               
               console.log(`Creating circle markers for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
-              // Create a new pane with very high z-index for our points
+              // Create a new pane with appropriate z-index for our points
               if (!map.getPane('duplicatePointsPane')) {
                 map.createPane('duplicatePointsPane');
-                map.getPane('duplicatePointsPane').style.zIndex = 999; // Very high z-index
+                map.getPane('duplicatePointsPane').style.zIndex = 450; // Lower z-index so it doesn't cover markers and tooltips
               }
               
               // Create a canvas renderer for better performance
