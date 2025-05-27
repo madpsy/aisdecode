@@ -1089,6 +1089,33 @@
             // Store the colors in window so they can be accessed from other parts of the code
             window.currentReceiverColors = receiverColors;
             
+            // If this is the selected receiver, update its marker color immediately
+            if (selectedReceiverId && document.getElementById('duplicatesRadio').checked) {
+              try {
+                // Find the main receiver marker
+                if (receiverMarker) {
+                  // Remove the old marker
+                  map.removeLayer(receiverMarker);
+                  
+                  // Create a new marker with the correct color
+                  const mainReceiverColor = receiverColors[selectedReceiverId] || '#ff4136';
+                  console.log(`Updating main receiver ${selectedReceiverId} marker color to: ${mainReceiverColor}`);
+                  
+                  const selectedReceiver = allReceivers.find(r => r.id === selectedReceiverId);
+                  if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
+                    // Create new marker with the correct color
+                    receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {
+                      icon: createReceiverIcon(mainReceiverColor)
+                    })
+                    .addTo(map)
+                    .bindPopup(`<b>Receiver:</b> ${selectedReceiver.name}`);
+                  }
+                }
+              } catch (e) {
+                console.error("Error updating main receiver marker color:", e);
+              }
+            }
+            
             // Store the colors in window so they can be accessed from other parts of the code
             window.currentReceiverColors = receiverColors;
             
@@ -1290,12 +1317,11 @@
           if (selectedReceiver && selectedReceiver.latitude && selectedReceiver.longitude) {
             // Add marker with popup and store reference if receivers should be shown
             if (showReceivers) {
-              // For the main receiver, use the color from window.currentReceiverColors if available
-              const mainReceiverColor = window.currentReceiverColors && window.currentReceiverColors[selectedReceiver.id]
-                ? window.currentReceiverColors[selectedReceiver.id]
-                : '#ff4136'; // Default to red if no color is defined
+              // For the main receiver, always use red initially
+              // The color will be updated later when we have the receiver colors from the duplicate data
+              const mainReceiverColor = '#ff4136'; // Red
               
-              console.log(`Main receiver ${selectedReceiver.id} color: ${mainReceiverColor}`);
+              console.log(`Initial main receiver ${selectedReceiver.id} color: ${mainReceiverColor}`);
               
               receiverMarker = L.marker([selectedReceiver.latitude, selectedReceiver.longitude], {icon: createReceiverIcon(mainReceiverColor)})
                 .addTo(map)
