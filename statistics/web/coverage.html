@@ -417,7 +417,10 @@
           <!-- Duplicate Receivers Table (only shown in duplicates mode) -->
           <div id="duplicate-receivers-container" class="mt-4" style="display: block;">
             <div class="card">
-              <div class="card-header">Duplicate Messages by Receiver (Toggle to show/hide on map)</div>
+              <div class="card-header">
+                Duplicate Messages by Receiver
+                <div class="small text-muted">Toggle to show/hide on map. Circle opacity indicates relative message count within each receiver's range.</div>
+              </div>
               <div class="card-body">
                 <table class="table table-sm">
                   <thead>
@@ -1099,6 +1102,8 @@
             // Adjust intensity calculation based on mincount value
             const divisor = mincount <= 10 ? 1.5 : (mincount <= 100 ? 1.2 : 1.0);
             const intensity = Math.min(1, Math.log10(point.count + 1) / divisor);
+            // Note: This intensity is used for the heatmap but NOT for individual circle markers
+            // Circle markers are created with fixed opacity regardless of count
             return [point.lat, point.lon, intensity];
           });
         } else {
@@ -1140,6 +1145,28 @@
           }).addTo(map);
         }
         
+        // Helper function to convert hex color to RGB
+        function hexToRgb(hex) {
+          // Remove the # if present
+          hex = hex.replace(/^#/, '');
+          
+          // Parse the hex values
+          let r, g, b;
+          if (hex.length === 3) {
+            // For shorthand hex like #F00
+            r = parseInt(hex.charAt(0) + hex.charAt(0), 16);
+            g = parseInt(hex.charAt(1) + hex.charAt(1), 16);
+            b = parseInt(hex.charAt(2) + hex.charAt(2), 16);
+          } else {
+            // For full hex like #FF0000
+            r = parseInt(hex.substring(0, 2), 16);
+            g = parseInt(hex.substring(2, 4), 16);
+            b = parseInt(hex.substring(4, 6), 16);
+          }
+          
+          return `${r}, ${g}, ${b}`;
+        }
+        
         // Helper function to populate the duplicate receivers table
         function populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages) {
           
@@ -1147,6 +1174,26 @@
           if (duplicateReceiversTable) {
             // Clear previous content
             duplicateReceiversTable.innerHTML = '';
+            
+            // Add a legend explaining the opacity gradient
+            duplicateReceiversTable.innerHTML = `
+              <tr class="table-light">
+                <td colspan="3">
+                  <div class="small mb-1">
+                    <strong>Note:</strong> Circle opacity indicates relative message count within each receiver's range.
+                    <div style="display: flex; align-items: center; margin-top: 3px;">
+                      <div style="width: 12px; height: 12px; border-radius: 50%; opacity: 0.3; background: #666; margin-right: 5px;"></div>
+                      <div style="flex-grow: 1; height: 4px; background: linear-gradient(to right, rgba(102,102,102,0.3), rgba(102,102,102,0.9));"></div>
+                      <div style="width: 12px; height: 12px; border-radius: 50%; opacity: 0.9; background: #666; margin-left: 5px;"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666;">
+                      <span>Minimum</span>
+                      <span>Maximum</span>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            `;
             
             // Convert to array for sorting
             const receiversArray = Object.entries(receiverMessageCounts).map(([id, count]) => ({
@@ -1180,6 +1227,28 @@
               // Get current visibility state
               const isVisible = duplicateReceiverVisibility[receiver.id];
               
+              // Get min and max counts for this receiver if available from window.receiverStats
+              const minCount = window.receiverStats && window.receiverStats[receiver.id] ?
+                window.receiverStats[receiver.id].min : null;
+              const maxCount = window.receiverStats && window.receiverStats[receiver.id] ?
+                window.receiverStats[receiver.id].max : null;
+              
+              // Create range info if min and max are available
+              let rangeInfo = '';
+              if (minCount !== null && maxCount !== null) {
+                // Convert hex color to RGB for the gradient
+                const rgbColor = hexToRgb(receiverColor);
+                
+                // Create a gradient bar to visualize the opacity range
+                rangeInfo = `
+                  <div class="small text-muted">Range: ${minCount} - ${maxCount} msgs</div>
+                  <div style="width: 100%; height: 6px; background: linear-gradient(to right,
+                    rgba(${rgbColor}, 0.3),
+                    rgba(${rgbColor}, 0.9));
+                    border-radius: 3px; margin-top: 2px;"></div>
+                `;
+              }
+              
               duplicateReceiversTable.innerHTML += `
                 <tr>
                   <td>
@@ -1191,7 +1260,10 @@
                                ${isVisible ? 'checked' : ''}>
                       </div>
                       <div style="background-color: ${receiverColor}; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;"></div>
-                      ${receiver.name}
+                      <div>
+                        ${receiver.name}
+                        ${rangeInfo}
+                      </div>
                     </div>
                   </td>
                   <td>${receiver.count}</td>
@@ -1382,6 +1454,60 @@
                       
                       console.log(`Filtered points: ${visiblePoints.length} visible out of ${window.pointsToProcess.length} total`);
                       
+                      // Calculate min and max message counts for each receiver
+                      const receiverStats = {};
+                      visiblePoints.forEach(point => {
+                        const receiverId = point.receiverId;
+                        if (!receiverStats[receiverId]) {
+                          receiverStats[receiverId] = {
+                            min: Infinity,
+                            max: 0,
+                            points: []
+                          };
+                        }
+                        
+                        // Track min and max counts
+                        receiverStats[receiverId].min = Math.min(receiverStats[receiverId].min, point.count);
+                        receiverStats[receiverId].max = Math.max(receiverStats[receiverId].max, point.count);
+                        receiverStats[receiverId].points.push(point);
+                      });
+                      
+                      // Normalize counts and calculate opacity for each point
+                      Object.keys(receiverStats).forEach(receiverId => {
+                        const stats = receiverStats[receiverId];
+                        // Check if we have a meaningful range (more than one distinct value)
+                        const hasMeaningfulRange = stats.max > stats.min;
+                        
+                        // Ensure we don't divide by zero if all points have the same count
+                        const range = stats.max - stats.min || 1;
+                        
+                        console.log(`Receiver ${receiverId} (${stats.points[0]?.receiverName}): min=${stats.min}, max=${stats.max}, range=${range}, points=${stats.points.length}, meaningful range: ${hasMeaningfulRange}`);
+                        
+                        // Sample a few points to verify opacity calculation
+                        const samplePoints = stats.points.slice(0, Math.min(3, stats.points.length));
+                        
+                        stats.points.forEach(point => {
+                          if (hasMeaningfulRange) {
+                            // Normalize the count to a value between 0 and 1
+                            const normalizedCount = (point.count - stats.min) / range;
+                            // Scale opacity between 0.3 and 0.9 to ensure all points are visible
+                            point.opacity = 0.3 + (normalizedCount * 0.6);
+                          } else {
+                            // If all points have the same count, use a medium opacity
+                            point.opacity = 0.6;
+                          }
+                          
+                          // Log sample points for verification
+                          if (samplePoints.includes(point)) {
+                            console.log(`  Sample point: count=${point.count}, normalized=${normalizedCount.toFixed(2)}, opacity=${point.opacity.toFixed(2)}`);
+                          }
+                        });
+                      });
+                      
+                      // Store receiver stats in window object for access in populateDuplicateReceiversTable
+                      window.receiverStats = receiverStats;
+                      console.log("Receiver stats with normalized opacities calculated and stored in window.receiverStats");
+                      
                       // Process each visible point
                       visiblePoints.forEach((point, index) => {
                         // Create a simple HTML marker with absolute positioning
@@ -1395,7 +1521,8 @@
                         markerDiv.style.height = '20px';
                         markerDiv.style.borderRadius = '50%';
                         markerDiv.style.backgroundColor = point.color;
-                        // Removed white border as requested
+                        // Set opacity based on normalized count
+                        markerDiv.style.opacity = point.opacity;
                         markerDiv.style.zIndex = '10000';
                         markerDiv.style.pointerEvents = 'auto';
                         markerDiv.style.cursor = 'pointer';
@@ -1410,9 +1537,12 @@
                         markerDiv.style.left = (pixelPoint.x - 10) + 'px';
                         markerDiv.style.top = (pixelPoint.y - 10) + 'px';
                         
-                        // Add click event for popup
+                        // Add click event for popup with enhanced information
                         markerDiv.addEventListener('click', function() {
-                          alert(`Duplicate point\nReceiver: ${point.receiverName}\nCount: ${point.count}`);
+                          const normalizedInfo = point.opacity ?
+                            `\nRelative Strength: ${Math.round((point.opacity - 0.3) / 0.6 * 100)}%` :
+                            '';
+                          alert(`Duplicate point\nReceiver: ${point.receiverName}\nCount: ${point.count}${normalizedInfo}`);
                         });
                         
                         window.debugMarkers.push(markerDiv);
@@ -1433,6 +1563,10 @@
                               const pixelPoint = map.latLngToContainerPoint(latLng);
                               window.debugMarkers[index].style.left = (pixelPoint.x - 10) + 'px';
                               window.debugMarkers[index].style.top = (pixelPoint.y - 10) + 'px';
+                              // Ensure opacity is preserved during map movement
+                              if (point.opacity) {
+                                window.debugMarkers[index].style.opacity = point.opacity;
+                              }
                             }
                           });
                         }
