@@ -1594,17 +1594,25 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
 			whereClause += fmt.Sprintf(" AND receiver_id = %d", receiverID)
 		}
 
+		// Only check for receiver_id_duplicated IS NULL if no specific receiver is specified
+		var duplicateCheck string
+		if receiverID <= 0 {
+			duplicateCheck = "AND (receiver_id_duplicated IS NULL)"
+		} else {
+			duplicateCheck = ""
+		}
+
 		query := fmt.Sprintf(`
 		          SELECT
 		            %s,
 		            %s
 		          FROM messages
 		          WHERE %s
-		            AND (receiver_id_duplicated IS NULL)
+		            %s
 		          GROUP BY bucket
 		          ORDER BY bucket ASC
 		          LIMIT 2000;
-        `, bucketCol, strings.Join(exprs, ", "), whereClause)
+		      `, bucketCol, strings.Join(exprs, ", "), whereClause, duplicateCheck)
 		// log.Printf("SQL Query: %s", query)
 
 		rows, err := QueryDatabaseForUser(userIDStr, query)
@@ -1685,6 +1693,14 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	var query string
 	if len(messageIDs) == 0 && q.Get("DAC") == "" && q.Get("FI") == "" {
+		// Only check for receiver_id_duplicated IS NULL if no specific receiver is specified
+		var duplicateCheck string
+		if receiverID <= 0 {
+			duplicateCheck = "AND (receiver_id_duplicated IS NULL)"
+		} else {
+			duplicateCheck = ""
+		}
+
 		query = fmt.Sprintf(`
 		          SELECT DISTINCT ON (
 		            message_id,
@@ -1698,14 +1714,22 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		            receiver_id
 		          FROM messages
 		          WHERE %s
-		            AND (receiver_id_duplicated IS NULL)
-            ORDER BY
-              message_id,
-              (packet->'ApplicationID'->>'DesignatedAreaCode')::int,
-              (packet->'ApplicationID'->>'FunctionIdentifier')::int,
-              timestamp DESC;
-        `, whereClause)
+		            %s
+		          ORDER BY
+		            message_id,
+		            (packet->'ApplicationID'->>'DesignatedAreaCode')::int,
+		            (packet->'ApplicationID'->>'FunctionIdentifier')::int,
+		            timestamp DESC;
+		      `, whereClause, duplicateCheck)
 	} else {
+		// Only check for receiver_id_duplicated IS NULL if no specific receiver is specified
+		var duplicateCheck string
+		if receiverID <= 0 {
+			duplicateCheck = "AND (receiver_id_duplicated IS NULL)"
+		} else {
+			duplicateCheck = ""
+		}
+
 		query = fmt.Sprintf(`
 		          SELECT
 		            message_id,
@@ -1715,10 +1739,10 @@ func latestMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		            receiver_id
 		          FROM messages
 		          WHERE %s
-		            AND (receiver_id_duplicated IS NULL)
-            ORDER BY timestamp DESC
-            LIMIT %d;
-        `, whereClause, limit)
+		            %s
+		          ORDER BY timestamp DESC
+		          LIMIT %d;
+		      `, whereClause, duplicateCheck, limit)
 	}
 	// log.Printf("SQL Query: %s", query)
 
