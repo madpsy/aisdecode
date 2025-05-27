@@ -2856,9 +2856,27 @@ func buildDirectionAnomalyQuery(from, to time.Time, receiverID int) string {
 
 // detectDirectionAnomalies processes query results to find unusual directional patterns
 // duplicatesHeatmapHandler provides a grid-based heatmap of duplicate messages
+// parseMinCountParam reads 'mincount' query param, returns 1 if not specified or invalid.
+// Maximum value is capped at 9999.
+func parseMinCountParam(r *http.Request) int {
+	minCount := 1 // Default value
+	if mc := r.URL.Query().Get("mincount"); mc != "" {
+		if n, err := strconv.Atoi(mc); err == nil && n > 0 {
+			if n > 9999 {
+				// Cap at 9999 as specified
+				minCount = 9999
+			} else {
+				minCount = n
+			}
+		}
+	}
+	return minCount
+}
+
 func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	days := parseDaysParam(r)
 	receiverId := parseReceiverIDParam(r)
+	minCount := parseMinCountParam(r)
 	timeRange, err := parseTimeRangeParams(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -2869,20 +2887,22 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	var cacheKey string
 	if timeRange.UseRange {
 		if receiverId < 0 {
-			cacheKey = fmt.Sprintf("duplicates-heatmap:%s-%s:all",
-				timeRange.From.Format("2006-01-02T15:04:05Z"),
-				timeRange.To.Format("2006-01-02T15:04:05Z"))
-		} else {
-			cacheKey = fmt.Sprintf("duplicates-heatmap:%s-%s:r%d",
+			cacheKey = fmt.Sprintf("duplicates-heatmap:%s-%s:all:min%d",
 				timeRange.From.Format("2006-01-02T15:04:05Z"),
 				timeRange.To.Format("2006-01-02T15:04:05Z"),
-				receiverId)
+				minCount)
+		} else {
+			cacheKey = fmt.Sprintf("duplicates-heatmap:%s-%s:r%d:min%d",
+				timeRange.From.Format("2006-01-02T15:04:05Z"),
+				timeRange.To.Format("2006-01-02T15:04:05Z"),
+				receiverId,
+				minCount)
 		}
 	} else {
 		if receiverId < 0 {
-			cacheKey = fmt.Sprintf("duplicates-heatmap:%dd:all", days)
+			cacheKey = fmt.Sprintf("duplicates-heatmap:%dd:all:min%d", days, minCount)
 		} else {
-			cacheKey = fmt.Sprintf("duplicates-heatmap:%dd:r%d", days, receiverId)
+			cacheKey = fmt.Sprintf("duplicates-heatmap:%dd:r%d:min%d", days, receiverId, minCount)
 		}
 	}
 
@@ -3175,7 +3195,11 @@ func duplicatesHeatmapHandler(w http.ResponseWriter, r *http.Request) {
 		if receiverId > 0 && len(cell.ReceiverIDs) == 1 && cell.ReceiverIDs[0] == receiverId {
 			continue
 		}
-		heatmapData = append(heatmapData, cell)
+
+		// Filter by minimum count
+		if cell.Count >= minCount {
+			heatmapData = append(heatmapData, cell)
+		}
 	}
 
 	// Cache the result
