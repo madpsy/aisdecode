@@ -1086,6 +1086,12 @@
               }
             });
             
+            // Store the colors in window so they can be accessed from other parts of the code
+            window.currentReceiverColors = receiverColors;
+            
+            // Store the colors in window so they can be accessed from other parts of the code
+            window.currentReceiverColors = receiverColors;
+            
             // Group data points by receiver
             const receiverData = {};
             
@@ -1114,22 +1120,29 @@
             
             // Create a separate heatmap layer for each receiver
             Object.keys(receiverData).forEach(receiverId => {
-              const color = receiverColors[receiverId] || '#0074D9'; // Default to blue if no color assigned
+              const receiverId_num = parseInt(receiverId);
+              const color = receiverColors[receiverId_num] || '#0074D9'; // Default to blue if no color assigned
               
-              // Create a single-color gradient with varying intensities
-              const gradient = {};
-              for (let i = 1; i <= 5; i++) {
-                const key = i * 0.2;
-                // Create a gradient of the same color with different opacities
-                gradient[key] = color;
-              }
+              console.log(`Creating heatmap for receiver ${receiverId} with color ${color}`);
               
-              // Create the heatmap layer for this receiver
+              // Create a custom gradient that uses the receiver's color
+              // Instead of using the same color with different opacities, create a gradient from transparent to the color
+              const gradient = {
+                0.0: 'rgba(0,0,0,0)',
+                0.2: color,
+                0.4: color,
+                0.6: color,
+                0.8: color,
+                1.0: color
+              };
+              
+              // Create the heatmap layer for this receiver with higher intensity
               const receiverHeatLayer = L.heatLayer(receiverData[receiverId], {
-                radius: 20,
+                radius: 25,
                 blur: 15,
                 maxZoom: 17,
-                minOpacity: 0.4,
+                minOpacity: 0.5,
+                max: 1.0,
                 gradient: gradient
               }).addTo(map);
               
@@ -1159,11 +1172,14 @@
                   ? ((receiver.count / totalDuplicateMessages) * 100).toFixed(1)
                   : '0.0';
                 
+                // Get the color from the receiverColors map we created earlier
+                const receiverColor = receiverColors[receiver.id] || '#0074D9';
+                
                 duplicateReceiversTable.innerHTML += `
                   <tr>
                     <td>
                       <div style="display: flex; align-items: center;">
-                        <div style="background-color: ${receiver.color}; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;"></div>
+                        <div style="background-color: ${receiverColor}; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;"></div>
                         ${receiver.name}
                       </div>
                     </td>
@@ -1282,9 +1298,11 @@
             if (receiver.latitude && receiver.longitude) {
               // Only add markers if receivers should be shown
               if (showReceivers) {
-                // Generate a color for this receiver based on its ID
-                // This ensures consistent colors even if receiverColors isn't accessible here
-                const receiverColor = vividColors[receiver.id % vividColors.length] || '#0074D9'; // Default to blue if no color assigned
+                // Use the same color as in the heatmap and table
+                // Access the colors we stored in the window object
+                const receiverColor = window.currentReceiverColors && window.currentReceiverColors[receiver.id]
+                  ? window.currentReceiverColors[receiver.id]
+                  : vividColors[receiver.id % vividColors.length]; // Fallback
                 
                 // Create a custom icon with the receiver's color
                 const customIcon = L.divIcon({
@@ -1331,9 +1349,11 @@
                   
                   // Create a single circle showing the maximum range for this receiver
                   // Use the same color as the receiver marker
-                  // Generate a color for this receiver based on its ID
-                  // This ensures consistent colors even if receiverColors isn't accessible here
-                  const receiverColor = vividColors[receiver.id % vividColors.length] || '#0074D9'; // Default to blue if no color assigned
+                  // Use the same color as in the heatmap and table
+                  // Access the colors we stored in the window object
+                  const receiverColor = window.currentReceiverColors && window.currentReceiverColors[receiver.id]
+                    ? window.currentReceiverColors[receiver.id]
+                    : vividColors[receiver.id % vividColors.length]; // Fallback
                   
                   const circle = L.circle(receiverLatLng, {
                     radius: receiverMaxDistance,
