@@ -1072,6 +1072,71 @@
           }).addTo(map);
         }
         
+        // Helper function to populate the duplicate receivers table
+        function populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages) {
+          console.log("POPULATING TABLE - receiverMessageCounts:", JSON.stringify(receiverMessageCounts));
+          console.log("POPULATING TABLE - receiverNames:", JSON.stringify(receiverNames));
+          console.log("POPULATING TABLE - receiverColors:", JSON.stringify(receiverColors));
+          console.log("POPULATING TABLE - totalDuplicateMessages:", totalDuplicateMessages);
+          
+          const duplicateReceiversTable = document.getElementById('duplicate-receivers-stats');
+          if (duplicateReceiversTable) {
+            // Clear previous content
+            duplicateReceiversTable.innerHTML = '';
+            
+            // Convert to array for sorting
+            const receiversArray = Object.entries(receiverMessageCounts).map(([id, count]) => ({
+              id: parseInt(id),
+              name: receiverNames[id] || `Receiver ${id}`,
+              count: count,
+              color: receiverColors[id] || '#0074D9' // Get the color for this receiver
+            }));
+            
+            console.log("Receivers array for table:", receiversArray);
+            
+            // Sort by message count (descending)
+            receiversArray.sort((a, b) => b.count - a.count);
+            
+            // Add rows to the table
+            receiversArray.forEach(receiver => {
+              const percentage = totalDuplicateMessages > 0
+                ? ((receiver.count / totalDuplicateMessages) * 100).toFixed(1)
+                : '0.0';
+              
+              // Get the color from the receiverColors map
+              const receiverColor = receiverColors[receiver.id] || '#0074D9';
+              
+              duplicateReceiversTable.innerHTML += `
+                <tr>
+                  <td>
+                    <div style="display: flex; align-items: center;">
+                      <div style="background-color: ${receiverColor}; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;"></div>
+                      ${receiver.name}
+                    </div>
+                  </td>
+                  <td>${receiver.count}</td>
+                  <td>${percentage}%</td>
+                </tr>
+              `;
+            });
+            
+            // Show the container and force it to be visible
+            const container = document.getElementById('duplicate-receivers-container');
+            container.style.display = 'block';
+            container.style.visibility = 'visible';
+            container.style.opacity = '1';
+            
+            // Force the stats container to be visible too
+            const statsContainer = document.getElementById('coverage-stats');
+            statsContainer.style.display = 'block';
+            statsContainer.style.visibility = 'visible';
+            
+            console.log("Duplicate receivers table populated with " + receiversArray.length + " rows");
+            console.log("Table HTML:", duplicateReceiversTable.innerHTML);
+            console.log("Container display style:", container.style.display);
+          }
+        }
+        
         // For duplicates mode, create separate heatmap layers for each receiver
         if (isDuplicatesMode) {
           // Make sure the duplicate receivers container is visible
@@ -1261,70 +1326,7 @@
               // Bring the circles group to front
               circlesGroup.bringToFront();
               
-              // Helper function to populate the duplicate receivers table
-              function populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages) {
-                console.log("POPULATING TABLE - receiverMessageCounts:", JSON.stringify(receiverMessageCounts));
-                console.log("POPULATING TABLE - receiverNames:", JSON.stringify(receiverNames));
-                console.log("POPULATING TABLE - receiverColors:", JSON.stringify(receiverColors));
-                console.log("POPULATING TABLE - totalDuplicateMessages:", totalDuplicateMessages);
-                
-                const duplicateReceiversTable = document.getElementById('duplicate-receivers-stats');
-                if (duplicateReceiversTable) {
-                  // Clear previous content
-                  duplicateReceiversTable.innerHTML = '';
-                  
-                  // Convert to array for sorting
-                  const receiversArray = Object.entries(receiverMessageCounts).map(([id, count]) => ({
-                    id: parseInt(id),
-                    name: receiverNames[id] || `Receiver ${id}`,
-                    count: count,
-                    color: receiverColors[id] || '#0074D9' // Get the color for this receiver
-                  }));
-                  
-                  console.log("Receivers array for table:", receiversArray);
-                  
-                  // Sort by message count (descending)
-                  receiversArray.sort((a, b) => b.count - a.count);
-                  
-                  // Add rows to the table
-                  receiversArray.forEach(receiver => {
-                    const percentage = totalDuplicateMessages > 0
-                      ? ((receiver.count / totalDuplicateMessages) * 100).toFixed(1)
-                      : '0.0';
-                    
-                    // Get the color from the receiverColors map
-                    const receiverColor = receiverColors[receiver.id] || '#0074D9';
-                    
-                    duplicateReceiversTable.innerHTML += `
-                      <tr>
-                        <td>
-                          <div style="display: flex; align-items: center;">
-                            <div style="background-color: ${receiverColor}; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;"></div>
-                            ${receiver.name}
-                          </div>
-                        </td>
-                        <td>${receiver.count}</td>
-                        <td>${percentage}%</td>
-                      </tr>
-                    `;
-                  });
-                  
-                  // Show the container and force it to be visible
-                  const container = document.getElementById('duplicate-receivers-container');
-                  container.style.display = 'block';
-                  container.style.visibility = 'visible';
-                  container.style.opacity = '1';
-                  
-                  // Force the stats container to be visible too
-                  const statsContainer = document.getElementById('coverage-stats');
-                  statsContainer.style.display = 'block';
-                  statsContainer.style.visibility = 'visible';
-                  
-                  console.log("Duplicate receivers table populated with " + receiversArray.length + " rows");
-                  console.log("Table HTML:", duplicateReceiversTable.innerHTML);
-                  console.log("Container display style:", container.style.display);
-                }
-              }
+              // The populateDuplicateReceiversTable function has been moved outside the loop
               
               // Store the circle group for cleanup
               rangeCircles.push(circlesGroup);
