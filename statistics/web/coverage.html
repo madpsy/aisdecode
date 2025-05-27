@@ -1317,20 +1317,76 @@
                     console.log("This is the last receiver, populating table now");
                     populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages);
                     
-                    // Ensure all points are visible on the map
-                    if (window.debugMarkers && window.debugMarkers.length > 0) {
-                      console.log(`Ensuring all ${window.debugMarkers.length} points are visible on the map`);
+                    // EMERGENCY APPROACH: Process all stored points
+                    if (window.pointsToProcess && window.pointsToProcess.length > 0) {
+                      console.log(`EMERGENCY: Processing ${window.pointsToProcess.length} stored points`);
                       
-                      // Create points array for bounds calculation
-                      const points = window.debugMarkers.map(marker => {
-                        const latLng = marker.getLatLng();
-                        return [latLng.lat, latLng.lng];
+                      // Clear any existing debug markers
+                      if (window.debugMarkers) {
+                        window.debugMarkers.forEach(marker => {
+                          if (marker && marker.remove) marker.remove();
+                        });
+                      }
+                      window.debugMarkers = [];
+                      
+                      // Process each stored point
+                      window.pointsToProcess.forEach((point, index) => {
+                        // Create a simple HTML marker with absolute positioning
+                        const markerId = `emergency-marker-${index}`;
+                        
+                        // Create a div element for the marker
+                        const markerDiv = document.createElement('div');
+                        markerDiv.id = markerId;
+                        markerDiv.style.position = 'absolute';
+                        markerDiv.style.width = '20px';
+                        markerDiv.style.height = '20px';
+                        markerDiv.style.borderRadius = '50%';
+                        markerDiv.style.backgroundColor = point.color;
+                        markerDiv.style.border = '2px solid white';
+                        markerDiv.style.zIndex = '10000';
+                        markerDiv.style.pointerEvents = 'auto';
+                        markerDiv.style.cursor = 'pointer';
+                        
+                        // Add the marker to the map's container
+                        const mapContainer = document.getElementById('coverage-map');
+                        mapContainer.appendChild(markerDiv);
+                        
+                        // Position the marker on the map
+                        const latLng = L.latLng(point.lat, point.lon);
+                        const pixelPoint = map.latLngToContainerPoint(latLng);
+                        markerDiv.style.left = (pixelPoint.x - 10) + 'px';
+                        markerDiv.style.top = (pixelPoint.y - 10) + 'px';
+                        
+                        // Add click event for popup
+                        markerDiv.addEventListener('click', function() {
+                          alert(`Duplicate point\nReceiver: ${point.receiverName}\nCount: ${point.count}`);
+                        });
+                        
+                        console.log(`Created emergency HTML marker at ${point.lat}, ${point.lon}`);
+                        window.debugMarkers.push(markerDiv);
                       });
                       
-                      // Fit bounds to include all markers with extra padding
-                      const bounds = L.latLngBounds(points);
-                      map.fitBounds(bounds, { padding: [100, 100] });
-                      console.log("Map bounds adjusted to show all points");
+                      // Add event listener to reposition markers when the map moves
+                      map.on('moveend', function() {
+                        if (window.pointsToProcess && window.debugMarkers) {
+                          window.pointsToProcess.forEach((point, index) => {
+                            if (window.debugMarkers[index]) {
+                              const latLng = L.latLng(point.lat, point.lon);
+                              const pixelPoint = map.latLngToContainerPoint(latLng);
+                              window.debugMarkers[index].style.left = (pixelPoint.x - 10) + 'px';
+                              window.debugMarkers[index].style.top = (pixelPoint.y - 10) + 'px';
+                            }
+                          });
+                        }
+                      });
+                      
+                      // Ensure all points are visible on the map
+                      if (window.pointsToProcess.length > 0) {
+                        const points = window.pointsToProcess.map(point => [point.lat, point.lon]);
+                        const bounds = L.latLngBounds(points);
+                        map.fitBounds(bounds, { padding: [100, 100] });
+                        console.log("Map bounds adjusted to show all points");
+                      }
                     }
                   }
                   
@@ -1356,33 +1412,21 @@
                     // Get the mincount value
                     const mincountValue = parseInt(document.getElementById('mincount-select').value);
                     
-                    // COMPLETELY DIFFERENT APPROACH: Use L.circleMarker instead of L.marker with custom icon
-                    // Size increases with mincount value and point count
-                    const size = mincountValue <= 10 ? 10 : (mincountValue <= 100 ? 15 : 20);
-                    const adjustedSize = Math.min(30, Math.max(size, Math.log10(point.count + 1) * 5));
+                    // EMERGENCY APPROACH: Store point data for later processing
+                    // We'll create all circles after batch processing is complete
+                    if (!window.pointsToProcess) window.pointsToProcess = [];
                     
-                    console.log(`Creating circleMarker at ${point.lat}, ${point.lon} with radius ${adjustedSize}`);
+                    // Store the point data
+                    window.pointsToProcess.push({
+                      lat: point.lat,
+                      lon: point.lon,
+                      count: point.count,
+                      color: color,
+                      receiverId: receiverId_num,
+                      receiverName: receiverNames[receiverId_num] || `Receiver ${receiverId}`
+                    });
                     
-                    // Create a circleMarker (renders as an actual circle on the map)
-                    const circle = L.circleMarker([point.lat, point.lon], {
-                      radius: adjustedSize,
-                      color: 'white',          // Border color
-                      weight: 2,               // Border width
-                      opacity: 1,              // Border opacity
-                      fillColor: color,        // Fill color
-                      fillOpacity: 0.8,        // Fill opacity
-                      pane: 'duplicatePointsPane'
-                    }).addTo(map);  // Add directly to map instead of circlesGroup
-                    
-                    // Add a popup with information
-                    circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
-                    
-                    // Store the marker in a global array for debugging
-                    if (!window.debugMarkers) window.debugMarkers = [];
-                    window.debugMarkers.push(circle);
-                    
-                    // Store for cleanup
-                    rangeCircles.push(circle);
+                    console.log(`Stored point at ${point.lat}, ${point.lon} for later processing`);
                     
                     // Add a simple popup with information
                     circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
