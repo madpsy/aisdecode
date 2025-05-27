@@ -919,6 +919,17 @@
       const category = shipTypeConfig.categories.find(cat => cat.id === categoryId);
       return category ? `${category.name} (ID: ${code})` : code;
     }
+    
+    // Helper: given a numeric code and the types.json config, return the category name without ID
+    function lookupShipTypeWithoutId(code) {
+      if (!shipTypeConfig.valueLookup || !code) return code;
+      
+      const categoryId = shipTypeConfig.valueLookup[code];
+      if (categoryId == null) return code;
+      
+      const category = shipTypeConfig.categories.find(cat => cat.id === categoryId);
+      return category ? category.name : code;
+    }
 
     // Helper: look up navigational status text
     function lookupNavStatus(code) {
@@ -4522,6 +4533,13 @@
             
             // Create content with all required fields
             let content = `<strong>${result.Name}</strong>`;
+            
+            // Add vessel type if available
+            if (result.Type) {
+              const shipType = lookupShipTypeWithoutId(result.Type);
+              content += `<br><span style="color: #666;">${shipType}</span>`;
+            }
+            
             content += `<br>MMSI: ${result.UserID}`;
 
             if (result.ImoNumber && result.ImoNumber !== 0) {
