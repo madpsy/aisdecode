@@ -1100,9 +1100,6 @@
             window.currentReceiverColors = receiverColors;
             console.log("Stored receiver colors in window:", receiverColors);
             
-            // Store the colors in window so they can be accessed from other parts of the code
-            window.currentReceiverColors = receiverColors;
-            
             // Group data points by receiver
             const receiverData = {};
             
@@ -1322,6 +1319,9 @@
         // Create a default receiver icon with red color
         const receiverIcon = createReceiverIcon('#ff4136');
         
+        // Log all receiver colors for debugging
+        console.log("All receiver colors:", window.currentReceiverColors);
+        
         // Points for bounds calculation
         const points = heatData.map(p => [p[0], p[1]]);
         
@@ -1417,15 +1417,15 @@
             if (receiver.latitude && receiver.longitude) {
               // Only add markers if receivers should be shown
               if (showReceivers) {
-                // Use the same color as in the circles and table
+                // IMPORTANT: Use the exact same color as in the heatmap and table
                 // Access the colors we stored in the window object
                 const receiverColor = window.currentReceiverColors && window.currentReceiverColors[receiver.id]
                   ? window.currentReceiverColors[receiver.id]
                   : vividColors[receiver.id % vividColors.length]; // Fallback
                 
-                console.log(`Receiver ${receiver.id} circle color: ${receiverColor}`);
+                console.log(`Receiver ${receiver.id} marker color: ${receiverColor}`);
                 
-                // Create a custom icon with the receiver's color
+                // Create a custom icon with the receiver's color - ensure it matches the heatmap
                 const customIcon = L.divIcon({
                   html: `<div style="background-color: ${receiverColor}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>`,
                   className: 'receiver-marker',
