@@ -1455,7 +1455,6 @@
                 
                 const start = batchIndex * batchSize;
                 const end = Math.min(start + batchSize, receiverData[receiverId].length);
-                console.log(`Processing batch ${batchIndex + 1}/${batches} (points ${start}-${end-1})`);
                 
                 for (let i = start; i < end; i++) {
                   const point = receiverData[receiverId][i];
