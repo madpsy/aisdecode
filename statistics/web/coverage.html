@@ -1206,9 +1206,10 @@
               }
             });
             
-            // Store the colors in window so they can be accessed from other parts of the code
+            // Store the colors and layers in window so they can be accessed from other parts of the code
             window.currentReceiverColors = receiverColors;
-            console.log("Stored receiver colors in window:", receiverColors);
+            window.currentReceiverLayers = receiverLayers;
+            console.log("Stored receiver colors and layers in window");
             
             // Group data points by receiver
             const receiverData = {};
@@ -1245,12 +1246,12 @@
             // Create a layer group for each receiver's circles
             const receiverLayers = {};
             
-            // Create circle markers for each receiver's data points
+            // Create heatmap layers for each receiver's data points
             Object.keys(receiverData).forEach(receiverId => {
               const receiverId_num = parseInt(receiverId);
               const color = receiverColors[receiverId_num] || '#0074D9'; // Default to blue if no color assigned
               
-              console.log(`Creating circles for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
+              console.log(`Creating heatmap for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
               if (receiverData[receiverId].length === 0) {
                 console.log(`No data points for receiver ${receiverId}, skipping`);
@@ -1258,117 +1259,55 @@
               }
               
               // Create a layer group for this receiver
-              receiverLayers[receiverId] = L.layerGroup().addTo(map);
+              receiverLayers[receiverId] = L.layerGroup();
               
-              console.log(`Creating circle markers for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
+              // Convert receiver data to heatmap format
+              const heatData = receiverData[receiverId].map(point => {
+                // Intensity based on count, amplified for better visibility
+                const intensity = Math.min(1, Math.log10(point.count + 1) / 1.5);
+                return [point.lat, point.lon, intensity];
+              });
               
-              // Create a new pane with very high z-index for our points
-              if (!map.getPane('duplicatePointsPane')) {
-                map.createPane('duplicatePointsPane');
-                map.getPane('duplicatePointsPane').style.zIndex = 999; // Very high z-index
-              }
+              console.log(`Creating heatmap for receiver ${receiverId} with ${heatData.length} points`);
               
-              // Create a canvas renderer for better performance
-              const renderer = L.canvas({ pane: 'duplicatePointsPane' });
+              // Create a custom gradient using the receiver's color
+              const customGradient = {};
+              customGradient[0.2] = color;
+              customGradient[0.4] = color;
+              customGradient[0.6] = color;
+              customGradient[0.8] = color;
+              customGradient[1.0] = color;
               
-              // Create a feature group to hold all the circles
-              const circlesGroup = L.featureGroup();
+              // Create a heatmap layer for this receiver
+              const heatmapLayer = L.heatLayer(heatData, {
+                radius: 20,
+                blur: 15,
+                maxZoom: 17,
+                minOpacity: 0.4,
+                gradient: customGradient
+              });
+              
+              // Add to layer group
+              receiverLayers[receiverId].addLayer(heatmapLayer);
               
               // Only add to map if this receiver is visible
               if (duplicateReceiverVisibility[receiverId_num] !== false) {
-                circlesGroup.addTo(map);
+                receiverLayers[receiverId].addTo(map);
               }
               
-              // Process points in batches to avoid browser freezing
-              const batchSize = 50;
-              const batches = Math.ceil(receiverData[receiverId].length / batchSize);
+              // Store for cleanup
+              rangeCircles.push(heatmapLayer);
               
-              function processBatch(batchIndex) {
-                if (batchIndex >= batches) {
-                  console.log(`Finished adding all ${receiverData[receiverId].length} circles for receiver ${receiverId}`);
-                  
-                  // After all batches are processed, ensure the duplicate receivers table is populated
-                  console.log("Batch processing complete, checking receiverMessageCounts:", receiverMessageCounts);
-                  console.log("Total duplicate messages:", totalDuplicateMessages);
-                  
-                  // Always populate the table after the last receiver is processed
-                  const receiverIds = Object.keys(receiverData);
-                  const lastReceiverId = receiverIds[receiverIds.length - 1];
-                  console.log(`Current receiverId: ${receiverId}, Last receiverId: ${lastReceiverId}`);
-                  
-                  if (receiverId === lastReceiverId) {
-                    console.log("This is the last receiver, populating table now");
-                    populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages);
-                  }
-                  
-                  return;
-                }
-                
-                const start = batchIndex * batchSize;
-                const end = Math.min(start + batchSize, receiverData[receiverId].length);
-                console.log(`Processing batch ${batchIndex + 1}/${batches} (points ${start}-${end-1})`);
-                
-                for (let i = start; i < end; i++) {
-                  const point = receiverData[receiverId][i];
-                  
-                  try {
-                    // Validate coordinates
-                    if (isNaN(point.lat) || isNaN(point.lon) ||
-                        point.lat < -90 || point.lat > 90 ||
-                        point.lon < -180 || point.lon > 180) {
-                      console.error(`Invalid coordinates: ${point.lat}, ${point.lon}`);
-                      continue;
-                    }
-                    
-                    // Scale radius based on count (min 15, max 30)
-                    const radius = Math.min(30, Math.max(15, Math.log10(point.count + 1) * 10));
-                    
-                    // Create a circle with the receiver's color - no border
-                    const circle = L.circleMarker([point.lat, point.lon], {
-                      renderer: renderer,
-                      radius: radius,
-                      color: color,
-                      weight: 0, // No border
-                      fillColor: color,
-                      fillOpacity: 0.8,
-                      pane: 'duplicatePointsPane'
-                    }).addTo(circlesGroup);
-                    
-                    // Add a popup with information
-                    circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
-                    
-                    // Store for cleanup
-                    rangeCircles.push(circle);
-                    
-                    // Log every 20th point
-                    if (i % 20 === 0) {
-                      console.log(`Added circle at ${point.lat}, ${point.lon} with radius ${radius}px`);
-                    }
-                  } catch (e) {
-                    console.error(`Error creating circle:`, e, point);
-                  }
-                }
-                
-                // Process next batch after a short delay
-                setTimeout(() => processBatch(batchIndex + 1), 10);
+              console.log(`Created heatmap for receiver ${receiverId} with ${heatData.length} points`);
+              
+              // After processing, ensure the duplicate receivers table is populated
+              const receiverIds = Object.keys(receiverData);
+              const lastReceiverId = receiverIds[receiverIds.length - 1];
+              
+              if (receiverId === lastReceiverId) {
+                console.log("This is the last receiver, populating table now");
+                populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages);
               }
-              
-              // Start processing batches
-              processBatch(0);
-              
-              // Bring the circles group to front
-              circlesGroup.bringToFront();
-              
-              // The populateDuplicateReceiversTable function has been moved outside the loop
-              
-              // Note: We don't need to store circlesGroup in rangeCircles as individual circles are already stored
-              // and circlesGroup is already added to the map on line 1247
-              
-              console.log(`Added circle markers for receiver ${receiverId} with ${receiverData[receiverId].length} points`);
-              
-              // We're adding circles directly to the map now, not using layer groups
-              
-              console.log(`Created ${receiverData[receiverId].length} circles for receiver ${receiverId}`);
               
               // Find the receiver in the allReceivers array
               const receiver = allReceivers.find(r => r.id === receiverId_num);
