@@ -127,6 +127,16 @@
                 Duplicates
               </label>
             </div>
+            <!-- Minimum Count dropdown (only shown in duplicates mode) -->
+            <div id="mincount-container" style="display: none; margin-top: 10px;">
+              <label for="mincount-select" class="form-label">Minimum Count:</label>
+              <select id="mincount-select" class="form-select form-select-sm">
+                <option value="1">1</option>
+                <option value="10" selected>10</option>
+                <option value="100">100</option>
+                <option value="1000">1000</option>
+              </select>
+            </div>
           </div>
           <div class="col-md-6">
             <div class="mb-2">
@@ -987,6 +997,12 @@
             if (receiverId) {
               url += `&receiver_id=${receiverId}`;
             }
+            
+            // Add mincount parameter for duplicates mode
+            if (isDuplicatesMode) {
+              const mincount = document.getElementById('mincount-select').value;
+              url += `&mincount=${mincount}`;
+            }
           } catch (e) {
             console.error('Date formatting error:', e);
             alert('Invalid date format. Please check your date inputs.');
@@ -1000,6 +1016,12 @@
           url = `/statistics/stats/${endpoint}?days=${days}`;
           if (receiverId) {
             url += `&receiver_id=${receiverId}`;
+          }
+          
+          // Add mincount parameter for duplicates mode
+          if (isDuplicatesMode) {
+            const mincount = document.getElementById('mincount-select').value;
+            url += `&mincount=${mincount}`;
           }
         }
         
@@ -1701,7 +1723,8 @@
         days: params.get('days'),
         from: params.get('from'),
         to: params.get('to'),
-        mode: params.get('mode')
+        mode: params.get('mode'),
+        mincount: params.get('mincount')
       };
     }
     
@@ -1721,8 +1744,14 @@
       // Add view mode to URL
       if (isDuplicatesMode) {
         url.searchParams.set('mode', 'duplicates');
+        
+        // Add mincount parameter only in duplicates mode
+        const mincount = document.getElementById('mincount-select').value;
+        url.searchParams.set('mincount', mincount);
       } else {
         url.searchParams.set('mode', 'coverage');
+        // Remove mincount parameter when not in duplicates mode
+        url.searchParams.delete('mincount');
       }
       
       // Update the VHF Lift Analysis link with receiver ID if selected
@@ -2007,6 +2036,12 @@
         let url = `/statistics/stats/coverage-map?from=${fromFormatted}&to=${toFormatted}`;
         if (receiverId) {
           url += `&receiver_id=${receiverId}`;
+        }
+        
+        // Add mincount parameter if in duplicates mode
+        if (document.getElementById('duplicatesRadio').checked) {
+          const mincount = document.getElementById('mincount-select').value;
+          url += `&mincount=${mincount}`;
         }
         
         // Update URL in browser without reloading
@@ -2756,14 +2791,24 @@
       // Add event listeners for view mode radio buttons
       document.getElementById('coverageRadio').addEventListener('change', function() {
         if (this.checked) {
+          // Hide mincount dropdown in coverage mode
+          document.getElementById('mincount-container').style.display = 'none';
           loadCoverageData();
         }
       });
       
       document.getElementById('duplicatesRadio').addEventListener('change', function() {
         if (this.checked) {
+          // Show mincount dropdown in duplicates mode
+          document.getElementById('mincount-container').style.display = 'block';
           loadCoverageData();
         }
+      });
+      
+      // Add event listener for mincount dropdown
+      document.getElementById('mincount-select').addEventListener('change', function() {
+        updateURL();
+        loadCoverageData();
       });
       
       // Add event listeners for replay controls
@@ -2858,9 +2903,22 @@
       if (params.mode === 'duplicates') {
         document.getElementById('duplicatesRadio').checked = true;
         document.getElementById('coverageRadio').checked = false;
+        // Show mincount dropdown in duplicates mode
+        document.getElementById('mincount-container').style.display = 'block';
       } else {
         document.getElementById('coverageRadio').checked = true;
         document.getElementById('duplicatesRadio').checked = false;
+        // Hide mincount dropdown in coverage mode
+        document.getElementById('mincount-container').style.display = 'none';
+      }
+      
+      // Set mincount dropdown value from URL parameter if available
+      if (params.mincount) {
+        const mincountSelect = document.getElementById('mincount-select');
+        // Check if the value is valid (1, 10, 100, 1000)
+        if (['1', '10', '100', '1000'].includes(params.mincount)) {
+          mincountSelect.value = params.mincount;
+        }
       }
       
       // Check if we have from/to parameters
