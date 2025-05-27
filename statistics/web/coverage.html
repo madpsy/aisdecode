@@ -375,13 +375,13 @@
           <div class="row">
             <div class="col-md-6">
               <div class="card">
-                <div class="card-header">Locations by Distance</div>
+                <div class="card-header">Messages by Distance</div>
                 <div class="card-body">
                   <table class="table table-sm">
                     <thead>
                       <tr>
                         <th>Range</th>
-                        <th>Locations</th>
+                        <th>Messages</th>
                         <th>Percentage</th>
                       </tr>
                     </thead>
@@ -394,13 +394,13 @@
             </div>
             <div class="col-md-6">
               <div class="card">
-                <div class="card-header">Locations by Direction</div>
+                <div class="card-header">Messages by Direction</div>
                 <div class="card-body">
                   <table class="table table-sm">
                     <thead>
                       <tr>
                         <th>Direction</th>
-                        <th>Locations</th>
+                        <th>Messages</th>
                         <th>Percentage</th>
                         <th>Max Distance</th>
                       </tr>
@@ -699,26 +699,29 @@
         );
         const direction = bearingToDirection(bearing);
         
+        // Get the message count for this point (4th element in the array)
+        const count = point[3] || 1;
+        
         // Count by distance
         if (distance <= ring1) {
-          distanceStats.ring1++;
+          distanceStats.ring1 += count;
         } else if (distance <= ring2) {
-          distanceStats.ring2++;
+          distanceStats.ring2 += count;
         } else if (distance <= ring3) {
-          distanceStats.ring3++;
+          distanceStats.ring3 += count;
         } else {
-          distanceStats.beyond++;
+          distanceStats.beyond += count;
         }
         
         // Count by direction
-        directionStats[direction]++;
+        directionStats[direction] += count;
         
         // Update max distance for this direction if greater
         if (distance > directionMaxDistance[direction]) {
           directionMaxDistance[direction] = distance;
         }
         
-        totalPoints++;
+        totalPoints += count;
       });
       
       return {
@@ -1056,14 +1059,16 @@
             // Adjust intensity calculation based on mincount value
             const divisor = mincount <= 10 ? 1.5 : (mincount <= 100 ? 1.2 : 1.0);
             const intensity = Math.min(1, Math.log10(point.count + 1) / divisor);
-            return [point.lat, point.lon, intensity];
+            // Include the count as the 4th element in the array
+            return [point.lat, point.lon, intensity, point.count];
           });
         } else {
           // For coverage mode, convert data to heatmap format
           heatData = data.map(point => {
             // Intensity based on logarithmic scale of count
             const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
-            return [point.lat, point.lon, intensity];
+            // Include the count as the 4th element in the array
+            return [point.lat, point.lon, intensity, point.count];
           });
         }
         
@@ -2171,7 +2176,8 @@
         // Convert data to heatmap format
         const heatData = data.map(point => {
           const intensity = Math.min(1, Math.log10(point.count + 1) / 2);
-          return [point.lat, point.lon, intensity];
+          // Include the count as the 4th element in the array
+          return [point.lat, point.lon, intensity, point.count];
         });
         
         // Calculate and display coverage area
