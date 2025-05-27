@@ -1375,7 +1375,7 @@
                     
                     // Log every 20th point
                     if (i % 20 === 0) {
-                      console.log(`Added circle at ${point.lat}, ${point.lon} with radius ${radius}px`);
+                      console.log(`Added circle at ${point.lat}, ${point.lon} with size ${adjustedSize}px`);
                     }
                   } catch (e) {
                     console.error(`Error creating circle:`, e, point);
