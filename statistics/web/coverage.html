@@ -405,7 +405,7 @@
           </div>
           
           <!-- Duplicate Receivers Table (only shown in duplicates mode) -->
-          <div id="duplicate-receivers-container" class="mt-4" style="display: none;">
+          <div id="duplicate-receivers-container" class="mt-4" style="display: block;">
             <div class="card">
               <div class="card-header">Duplicate Messages by Receiver</div>
               <div class="card-body">
@@ -754,7 +754,14 @@
       directionStatsCard.style.display = showDirectionStats ? 'block' : 'none';
       
       // Show/hide duplicate receivers table based on mode
-      duplicateReceiversContainer.style.display = isDuplicatesMode ? 'block' : 'none';
+      if (isDuplicatesMode) {
+        duplicateReceiversContainer.style.display = 'block';
+        duplicateReceiversContainer.style.visibility = 'visible';
+        console.log("Duplicate receivers container should be visible");
+      } else {
+        duplicateReceiversContainer.style.display = 'none';
+        console.log("Duplicate receivers container hidden (not in duplicates mode)");
+      }
       
       // Clear previous stats
       distanceStatsTable.innerHTML = '';
@@ -1067,6 +1074,9 @@
         
         // For duplicates mode, create separate heatmap layers for each receiver
         if (isDuplicatesMode) {
+          // Make sure the duplicate receivers container is visible
+          document.getElementById('duplicate-receivers-container').style.display = 'block';
+          console.log("Duplicates mode active, container should be visible");
           // Get the selected receiver ID
           const selectedReceiverId = receiverId ? parseInt(receiverId) : null;
           console.log("Selected receiver ID:", selectedReceiverId);
@@ -1129,11 +1139,15 @@
                   
                   // Add this point to the receiver's data
                   receiverData[id].push({lat: point.lat, lon: point.lon, count: point.count || 1});
+                  
+                  console.log(`Added point for receiver ${id}, count: ${point.count || 1}, total now: ${receiverMessageCounts[id]}`);
                 });
               }
             });
             
             console.log("Receiver data prepared:", Object.keys(receiverData).length, "receivers");
+            console.log("Receiver message counts:", JSON.stringify(receiverMessageCounts));
+            console.log("Total duplicate messages:", totalDuplicateMessages);
             
             // Create a layer group for each receiver's circles
             const receiverLayers = {};
@@ -1176,7 +1190,16 @@
                   console.log(`Finished adding all ${receiverData[receiverId].length} circles for receiver ${receiverId}`);
                   
                   // After all batches are processed, ensure the duplicate receivers table is populated
-                  if (batchIndex === 0) { // Only do this once after the first receiver is processed
+                  console.log("Batch processing complete, checking receiverMessageCounts:", receiverMessageCounts);
+                  console.log("Total duplicate messages:", totalDuplicateMessages);
+                  
+                  // Always populate the table after the last receiver is processed
+                  const receiverIds = Object.keys(receiverData);
+                  const lastReceiverId = receiverIds[receiverIds.length - 1];
+                  console.log(`Current receiverId: ${receiverId}, Last receiverId: ${lastReceiverId}`);
+                  
+                  if (receiverId === lastReceiverId) {
+                    console.log("This is the last receiver, populating table now");
                     populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages);
                   }
                   
@@ -1240,7 +1263,10 @@
               
               // Helper function to populate the duplicate receivers table
               function populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages) {
-                console.log("Populating duplicate receivers table with data:", receiverMessageCounts);
+                console.log("POPULATING TABLE - receiverMessageCounts:", JSON.stringify(receiverMessageCounts));
+                console.log("POPULATING TABLE - receiverNames:", JSON.stringify(receiverNames));
+                console.log("POPULATING TABLE - receiverColors:", JSON.stringify(receiverColors));
+                console.log("POPULATING TABLE - totalDuplicateMessages:", totalDuplicateMessages);
                 
                 const duplicateReceiversTable = document.getElementById('duplicate-receivers-stats');
                 if (duplicateReceiversTable) {
@@ -1283,9 +1309,20 @@
                     `;
                   });
                   
-                  // Show the container
-                  document.getElementById('duplicate-receivers-container').style.display = 'block';
-                  console.log("Duplicate receivers table populated and displayed");
+                  // Show the container and force it to be visible
+                  const container = document.getElementById('duplicate-receivers-container');
+                  container.style.display = 'block';
+                  container.style.visibility = 'visible';
+                  container.style.opacity = '1';
+                  
+                  // Force the stats container to be visible too
+                  const statsContainer = document.getElementById('coverage-stats');
+                  statsContainer.style.display = 'block';
+                  statsContainer.style.visibility = 'visible';
+                  
+                  console.log("Duplicate receivers table populated with " + receiversArray.length + " rows");
+                  console.log("Table HTML:", duplicateReceiversTable.innerHTML);
+                  console.log("Container display style:", container.style.display);
                 }
               }
               
@@ -1351,6 +1388,12 @@
             });
             // The duplicate receivers table is now populated in the populateDuplicateReceiversTable function
             // which is called after all batches are processed
+            
+            // Also call it directly here to ensure it gets populated
+            setTimeout(() => {
+              console.log("Direct call to populate table");
+              populateDuplicateReceiversTable(receiverMessageCounts, receiverNames, receiverColors, totalDuplicateMessages);
+            }, 1000); // Delay to ensure all processing is complete
           }).catch(err => {
             console.error("Error fetching receivers:", err);
           });
