@@ -1342,7 +1342,7 @@
                         markerDiv.style.height = '20px';
                         markerDiv.style.borderRadius = '50%';
                         markerDiv.style.backgroundColor = point.color;
-                        markerDiv.style.border = '2px solid white';
+                        // Removed white border as requested
                         markerDiv.style.zIndex = '10000';
                         markerDiv.style.pointerEvents = 'auto';
                         markerDiv.style.cursor = 'pointer';
@@ -2842,9 +2842,30 @@
       // Store the visibility state
       duplicateReceiverVisibility[receiverId] = isVisible;
       
+      // Clear any existing emergency markers
+      clearEmergencyMarkers();
+      
       // We need to reload the coverage data to apply the visibility changes
       // This is more reliable than trying to find and toggle individual elements
       loadCoverageData();
+    }
+    
+    // Function to clear emergency markers
+    function clearEmergencyMarkers() {
+      console.log("Clearing emergency markers");
+      
+      // Remove all marker divs from the DOM
+      if (window.debugMarkers) {
+        window.debugMarkers.forEach(marker => {
+          if (marker && marker.parentNode) {
+            marker.parentNode.removeChild(marker);
+          }
+        });
+        window.debugMarkers = [];
+      }
+      
+      // Clear stored points
+      window.pointsToProcess = [];
     }
     
     // Initialize
@@ -2867,6 +2888,8 @@
       // Add event listeners for view mode radio buttons
       document.getElementById('coverageRadio').addEventListener('change', function() {
         if (this.checked) {
+          // Clear emergency markers when switching to coverage mode
+          clearEmergencyMarkers();
           // Hide mincount dropdown in coverage mode
           document.getElementById('mincount-container').style.display = 'none';
           loadCoverageData();
@@ -2875,6 +2898,8 @@
       
       document.getElementById('duplicatesRadio').addEventListener('change', function() {
         if (this.checked) {
+          // Clear emergency markers when switching to duplicates mode
+          clearEmergencyMarkers();
           // Show mincount dropdown in duplicates mode
           document.getElementById('mincount-container').style.display = 'block';
           loadCoverageData();
@@ -2883,6 +2908,7 @@
       
       // Add event listener for mincount dropdown
       document.getElementById('mincount-select').addEventListener('change', function() {
+        clearEmergencyMarkers(); // Clear emergency markers when mincount changes
         updateURL();
         loadCoverageData();
       });
@@ -2948,6 +2974,8 @@
           document.getElementById('from-date').value,
           document.getElementById('to-date').value
         )) {
+          // Clear emergency markers when date range changes
+          clearEmergencyMarkers();
           updateURL();
           loadCoverageData();
         }
@@ -2955,11 +2983,14 @@
       
       // Update URL and load data when selections change
       document.getElementById('receiver-select').addEventListener('change', function() {
+        // Clear emergency markers when receiver changes
+        clearEmergencyMarkers();
         updateURL();
         loadCoverageData();
       });
       
       document.getElementById('days-select').addEventListener('change', function() {
+        clearEmergencyMarkers(); // Clear emergency markers when days changes
         updateURL();
         loadCoverageData();
       });
