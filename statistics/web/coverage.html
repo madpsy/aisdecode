@@ -1146,58 +1146,85 @@
               // Create a layer group for this receiver
               receiverLayers[receiverId] = L.layerGroup().addTo(map);
               
-              console.log(`Creating heatmap for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
+              console.log(`Creating circle markers for receiver ${receiverId} with color ${color}, points: ${receiverData[receiverId].length}`);
               
-              // Create a custom pane for heatmaps if it doesn't exist - with HIGHER z-index
-              if (!map.getPane('heatmapPane')) {
-                map.createPane('heatmapPane');
-                map.getPane('heatmapPane').style.zIndex = 625; // Just below markers (600) but above other layers
+              // Create a new pane with very high z-index for our points
+              if (!map.getPane('duplicatePointsPane')) {
+                map.createPane('duplicatePointsPane');
+                map.getPane('duplicatePointsPane').style.zIndex = 999; // Very high z-index
               }
               
-              // Convert data to heatmap format with intensity based on count
-              const heatData = receiverData[receiverId].map(point => {
-                // Validate coordinates
-                if (isNaN(point.lat) || isNaN(point.lon) ||
-                    point.lat < -90 || point.lat > 90 ||
-                    point.lon < -180 || point.lon > 180) {
-                  console.error(`Invalid coordinates: ${point.lat}, ${point.lon}`);
-                  return null;
+              // Create a canvas renderer for better performance
+              const renderer = L.canvas({ pane: 'duplicatePointsPane' });
+              
+              // Create a feature group to hold all the circles
+              const circlesGroup = L.featureGroup().addTo(map);
+              
+              // Process points in batches to avoid browser freezing
+              const batchSize = 50;
+              const batches = Math.ceil(receiverData[receiverId].length / batchSize);
+              
+              function processBatch(batchIndex) {
+                if (batchIndex >= batches) {
+                  console.log(`Finished adding all ${receiverData[receiverId].length} circles for receiver ${receiverId}`);
+                  return;
                 }
                 
-                // Intensity based on count (0.0-1.0) - INCREASED for better visibility
-                // Use logarithmic scale for better visualization
-                const intensity = Math.min(1.0, Math.log10(point.count + 1) / 1.5);
-                return [point.lat, point.lon, intensity];
-              }).filter(point => point !== null); // Remove invalid points
+                const start = batchIndex * batchSize;
+                const end = Math.min(start + batchSize, receiverData[receiverId].length);
+                console.log(`Processing batch ${batchIndex + 1}/${batches} (points ${start}-${end-1})`);
+                
+                for (let i = start; i < end; i++) {
+                  const point = receiverData[receiverId][i];
+                  
+                  try {
+                    // Validate coordinates
+                    if (isNaN(point.lat) || isNaN(point.lon) ||
+                        point.lat < -90 || point.lat > 90 ||
+                        point.lon < -180 || point.lon > 180) {
+                      console.error(`Invalid coordinates: ${point.lat}, ${point.lon}`);
+                      continue;
+                    }
+                    
+                    // Scale radius based on count (min 15, max 30)
+                    const radius = Math.min(30, Math.max(15, Math.log10(point.count + 1) * 10));
+                    
+                    // Create a circle with the receiver's color
+                    const circle = L.circleMarker([point.lat, point.lon], {
+                      renderer: renderer,
+                      radius: radius,
+                      color: 'black',
+                      weight: 2,
+                      opacity: 1.0,
+                      fillColor: color,
+                      fillOpacity: 0.8,
+                      pane: 'duplicatePointsPane'
+                    }).addTo(circlesGroup);
+                    
+                    // Add a popup with information
+                    circle.bindPopup(`<b>Duplicate point</b><br>Receiver: ${receiverNames[receiverId_num] || `Receiver ${receiverId}`}<br>Count: ${point.count}`);
+                    
+                    // Store for cleanup
+                    rangeCircles.push(circle);
+                    
+                    // Log every 20th point
+                    if (i % 20 === 0) {
+                      console.log(`Added circle at ${point.lat}, ${point.lon} with radius ${radius}px`);
+                    }
+                  } catch (e) {
+                    console.error(`Error creating circle:`, e, point);
+                  }
+                }
+                
+                // Process next batch after a short delay
+                setTimeout(() => processBatch(batchIndex + 1), 10);
+              }
               
-              console.log(`Prepared ${heatData.length} valid heatmap points for receiver ${receiverId}`);
+              // Start processing batches
+              processBatch(0);
               
-              // Create a simpler gradient with stronger colors
-              const gradient = {
-                0.0: 'rgba(0,0,0,0)',
-                0.4: color + '99', // 60% opacity
-                0.7: color + 'CC', // 80% opacity
-                1.0: color         // 100% opacity
-              };
-              
-              console.log(`Using gradient for receiver ${receiverId}:`, gradient);
-              
-              // Create the heatmap layer with custom options - INCREASED visibility
-              const heatmapLayer = L.heatLayer(heatData, {
-                radius: 30,                // Larger radius for better visibility
-                blur: 20,                  // More blur for smoother appearance
-                maxZoom: 17,               // Maximum zoom level for the heatmap
-                max: 1.0,                  // Maximum intensity
-                minOpacity: 0.5,           // Higher minimum opacity for better visibility
-                gradient: gradient,        // Custom gradient based on receiver color
-                pane: 'heatmapPane'        // Use our custom pane
-              }).addTo(map);
-              
-              // Force the heatmap to redraw
-              setTimeout(() => {
-                map.fire('moveend');
-                console.log(`Forced redraw of heatmap for receiver ${receiverId}`);
-              }, 100);
+              // Bring the circles group to front
+              circlesGroup.bringToFront();
               
               // Store the heatmap layer for cleanup
               rangeCircles.push(heatmapLayer);
