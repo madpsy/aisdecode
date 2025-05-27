@@ -1151,10 +1151,10 @@
                   const circle = L.circleMarker([point.lat, point.lon], {
                     radius: radius, // Large radius for visibility
                     color: color,
-                    weight: 3, // Thicker border
+                    weight: 4, // Increased border thickness
                     opacity: 1.0, // Full opacity for border
                     fillColor: color,
-                    fillOpacity: 0.8 // Higher fill opacity
+                    fillOpacity: 0.9 // Increased fill opacity
                   }).addTo(map); // Add directly to map instead of layer group
                   
                   // Add a popup with information about the duplicate
@@ -1196,9 +1196,10 @@
                   const circle = L.circle([receiver.latitude, receiver.longitude], {
                     radius: maxDistance,
                     color: color,
-                    fillColor: 'transparent',
-                    weight: 2,
-                    opacity: 0.8,
+                    fillColor: color,
+                    fillOpacity: 0.1, // Light fill for better visibility
+                    weight: 3, // Increased weight
+                    opacity: 1.0, // Full opacity
                     dashArray: '5, 5' // Make the circle dashed
                   }).addTo(map);
                   
@@ -1444,9 +1445,10 @@
                   const circle = L.circle(receiverLatLng, {
                     radius: receiverMaxDistance,
                     color: receiverColor,
-                    fillColor: 'transparent',
-                    weight: 2,
-                    opacity: 0.8,
+                    fillColor: receiverColor,
+                    fillOpacity: 0.1, // Light fill for better visibility
+                    weight: 3, // Increased weight
+                    opacity: 1.0, // Full opacity
                     dashArray: '5, 5' // Make the circle dashed
                   }).addTo(map);
                   
