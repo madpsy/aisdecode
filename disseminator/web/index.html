@@ -788,7 +788,7 @@
     </div>
     
     <!-- Weather data overlay -->
-    <div id="weather-data-overlay" style="display: none; position: absolute; top: 100px; left: 50%; transform: translateX(-50%); background: rgba(255, 255, 255, 0.9); border: 2px solid #aaa; border-radius: 8px; padding: 15px; width: 280px; z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-family: 'Roboto', sans-serif;">
+    <div id="weather-data-overlay" style="display: none; position: absolute; top: 100px; left: 50%; transform: translateX(-50%); background: rgba(255, 255, 255, 0.9); border: 2px solid #aaa; border-radius: 8px; padding: 15px; width: 320px; max-width: 90%; z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-family: 'Roboto', sans-serif;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
             <h4 style="margin: 0;">Weather Information</h4>
             <button id="weather-data-close" style="background: none; border: none; cursor: pointer; font-size: 16px;">&times;</button>
@@ -5892,6 +5892,17 @@ map.on("moveend", debouncedSendSummaryRequest);
                     return response.json();
                 })
                 .then(data => {
+                    // Extract location name if available
+                    const locationName = data.name && data.name.trim() !== '' ? data.name : null;
+                    
+                    // Update the header with location name if available
+                    const headerElement = document.querySelector('#weather-data-overlay h4');
+                    if (headerElement) {
+                        headerElement.textContent = locationName ?
+                            `Weather Information (${locationName})` :
+                            'Weather Information';
+                    }
+                    
                     // Extract weather data fields
                     const seaLevelPressure = data.main?.sea_level ? `${data.main.sea_level} hPa` : 'N/A';
                     const temperature = data.main?.temp ? `${data.main.temp}°C` : 'N/A';
