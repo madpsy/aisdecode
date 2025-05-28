@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,7 +73,7 @@ func main() {
 
 	// HTTP handlers
 	http.HandleFunc("/weather/tile/", handleWeatherTile)
-	http.HandleFunc("/weather/status", handleStatus)
+	http.HandleFunc("/weather/summary", handleWeatherSummary)
 
 	// Only serve static files if web directory exists
 	if _, err := os.Stat("web"); !os.IsNotExist(err) {
@@ -275,22 +276,118 @@ func handleWeatherTile(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Status Handler
+// Weather Summary Handler
 // ─────────────────────────────────────────────────────────────────────────────
 
-func handleStatus(w http.ResponseWriter, r *http.Request) {
-	status := struct {
-		Status     string `json:"status"`
-		Timestamp  string `json:"timestamp"`
-		CacheTTL   int    `json:"cache_ttl"`
-		BaseDomain string `json:"base_domain"`
-	}{
-		Status:     "ok",
-		Timestamp:  time.Now().Format(time.RFC3339),
-		CacheTTL:   settings.TileTTL,
-		BaseDomain: settings.BaseDomain,
+func handleWeatherSummary(w http.ResponseWriter, r *http.Request) {
+	// Validate request domain
+	if !validateDomain(r) {
+		http.Error(w, "Unauthorized domain", http.StatusForbidden)
+		if settings.Debug {
+			log.Printf("Rejected request from unauthorized domain: %s", r.Host)
+		}
+		return
 	}
 
+	// Parse query parameters
+	query := r.URL.Query()
+	latStr := query.Get("lat")
+	lonStr := query.Get("lon")
+
+	if latStr == "" || lonStr == "" {
+		http.Error(w, "Missing required parameters: lat and lon", http.StatusBadRequest)
+		return
+	}
+
+	lat, err := strconv.ParseFloat(latStr, 64)
+	if err != nil {
+		http.Error(w, "Invalid latitude value", http.StatusBadRequest)
+		return
+	}
+
+	lon, err := strconv.ParseFloat(lonStr, 64)
+	if err != nil {
+		http.Error(w, "Invalid longitude value", http.StatusBadRequest)
+		return
+	}
+
+	// Create cache key
+	cacheKey := fmt.Sprintf("weather:summary:%f:%f", lat, lon)
+
+	// Try to get from Redis cache
+	cachedData, err := redisClient.Get(ctx, cacheKey).Bytes()
+	if err == nil {
+		// Cache hit
+		if settings.Debug {
+			log.Printf("Cache hit for %s", cacheKey)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", settings.TileTTL))
+		w.Write(cachedData)
+		return
+	}
+
+	// Cache miss, fetch from OpenWeatherMap
+	if settings.Debug {
+		log.Printf("Cache miss for %s, fetching from OpenWeatherMap", cacheKey)
+	}
+
+	// Construct OpenWeatherMap URL for current weather
+	owmURL := fmt.Sprintf(
+		"https://api.openweathermap.org/data/2.5/weather?lat=%f&lon=%f&units=metric&appid=%s",
+		lat, lon, settings.OpenWeatherMapKey,
+	)
+
+	// Fetch weather data from OpenWeatherMap
+	resp, err := http.Get(owmURL)
+	if err != nil {
+		log.Printf("Error fetching weather data from OpenWeatherMap: %v", err)
+		http.Error(w, "Error fetching weather data", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("OpenWeatherMap returned status %d", resp.StatusCode)
+		http.Error(w, fmt.Sprintf("OpenWeatherMap error: %s", resp.Status), resp.StatusCode)
+		return
+	}
+
+	// Read the weather data
+	weatherData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Error reading weather data: %v", err)
+		http.Error(w, "Error reading weather data", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse the JSON to validate and potentially enhance it
+	var weatherJson map[string]interface{}
+	if err := json.Unmarshal(weatherData, &weatherJson); err != nil {
+		log.Printf("Error parsing weather data: %v", err)
+		http.Error(w, "Error processing weather data", http.StatusInternalServerError)
+		return
+	}
+
+	// Add a timestamp field
+	weatherJson["timestamp"] = time.Now().Format(time.RFC3339)
+
+	// Re-encode the enhanced data
+	enhancedData, err := json.Marshal(weatherJson)
+	if err != nil {
+		log.Printf("Error encoding enhanced weather data: %v", err)
+		http.Error(w, "Error processing weather data", http.StatusInternalServerError)
+		return
+	}
+
+	// Store in Redis cache with TTL
+	err = redisClient.Set(ctx, cacheKey, enhancedData, time.Duration(settings.TileTTL)*time.Second).Err()
+	if err != nil {
+		log.Printf("Error caching weather data in Redis: %v", err)
+	}
+
+	// Serve the weather data
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", settings.TileTTL))
+	w.Write(enhancedData)
 }
