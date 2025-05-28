@@ -97,39 +97,19 @@ func validateDomain(r *http.Request) bool {
 		return true
 	}
 
-	// Always require a Referer header to block direct API calls (like curl)
-	referer := r.Header.Get("Referer")
-	if referer == "" {
-		if settings.Debug {
-			log.Printf("Rejected request with no Referer header from: %s", r.RemoteAddr)
-		}
-		return false
+	// First check if the request is coming from the same host
+	// This allows same-site requests even without a Referer
+	host := r.Host
+	if settings.Debug {
+		log.Printf("Checking Host header: %s against base domain: %s", host, settings.BaseDomain)
 	}
 
-	// Parse the Referer URL to properly check its domain
-	refURL, err := url.Parse(referer)
-	if err != nil {
+	// If the host matches our base domain, allow the request
+	if strings.HasSuffix(host, settings.BaseDomain) {
 		if settings.Debug {
-			log.Printf("Rejected request with invalid Referer URL: %s", referer)
+			log.Printf("Request allowed: Host header matches base domain")
 		}
-		return false
-	}
-
-	// Check if the Referer's host ends with our base domain
-	if strings.HasSuffix(refURL.Host, settings.BaseDomain) {
 		return true
-	}
-
-	// If Referer check fails, try Origin header (for CORS requests)
-	origin := r.Header.Get("Origin")
-	if origin != "" {
-		if settings.Debug {
-			log.Printf("Checking Origin header: %s", origin)
-		}
-		originURL, err := url.Parse(origin)
-		if err == nil && strings.HasSuffix(originURL.Host, settings.BaseDomain) {
-			return true
-		}
 	}
 
 	// Check X-Forwarded-Host header (for proxied requests)
@@ -139,16 +119,58 @@ func validateDomain(r *http.Request) bool {
 			log.Printf("Checking X-Forwarded-Host header: %s", forwardedHost)
 		}
 		if strings.HasSuffix(forwardedHost, settings.BaseDomain) {
+			if settings.Debug {
+				log.Printf("Request allowed: X-Forwarded-Host matches base domain")
+			}
 			return true
 		}
 	}
 
-	// Check Host header as a fallback
-	host := r.Host
-	if settings.Debug {
-		log.Printf("Checking Host header: %s", host)
+	// Check Origin header (for CORS requests)
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		if settings.Debug {
+			log.Printf("Checking Origin header: %s", origin)
+		}
+		originURL, err := url.Parse(origin)
+		if err == nil {
+			if settings.Debug {
+				log.Printf("Parsed Origin host: %s", originURL.Host)
+			}
+			if strings.HasSuffix(originURL.Host, settings.BaseDomain) {
+				if settings.Debug {
+					log.Printf("Request allowed: Origin matches base domain")
+				}
+				return true
+			}
+		}
 	}
-	return strings.HasSuffix(host, settings.BaseDomain)
+
+	// Check Referer header last
+	referer := r.Header.Get("Referer")
+	if referer != "" {
+		if settings.Debug {
+			log.Printf("Checking Referer header: %s", referer)
+		}
+		refURL, err := url.Parse(referer)
+		if err == nil {
+			if settings.Debug {
+				log.Printf("Parsed Referer host: %s", refURL.Host)
+			}
+			if strings.HasSuffix(refURL.Host, settings.BaseDomain) {
+				if settings.Debug {
+					log.Printf("Request allowed: Referer matches base domain")
+				}
+				return true
+			}
+		}
+	}
+
+	// If we get here, the request is not from an allowed domain
+	if settings.Debug {
+		log.Printf("Request rejected: No headers match base domain. Remote: %s", r.RemoteAddr)
+	}
+	return false
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
