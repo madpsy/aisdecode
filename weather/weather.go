@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -96,13 +97,39 @@ func validateDomain(r *http.Request) bool {
 		return true
 	}
 
-	// Check Origin header first (for CORS requests)
+	// Always require a Referer header to block direct API calls (like curl)
+	referer := r.Header.Get("Referer")
+	if referer == "" {
+		if settings.Debug {
+			log.Printf("Rejected request with no Referer header from: %s", r.RemoteAddr)
+		}
+		return false
+	}
+
+	// Parse the Referer URL to properly check its domain
+	refURL, err := url.Parse(referer)
+	if err != nil {
+		if settings.Debug {
+			log.Printf("Rejected request with invalid Referer URL: %s", referer)
+		}
+		return false
+	}
+
+	// Check if the Referer's host ends with our base domain
+	if strings.HasSuffix(refURL.Host, settings.BaseDomain) {
+		return true
+	}
+
+	// If Referer check fails, try Origin header (for CORS requests)
 	origin := r.Header.Get("Origin")
 	if origin != "" {
 		if settings.Debug {
 			log.Printf("Checking Origin header: %s", origin)
 		}
-		return strings.HasSuffix(origin, settings.BaseDomain)
+		originURL, err := url.Parse(origin)
+		if err == nil && strings.HasSuffix(originURL.Host, settings.BaseDomain) {
+			return true
+		}
 	}
 
 	// Check X-Forwarded-Host header (for proxied requests)
@@ -111,16 +138,9 @@ func validateDomain(r *http.Request) bool {
 		if settings.Debug {
 			log.Printf("Checking X-Forwarded-Host header: %s", forwardedHost)
 		}
-		return strings.HasSuffix(forwardedHost, settings.BaseDomain)
-	}
-
-	// Check Referer header next
-	referer := r.Header.Get("Referer")
-	if referer != "" {
-		if settings.Debug {
-			log.Printf("Checking Referer header: %s", referer)
+		if strings.HasSuffix(forwardedHost, settings.BaseDomain) {
+			return true
 		}
-		return strings.HasSuffix(referer, settings.BaseDomain)
 	}
 
 	// Check Host header as a fallback
