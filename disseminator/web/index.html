@@ -5916,6 +5916,7 @@ map.on("moveend", debouncedSendSummaryRequest);
                     const windDirection = data.wind?.deg !== undefined ? formatWindDirection(data.wind.deg) : 'N/A';
                     const windSpeed = data.wind?.speed !== undefined ? `${data.wind.speed} m/s` : 'N/A';
                     const windGust = data.wind?.gust !== undefined ? `${data.wind.gust} m/s` : 'N/A';
+                    const rainfall1h = data.rain?.["1h"] !== undefined ? `${data.rain["1h"]} mm` : 'N/A';
                     const visibility = data.visibility ? `${(data.visibility / 1000).toFixed(1)} km` : 'N/A';
                     
                     // Format sunrise and sunset times
@@ -5942,6 +5943,7 @@ map.on("moveend", debouncedSendSummaryRequest);
                             Humidity: ${humidity}<br>
                             Pressure: ${seaLevelPressure}<br>
                             Wind: ${windSpeed} from ${windDirection}${windGust !== 'N/A' ? `<br>Wind gust: ${windGust}` : ''}<br>
+                            ${rainfall1h !== 'N/A' ? `Rain (1 hour): ${rainfall1h}<br>` : ''}
                             Visibility: ${visibility}<br>
                             Sunrise: ${sunrise}<br>
                             Sunset: ${sunset}
