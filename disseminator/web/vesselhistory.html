@@ -972,9 +972,10 @@
           console.log('Found Weather row');
           const valueCell = row.querySelector('td:last-child');
           if (valueCell) {
-            // Only update if content has actually changed
-            if (valueCell.innerHTML !== weatherHtml) {
-              console.log('Weather data changed, updating cell');
+            // Always update if the cell contains the loading placeholder
+            if (valueCell.textContent.includes('Loading weather data') ||
+                valueCell.innerHTML !== weatherHtml) {
+              console.log('Weather data changed or loading placeholder detected, updating cell');
               valueCell.innerHTML = weatherHtml;
             } else {
               console.log('Weather data unchanged, skipping update');
@@ -1027,9 +1028,9 @@
           const windSpeed = data.wind?.speed !== undefined ? `${data.wind.speed} m/s` : 'N/A';
           const visibility = data.visibility ? `${(data.visibility / 1000).toFixed(1)} km` : 'N/A';
           
-          // Format the weather data
+          // Format the weather data with a fixed height container to prevent layout jumps
           const weatherHtml = `
-            <div>
+            <div class="weather-container" style="min-height: 110px;">
               <strong>${weatherDesc}</strong><br>
               Temperature: ${temperature}<br>
               Pressure: ${seaLevelPressure}<br>
@@ -1038,9 +1039,9 @@
             </div>
           `;
           
-          // Check if the weather data has actually changed
-          if (cachedWeatherData !== weatherHtml) {
-            console.log('Weather data changed, updating cache and cells');
+          // Always update on first load or if data has changed
+          if (!cachedWeatherData || cachedWeatherData !== weatherHtml) {
+            console.log('Weather data changed or first load, updating cache and cells');
             // Cache the formatted weather data and location
             cachedWeatherData = weatherHtml;
             weatherLocation = locationKey;
@@ -1048,7 +1049,10 @@
             // Update all weather cells in the table
             updateAllWeatherCells(weatherHtml);
           } else {
-            console.log('Weather data unchanged, skipping update');
+            console.log('Weather data unchanged, checking if cells need updating anyway');
+            // Even if the data hasn't changed, we still need to check if the cells
+            // are showing the loading placeholder and update them if needed
+            updateAllWeatherCells(weatherHtml);
           }
           
           weatherFetchInProgress = false;
@@ -1268,8 +1272,8 @@
                   return cachedWeatherData;
                 }
                 
-                // Otherwise return loading message
-                return 'Loading weather data...';
+                // Return loading message with the same fixed height container
+                return '<div class="weather-container" style="min-height: 110px;">Loading weather data...</div>';
               }
             },
             { key: 'NumMessages', label: 'Messages' }
