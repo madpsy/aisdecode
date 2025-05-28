@@ -962,8 +962,18 @@
       if (cachedWeatherData && weatherLocation === locationKey) {
         console.log('Using cached weather data');
         
-        // Find all weather placeholders and update them
+        // Try to find the specific placeholder first
+        const specificPlaceholder = document.getElementById(placeholderId);
+        if (specificPlaceholder) {
+          console.log(`Found specific placeholder: ${placeholderId}`);
+          specificPlaceholder.innerHTML = cachedWeatherData;
+        } else {
+          console.log(`Specific placeholder not found: ${placeholderId}`);
+        }
+        
+        // Also update any other weather placeholders
         const placeholders = document.querySelectorAll(`[id^="weather-data-"]`);
+        console.log(`Found ${placeholders.length} total weather placeholders`);
         placeholders.forEach(placeholder => {
           placeholder.innerHTML = cachedWeatherData;
         });
@@ -1015,23 +1025,79 @@
           weatherLocation = locationKey;
           weatherFetchInProgress = false;
           
-          // Find all weather placeholders and update them
-          const placeholders = document.querySelectorAll(`[id^="weather-data-"]`);
-          console.log(`Updating ${placeholders.length} weather placeholders`);
+          // Try to find the specific placeholder first
+          const specificPlaceholder = document.getElementById(placeholderId);
+          if (specificPlaceholder) {
+            console.log(`Found specific placeholder: ${placeholderId}`);
+            specificPlaceholder.innerHTML = weatherHtml;
+          } else {
+            console.log(`Specific placeholder not found: ${placeholderId}`);
+          }
           
-          placeholders.forEach(placeholder => {
-            placeholder.innerHTML = weatherHtml;
-          });
+          // Also update any other weather placeholders
+          const placeholders = document.querySelectorAll(`[id^="weather-data-"]`);
+          console.log(`Found ${placeholders.length} total weather placeholders`);
+          
+          if (placeholders.length === 0) {
+            // If no placeholders found by ID, try a more aggressive approach
+            console.log("No placeholders found by ID, trying to find by content");
+            const allSpans = document.querySelectorAll('span');
+            let weatherSpans = [];
+            
+            allSpans.forEach(span => {
+              if (span.textContent === 'Loading weather data...') {
+                weatherSpans.push(span);
+              }
+            });
+            
+            console.log(`Found ${weatherSpans.length} spans with 'Loading weather data...'`);
+            weatherSpans.forEach(span => {
+              span.innerHTML = weatherHtml;
+            });
+          } else {
+            // Update all found placeholders
+            placeholders.forEach(placeholder => {
+              placeholder.innerHTML = weatherHtml;
+            });
+          }
         })
         .catch(error => {
           console.error('Error fetching weather data:', error);
           weatherFetchInProgress = false;
           
-          // Find all weather placeholders and update them with the error
+          // Try to find the specific placeholder first
+          const specificPlaceholder = document.getElementById(placeholderId);
+          if (specificPlaceholder) {
+            console.log(`Found specific placeholder for error: ${placeholderId}`);
+            specificPlaceholder.textContent = 'Weather data unavailable';
+          }
+          
+          // Also update any other weather placeholders
           const placeholders = document.querySelectorAll(`[id^="weather-data-"]`);
-          placeholders.forEach(placeholder => {
-            placeholder.textContent = 'Weather data unavailable';
-          });
+          console.log(`Found ${placeholders.length} total weather placeholders for error`);
+          
+          if (placeholders.length === 0) {
+            // If no placeholders found by ID, try a more aggressive approach
+            console.log("No placeholders found by ID for error, trying to find by content");
+            const allSpans = document.querySelectorAll('span');
+            let weatherSpans = [];
+            
+            allSpans.forEach(span => {
+              if (span.textContent === 'Loading weather data...') {
+                weatherSpans.push(span);
+              }
+            });
+            
+            console.log(`Found ${weatherSpans.length} spans with 'Loading weather data...'`);
+            weatherSpans.forEach(span => {
+              span.textContent = 'Weather data unavailable';
+            });
+          } else {
+            // Update all found placeholders
+            placeholders.forEach(placeholder => {
+              placeholder.textContent = 'Weather data unavailable';
+            });
+          }
         });
     }
 
