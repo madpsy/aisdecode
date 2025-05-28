@@ -893,6 +893,10 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 	}
 	portLastSeenMutex.RUnlock()
 
+	// Track receivers that have already had status changes logged in this cycle
+	// to prevent duplicate alerts
+	statusChangedReceivers := make(map[int]bool)
+
 	// Get all receivers with their ports
 	if err := ensureConnection(); err != nil {
 		log.Printf("Error connecting to database: %v", err)
@@ -959,7 +963,7 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 
 		// MODIFIED: Check for online transition even without previous data
 		// This ensures that when a receiver sends data for the first time, it will go online
-		if hasCurrent {
+		if hasCurrent && !statusChangedReceivers[receiverID] {
 			// Check if the receiver is currently online based on the threshold
 			isOnline := now.Sub(currentLastSeen) <= offlineThreshold
 
@@ -975,6 +979,9 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 					log.Printf("Error logging ONLINE event for receiver %d: %v", receiverID, err)
 				} else {
 					log.Printf("Receiver %d came back ONLINE (last seen: %v)", receiverID, currentLastSeen)
+
+					// Mark this receiver as having had a status change in this cycle
+					statusChangedReceivers[receiverID] = true
 
 					// Send webhook notification for online event
 					go func(recID int) {
@@ -1106,13 +1113,16 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 						notifyWebhookWithType(rec, ReceiverOffline)
 					}(receiverID)
 				}
-			} else if !wasOnline && isOnline { // If status changed from offline to online
+			} else if !wasOnline && isOnline && !statusChangedReceivers[receiverID] { // If status changed from offline to online
 				// Log the online event
 				if err := logReceiverEvent(receiverID, ReceiverOnline); err != nil {
 					log.Printf("Error logging ONLINE event for receiver %d: %v", receiverID, err)
 				} else {
 					// Use the current last seen time which must exist for an online transition
 					log.Printf("Receiver %d came back ONLINE (last seen: %v)", receiverID, currentLastSeen)
+
+					// Mark this receiver as having had a status change in this cycle
+					statusChangedReceivers[receiverID] = true
 
 					// Send webhook notification for online event
 					go func(recID int) {
