@@ -951,9 +951,37 @@
     let weatherLocation = null;
     let weatherFetchInProgress = false;
     
-    // Fetch weather data for a location and update the placeholder
+    // Global function to update all weather cells in the table
+    function updateAllWeatherCells(weatherHtml) {
+      console.log('Updating all weather cells with:', weatherHtml);
+      
+      // Find all table rows in the right table
+      const rightTableBody = document.querySelector('#vessel-table-right tbody');
+      if (!rightTableBody) {
+        console.log('Right table body not found');
+        return;
+      }
+      
+      // Look through all rows to find the Weather row
+      const rows = rightTableBody.querySelectorAll('tr');
+      console.log(`Found ${rows.length} rows in right table`);
+      
+      rows.forEach(row => {
+        const labelCell = row.querySelector('td:first-child');
+        if (labelCell && labelCell.textContent === 'Weather') {
+          console.log('Found Weather row');
+          const valueCell = row.querySelector('td:last-child');
+          if (valueCell) {
+            console.log('Updating Weather cell');
+            valueCell.innerHTML = weatherHtml;
+          }
+        }
+      });
+    }
+    
+    // Fetch weather data for a location and update all weather cells
     function fetchWeatherData(lat, lon, placeholderId) {
-      console.log(`fetchWeatherData called for ${lat},${lon} with placeholder ${placeholderId}`);
+      console.log(`fetchWeatherData called for ${lat},${lon}`);
       
       // Create a location key for caching
       const locationKey = `${lat},${lon}`;
@@ -961,22 +989,7 @@
       // If we already have cached weather data for this location, use it immediately
       if (cachedWeatherData && weatherLocation === locationKey) {
         console.log('Using cached weather data');
-        
-        // Try to find the specific placeholder first
-        const specificPlaceholder = document.getElementById(placeholderId);
-        if (specificPlaceholder) {
-          console.log(`Found specific placeholder: ${placeholderId}`);
-          specificPlaceholder.innerHTML = cachedWeatherData;
-        } else {
-          console.log(`Specific placeholder not found: ${placeholderId}`);
-        }
-        
-        // Also update any other weather placeholders
-        const placeholders = document.querySelectorAll(`[id^="weather-data-"]`);
-        console.log(`Found ${placeholders.length} total weather placeholders`);
-        placeholders.forEach(placeholder => {
-          placeholder.innerHTML = cachedWeatherData;
-        });
+        updateAllWeatherCells(cachedWeatherData);
         return;
       }
       
@@ -1025,79 +1038,15 @@
           weatherLocation = locationKey;
           weatherFetchInProgress = false;
           
-          // Try to find the specific placeholder first
-          const specificPlaceholder = document.getElementById(placeholderId);
-          if (specificPlaceholder) {
-            console.log(`Found specific placeholder: ${placeholderId}`);
-            specificPlaceholder.innerHTML = weatherHtml;
-          } else {
-            console.log(`Specific placeholder not found: ${placeholderId}`);
-          }
-          
-          // Also update any other weather placeholders
-          const placeholders = document.querySelectorAll(`[id^="weather-data-"]`);
-          console.log(`Found ${placeholders.length} total weather placeholders`);
-          
-          if (placeholders.length === 0) {
-            // If no placeholders found by ID, try a more aggressive approach
-            console.log("No placeholders found by ID, trying to find by content");
-            const allSpans = document.querySelectorAll('span');
-            let weatherSpans = [];
-            
-            allSpans.forEach(span => {
-              if (span.textContent === 'Loading weather data...') {
-                weatherSpans.push(span);
-              }
-            });
-            
-            console.log(`Found ${weatherSpans.length} spans with 'Loading weather data...'`);
-            weatherSpans.forEach(span => {
-              span.innerHTML = weatherHtml;
-            });
-          } else {
-            // Update all found placeholders
-            placeholders.forEach(placeholder => {
-              placeholder.innerHTML = weatherHtml;
-            });
-          }
+          // Update all weather cells in the table
+          updateAllWeatherCells(weatherHtml);
         })
         .catch(error => {
           console.error('Error fetching weather data:', error);
           weatherFetchInProgress = false;
           
-          // Try to find the specific placeholder first
-          const specificPlaceholder = document.getElementById(placeholderId);
-          if (specificPlaceholder) {
-            console.log(`Found specific placeholder for error: ${placeholderId}`);
-            specificPlaceholder.textContent = 'Weather data unavailable';
-          }
-          
-          // Also update any other weather placeholders
-          const placeholders = document.querySelectorAll(`[id^="weather-data-"]`);
-          console.log(`Found ${placeholders.length} total weather placeholders for error`);
-          
-          if (placeholders.length === 0) {
-            // If no placeholders found by ID, try a more aggressive approach
-            console.log("No placeholders found by ID for error, trying to find by content");
-            const allSpans = document.querySelectorAll('span');
-            let weatherSpans = [];
-            
-            allSpans.forEach(span => {
-              if (span.textContent === 'Loading weather data...') {
-                weatherSpans.push(span);
-              }
-            });
-            
-            console.log(`Found ${weatherSpans.length} spans with 'Loading weather data...'`);
-            weatherSpans.forEach(span => {
-              span.textContent = 'Weather data unavailable';
-            });
-          } else {
-            // Update all found placeholders
-            placeholders.forEach(placeholder => {
-              placeholder.textContent = 'Weather data unavailable';
-            });
-          }
+          // Update all weather cells with error message
+          updateAllWeatherCells('Weather data unavailable');
         });
     }
 
@@ -1298,14 +1247,17 @@
                   return 'No location data available';
                 }
                 
-                // Create a placeholder that will be updated when weather data is fetched
-                const weatherPlaceholderId = `weather-data-${userID}`;
-                
                 // Fetch weather data asynchronously
-                fetchWeatherData(data.Latitude, data.Longitude, weatherPlaceholderId);
+                fetchWeatherData(data.Latitude, data.Longitude);
                 
-                // Return a placeholder that will be updated when data is fetched
-                return `<span id="${weatherPlaceholderId}">Loading weather data...</span>`;
+                // If we already have cached weather data for this location, use it
+                const locationKey = `${data.Latitude},${data.Longitude}`;
+                if (cachedWeatherData && weatherLocation === locationKey) {
+                  return cachedWeatherData;
+                }
+                
+                // Otherwise return loading message
+                return 'Loading weather data...';
               }
             },
             { key: 'NumMessages', label: 'Messages' }
@@ -4968,14 +4920,17 @@
               return 'No location data available';
             }
             
-            // Create a placeholder that will be updated when weather data is fetched
-            const weatherPlaceholderId = `weather-data-${userID}`;
-            
             // Fetch weather data asynchronously
-            fetchWeatherData(data.Latitude, data.Longitude, weatherPlaceholderId);
+            fetchWeatherData(data.Latitude, data.Longitude);
             
-            // Return a placeholder that will be updated when data is fetched
-            return `<span id="${weatherPlaceholderId}">Loading weather data...</span>`;
+            // If we already have cached weather data for this location, use it
+            const locationKey = `${data.Latitude},${data.Longitude}`;
+            if (cachedWeatherData && weatherLocation === locationKey) {
+              return cachedWeatherData;
+            }
+            
+            // Otherwise return loading message
+            return 'Loading weather data...';
           }
         },
         { key: 'NumMessages', label: 'Messages' }
