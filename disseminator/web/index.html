@@ -4017,22 +4017,22 @@ function applyLogFilters() {
 	    
 	    // Update the weather scale based on the layer type
 	    if (layer === 'temp') {
-	      // Temperature scale (blue to red)
-	      wxScaleBar.style.background = 'linear-gradient(to right, #0000FF, #00FFFF, #00FF00, #FFFF00, #FF0000)';
-	      wxScaleMin.textContent = '-20°C';
-	      wxScaleMax.textContent = '40°C';
+	      // Temperature scale (OpenWeatherMap)
+	      wxScaleBar.style.background = 'linear-gradient(to right, rgba(130, 22, 146, 1), rgba(130, 87, 219, 1), rgba(32, 140, 236, 1), rgba(32, 196, 232, 1), rgba(35, 221, 221, 1), rgba(194, 255, 40, 1), rgba(255, 240, 40, 1), rgba(255, 194, 40, 1), rgba(252, 128, 20, 1))';
+	      wxScaleMin.textContent = '-65°C';
+	      wxScaleMax.textContent = '30°C';
 	      wxScale.style.display = 'block';
 	    } else if (layer === 'wind') {
-	      // Wind speed scale (light green to dark purple)
-	      wxScaleBar.style.background = 'linear-gradient(to right, #00FF00, #FFFF00, #FF9900, #FF0000, #990099)';
-	      wxScaleMin.textContent = '0 m/s';
-	      wxScaleMax.textContent = '30+ m/s';
+	      // Wind speed scale (OpenWeatherMap)
+	      wxScaleBar.style.background = 'linear-gradient(to right, rgba(255,255,255,0.4), rgba(238,206,206,0.4), rgba(179,100,188,0.7), rgba(63,33,59,0.8), rgba(116,76,172,0.9), rgba(70,0,175,1), rgba(13,17,38,1))';
+	      wxScaleMin.textContent = '1 m/s';
+	      wxScaleMax.textContent = '200 m/s';
 	      wxScale.style.display = 'block';
 	    } else if (layer === 'pressure') {
-	      // Pressure scale (purple to green)
-	      wxScaleBar.style.background = 'linear-gradient(to right, #990099, #0000FF, #00FFFF, #00FF00)';
-	      wxScaleMin.textContent = '950 hPa';
-	      wxScaleMax.textContent = '1050 hPa';
+	      // Pressure scale (OpenWeatherMap)
+	      wxScaleBar.style.background = 'linear-gradient(to right, rgba(0,115,255,1), rgba(0,170,255,1), rgba(75,208,214,1), rgba(141,231,199,1), rgba(176,247,32,1), rgba(240,184,0,1), rgba(251,85,21,1), rgba(243,54,59,1), rgba(198,0,0,1))';
+	      wxScaleMin.textContent = '940 hPa';
+	      wxScaleMax.textContent = '1080 hPa';
 	      wxScale.style.display = 'block';
 	    } else {
 	      // Hide scale for precipitation and clouds
