@@ -127,17 +127,58 @@ func handleWeatherTile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract tile parameters from URL path
-	// Expected format: /weather/tile/{layer}/{z}/{x}/{y}
+	// Expected formats:
+	// - /weather/tile/{layer}/{z}/{x}/{y}
+	// - /tile/{layer}/{z}/{x}/{y}
 	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) < 6 {
+
+	// Filter out empty parts (from leading slash)
+	var filteredParts []string
+	for _, part := range parts {
+		if part != "" {
+			filteredParts = append(filteredParts, part)
+		}
+	}
+
+	if settings.Debug {
+		log.Printf("Path parts: %v", filteredParts)
+	}
+
+	// Check if we have enough parts for a valid tile request
+	if len(filteredParts) < 4 {
 		http.Error(w, "Invalid tile request format", http.StatusBadRequest)
+		if settings.Debug {
+			log.Printf("Invalid tile request: %s (not enough path parts)", r.URL.Path)
+		}
 		return
 	}
 
-	layer := parts[3]
-	z := parts[4]
-	x := parts[5]
-	y := parts[6]
+	// Find the position of "tile" in the path
+	tileIndex := -1
+	for i, part := range filteredParts {
+		if part == "tile" {
+			tileIndex = i
+			break
+		}
+	}
+
+	if tileIndex == -1 || tileIndex+3 >= len(filteredParts) {
+		http.Error(w, "Invalid tile request format", http.StatusBadRequest)
+		if settings.Debug {
+			log.Printf("Invalid tile request: %s (missing 'tile' part or incomplete path)", r.URL.Path)
+		}
+		return
+	}
+
+	// Extract parameters based on the position of "tile"
+	layer := filteredParts[tileIndex+1]
+	z := filteredParts[tileIndex+2]
+	x := filteredParts[tileIndex+3]
+	y := filteredParts[tileIndex+4]
+
+	if settings.Debug {
+		log.Printf("Tile request: layer=%s, z=%s, x=%s, y=%s", layer, z, x, y)
+	}
 
 	// Validate layer type
 	validLayers := map[string]bool{
