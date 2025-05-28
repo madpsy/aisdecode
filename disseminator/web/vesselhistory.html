@@ -950,6 +950,7 @@
     let cachedWeatherData = null;
     let weatherLocation = null;
     let weatherFetchInProgress = false;
+    let lastRequestedLocation = null; // Store the last requested location
     
     // Global function to update all weather cells in the table
     function updateAllWeatherCells(weatherHtml) {
@@ -989,8 +990,14 @@
     function fetchWeatherData(lat, lon, placeholderId) {
       console.log(`fetchWeatherData called for ${lat},${lon}`);
       
-      // Create a location key for caching
-      const locationKey = `${lat},${lon}`;
+      // Round coordinates to 2 decimal places to improve cache hit rate
+      // Use toFixed(2) to ensure exactly 2 decimal places
+      const roundedLat = parseFloat(parseFloat(lat).toFixed(2));
+      const roundedLon = parseFloat(parseFloat(lon).toFixed(2));
+      console.log(`Rounded coordinates: ${roundedLat},${roundedLon}`);
+      
+      // Create a location key for caching using rounded coordinates
+      const locationKey = `${roundedLat},${roundedLon}`;
       
       // If we already have cached weather data for this location, use it immediately
       if (cachedWeatherData && weatherLocation === locationKey) {
@@ -1005,10 +1012,18 @@
         return;
       }
       
-      weatherFetchInProgress = true;
-      console.log(`Fetching weather data from API for ${lat},${lon}`);
+      // Only request weather data if the location has actually changed
+      if (lastRequestedLocation === locationKey) {
+        console.log('Location unchanged, skipping weather fetch');
+        return;
+      }
       
-      fetch(`/weather/summary?lat=${lat}&lon=${lon}`)
+      weatherFetchInProgress = true;
+      lastRequestedLocation = locationKey; // Store the location we're requesting
+      console.log(`Fetching weather data from API for ${roundedLat},${roundedLon}`);
+      
+      // Use toFixed(2) to ensure exactly 2 decimal places in the API request
+      fetch(`/weather/summary?lat=${roundedLat.toFixed(2)}&lon=${roundedLon.toFixed(2)}`)
         .then(response => {
           if (!response.ok) {
             throw new Error(`Weather API returned ${response.status}`);
