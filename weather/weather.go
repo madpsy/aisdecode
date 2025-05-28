@@ -104,17 +104,26 @@ func validateDomain(r *http.Request) bool {
 	forwardedHost := r.Header.Get("X-Forwarded-Host")
 	userAgent := r.Header.Get("User-Agent")
 
-	// Check if this looks like a browser request (has Referer or Origin)
-	isBrowserRequest := referer != "" || origin != ""
+	// Better browser detection - check User-Agent for common browser strings
+	// This helps catch browser requests that don't have Referer/Origin headers
+	isBrowserUserAgent := strings.Contains(userAgent, "Mozilla/") ||
+		strings.Contains(userAgent, "Chrome/") ||
+		strings.Contains(userAgent, "Safari/") ||
+		strings.Contains(userAgent, "Firefox/") ||
+		strings.Contains(userAgent, "Edge/") ||
+		strings.Contains(userAgent, "Opera/")
+
+	// Check if this looks like a browser request (has browser User-Agent OR has Referer/Origin)
+	isBrowserRequest := isBrowserUserAgent || referer != "" || origin != ""
 
 	if settings.Debug {
 		log.Printf("Request from: %s, User-Agent: %s, isBrowser: %v",
 			r.RemoteAddr, userAgent, isBrowserRequest)
 	}
 
-	// For browser requests, we need a valid Referer or Origin from our domain
+	// For browser requests, check for valid Referer or Origin
 	if isBrowserRequest {
-		// Check Referer header
+		// If there's a Referer header, it must match our domain
 		if referer != "" {
 			if settings.Debug {
 				log.Printf("Checking Referer header: %s", referer)
@@ -128,7 +137,7 @@ func validateDomain(r *http.Request) bool {
 			}
 		}
 
-		// Check Origin header
+		// If there's an Origin header, it must match our domain
 		if origin != "" {
 			if settings.Debug {
 				log.Printf("Checking Origin header: %s", origin)
@@ -142,33 +151,31 @@ func validateDomain(r *http.Request) bool {
 			}
 		}
 
-		// If we get here, the browser request doesn't have a valid Referer or Origin
+		// For browser requests without Referer/Origin, check if Host matches our domain
+		// This handles browser image/resource requests that don't send Referer
+		if strings.HasSuffix(host, settings.BaseDomain) {
+			if settings.Debug {
+				log.Printf("Browser request allowed: Host matches base domain")
+			}
+			return true
+		}
+
+		// Check X-Forwarded-Host as well for proxied requests
+		if forwardedHost != "" && strings.HasSuffix(forwardedHost, settings.BaseDomain) {
+			if settings.Debug {
+				log.Printf("Browser request allowed: X-Forwarded-Host matches base domain")
+			}
+			return true
+		}
+
+		// If we get here, the browser request is not from our domain
 		if settings.Debug {
-			log.Printf("Browser request rejected: No valid Referer or Origin")
+			log.Printf("Browser request rejected: No headers match base domain")
 		}
 		return false
 	} else {
-		// For non-browser requests (like curl), we need to be more strict
-		// Only allow requests where the Host header exactly matches our base domain
-		// This prevents curl requests from arbitrary locations
-
-		// Check if the Host header exactly matches our base domain
-		if host == settings.BaseDomain {
-			if settings.Debug {
-				log.Printf("Non-browser request allowed: Host exactly matches base domain")
-			}
-			return true
-		}
-
-		// Check if X-Forwarded-Host exactly matches our base domain
-		if forwardedHost == settings.BaseDomain {
-			if settings.Debug {
-				log.Printf("Non-browser request allowed: X-Forwarded-Host exactly matches base domain")
-			}
-			return true
-		}
-
-		// If we get here, the non-browser request is not allowed
+		// For non-browser requests (like curl), ALWAYS reject
+		// This blocks all curl and similar tool requests
 		if settings.Debug {
 			log.Printf("Non-browser request rejected from: %s", r.RemoteAddr)
 		}
