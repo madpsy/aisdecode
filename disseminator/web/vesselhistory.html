@@ -946,19 +946,38 @@
       return `${directions[index]} (${degrees}°)`;
     }
     
-    // Global variable to store cached weather data
+    // Global variables to store cached weather data and location
     let cachedWeatherData = null;
+    let weatherLocation = null;
+    let weatherFetchInProgress = false;
     
     // Fetch weather data for a location and update the placeholder
     function fetchWeatherData(lat, lon, placeholderId) {
-      // If we already have cached weather data, use it immediately
-      if (cachedWeatherData) {
-        const placeholder = document.getElementById(placeholderId);
-        if (placeholder) {
+      console.log(`fetchWeatherData called for ${lat},${lon} with placeholder ${placeholderId}`);
+      
+      // Create a location key for caching
+      const locationKey = `${lat},${lon}`;
+      
+      // If we already have cached weather data for this location, use it immediately
+      if (cachedWeatherData && weatherLocation === locationKey) {
+        console.log('Using cached weather data');
+        
+        // Find all weather placeholders and update them
+        const placeholders = document.querySelectorAll(`[id^="weather-data-"]`);
+        placeholders.forEach(placeholder => {
           placeholder.innerHTML = cachedWeatherData;
-        }
+        });
         return;
       }
+      
+      // If a fetch is already in progress, don't start another one
+      if (weatherFetchInProgress) {
+        console.log('Weather fetch already in progress, skipping');
+        return;
+      }
+      
+      weatherFetchInProgress = true;
+      console.log(`Fetching weather data from API for ${lat},${lon}`);
       
       fetch(`/weather/summary?lat=${lat}&lon=${lon}`)
         .then(response => {
@@ -968,6 +987,8 @@
           return response.json();
         })
         .then(data => {
+          console.log('Weather data received:', data);
+          
           // Extract the requested weather data fields
           const seaLevelPressure = data.main?.sea_level ? `${data.main.sea_level} hPa` : 'N/A';
           const temperature = data.main?.temp ? `${data.main.temp}°C` : 'N/A';
@@ -989,21 +1010,28 @@
             </div>
           `;
           
-          // Cache the formatted weather data
+          // Cache the formatted weather data and location
           cachedWeatherData = weatherHtml;
+          weatherLocation = locationKey;
+          weatherFetchInProgress = false;
           
-          // Update the placeholder
-          const placeholder = document.getElementById(placeholderId);
-          if (placeholder) {
+          // Find all weather placeholders and update them
+          const placeholders = document.querySelectorAll(`[id^="weather-data-"]`);
+          console.log(`Updating ${placeholders.length} weather placeholders`);
+          
+          placeholders.forEach(placeholder => {
             placeholder.innerHTML = weatherHtml;
-          }
+          });
         })
         .catch(error => {
           console.error('Error fetching weather data:', error);
-          const placeholder = document.getElementById(placeholderId);
-          if (placeholder) {
+          weatherFetchInProgress = false;
+          
+          // Find all weather placeholders and update them with the error
+          const placeholders = document.querySelectorAll(`[id^="weather-data-"]`);
+          placeholders.forEach(placeholder => {
             placeholder.textContent = 'Weather data unavailable';
-          }
+          });
         });
     }
 
