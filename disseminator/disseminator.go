@@ -2911,12 +2911,9 @@ func weatherHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Extract the path after /weather
 	path := strings.TrimPrefix(r.URL.Path, "/weather")
-	if path == "" {
-		path = "/"
-	}
 
-	// Construct the target URL
-	targetURL := fmt.Sprintf("%s%s", conf.WeatherBaseURL, path)
+	// Construct the target URL - add /weather prefix back for the weather service
+	targetURL := fmt.Sprintf("%s/weather%s", conf.WeatherBaseURL, path)
 	if r.URL.RawQuery != "" {
 		targetURL = fmt.Sprintf("%s?%s", targetURL, r.URL.RawQuery)
 	}
