@@ -574,7 +574,6 @@
     text-align: center;
     display: none;
     ">
-        <div id="wx-scale-title">Temperature</div>
         <div id="wx-scale-bar" style="
         position: relative;
         width: 150px;
@@ -613,7 +612,7 @@
             <input type="checkbox" id="met-data-overlay" checked>
             <span style="margin-left: 2px;">Met</span>
           </label>
-          <button id="wx-button" style="padding: 1px 2px; font-size: 12px; cursor: pointer; background: #e6f2ff; border: 1px solid #0078d7; border-radius: 3px; color: #0078d7; font-weight: bold;">WX</button>
+          <button id="wx-button" style="padding: 2px 6px; font-size: 12px; cursor: pointer; background: #e6f2ff; border: 1px solid #0078d7; border-radius: 3px; color: #0078d7; font-weight: bold;">WX</button>
         </div>
   <label style="margin-bottom: 1px; display: block;">
     <input type="checkbox" id="show-paths">
@@ -3974,7 +3973,6 @@ function applyLogFilters() {
 	  
 	  // Get the weather scale elements
 	  const wxScale = document.getElementById('wx-scale');
-	  const wxScaleTitle = document.getElementById('wx-scale-title');
 	  const wxScaleBar = document.getElementById('wx-scale-bar');
 	  const wxScaleMin = document.getElementById('wx-scale-min');
 	  const wxScaleMax = document.getElementById('wx-scale-max');
@@ -4020,21 +4018,18 @@ function applyLogFilters() {
 	    // Update the weather scale based on the layer type
 	    if (layer === 'temp') {
 	      // Temperature scale (blue to red)
-	      wxScaleTitle.textContent = 'Temperature';
 	      wxScaleBar.style.background = 'linear-gradient(to right, #0000FF, #00FFFF, #00FF00, #FFFF00, #FF0000)';
 	      wxScaleMin.textContent = '-20°C';
 	      wxScaleMax.textContent = '40°C';
 	      wxScale.style.display = 'block';
 	    } else if (layer === 'wind') {
 	      // Wind speed scale (light green to dark purple)
-	      wxScaleTitle.textContent = 'Wind Speed';
 	      wxScaleBar.style.background = 'linear-gradient(to right, #00FF00, #FFFF00, #FF9900, #FF0000, #990099)';
 	      wxScaleMin.textContent = '0 m/s';
 	      wxScaleMax.textContent = '30+ m/s';
 	      wxScale.style.display = 'block';
 	    } else if (layer === 'pressure') {
 	      // Pressure scale (purple to green)
-	      wxScaleTitle.textContent = 'Pressure';
 	      wxScaleBar.style.background = 'linear-gradient(to right, #990099, #0000FF, #00FFFF, #00FF00)';
 	      wxScaleMin.textContent = '950 hPa';
 	      wxScaleMax.textContent = '1050 hPa';
