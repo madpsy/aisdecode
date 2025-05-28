@@ -363,8 +363,17 @@ func handleWeatherSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create cache key
-	cacheKey := fmt.Sprintf("weather:summary:%f:%f", lat, lon)
+	// Round coordinates to 2 decimal places to improve cache hit rate
+	roundedLat := float64(int(lat*100)) / 100
+	roundedLon := float64(int(lon*100)) / 100
+
+	// Create cache key using rounded coordinates
+	cacheKey := fmt.Sprintf("weather:summary:%.2f:%.2f", roundedLat, roundedLon)
+
+	if settings.Debug {
+		log.Printf("Using rounded coordinates for cache key: %.2f, %.2f (original: %f, %f)",
+			roundedLat, roundedLon, lat, lon)
+	}
 
 	// Try to get from Redis cache
 	cachedData, err := redisClient.Get(ctx, cacheKey).Bytes()
@@ -384,10 +393,10 @@ func handleWeatherSummary(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Cache miss for %s, fetching from OpenWeatherMap", cacheKey)
 	}
 
-	// Construct OpenWeatherMap URL for current weather
+	// Use rounded coordinates for the API request as well to maximize cache hits
 	owmURL := fmt.Sprintf(
-		"https://api.openweathermap.org/data/2.5/weather?lat=%f&lon=%f&units=metric&appid=%s",
-		lat, lon, settings.OpenWeatherMapKey,
+		"https://api.openweathermap.org/data/2.5/weather?lat=%.2f&lon=%.2f&units=metric&appid=%s",
+		roundedLat, roundedLon, settings.OpenWeatherMapKey,
 	)
 
 	// Fetch weather data from OpenWeatherMap
