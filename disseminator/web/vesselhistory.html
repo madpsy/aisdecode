@@ -985,12 +985,12 @@
     
     // Simplified weather data fetching function
     function fetchWeatherData(lat, lon) {
-      // Round coordinates to 2 decimal places
-      const roundedLat = parseFloat(parseFloat(lat).toFixed(2));
-      const roundedLon = parseFloat(parseFloat(lon).toFixed(2));
+      // Round coordinates to 2 decimal places (true rounding, not padding)
+      const roundedLat = Math.round(lat * 100) / 100;
+      const roundedLon = Math.round(lon * 100) / 100;
       
       // Create a location key for caching using rounded coordinates
-      const locationKey = `${roundedLat.toFixed(2)},${roundedLon.toFixed(2)}`;
+      const locationKey = `${roundedLat},${roundedLon}`;
       console.log(`fetchWeatherData called for ${locationKey}`);
       
       // Check cache first
@@ -1009,8 +1009,8 @@
       weatherFetchInProgress = true;
       console.log(`Fetching weather data from API for ${locationKey}`);
       
-      // Fetch with exactly 2 decimal places
-      fetch(`/weather/summary?lat=${roundedLat.toFixed(2)}&lon=${roundedLon.toFixed(2)}`)
+      // Fetch with rounded coordinates (no padding with zeros)
+      fetch(`/weather/summary?lat=${roundedLat}&lon=${roundedLon}`)
         .then(response => {
           if (!response.ok) {
             throw new Error(`Weather API returned ${response.status}`);
@@ -1030,14 +1030,16 @@
           const windSpeed = data.wind?.speed !== undefined ? `${data.wind.speed} m/s` : 'N/A';
           const visibility = data.visibility ? `${(data.visibility / 1000).toFixed(1)} km` : 'N/A';
           
-          // Format the weather data with a fixed height container
+          // Format the weather data with a truly fixed height container
           const weatherHtml = `
-            <div class="weather-container" style="min-height: 110px;">
-              <strong>${weatherDesc}</strong><br>
-              Temperature: ${temperature}<br>
-              Pressure: ${seaLevelPressure}<br>
-              Wind: ${windSpeed} from ${windDirection}<br>
-              Visibility: ${visibility}
+            <div class="weather-container" style="height: 110px; overflow-y: auto; display: flex; flex-direction: column; justify-content: center;">
+              <div>
+                <strong>${weatherDesc}</strong><br>
+                Temperature: ${temperature}<br>
+                Pressure: ${seaLevelPressure}<br>
+                Wind: ${windSpeed} from ${windDirection}<br>
+                Visibility: ${visibility}
+              </div>
             </div>
           `;
           
@@ -1053,10 +1055,10 @@
           console.error('Error fetching weather data:', error);
           weatherFetchInProgress = false;
           
-          // Update with error message
+          // Update with error message - same fixed height
           const errorHtml = `
-            <div class="weather-container" style="min-height: 110px;">
-              Weather data unavailable
+            <div class="weather-container" style="height: 110px; overflow-y: auto; display: flex; flex-direction: column; justify-content: center;">
+              <div>Weather data unavailable</div>
             </div>
           `;
           updateWeatherCell(errorHtml);
@@ -1260,12 +1262,12 @@
                   return 'No location data available';
                 }
                 
-                // Round coordinates to 2 decimal places
-                const roundedLat = parseFloat(parseFloat(data.Latitude).toFixed(2));
-                const roundedLon = parseFloat(parseFloat(data.Longitude).toFixed(2));
+                // Round coordinates to 2 decimal places (true rounding)
+                const roundedLat = Math.round(data.Latitude * 100) / 100;
+                const roundedLon = Math.round(data.Longitude * 100) / 100;
                 
                 // Create a location key for caching
-                const locationKey = `${roundedLat.toFixed(2)},${roundedLon.toFixed(2)}`;
+                const locationKey = `${roundedLat},${roundedLon}`;
                 
                 // Check cache first
                 if (weatherCache[locationKey]) {
@@ -1276,8 +1278,8 @@
                 // Fetch weather data asynchronously (only once)
                 fetchWeatherData(data.Latitude, data.Longitude);
                 
-                // Return loading message with fixed height container
-                return '<div class="weather-container" style="min-height: 110px;">Loading weather data...</div>';
+                // Return loading message with truly fixed height container
+                return '<div class="weather-container" style="height: 110px; overflow-y: auto; display: flex; flex-direction: column; justify-content: center;"><div>Loading weather data...</div></div>';
               }
             },
             { key: 'NumMessages', label: 'Messages' }
@@ -4940,12 +4942,12 @@
               return 'No location data available';
             }
             
-            // Round coordinates to 2 decimal places
-            const roundedLat = parseFloat(parseFloat(data.Latitude).toFixed(2));
-            const roundedLon = parseFloat(parseFloat(data.Longitude).toFixed(2));
+            // Round coordinates to 2 decimal places (true rounding)
+            const roundedLat = Math.round(data.Latitude * 100) / 100;
+            const roundedLon = Math.round(data.Longitude * 100) / 100;
             
             // Create a location key for caching
-            const locationKey = `${roundedLat.toFixed(2)},${roundedLon.toFixed(2)}`;
+            const locationKey = `${roundedLat},${roundedLon}`;
             
             // Check cache first
             if (weatherCache[locationKey]) {
@@ -4956,8 +4958,8 @@
             // Fetch weather data asynchronously (only once)
             fetchWeatherData(data.Latitude, data.Longitude);
             
-            // Return loading message with fixed height container
-            return '<div class="weather-container" style="min-height: 110px;">Loading weather data...</div>';
+            // Return loading message with truly fixed height container
+            return '<div class="weather-container" style="height: 110px; overflow-y: auto; display: flex; flex-direction: column; justify-content: center;"><div>Loading weather data...</div></div>';
           }
         },
         { key: 'NumMessages', label: 'Messages' }
