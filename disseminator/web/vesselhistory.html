@@ -972,8 +972,13 @@
           console.log('Found Weather row');
           const valueCell = row.querySelector('td:last-child');
           if (valueCell) {
-            console.log('Updating Weather cell');
-            valueCell.innerHTML = weatherHtml;
+            // Only update if content has actually changed
+            if (valueCell.innerHTML !== weatherHtml) {
+              console.log('Weather data changed, updating cell');
+              valueCell.innerHTML = weatherHtml;
+            } else {
+              console.log('Weather data unchanged, skipping update');
+            }
           }
         }
       });
@@ -1033,13 +1038,20 @@
             </div>
           `;
           
-          // Cache the formatted weather data and location
-          cachedWeatherData = weatherHtml;
-          weatherLocation = locationKey;
-          weatherFetchInProgress = false;
+          // Check if the weather data has actually changed
+          if (cachedWeatherData !== weatherHtml) {
+            console.log('Weather data changed, updating cache and cells');
+            // Cache the formatted weather data and location
+            cachedWeatherData = weatherHtml;
+            weatherLocation = locationKey;
+            
+            // Update all weather cells in the table
+            updateAllWeatherCells(weatherHtml);
+          } else {
+            console.log('Weather data unchanged, skipping update');
+          }
           
-          // Update all weather cells in the table
-          updateAllWeatherCells(weatherHtml);
+          weatherFetchInProgress = false;
         })
         .catch(error => {
           console.error('Error fetching weather data:', error);
