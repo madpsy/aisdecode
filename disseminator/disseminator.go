@@ -67,6 +67,7 @@ type Settings struct {
 	ReceiversBaseURL         string `json:"receivers_base_url"`
 	MetricsBaseURL           string `json:"metrics_base_url"`
 	StatisticsBaseURL        string `json:"statistics_base_url"`
+	WeatherBaseURL           string `json:"weather_base_url"`
 	RedisHost                string `json:"redis_host"`
 	RedisPort                int    `json:"redis_port"`
 	CacheTime                int    `json:"cache_time"`
@@ -2900,6 +2901,67 @@ func mqttConfigHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// weatherHandler proxies requests to the weather service
+func weatherHandler(w http.ResponseWriter, r *http.Request) {
+	// Check if weather base URL is configured
+	if conf.WeatherBaseURL == "" {
+		http.Error(w, "Weather service not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Extract the path after /weather
+	path := strings.TrimPrefix(r.URL.Path, "/weather")
+	if path == "" {
+		path = "/"
+	}
+
+	// Construct the target URL
+	targetURL := fmt.Sprintf("%s%s", conf.WeatherBaseURL, path)
+	if r.URL.RawQuery != "" {
+		targetURL = fmt.Sprintf("%s?%s", targetURL, r.URL.RawQuery)
+	}
+
+	if conf.Debug {
+		log.Printf("Proxying weather request to: %s", targetURL)
+	}
+
+	// Create a new request
+	proxyReq, err := http.NewRequest(r.Method, targetURL, r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error creating proxy request: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Copy headers
+	for key, values := range r.Header {
+		for _, value := range values {
+			proxyReq.Header.Add(key, value)
+		}
+	}
+
+	// Send the request
+	client := &http.Client{}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error proxying request: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+
+	// Set status code
+	w.WriteHeader(resp.StatusCode)
+
+	// Copy response body
+	io.Copy(w, resp.Body)
+}
+
 func setupServer(settings *Settings) {
 	mux := http.NewServeMux()
 
@@ -2916,6 +2978,15 @@ func setupServer(settings *Settings) {
 	if err != nil {
 		log.Fatalf("invalid statistics_base_url: %v", err)
 	}
+
+	// Validate weather base URL if configured
+	if conf.WeatherBaseURL != "" {
+		_, err = url.Parse(conf.WeatherBaseURL)
+		if err != nil {
+			log.Fatalf("invalid weather_base_url: %v", err)
+		}
+	}
+
 	receiversProxy := httputil.NewSingleHostReverseProxy(receiversURL)
 	metricsProxy := httputil.NewSingleHostReverseProxy(metricsURL)
 	statisticsProxy := httputil.NewSingleHostReverseProxy(statisticsURL)
@@ -2928,6 +2999,12 @@ func setupServer(settings *Settings) {
 	mux.Handle("/receiverip", receiversProxy)     // receiverip JSON endpoint
 	mux.Handle("/metrics/", metricsProxy)         // metrics JSON endpoints
 	mux.Handle("/statistics/", statisticsProxy)   // statistics JSON endpoints
+
+	// Add weather handler if configured
+	if conf.WeatherBaseURL != "" {
+		mux.HandleFunc("/weather/", weatherHandler) // weather endpoint
+		log.Printf("Weather service proxy configured at %s", conf.WeatherBaseURL)
+	}
 
 	// HTTP API endpoints
 
