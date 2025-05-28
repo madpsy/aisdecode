@@ -1,0 +1,9 @@
+{
+  "listen_port": 5134,
+  "redis_host": "127.0.0.1",
+  "redis_port": 6379,
+  "tile_ttl": 1800,
+  "openweathermap_key": "your_api_key_here",
+  "base_domain": "example.com",
+  "debug": false
+}
