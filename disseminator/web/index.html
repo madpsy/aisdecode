@@ -786,6 +786,20 @@
             </label>
         </div>
     </div>
+    
+    <!-- Weather data overlay -->
+    <div id="weather-data-overlay" style="display: none; position: absolute; top: 100px; left: 50%; transform: translateX(-50%); background: rgba(255, 255, 255, 0.9); border: 2px solid #aaa; border-radius: 8px; padding: 15px; width: 250px; z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-family: 'Roboto', sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
+            <h4 style="margin: 0;">Weather Information</h4>
+            <button id="weather-data-close" style="background: none; border: none; cursor: pointer; font-size: 16px;">&times;</button>
+        </div>
+        <div id="weather-data-content" style="height: 120px; display: flex; flex-direction: column; justify-content: center;">
+            <div>Loading weather data...</div>
+        </div>
+        <div style="text-align: center; margin-top: 10px; font-size: 12px; color: #666;">
+            <span id="weather-coordinates"></span>
+        </div>
+    </div>
 
     <!-- Socket.IO client (local copy) -->
     <script src="socket.io.min.js"></script>
@@ -964,6 +978,14 @@
 				
 				// Open Time Machine with all parameters
 				window.open(`/timemachine.html?lat=${lat}&lng=${lng}&zoom=${zoom}&from=${fromParam}&to=${toParam}`, '_blank');
+			}
+		},
+		{
+			text: 'Get Weather',
+			callback: function(e) {
+				const lat = e.latlng.lat;
+				const lng = e.latlng.lng;
+				fetchWeatherData(lat, lng);
 			}
 		}]
 	}).setView([55.0, -3.0], 5);
@@ -5840,6 +5862,78 @@ map.on("moveend", debouncedSendSummaryRequest);
 
 
 
+    </script>
+    
+    <script>
+        // Weather data fetching function
+        function fetchWeatherData(lat, lon) {
+            // Show the weather overlay with loading message
+            const weatherOverlay = document.getElementById('weather-data-overlay');
+            const weatherContent = document.getElementById('weather-data-content');
+            const weatherCoordinates = document.getElementById('weather-coordinates');
+            
+            weatherOverlay.style.display = 'block';
+            weatherContent.innerHTML = '<div>Loading weather data...</div>';
+            weatherCoordinates.textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+            
+            // Round coordinates to 2 decimal places for API request
+            const roundedLat = Math.round(lat * 100) / 100;
+            const roundedLon = Math.round(lon * 100) / 100;
+            
+            // Fetch weather data from API
+            fetch(`/weather/summary?lat=${roundedLat}&lon=${roundedLon}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Weather API returned ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Extract weather data fields
+                    const seaLevelPressure = data.main?.sea_level ? `${data.main.sea_level} hPa` : 'N/A';
+                    const temperature = data.main?.temp ? `${data.main.temp}°C` : 'N/A';
+                    const weatherDesc = data.weather && data.weather[0]?.description ?
+                        data.weather[0].description.charAt(0).toUpperCase() + data.weather[0].description.slice(1) :
+                        'N/A';
+                    const windDirection = data.wind?.deg !== undefined ? formatWindDirection(data.wind.deg) : 'N/A';
+                    const windSpeed = data.wind?.speed !== undefined ? `${data.wind.speed} m/s` : 'N/A';
+                    const visibility = data.visibility ? `${(data.visibility / 1000).toFixed(1)} km` : 'N/A';
+                    
+                    // Format the weather data
+                    const weatherHtml = `
+                        <div>
+                            <strong>${weatherDesc}</strong><br>
+                            Temperature: ${temperature}<br>
+                            Pressure: ${seaLevelPressure}<br>
+                            Wind: ${windSpeed} from ${windDirection}<br>
+                            Visibility: ${visibility}
+                        </div>
+                    `;
+                    
+                    // Update the overlay with weather data
+                    weatherContent.innerHTML = weatherHtml;
+                })
+                .catch(error => {
+                    console.error('Error fetching weather data:', error);
+                    weatherContent.innerHTML = '<div>Weather data unavailable</div>';
+                });
+        }
+        
+        // Helper: Format wind direction as cardinal direction
+        function formatWindDirection(degrees) {
+            if (degrees === undefined || degrees === null) return "Unknown";
+            
+            const directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+            const index = Math.round(((degrees % 360) / 22.5)) % 16;
+            return `${directions[index]} (${degrees}°)`;
+        }
+        
+        // Add event listener for closing the weather overlay
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('weather-data-close').addEventListener('click', function() {
+                document.getElementById('weather-data-overlay').style.display = 'none';
+            });
+        });
     </script>
 </body>
 
