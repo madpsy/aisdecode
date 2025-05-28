@@ -578,10 +578,13 @@
     <input type="checkbox" id="openseamap-overlay" checked>
     Map Overlay
   </label>
-        <label style="margin-bottom: 1px; display: block;">
-    <input type="checkbox" id="met-data-overlay" checked>
-    Met Data
-  </label>
+        <div style="display: flex; align-items: center; margin-bottom: 1px;">
+          <label style="margin-right: 10px; display: flex; align-items: center;">
+            <input type="checkbox" id="met-data-overlay" checked>
+            <span style="margin-left: 2px;">Met</span>
+          </label>
+          <button id="wx-button" style="padding: 2px 6px; font-size: 12px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px;">WX</button>
+        </div>
   <label style="margin-bottom: 1px; display: block;">
     <input type="checkbox" id="show-paths">
     History
@@ -730,6 +733,31 @@
         <div id="live-logs-content"></div>
     </div>
 
+    <!-- Weather Layer Selection Overlay -->
+    <div id="wx-overlay" style="display: none; position: absolute; top: 100px; right: 50px; background: rgba(255, 255, 255, 0.85); border: 2px solid #aaa; border-radius: 8px; padding: 10px; width: 200px; z-index: 2000; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-family: 'Roboto', sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
+            <h4 style="margin: 0; font-size: 14px;">Weather Layers</h4>
+            <button id="close-wx" style="background: none; border: none; font-size: 16px; cursor: pointer;">×</button>
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 5px;">
+                <input type="checkbox" id="wx-precipitation"> Precipitation
+            </label>
+            <label style="display: block; margin-bottom: 5px;">
+                <input type="checkbox" id="wx-clouds"> Clouds
+            </label>
+            <label style="display: block; margin-bottom: 5px;">
+                <input type="checkbox" id="wx-pressure"> Pressure
+            </label>
+            <label style="display: block; margin-bottom: 5px;">
+                <input type="checkbox" id="wx-wind"> Wind
+            </label>
+            <label style="display: block; margin-bottom: 5px;">
+                <input type="checkbox" id="wx-temp"> Temperature
+            </label>
+        </div>
+    </div>
+
     <!-- Socket.IO client (local copy) -->
     <script src="socket.io.min.js"></script>
     <!-- Leaflet JS (from CDN, without integrity) -->
@@ -743,6 +771,15 @@
   let metDataInterval = null;
   let metDataMarkers = {};
   let metDataEnabled = false;
+  
+  // Variables for Weather layers
+  let wxLayers = {
+    precipitation: null,
+    clouds: null,
+    pressure: null,
+    wind: null,
+    temp: null
+  };
   
   // Check if this is the first visit
   document.addEventListener('DOMContentLoaded', function() {
@@ -3867,6 +3904,61 @@ function applyLogFilters() {
 	    metDataMarkers = {};
 	  }
 	});
+	
+	// Event listener for the WX button
+	document.getElementById('wx-button').addEventListener('click', () => {
+	  const wxOverlay = document.getElementById('wx-overlay');
+	  wxOverlay.style.display = wxOverlay.style.display === 'none' ? 'block' : 'none';
+	});
+	
+	// Event listener for the close button in the WX overlay
+	document.getElementById('close-wx').addEventListener('click', () => {
+	  document.getElementById('wx-overlay').style.display = 'none';
+	});
+	
+	// Event listeners for the weather layer checkboxes
+	document.getElementById('wx-precipitation').addEventListener('change', function() {
+	  toggleWeatherLayer('precipitation', this.checked);
+	});
+	
+	document.getElementById('wx-clouds').addEventListener('change', function() {
+	  toggleWeatherLayer('clouds', this.checked);
+	});
+	
+	document.getElementById('wx-pressure').addEventListener('change', function() {
+	  toggleWeatherLayer('pressure', this.checked);
+	});
+	
+	document.getElementById('wx-wind').addEventListener('change', function() {
+	  toggleWeatherLayer('wind', this.checked);
+	});
+	
+	document.getElementById('wx-temp').addEventListener('change', function() {
+	  toggleWeatherLayer('temp', this.checked);
+	});
+	
+	// Function to toggle weather layers
+	function toggleWeatherLayer(layer, isChecked) {
+	  if (isChecked) {
+	    // Remove existing layer if it exists
+	    if (wxLayers[layer] && map.hasLayer(wxLayers[layer])) {
+	      map.removeLayer(wxLayers[layer]);
+	    }
+	    
+	    // Create and add the layer
+	    wxLayers[layer] = L.tileLayer(`/weather/tile/${layer}/{z}/{x}/{y}`, {
+	      attribution: 'Weather data © OpenWeatherMap',
+	      maxZoom: 18,
+	      opacity: 0.6
+	    }).addTo(map);
+	  } else {
+	    // Remove the layer if it exists
+	    if (wxLayers[layer] && map.hasLayer(wxLayers[layer])) {
+	      map.removeLayer(wxLayers[layer]);
+	      wxLayers[layer] = null;
+	    }
+	  }
+	}
 
 	       // Connect to the Socket.IO server.
 	       const socket = io();
