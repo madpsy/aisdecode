@@ -558,6 +558,36 @@
         </div>
         <div id="scale-label">0 NM</div>
     </div>
+    
+    <!-- Weather color scale legend -->
+    <div id="wx-scale" style="
+    position: absolute;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.8);
+    padding: 5px 10px;
+    border-radius: 5px;
+    z-index: 1100;
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+    text-align: center;
+    display: none;
+    ">
+        <div id="wx-scale-title">Temperature</div>
+        <div id="wx-scale-bar" style="
+        position: relative;
+        width: 150px;
+        height: 10px;
+        margin: 3px 0;
+        border-radius: 2px;
+        ">
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+            <span id="wx-scale-min">Min</span>
+            <span id="wx-scale-max">Max</span>
+        </div>
+    </div>
 
     <!-- Controls Overlay -->
     <div id="controls">
@@ -583,7 +613,7 @@
             <input type="checkbox" id="met-data-overlay" checked>
             <span style="margin-left: 2px;">Met</span>
           </label>
-          <button id="wx-button" style="padding: 2px 6px; font-size: 12px; cursor: pointer; background: #e6f2ff; border: 1px solid #0078d7; border-radius: 3px; color: #0078d7; font-weight: bold;">WX</button>
+          <button id="wx-button" style="padding: 2px 3px; font-size: 12px; cursor: pointer; background: #e6f2ff; border: 1px solid #0078d7; border-radius: 3px; color: #0078d7; font-weight: bold;">WX</button>
         </div>
   <label style="margin-bottom: 1px; display: block;">
     <input type="checkbox" id="show-paths">
@@ -734,7 +764,7 @@
     </div>
 
     <!-- Weather Layer Selection Overlay -->
-    <div id="wx-overlay" style="display: none; position: absolute; top: 100px; right: 50px; background: rgba(255, 255, 255, 0.85); border: 2px solid #aaa; border-radius: 8px; padding: 10px; width: 200px; z-index: 2000; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-family: 'Roboto', sans-serif;">
+    <div id="wx-overlay" style="display: none; position: absolute; top: 100px; right: 50px; background: rgba(255, 255, 255, 0.85); border: 2px solid #aaa; border-radius: 8px; padding: 10px; width: 160px; z-index: 2000; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-family: 'Roboto', sans-serif;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
             <h4 style="margin: 0; font-size: 14px;">Weather Layers</h4>
             <button id="close-wx" style="background: none; border: none; font-size: 16px; cursor: pointer;">×</button>
@@ -3942,6 +3972,13 @@ function applyLogFilters() {
 	  // List of all weather layer IDs
 	  const allLayers = ['precipitation', 'clouds', 'pressure', 'wind', 'temp'];
 	  
+	  // Get the weather scale elements
+	  const wxScale = document.getElementById('wx-scale');
+	  const wxScaleTitle = document.getElementById('wx-scale-title');
+	  const wxScaleBar = document.getElementById('wx-scale-bar');
+	  const wxScaleMin = document.getElementById('wx-scale-min');
+	  const wxScaleMax = document.getElementById('wx-scale-max');
+	  
 	  if (isChecked) {
 	    // First, remove all other weather layers and uncheck their checkboxes
 	    allLayers.forEach(otherLayer => {
@@ -3980,6 +4017,33 @@ function applyLogFilters() {
 	    wxLayers[layer].addTo(map);
 	    wxLayers[layer].bringToFront();
 	    
+	    // Update the weather scale based on the layer type
+	    if (layer === 'temp') {
+	      // Temperature scale (blue to red)
+	      wxScaleTitle.textContent = 'Temperature';
+	      wxScaleBar.style.background = 'linear-gradient(to right, #0000FF, #00FFFF, #00FF00, #FFFF00, #FF0000)';
+	      wxScaleMin.textContent = '-20°C';
+	      wxScaleMax.textContent = '40°C';
+	      wxScale.style.display = 'block';
+	    } else if (layer === 'wind') {
+	      // Wind speed scale (light green to dark purple)
+	      wxScaleTitle.textContent = 'Wind Speed';
+	      wxScaleBar.style.background = 'linear-gradient(to right, #00FF00, #FFFF00, #FF9900, #FF0000, #990099)';
+	      wxScaleMin.textContent = '0 m/s';
+	      wxScaleMax.textContent = '30+ m/s';
+	      wxScale.style.display = 'block';
+	    } else if (layer === 'pressure') {
+	      // Pressure scale (purple to green)
+	      wxScaleTitle.textContent = 'Pressure';
+	      wxScaleBar.style.background = 'linear-gradient(to right, #990099, #0000FF, #00FFFF, #00FF00)';
+	      wxScaleMin.textContent = '950 hPa';
+	      wxScaleMax.textContent = '1050 hPa';
+	      wxScale.style.display = 'block';
+	    } else {
+	      // Hide scale for precipitation and clouds
+	      wxScale.style.display = 'none';
+	    }
+	    
 	    // Log success
 	    console.log(`Weather layer ${layer} added to map`);
 	    
@@ -4002,6 +4066,9 @@ function applyLogFilters() {
 	      console.log(`Removing weather layer: ${layer}`);
 	      map.removeLayer(wxLayers[layer]);
 	      wxLayers[layer] = null;
+	      
+	      // Hide the weather scale when layer is removed
+	      wxScale.style.display = 'none';
 	    }
 	  }
 	}
