@@ -120,7 +120,7 @@ func validateDomain(r *http.Request) bool {
 		if settings.Debug {
 			log.Printf("Checking Referer header: %s", referer)
 		}
-		return strings.Contains(referer, settings.BaseDomain)
+		return strings.HasSuffix(referer, settings.BaseDomain)
 	}
 
 	// Check Host header as a fallback
