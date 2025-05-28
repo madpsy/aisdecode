@@ -4863,12 +4863,33 @@
             return '';
           }
         },
+        {
+          key: 'Weather',
+          label: 'Weather',
+          customValue: true,
+          format: () => {
+            // Check if we have valid coordinates
+            if (data.Latitude === undefined || data.Latitude === null ||
+                data.Longitude === undefined || data.Longitude === null) {
+              return 'No location data available';
+            }
+            
+            // Create a placeholder that will be updated when weather data is fetched
+            const weatherPlaceholderId = `weather-data-${userID}`;
+            
+            // Fetch weather data asynchronously
+            fetchWeatherData(data.Latitude, data.Longitude, weatherPlaceholderId);
+            
+            // Return a placeholder that will be updated when data is fetched
+            return `<span id="${weatherPlaceholderId}">Loading weather data...</span>`;
+          }
+        },
         { key: 'NumMessages', label: 'Messages' }
       ];
       
       // Process fields for left and right tables
       const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag', 'ReceiverIDs'];
-      const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location', 'NumMessages'];
+      const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location', 'Weather', 'NumMessages'];
       
       // Add rows for left table
       fieldsToDisplay.filter(field => leftTableFields.includes(field.key)).forEach(field => {
@@ -4926,7 +4947,7 @@
           
           const valueCell = document.createElement('td');
           if (field.customValue && field.format) {
-            if (field.key === 'Location') {
+            if (field.key === 'Location' || field.key === 'Weather') {
               valueCell.innerHTML = field.format();
             } else {
               valueCell.textContent = field.format();
@@ -4934,7 +4955,7 @@
           } else {
             const value = data[field.key];
             const formattedValue = field.format ? field.format(value) : (value || '');
-            if (field.key === 'Location') {
+            if (field.key === 'Location' || field.key === 'Weather') {
               valueCell.innerHTML = formattedValue;
             } else {
               valueCell.textContent = formattedValue;
