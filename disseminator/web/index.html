@@ -983,7 +983,7 @@
 
         // OpenSeaMap overlay layer (enabled by default).
         const openSeaMapLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-          attribution: 'Map data: &copy; OpenSeaMap'
+          attribution: '&copy; OpenSeaMap'
         }).addTo(map);
 	openSeaMapLayer.bringToFront();
 
@@ -4005,7 +4005,7 @@ function applyLogFilters() {
 	    console.log(`Adding weather layer: ${layer}, URL: ${tileUrl}`);
 	    
 	    wxLayers[layer] = L.tileLayer(tileUrl, {
-	      attribution: 'Weather data © OpenWeatherMap',
+	      attribution: '© OpenWeatherMap',
 	      maxZoom: 18,
 	      opacity: 0.7,
 	      zIndex: 500  // Ensure weather layers are above base layers
