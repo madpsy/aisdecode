@@ -98,17 +98,35 @@ func validateDomain(r *http.Request) bool {
 	// Check Origin header first (for CORS requests)
 	origin := r.Header.Get("Origin")
 	if origin != "" {
+		if settings.Debug {
+			log.Printf("Checking Origin header: %s", origin)
+		}
 		return strings.HasSuffix(origin, settings.BaseDomain)
+	}
+
+	// Check X-Forwarded-Host header (for proxied requests)
+	forwardedHost := r.Header.Get("X-Forwarded-Host")
+	if forwardedHost != "" {
+		if settings.Debug {
+			log.Printf("Checking X-Forwarded-Host header: %s", forwardedHost)
+		}
+		return strings.HasSuffix(forwardedHost, settings.BaseDomain)
 	}
 
 	// Check Referer header next
 	referer := r.Header.Get("Referer")
 	if referer != "" {
+		if settings.Debug {
+			log.Printf("Checking Referer header: %s", referer)
+		}
 		return strings.Contains(referer, settings.BaseDomain)
 	}
 
 	// Check Host header as a fallback
 	host := r.Host
+	if settings.Debug {
+		log.Printf("Checking Host header: %s", host)
+	}
 	return strings.HasSuffix(host, settings.BaseDomain)
 }
 
