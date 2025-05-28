@@ -4018,9 +4018,9 @@ function applyLogFilters() {
 	    // Update the weather scale based on the layer type
 	    if (layer === 'temp') {
 	      // Temperature scale (OpenWeatherMap)
-	      wxScaleBar.style.background = 'linear-gradient(to right, rgba(130, 22, 146, 1), rgba(130, 87, 219, 1), rgba(32, 140, 236, 1), rgba(32, 196, 232, 1), rgba(35, 221, 221, 1), rgba(194, 255, 40, 1), rgba(255, 240, 40, 1), rgba(255, 194, 40, 1), rgba(252, 128, 20, 1))';
-	      wxScaleMin.textContent = '-65°C';
-	      wxScaleMax.textContent = '30°C';
+	      wxScaleBar.style.backgroundImage = 'linear-gradient(to right, rgb(159, 85, 181) 0%, rgb(44, 106, 187) 8.75%, rgb(82, 139, 213) 12.5%, rgb(103, 163, 222) 18.75%, rgb(142, 202, 240) 25%, rgb(155, 213, 244) 31.25%, rgb(172, 225, 253) 37.5%, rgb(194, 234, 255) 43.75%, rgb(255, 255, 208) 50%, rgb(254, 248, 174) 56.25%, rgb(254, 232, 146) 62.5%, rgb(254, 226, 112) 68.75%, rgb(253, 212, 97) 75%, rgb(244, 168, 94) 82.5%, rgb(244, 129, 89) 87.5%, rgb(244, 104, 89) 93.75%, rgb(244, 76, 73) 100%)';
+	      wxScaleMin.textContent = '-40°C';
+	      wxScaleMax.textContent = '40°C';
 	      wxScale.style.display = 'block';
 	    } else if (layer === 'wind') {
 	      // Wind speed scale (OpenWeatherMap)
