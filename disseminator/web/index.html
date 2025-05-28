@@ -583,7 +583,7 @@
             <input type="checkbox" id="met-data-overlay" checked>
             <span style="margin-left: 2px;">Met</span>
           </label>
-          <button id="wx-button" style="padding: 2px 6px; font-size: 12px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px;">WX</button>
+          <button id="wx-button" style="padding: 2px 6px; font-size: 12px; cursor: pointer; background: #e6f2ff; border: 1px solid #0078d7; border-radius: 3px; color: #0078d7; font-weight: bold;">WX</button>
         </div>
   <label style="margin-bottom: 1px; display: block;">
     <input type="checkbox" id="show-paths">
@@ -3946,14 +3946,40 @@ function applyLogFilters() {
 	    }
 	    
 	    // Create and add the layer
-	    wxLayers[layer] = L.tileLayer(`/weather/tile/${layer}/{z}/{x}/{y}`, {
+	    const tileUrl = `/weather/tile/${layer}/{z}/{x}/{y}`;
+	    console.log(`Adding weather layer: ${layer}, URL: ${tileUrl}`);
+	    
+	    wxLayers[layer] = L.tileLayer(tileUrl, {
 	      attribution: 'Weather data © OpenWeatherMap',
 	      maxZoom: 18,
-	      opacity: 0.6
-	    }).addTo(map);
+	      opacity: 0.7,
+	      zIndex: 500  // Ensure weather layers are above base layers
+	    });
+	    
+	    // Add to map and bring to front
+	    wxLayers[layer].addTo(map);
+	    wxLayers[layer].bringToFront();
+	    
+	    // Log success
+	    console.log(`Weather layer ${layer} added to map`);
+	    
+	    // Show a notification that the layer was added
+	    const notification = document.createElement('div');
+	    notification.textContent = `Weather layer added: ${layer}`;
+	    notification.style.position = 'absolute';
+	    notification.style.top = '100px';
+	    notification.style.left = '50%';
+	    notification.style.transform = 'translateX(-50%)';
+	    notification.style.background = 'rgba(255,255,255,0.8)';
+	    notification.style.padding = '10px';
+	    notification.style.borderRadius = '5px';
+	    notification.style.zIndex = '1000';
+	    document.body.appendChild(notification);
+	    setTimeout(() => document.body.removeChild(notification), 2000);
 	  } else {
 	    // Remove the layer if it exists
 	    if (wxLayers[layer] && map.hasLayer(wxLayers[layer])) {
+	      console.log(`Removing weather layer: ${layer}`);
 	      map.removeLayer(wxLayers[layer]);
 	      wxLayers[layer] = null;
 	    }
