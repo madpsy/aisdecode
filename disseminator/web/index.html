@@ -3939,7 +3939,27 @@ function applyLogFilters() {
 	
 	// Function to toggle weather layers
 	function toggleWeatherLayer(layer, isChecked) {
+	  // List of all weather layer IDs
+	  const allLayers = ['precipitation', 'clouds', 'pressure', 'wind', 'temp'];
+	  
 	  if (isChecked) {
+	    // First, remove all other weather layers and uncheck their checkboxes
+	    allLayers.forEach(otherLayer => {
+	      if (otherLayer !== layer) {
+	        // Uncheck the checkbox without triggering the change event
+	        const checkbox = document.getElementById(`wx-${otherLayer}`);
+	        if (checkbox && checkbox.checked) {
+	          checkbox.checked = false;
+	        }
+	        
+	        // Remove the layer from the map
+	        if (wxLayers[otherLayer] && map.hasLayer(wxLayers[otherLayer])) {
+	          map.removeLayer(wxLayers[otherLayer]);
+	          wxLayers[otherLayer] = null;
+	        }
+	      }
+	    });
+	    
 	    // Remove existing layer if it exists
 	    if (wxLayers[layer] && map.hasLayer(wxLayers[layer])) {
 	      map.removeLayer(wxLayers[layer]);
