@@ -788,12 +788,12 @@
     </div>
     
     <!-- Weather data overlay -->
-    <div id="weather-data-overlay" style="display: none; position: absolute; top: 100px; left: 50%; transform: translateX(-50%); background: rgba(255, 255, 255, 0.9); border: 2px solid #aaa; border-radius: 8px; padding: 15px; width: 250px; z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-family: 'Roboto', sans-serif;">
+    <div id="weather-data-overlay" style="display: none; position: absolute; top: 100px; left: 50%; transform: translateX(-50%); background: rgba(255, 255, 255, 0.9); border: 2px solid #aaa; border-radius: 8px; padding: 15px; width: 280px; z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-family: 'Roboto', sans-serif;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
             <h4 style="margin: 0;">Weather Information</h4>
             <button id="weather-data-close" style="background: none; border: none; cursor: pointer; font-size: 16px;">&times;</button>
         </div>
-        <div id="weather-data-content" style="height: 120px; display: flex; flex-direction: column; justify-content: center;">
+        <div id="weather-data-content" style="display: flex; flex-direction: column; justify-content: center;">
             <div>Loading weather data...</div>
         </div>
         <div style="text-align: center; margin-top: 10px; font-size: 12px; color: #666;">
@@ -5876,6 +5876,9 @@ map.on("moveend", debouncedSendSummaryRequest);
             weatherContent.innerHTML = '<div>Loading weather data...</div>';
             weatherCoordinates.textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
             
+            // Adjust overlay height to accommodate more data
+            document.getElementById('weather-data-content').style.height = 'auto';
+            
             // Round coordinates to 2 decimal places for API request
             const roundedLat = Math.round(lat * 100) / 100;
             const roundedLon = Math.round(lon * 100) / 100;
@@ -5892,6 +5895,10 @@ map.on("moveend", debouncedSendSummaryRequest);
                     // Extract weather data fields
                     const seaLevelPressure = data.main?.sea_level ? `${data.main.sea_level} hPa` : 'N/A';
                     const temperature = data.main?.temp ? `${data.main.temp}°C` : 'N/A';
+                    const feelsLike = data.main?.feels_like ? `${data.main.feels_like}°C` : 'N/A';
+                    const tempMax = data.main?.temp_max ? `${data.main.temp_max}°C` : 'N/A';
+                    const tempMin = data.main?.temp_min ? `${data.main.temp_min}°C` : 'N/A';
+                    const humidity = data.main?.humidity ? `${data.main.humidity}%` : 'N/A';
                     const weatherDesc = data.weather && data.weather[0]?.description ?
                         data.weather[0].description.charAt(0).toUpperCase() + data.weather[0].description.slice(1) :
                         'N/A';
@@ -5899,14 +5906,33 @@ map.on("moveend", debouncedSendSummaryRequest);
                     const windSpeed = data.wind?.speed !== undefined ? `${data.wind.speed} m/s` : 'N/A';
                     const visibility = data.visibility ? `${(data.visibility / 1000).toFixed(1)} km` : 'N/A';
                     
+                    // Format sunrise and sunset times
+                    let sunrise = 'N/A';
+                    let sunset = 'N/A';
+                    
+                    if (data.sys?.sunrise) {
+                        const sunriseDate = new Date(data.sys.sunrise * 1000);
+                        sunrise = sunriseDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    }
+                    
+                    if (data.sys?.sunset) {
+                        const sunsetDate = new Date(data.sys.sunset * 1000);
+                        sunset = sunsetDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    }
+                    
                     // Format the weather data
                     const weatherHtml = `
-                        <div>
+                        <div style="overflow-y: auto; max-height: 250px;">
                             <strong>${weatherDesc}</strong><br>
                             Temperature: ${temperature}<br>
+                            Feels like: ${feelsLike}<br>
+                            Max/Min: ${tempMax} / ${tempMin}<br>
+                            Humidity: ${humidity}<br>
                             Pressure: ${seaLevelPressure}<br>
                             Wind: ${windSpeed} from ${windDirection}<br>
-                            Visibility: ${visibility}
+                            Visibility: ${visibility}<br>
+                            Sunrise: ${sunrise}<br>
+                            Sunset: ${sunset}
                         </div>
                     `;
                     
