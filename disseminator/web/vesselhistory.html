@@ -936,6 +936,61 @@
       if (!navStatusMapping || code === undefined || code === null) return "Unknown";
       return navStatusMapping[code] || "Unknown";
     }
+    
+    // Helper: Format wind direction as cardinal direction
+    function formatWindDirection(degrees) {
+      if (degrees === undefined || degrees === null) return "Unknown";
+      
+      const directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+      const index = Math.round(((degrees % 360) / 22.5)) % 16;
+      return `${directions[index]} (${degrees}°)`;
+    }
+    
+    // Fetch weather data for a location and update the placeholder
+    function fetchWeatherData(lat, lon, placeholderId) {
+      fetch(`/weather/summary?lat=${lat}&lon=${lon}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`Weather API returned ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          // Extract the requested weather data fields
+          const seaLevelPressure = data.main?.sea_level ? `${data.main.sea_level} hPa` : 'N/A';
+          const temperature = data.main?.temp ? `${data.main.temp}°C` : 'N/A';
+          const weatherDesc = data.weather && data.weather[0]?.description ?
+                             data.weather[0].description.charAt(0).toUpperCase() + data.weather[0].description.slice(1) :
+                             'N/A';
+          const windDirection = data.wind?.deg !== undefined ? formatWindDirection(data.wind.deg) : 'N/A';
+          const windSpeed = data.wind?.speed !== undefined ? `${data.wind.speed} m/s` : 'N/A';
+          const visibility = data.visibility ? `${(data.visibility / 1000).toFixed(1)} km` : 'N/A';
+          
+          // Format the weather data
+          const weatherHtml = `
+            <div>
+              <strong>${weatherDesc}</strong><br>
+              Temperature: ${temperature}<br>
+              Pressure: ${seaLevelPressure}<br>
+              Wind: ${windSpeed} from ${windDirection}<br>
+              Visibility: ${visibility}
+            </div>
+          `;
+          
+          // Update the placeholder
+          const placeholder = document.getElementById(placeholderId);
+          if (placeholder) {
+            placeholder.innerHTML = weatherHtml;
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching weather data:', error);
+          const placeholder = document.getElementById(placeholderId);
+          if (placeholder) {
+            placeholder.textContent = 'Weather data unavailable';
+          }
+        });
+    }
 
     function loadVesselData() {
       if (!userID) {
@@ -1123,13 +1178,34 @@
                 return '';
               }
             },
+            {
+              key: 'Weather',
+              label: 'Weather',
+              customValue: true,
+              format: () => {
+                // Check if we have valid coordinates
+                if (data.Latitude === undefined || data.Latitude === null ||
+                    data.Longitude === undefined || data.Longitude === null) {
+                  return 'No location data available';
+                }
+                
+                // Create a placeholder that will be updated when weather data is fetched
+                const weatherPlaceholderId = `weather-data-${userID}`;
+                
+                // Fetch weather data asynchronously
+                fetchWeatherData(data.Latitude, data.Longitude, weatherPlaceholderId);
+                
+                // Return a placeholder that will be updated when data is fetched
+                return `<span id="${weatherPlaceholderId}">Loading weather data...</span>`;
+              }
+            },
             { key: 'NumMessages', label: 'Messages' }
            ];
 
           // Add rows for each field if it exists and is not empty
           // Manually define which fields go in which table
           const leftTableFields = ['UserID', 'Name', 'CallSign', 'ImoNumber', 'AISClass', 'Type', 'Flag', 'ReceiverIDs'];
-          const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location', 'NumMessages'];
+          const rightTableFields = ['NavigationalStatus', 'Destination', 'MaximumStaticDraught', 'Dimension', 'LastUpdated', 'Location', 'Weather', 'NumMessages'];
           
           // Process fields for left table
           fieldsToDisplay.filter(field => leftTableFields.includes(field.key)).forEach(field => {
