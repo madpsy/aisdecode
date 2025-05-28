@@ -1032,7 +1032,7 @@
           
           // Format the weather data with a truly fixed height container
           const weatherHtml = `
-            <div class="weather-container" style="height: 110px; overflow-y: auto; display: flex; flex-direction: column; justify-content: center;">
+            <div class="weather-container" style="height: 120px; display: flex; flex-direction: column; justify-content: center;">
               <div>
                 <strong>${weatherDesc}</strong><br>
                 Temperature: ${temperature}<br>
@@ -1057,7 +1057,7 @@
           
           // Update with error message - same fixed height
           const errorHtml = `
-            <div class="weather-container" style="height: 110px; overflow-y: auto; display: flex; flex-direction: column; justify-content: center;">
+            <div class="weather-container" style="height: 120px; display: flex; flex-direction: column; justify-content: center;">
               <div>Weather data unavailable</div>
             </div>
           `;
@@ -1279,7 +1279,7 @@
                 fetchWeatherData(data.Latitude, data.Longitude);
                 
                 // Return loading message with truly fixed height container
-                return '<div class="weather-container" style="height: 110px; overflow-y: auto; display: flex; flex-direction: column; justify-content: center;"><div>Loading weather data...</div></div>';
+                return '<div class="weather-container" style="height: 120px; display: flex; flex-direction: column; justify-content: center;"><div>Loading weather data...</div></div>';
               }
             },
             { key: 'NumMessages', label: 'Messages' }
@@ -4959,7 +4959,7 @@
             fetchWeatherData(data.Latitude, data.Longitude);
             
             // Return loading message with truly fixed height container
-            return '<div class="weather-container" style="height: 110px; overflow-y: auto; display: flex; flex-direction: column; justify-content: center;"><div>Loading weather data...</div></div>';
+            return '<div class="weather-container" style="height: 120px; display: flex; flex-direction: column; justify-content: center;"><div>Loading weather data...</div></div>';
           }
         },
         { key: 'NumMessages', label: 'Messages' }
