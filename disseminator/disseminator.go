@@ -2936,6 +2936,19 @@ func weatherHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Preserve the original Host header to ensure domain validation works correctly
+	proxyReq.Host = r.Host
+
+	// Add X-Forwarded headers to provide context about the original request
+	proxyReq.Header.Set("X-Forwarded-Host", r.Host)
+	proxyReq.Header.Set("X-Forwarded-Proto", "https")
+
+	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
+		proxyReq.Header.Set("X-Forwarded-For", forwardedFor)
+	} else {
+		proxyReq.Header.Set("X-Forwarded-For", r.RemoteAddr)
+	}
+
 	// Send the request
 	client := &http.Client{}
 	resp, err := client.Do(proxyReq)
