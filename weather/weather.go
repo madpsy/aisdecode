@@ -97,80 +97,83 @@ func validateDomain(r *http.Request) bool {
 		return true
 	}
 
-	// First check if the request is coming from the same host
-	// This allows same-site requests even without a Referer
-	host := r.Host
-	if settings.Debug {
-		log.Printf("Checking Host header: %s against base domain: %s", host, settings.BaseDomain)
-	}
-
-	// If the host matches our base domain, allow the request
-	if strings.HasSuffix(host, settings.BaseDomain) {
-		if settings.Debug {
-			log.Printf("Request allowed: Host header matches base domain")
-		}
-		return true
-	}
-
-	// Check X-Forwarded-Host header (for proxied requests)
-	forwardedHost := r.Header.Get("X-Forwarded-Host")
-	if forwardedHost != "" {
-		if settings.Debug {
-			log.Printf("Checking X-Forwarded-Host header: %s", forwardedHost)
-		}
-		if strings.HasSuffix(forwardedHost, settings.BaseDomain) {
-			if settings.Debug {
-				log.Printf("Request allowed: X-Forwarded-Host matches base domain")
-			}
-			return true
-		}
-	}
-
-	// Check Origin header (for CORS requests)
-	origin := r.Header.Get("Origin")
-	if origin != "" {
-		if settings.Debug {
-			log.Printf("Checking Origin header: %s", origin)
-		}
-		originURL, err := url.Parse(origin)
-		if err == nil {
-			if settings.Debug {
-				log.Printf("Parsed Origin host: %s", originURL.Host)
-			}
-			if strings.HasSuffix(originURL.Host, settings.BaseDomain) {
-				if settings.Debug {
-					log.Printf("Request allowed: Origin matches base domain")
-				}
-				return true
-			}
-		}
-	}
-
-	// Check Referer header last
+	// Get all relevant headers
 	referer := r.Header.Get("Referer")
-	if referer != "" {
-		if settings.Debug {
-			log.Printf("Checking Referer header: %s", referer)
-		}
-		refURL, err := url.Parse(referer)
-		if err == nil {
+	origin := r.Header.Get("Origin")
+	host := r.Host
+	forwardedHost := r.Header.Get("X-Forwarded-Host")
+	userAgent := r.Header.Get("User-Agent")
+
+	// Check if this looks like a browser request (has Referer or Origin)
+	isBrowserRequest := referer != "" || origin != ""
+
+	if settings.Debug {
+		log.Printf("Request from: %s, User-Agent: %s, isBrowser: %v",
+			r.RemoteAddr, userAgent, isBrowserRequest)
+	}
+
+	// For browser requests, we need a valid Referer or Origin from our domain
+	if isBrowserRequest {
+		// Check Referer header
+		if referer != "" {
 			if settings.Debug {
-				log.Printf("Parsed Referer host: %s", refURL.Host)
+				log.Printf("Checking Referer header: %s", referer)
 			}
-			if strings.HasSuffix(refURL.Host, settings.BaseDomain) {
+			refURL, err := url.Parse(referer)
+			if err == nil && strings.HasSuffix(refURL.Host, settings.BaseDomain) {
 				if settings.Debug {
 					log.Printf("Request allowed: Referer matches base domain")
 				}
 				return true
 			}
 		}
-	}
 
-	// If we get here, the request is not from an allowed domain
-	if settings.Debug {
-		log.Printf("Request rejected: No headers match base domain. Remote: %s", r.RemoteAddr)
+		// Check Origin header
+		if origin != "" {
+			if settings.Debug {
+				log.Printf("Checking Origin header: %s", origin)
+			}
+			originURL, err := url.Parse(origin)
+			if err == nil && strings.HasSuffix(originURL.Host, settings.BaseDomain) {
+				if settings.Debug {
+					log.Printf("Request allowed: Origin matches base domain")
+				}
+				return true
+			}
+		}
+
+		// If we get here, the browser request doesn't have a valid Referer or Origin
+		if settings.Debug {
+			log.Printf("Browser request rejected: No valid Referer or Origin")
+		}
+		return false
+	} else {
+		// For non-browser requests (like curl), we need to be more strict
+		// Only allow requests where the Host header exactly matches our base domain
+		// This prevents curl requests from arbitrary locations
+
+		// Check if the Host header exactly matches our base domain
+		if host == settings.BaseDomain {
+			if settings.Debug {
+				log.Printf("Non-browser request allowed: Host exactly matches base domain")
+			}
+			return true
+		}
+
+		// Check if X-Forwarded-Host exactly matches our base domain
+		if forwardedHost == settings.BaseDomain {
+			if settings.Debug {
+				log.Printf("Non-browser request allowed: X-Forwarded-Host exactly matches base domain")
+			}
+			return true
+		}
+
+		// If we get here, the non-browser request is not allowed
+		if settings.Debug {
+			log.Printf("Non-browser request rejected from: %s", r.RemoteAddr)
+		}
+		return false
 	}
-	return false
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
