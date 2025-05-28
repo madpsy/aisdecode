@@ -946,8 +946,20 @@
       return `${directions[index]} (${degrees}°)`;
     }
     
+    // Global variable to store cached weather data
+    let cachedWeatherData = null;
+    
     // Fetch weather data for a location and update the placeholder
     function fetchWeatherData(lat, lon, placeholderId) {
+      // If we already have cached weather data, use it immediately
+      if (cachedWeatherData) {
+        const placeholder = document.getElementById(placeholderId);
+        if (placeholder) {
+          placeholder.innerHTML = cachedWeatherData;
+        }
+        return;
+      }
+      
       fetch(`/weather/summary?lat=${lat}&lon=${lon}`)
         .then(response => {
           if (!response.ok) {
@@ -976,6 +988,9 @@
               Visibility: ${visibility}
             </div>
           `;
+          
+          // Cache the formatted weather data
+          cachedWeatherData = weatherHtml;
           
           // Update the placeholder
           const placeholder = document.getElementById(placeholderId);
@@ -1268,8 +1283,8 @@
               const valueCell = document.createElement('td');
               // For custom value fields, just call the format function directly
               if (field.customValue && field.format) {
-                if (field.key === 'Location') {
-                  // For location, we need to set innerHTML to make the link clickable
+                if (field.key === 'Location' || field.key === 'Weather') {
+                  // For location and weather, we need to set innerHTML to render HTML content
                   valueCell.innerHTML = field.format();
                 } else {
                   valueCell.textContent = field.format();
@@ -1278,8 +1293,8 @@
                 // Otherwise use formatter function if provided, or use raw value
                 const value = data[field.key];
                 const formattedValue = field.format ? field.format(value) : (value || '');
-                if (field.key === 'Location') {
-                  // For location, we need to set innerHTML to make the link clickable
+                if (field.key === 'Location' || field.key === 'Weather') {
+                  // For location and weather, we need to set innerHTML to render HTML content
                   valueCell.innerHTML = formattedValue;
                 } else {
                   valueCell.textContent = formattedValue;
