@@ -66,8 +66,15 @@
         #lat-long-display {
           text-align: center;
           font-size: 14px;
-          margin-bottom: 10px;
+          margin-bottom: 5px;
           font-weight: bold;
+        }
+        /* Visibility display styling */
+        #visibility-display {
+          text-align: center;
+          font-size: 12px;
+          margin-bottom: 10px;
+          color: #555;
         }
 	#radarFrame {
 	  overflow: hidden;
@@ -115,6 +122,8 @@
 
     <!-- Latitude and Longitude Display -->
     <div id="lat-long-display">--, --</div>
+    <!-- Visibility Display -->
+    <div id="visibility-display">Visibility: -- km</div>
 
     <!-- Compass Charts for True Heading and Course Over Ground -->
     <div id="compass-container">
@@ -636,6 +645,46 @@ document.getElementById('directionChart').addEventListener('dblclick', () => {
           const latText = typeof lat === 'number' ? lat.toFixed(5) : lat;
           const lonText = typeof lon === 'number' ? lon.toFixed(5) : lon;
           document.getElementById('lat-long-display').textContent = latText + ", " + lonText;
+          
+          // Check if we need to fetch weather data for visibility
+          if (typeof lat === 'number' && typeof lon === 'number') {
+            // Round coordinates to 2 decimal places for weather API caching
+            const roundedLat = Math.round(lat * 100) / 100;
+            const roundedLon = Math.round(lon * 100) / 100;
+            
+            // Create a location key for tracking changes
+            const locationKey = `${roundedLat},${roundedLon}`;
+            
+            // Check if this is a new location (based on rounded coordinates)
+            if (!window.lastWeatherLocation || window.lastWeatherLocation !== locationKey) {
+              window.lastWeatherLocation = locationKey;
+              fetchWeatherData(roundedLat, roundedLon);
+            }
+          }
+        }
+        
+        // --- Helper: Fetch Weather Data for Visibility ---
+        function fetchWeatherData(lat, lon) {
+          fetch(`/weather/summary?lat=${lat}&lon=${lon}`)
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`Weather API returned ${response.status}`);
+              }
+              return response.json();
+            })
+            .then(data => {
+              // Update visibility display
+              if (data.visibility) {
+                const visibilityKm = (data.visibility / 1000).toFixed(2);
+                document.getElementById('visibility-display').textContent = `Visibility: ${visibilityKm} km`;
+              } else {
+                document.getElementById('visibility-display').textContent = 'Visibility: N/A';
+              }
+            })
+            .catch(error => {
+              console.error('Error fetching weather data:', error);
+              document.getElementById('visibility-display').textContent = 'Visibility: unavailable';
+            });
         }
         
         // --- 6. Load Initial State from /state?UserID=<UserID> ---
@@ -832,6 +881,7 @@ const validPositionTypes = new Set([1,2,3,18,19]);
           
           document.getElementById('current-speed-display').textContent = "0.00 kn";
           document.getElementById('lat-long-display').textContent = "--, --";
+          document.getElementById('visibility-display').textContent = "Visibility: -- km";
           
           loadInitialState();
           loadHistoryData();
