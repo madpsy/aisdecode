@@ -320,6 +320,8 @@ type StreamClient struct {
 	messagesSent  int64
 	messageWindow *FixedWindowCounter
 	bytesWindow   *FixedWindowBytesCounter
+	messageChan   chan []byte   // Channel for sending messages to this client
+	done          chan struct{} // Channel to signal when client disconnects
 }
 
 type UDPDestination struct {
@@ -1212,6 +1214,8 @@ func handleStreamConn(conn net.Conn) {
 		port:          req.Port,
 		messageWindow: NewFixedWindowCounter(),
 		bytesWindow:   NewFixedWindowBytesCounter(),
+		messageChan:   make(chan []byte, 100), // Buffer for 100 messages
+		done:          make(chan struct{}),
 	}
 
 	clientsMu.Lock()
@@ -1220,18 +1224,59 @@ func handleStreamConn(conn net.Conn) {
 	log.Printf("New stream client connected from IP: %s, Shards: %v, Description: %q, Port: %d",
 		strings.Split(conn.RemoteAddr().String(), ":")[0], req.Shards, req.Description, port)
 
+	// Start a dedicated goroutine for handling writes to this client
 	go func() {
-		io.Copy(io.Discard, conn)
-		conn.Close()
-		clientsMu.Lock()
-		defer clientsMu.Unlock()
-		for i, c := range clients {
-			if c == client {
-				clients = append(clients[:i], clients[i+1:]...)
-				break
+		defer func() {
+			close(client.done)
+			conn.Close()
+			clientsMu.Lock()
+			for i, c := range clients {
+				if c == client {
+					clients = append(clients[:i], clients[i+1:]...)
+					break
+				}
+			}
+			clientsMu.Unlock()
+			log.Printf("Stream client disconnected: %s", client.ip)
+		}()
+
+		for {
+			select {
+			case msg, ok := <-client.messageChan:
+				if !ok {
+					// Channel closed, exit goroutine
+					return
+				}
+
+				// Set write deadline to prevent blocking indefinitely
+				writeTimeout := 2 * time.Second
+				err := conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+				if err != nil {
+					log.Printf("Error setting write deadline for client %s: %v", client.ip, err)
+					return
+				}
+
+				n, err := conn.Write(msg)
+				if err != nil {
+					log.Printf("Error writing to client %s: %v", client.ip, err)
+					return
+				}
+
+				client.mu.Lock()
+				client.messagesSent++
+				client.bytesSent += int64(n)
+				client.messageWindow.AddEvent()
+				client.bytesWindow.Add(int64(n))
+				client.mu.Unlock()
 			}
 		}
-		log.Printf("Stream client disconnected: %s", client.ip)
+	}()
+
+	// Start a goroutine to monitor for client disconnection
+	go func() {
+		io.Copy(io.Discard, conn)
+		// If we get here, the client has disconnected
+		close(client.messageChan) // This will cause the write goroutine to exit
 	}()
 }
 
@@ -1774,16 +1819,20 @@ func worker(ch <-chan *UDPPacket, udpConns []*net.UDPConn, nmea *aisnmea.NMEACod
 		for _, c := range clients {
 			for _, s := range c.shards {
 				if s == shardID {
-					c.mu.Lock()
+					// Make a copy of the message for this client
+					msgCopy := make([]byte, len(out))
+					copy(msgCopy, out)
 
-					n, err := c.conn.Write(out)
-					if err == nil {
-						c.messagesSent++
-						c.bytesSent += int64(n)
-						c.messageWindow.AddEvent()
-						c.bytesWindow.Add(int64(n))
+					// Non-blocking send to client's message channel
+					select {
+					case c.messageChan <- msgCopy:
+						// Message sent to channel successfully
+					default:
+						// Channel is full, log and continue
+						log.Printf("Warning: Message channel full for client %s, dropping message", c.ip)
 					}
-					c.mu.Unlock()
+
+					break // Once we've found a matching shard, no need to check others
 				}
 			}
 		}

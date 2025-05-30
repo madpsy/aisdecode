@@ -520,6 +520,12 @@ func startCollectorTracking() {
 			if wasDown {
 				ingestRecoveryTime = time.Now()
 				log.Printf("Ingester is back online, entering grace period of %v to avoid false alerts", ingestRecoveryGracePeriod)
+
+				// Clear the port last seen map to avoid false offline/online transitions
+				portLastSeenMutex.Lock()
+				portLastSeenMap = make(map[int]time.Time)
+				portLastSeenMutex.Unlock()
+
 				// Skip the status check for one cycle after the ingester comes back
 				time.Sleep(5 * time.Second)
 				continue
@@ -611,7 +617,10 @@ func startCollectorTracking() {
 			portLastSeenMutex.Unlock()
 
 			// After all collectors have been processed and maps updated, check for receiver status changes
-			checkReceiverStatusChanges(prevPortLastSeenMap)
+			// Skip status checks if we're in the grace period
+			if ingestRecoveryTime.IsZero() || time.Since(ingestRecoveryTime) >= ingestRecoveryGracePeriod {
+				checkReceiverStatusChanges(prevPortLastSeenMap)
+			}
 
 			// Sleep for 5 seconds
 			time.Sleep(5 * time.Second)
@@ -1024,9 +1033,14 @@ func checkReceiverStatusChanges(prevPortLastSeenMap map[int]time.Time) {
 			// Check if the receiver was previously online
 			wasOnline := now.Sub(prevLastSeen) <= offlineThreshold
 
-			// If the receiver is not in the current map or is beyond the threshold, consider it offline
-			// IMPORTANT: We compare against the current time, not the last seen time from the previous check
-			isOnline := hasCurrent && now.Sub(currentLastSeen) <= offlineThreshold
+			// For brief ingester restarts, we should be more tolerant
+			// If the receiver was recently seen (within 5 minutes) in the previous check,
+			// consider it online even if it's not in the current map
+			shortOfflineThreshold := 5 * time.Minute
+
+			// If the receiver is not in the current map but was recently seen, still consider it online
+			isOnline := (hasCurrent && now.Sub(currentLastSeen) <= offlineThreshold) ||
+				(!hasCurrent && now.Sub(prevLastSeen) <= shortOfflineThreshold)
 
 			// Debug logging removed
 
