@@ -460,7 +460,7 @@ func updateReceiverMapping(client *http.Client, baseURL string) {
 	}
 
 	// Only update the global maps if we have at least one entry
-	if len(newIPMap) == 0 {
+	if len(receivers) == 0 {
 		log.Printf("Received empty receivers list, preserving previous mapping")
 		return // Preserve previous mapping if new data is empty
 	}
