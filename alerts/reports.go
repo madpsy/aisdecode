@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,55 @@ type StatisticsSettings struct {
 	BaseURL    string `json:"statistics_base_url"`
 	Enabled    bool   `json:"statistics_report_enabled"`
 	ReportTime string `json:"statistics_report_time"` // Format: "day,hour:minute" e.g. "saturday,01:00"
+}
+
+// Global variables for receiver name caching
+var (
+	receiverCache = make(map[int]string)
+	receiverMutex sync.RWMutex
+)
+
+// getReceiverName fetches a receiver's name from the receivers service
+func getReceiverName(receiverID int) (string, error) {
+	// Check cache first
+	receiverMutex.RLock()
+	if name, ok := receiverCache[receiverID]; ok {
+		receiverMutex.RUnlock()
+		return name, nil
+	}
+	receiverMutex.RUnlock()
+
+	// Not in cache, fetch from API
+	if settings.ReceiversBaseURL == "" {
+		return "", fmt.Errorf("receivers_base_url not configured")
+	}
+
+	url := fmt.Sprintf("%s/receivers/%d", settings.ReceiversBaseURL, receiverID)
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API returned status: %d", resp.StatusCode)
+	}
+
+	var receiver struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&receiver); err != nil {
+		return "", err
+	}
+
+	// Cache the result
+	receiverMutex.Lock()
+	receiverCache[receiverID] = receiver.Name
+	receiverMutex.Unlock()
+
+	return receiver.Name, nil
 }
 
 // duplicateVessel represents a vessel with duplicate message data
@@ -292,9 +342,14 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vess
 	report.WriteString("=== Top Vessels by Distance ===\n")
 	if len(stats.TopDistance) > 0 {
 		for i, v := range stats.TopDistance {
+			// Use MMSI (UserID) if name is empty
+			vesselIdentifier := v.Name
+			if vesselIdentifier == "" {
+				vesselIdentifier = fmt.Sprintf("MMSI %d", v.UserID)
+			}
 			report.WriteString(fmt.Sprintf("%d. %s: %d km on %s\n",
 				i+1,
-				v.Name,
+				vesselIdentifier,
 				v.Distance/1000, // Convert meters to kilometers
 				v.Timestamp.Format("Jan 2, 15:04")))
 		}
@@ -307,9 +362,14 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vess
 	report.WriteString("=== Top Vessels by Position Reports ===\n")
 	if len(stats.TopPositions) > 0 {
 		for i, v := range stats.TopPositions {
+			// Use MMSI (UserID) if name is empty
+			vesselIdentifier := v.Name
+			if vesselIdentifier == "" {
+				vesselIdentifier = fmt.Sprintf("MMSI %d", v.UserID)
+			}
 			report.WriteString(fmt.Sprintf("%d. %s: %d reports\n",
 				i+1,
-				v.Name,
+				vesselIdentifier,
 				v.Count))
 		}
 	} else {
@@ -354,12 +414,33 @@ func generateStatisticsReport(rec Receiver, stats *ReceiverStats, days int, vess
 				typeDescription = description
 			}
 
+			// Handle vessel name - check for both empty strings and "(Not available)"
+			vesselIdentifier := d.Name
+			if vesselIdentifier == "" || vesselIdentifier == "(Not available)" {
+				vesselIdentifier = fmt.Sprintf("MMSI %d", d.UserID)
+			}
+
+			// Handle type description
+			if typeDescription == "" || typeDescription == "(Not available)" {
+				typeDescription = "Unknown"
+			}
+
+			// Handle receiver name - ensure we always have a value
+			receiverIdentifier := d.ReceiverName
+			if receiverIdentifier == "" {
+				if d.ReceiverID > 0 {
+					receiverIdentifier = fmt.Sprintf("ID %d", d.ReceiverID)
+				} else {
+					receiverIdentifier = "Unknown"
+				}
+			}
+
 			report.WriteString(fmt.Sprintf("%d. %s (%s): %d duplicate messages (original receiver: %s)\n",
 				i+1,
-				d.Name,
+				vesselIdentifier,
 				typeDescription,
 				d.DuplicateCount,
-				d.ReceiverName))
+				receiverIdentifier))
 		}
 	} else {
 		report.WriteString("No duplicate data available\n")
@@ -466,6 +547,16 @@ func sendWeeklyStatisticsReports() {
 				Error:        fmt.Sprintf("Error fetching statistics: %v", err),
 			})
 			continue
+		}
+
+		// Enrich duplicate vessels with receiver names
+		for i := range stats.TopDuplicates {
+			if stats.TopDuplicates[i].ReceiverID > 0 {
+				receiverName, err := getReceiverName(stats.TopDuplicates[i].ReceiverID)
+				if err == nil && receiverName != "" {
+					stats.TopDuplicates[i].ReceiverName = receiverName
+				}
+			}
 		}
 
 		// Generate the report
