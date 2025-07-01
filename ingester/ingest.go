@@ -943,6 +943,20 @@ func main() {
 		opts.SetClientID("go-ais-decoder")
 		opts.SetCleanSession(true)
 
+		// Configure auto-reconnect settings
+		opts.SetAutoReconnect(true)
+		opts.SetMaxReconnectInterval(5 * time.Second)
+
+		// Set connection lost handler to log disconnections
+		opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
+			log.Printf("MQTT connection lost: %v - will auto-reconnect", err)
+		})
+
+		// Set on-connect handler to log successful reconnections
+		opts.SetOnConnectHandler(func(_ mqtt.Client) {
+			log.Printf("MQTT connected/reconnected successfully to broker: %s", mqttServer)
+		})
+
 		// Create MQTT client
 		mqttClient = mqtt.NewClient(opts)
 
