@@ -412,7 +412,7 @@ func writeMetricsToInfluxDB(metrics interface{}) error {
 
 	// Write batch
 	if influxClient == nil {
-		return fmt.Errorf("InfluxDB client not available")
+		return nil // Silently skip writing when InfluxDB is not available
 	}
 	return influxClient.Write(bp)
 }
