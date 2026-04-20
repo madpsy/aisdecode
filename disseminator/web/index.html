@@ -935,7 +935,8 @@
 	});
 
 	const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-	  attribution: '&copy; OpenStreetMap'
+	  attribution: '&copy; OpenStreetMap',
+	  referrerPolicy: 'origin'
 	});
 
 	// Object to hold your base layers.

@@ -700,7 +700,8 @@ resultsAs.onchange = () => {
         if (!map) {
           map = L.map('map-container').setView([0,0], 2);
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors'
+            attribution: '&copy; OpenStreetMap contributors',
+            referrerPolicy: 'origin'
           }).addTo(map);
           mapLayerGroup = L.layerGroup().addTo(map);
         }

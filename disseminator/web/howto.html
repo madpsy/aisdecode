@@ -599,7 +599,8 @@ maidenheadInput.addEventListener('input', handleMaidenheadInput);
     // Initialize map
     const map = L.map('map').setView([lat, lng], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
+      attribution: '&copy; OpenStreetMap contributors',
+      referrerPolicy: 'origin'
     }).addTo(map);
     const marker = L.marker([lat, lng], { draggable: true }).addTo(map);
     

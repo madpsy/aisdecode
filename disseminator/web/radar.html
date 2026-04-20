@@ -64,6 +64,7 @@
       if (osmTileCache[key]) return osmTileCache[key];
       const img = new Image();
       img.crossOrigin = "Anonymous";
+      img.referrerPolicy = "origin";
       img.src = `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`;
       osmTileCache[key] = img;
       return img;

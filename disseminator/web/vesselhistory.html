@@ -1481,7 +1481,8 @@
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '&copy; OpenStreetMap contributors',
           tileSize: 256,
-          updateWhenIdle: true
+          updateWhenIdle: true,
+          referrerPolicy: 'origin'
         }).addTo(window.locationMap);
         
         // Use a circle marker instead of the default marker to avoid grid issues
@@ -1664,7 +1665,8 @@
         
         // Add base OpenStreetMap layer
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap'
+          attribution: '&copy; OpenStreetMap',
+          referrerPolicy: 'origin'
         }).addTo(map);
         
         // Add OpenSeaMap layer (enabled by default)

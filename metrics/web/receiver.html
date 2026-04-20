@@ -1009,7 +1009,8 @@ window.addEventListener('DOMContentLoaded', () => {
     function initMap(){
       map = L.map('map').setView([0,0],2);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
+        attribution: '&copy; OpenStreetMap contributors',
+        referrerPolicy: 'origin'
       }).addTo(map);
 
    setTimeout(() => map.invalidateSize(), 0);
@@ -1265,7 +1266,8 @@ function loadReceivers() {
               const mapDiv = document.getElementById('receiver-map');
               const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
               L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap contributors'
+                attribution: '&copy; OpenStreetMap contributors',
+                referrerPolicy: 'origin'
               }).addTo(rxMap);
               L.marker([receiver.latitude, receiver.longitude])
                 .addTo(rxMap)
@@ -1972,7 +1974,8 @@ function fetchReceiversById(receiverId) {
           !isNaN(receiver.latitude) && !isNaN(receiver.longitude)) {
         const rxMap = L.map(mapDiv).setView([receiver.latitude, receiver.longitude], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
+          attribution: '&copy; OpenStreetMap contributors',
+          referrerPolicy: 'origin'
         }).addTo(rxMap);
         L.marker([receiver.latitude, receiver.longitude])
           .addTo(rxMap)
@@ -2191,7 +2194,8 @@ async function fetchReceivers(ip) {
         // Initialize the map for the receiver pin
         const receiverMap = L.map(receiverMapDiv).setView([receiver.latitude, receiver.longitude], 14);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
+          attribution: '&copy; OpenStreetMap contributors',
+          referrerPolicy: 'origin'
         }).addTo(receiverMap);
 
         L.marker([receiver.latitude, receiver.longitude]).addTo(receiverMap)
@@ -2639,7 +2643,8 @@ window.addEventListener('beforeunload', stopReceiverUpdates);
         setTimeout(() => {
           const locationMap = L.map('edit-location-map').setView([receiver.latitude, receiver.longitude], 13);
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors'
+            attribution: '&copy; OpenStreetMap contributors',
+            referrerPolicy: 'origin'
           }).addTo(locationMap);
           
           // Add a draggable marker
