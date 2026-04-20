@@ -656,6 +656,12 @@ map.on('click', () => {
     focusedVessel = null;
     unsubscribeInstantUpdates();
 
+    // Cancel any pending image polling.
+    if (imagePollingTimer !== null) {
+      clearTimeout(imagePollingTimer);
+      imagePollingTimer = null;
+    }
+
     // Hide detail overlay and all related buttons when no vessel is focused.
     document.getElementById('vessel-detail').style.display = 'none';
     document.getElementById('toggle-detail-overlay').style.display = 'none';
@@ -2862,10 +2868,23 @@ function performSearch(query) {
         }
 
 	let lastFetchedUserID = null;
+	let imagePollingTimer = null;
 
 	function fetchMissingData(userID) {
-	  // Only fetch if this vessel hasn't already had its missing data fetched this selection.
-	  if (lastFetchedUserID === userID) return;
+	  // Cancel any in-progress image polling for a previous vessel.
+	  if (imagePollingTimer !== null) {
+	    clearTimeout(imagePollingTimer);
+	    imagePollingTimer = null;
+	  }
+
+	  // Fetch full state immediately (ImageURL may or may not be present yet).
+	  doFetchState(userID, 0);
+	}
+
+	// Fetch /state/<userID> and merge into vesselData.
+	// If ImageURL is still missing, retry up to maxAttempts times with a 2s delay.
+	function doFetchState(userID, attempt) {
+	  const maxAttempts = 8;  // up to ~16 seconds of retrying
 
 	  fetch(`/state/${userID}`)
 	    .then(response => {
@@ -2875,11 +2894,23 @@ function performSearch(query) {
 	      return response.json();
 	    })
 	    .then(data => {
+	      // Only apply if this vessel is still the focused one.
+	      if (userID !== focusedVessel) return;
+
 	      Object.assign(vesselData[userID], data);
 	      updateVesselDetailOverlay();
-	      // Update the header now that we have the full state (including ImageURL).
 	      updateVesselDetailHeader(userID);
 	      lastFetchedUserID = userID;
+
+	      // If ImageURL is still absent and we have retries left, schedule another fetch.
+	      if (!vesselData[userID].ImageURL && attempt < maxAttempts) {
+	        imagePollingTimer = setTimeout(() => {
+	          imagePollingTimer = null;
+	          if (userID === focusedVessel) {
+	            doFetchState(userID, attempt + 1);
+	          }
+	        }, 2000);
+	      }
 	    })
 	    .catch(err => {
 	      console.error("Error fetching missing vessel data:", err);
