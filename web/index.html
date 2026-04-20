@@ -2869,6 +2869,7 @@ function performSearch(query) {
 
 	let lastFetchedUserID = null;
 	let imagePollingTimer = null;
+	let stateFetchInFlight = false;  // true while a /state/ request is pending
 
 	function fetchMissingData(userID) {
 	  // Cancel any in-progress image polling for a previous vessel.
@@ -2876,6 +2877,8 @@ function performSearch(query) {
 	    clearTimeout(imagePollingTimer);
 	    imagePollingTimer = null;
 	  }
+	  // Reset the in-flight flag when starting fresh for a new vessel.
+	  stateFetchInFlight = false;
 
 	  // Fetch full state immediately (ImageURL may or may not be present yet).
 	  doFetchState(userID, 0);
@@ -2883,8 +2886,13 @@ function performSearch(query) {
 
 	// Fetch /state/<userID> and merge into vesselData.
 	// If ImageURL is still missing, retry up to maxAttempts times with a 2s delay.
+	// Only one request is ever in-flight at a time (stateFetchInFlight guard).
 	function doFetchState(userID, attempt) {
 	  const maxAttempts = 8;  // up to ~16 seconds of retrying
+
+	  // Don't start a new request if one is already waiting for a response.
+	  if (stateFetchInFlight) return;
+	  stateFetchInFlight = true;
 
 	  fetch(`/state/${userID}`)
 	    .then(response => {
@@ -2894,6 +2902,8 @@ function performSearch(query) {
 	      return response.json();
 	    })
 	    .then(data => {
+	      stateFetchInFlight = false;
+
 	      // Only apply if this vessel is still the focused one.
 	      if (userID !== focusedVessel) return;
 
@@ -2913,6 +2923,7 @@ function performSearch(query) {
 	      }
 	    })
 	    .catch(err => {
+	      stateFetchInFlight = false;
 	      console.error("Error fetching missing vessel data:", err);
 	    });
 	}

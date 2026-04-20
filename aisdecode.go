@@ -1,33 +1,34 @@
 package main
 
 import (
-	"bytes"
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"math"
-	"net/url"
-        "io"
-	"sort"
-	"reflect"
+
 	// _ "net/http/pprof"
 
-	"go.bug.st/serial"
-	"github.com/google/uuid"
 	ais "github.com/BertoldVdb/go-ais"
 	"github.com/BertoldVdb/go-ais/aisnmea"
+	"github.com/google/uuid"
 	"github.com/zishang520/engine.io/v2/types"
 	"github.com/zishang520/socket.io/v2/socket"
+	"go.bug.st/serial"
 )
 
 var startTime = time.Now()
@@ -2132,19 +2133,28 @@ func main() {
 	http.HandleFunc("/state/", func(w http.ResponseWriter, r *http.Request) {
 		// Extract the vessel userid from the URL path.
 		userID := strings.TrimPrefix(r.URL.Path, "/state/")
-		vesselDataMutex.Lock()
-		defer vesselDataMutex.Unlock()
 
-		// Lookup the vessel data for the specified userID.
+		// Copy the vessel data under the lock, then release immediately so the
+		// mutex is not held during JSON encoding (which can be slow under load).
+		vesselDataMutex.Lock()
 		vessel, exists := vesselData[userID]
+		var vesselCopy map[string]interface{}
+		if exists {
+			vesselCopy = make(map[string]interface{}, len(vessel))
+			for k, v := range vessel {
+				vesselCopy[k] = v
+			}
+		}
+		vesselDataMutex.Unlock()
+
 		if !exists {
 			http.Error(w, "Vessel not found", http.StatusNotFound)
 			return
 		}
 
-		// Return the JSON state for the specified vessel.
+		// Encode the copy without holding the mutex.
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(vessel); err != nil {
+		if err := json.NewEncoder(w).Encode(vesselCopy); err != nil {
 			http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
 		}
 	})
