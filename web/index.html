@@ -2877,6 +2877,8 @@ function performSearch(query) {
 	    .then(data => {
 	      Object.assign(vesselData[userID], data);
 	      updateVesselDetailOverlay();
+	      // Update the header now that we have the full state (including ImageURL).
+	      updateVesselDetailHeader(userID);
 	      lastFetchedUserID = userID;
 	    })
 	    .catch(err => {
