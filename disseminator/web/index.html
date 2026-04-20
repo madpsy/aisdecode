@@ -2580,15 +2580,16 @@ function addPortMarkers(ports) {
 let debounceTimeout;
 
 function selectVesselById(UserID) {
-  // Don't start a new state fetch if one is already in-flight.
-  if (stateFetchInFlight) return;
-  stateFetchInFlight = true;
+  // Don't start a new state fetch if one is already in-flight for this vessel.
+  if (stateFetchInFlight && stateFetchVesselID === UserID) return;
 
-  // Cancel any pending image polling for a previous vessel.
+  // Cancel any pending image polling and reset flags for the new vessel.
   if (imagePollingTimer !== null) {
     clearTimeout(imagePollingTimer);
     imagePollingTimer = null;
   }
+  stateFetchInFlight = true;
+  stateFetchVesselID = UserID;
 
   // Check if a marker already exists for the vessel.
   if (!vesselMarkers[UserID]) {
@@ -4508,15 +4509,21 @@ function performSearch(query) {
 	let lastFetchedUserID = null;
 	let imagePollingTimer = null;
 	let stateFetchInFlight = false;  // true while a /state? request is pending
+	let stateFetchVesselID = null;   // which vessel the in-flight request is for
 
 	function fetchMissingData(UserID) {
-	  // Cancel any in-progress image polling for a previous vessel.
-	  if (imagePollingTimer !== null) {
-	    clearTimeout(imagePollingTimer);
-	    imagePollingTimer = null;
+	  // If a request is already in-flight for THIS vessel, don't start another.
+	  if (stateFetchInFlight && stateFetchVesselID === UserID) return;
+
+	  // Switching to a different vessel — cancel polling and reset the flag.
+	  if (stateFetchVesselID !== UserID) {
+	    if (imagePollingTimer !== null) {
+	      clearTimeout(imagePollingTimer);
+	      imagePollingTimer = null;
+	    }
+	    stateFetchInFlight = false;
+	    stateFetchVesselID = UserID;
 	  }
-	  // Reset the in-flight flag when starting fresh for a new vessel.
-	  stateFetchInFlight = false;
 
 	  // If we already have the ImageURL (e.g. from selectVesselById's fetch),
 	  // just update the header immediately and skip the redundant state fetch.
