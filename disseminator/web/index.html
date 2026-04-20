@@ -2580,6 +2580,16 @@ function addPortMarkers(ports) {
 let debounceTimeout;
 
 function selectVesselById(UserID) {
+  // Don't start a new state fetch if one is already in-flight.
+  if (stateFetchInFlight) return;
+  stateFetchInFlight = true;
+
+  // Cancel any pending image polling for a previous vessel.
+  if (imagePollingTimer !== null) {
+    clearTimeout(imagePollingTimer);
+    imagePollingTimer = null;
+  }
+
   // Check if a marker already exists for the vessel.
   if (!vesselMarkers[UserID]) {
     // If the marker does not exist, fetch the vessel state.
@@ -2591,14 +2601,17 @@ function selectVesselById(UserID) {
         return response.json();
       })
       .then(stateData => {
+        stateFetchInFlight = false;
+        // Mark as fetched so fetchMissingData inside focusOnVessel won't re-fetch.
+        lastFetchedUserID = UserID;
         // Ensure that the state has valid position data.
         if (typeof stateData.Latitude === "number" && typeof stateData.Longitude === "number") {
           // Update or add the vessel to your global state.
           vesselData[UserID] = stateData;
-	  if (!vesselData[UserID].track) {
-  		vesselData[UserID].track = [];
-	  }
-	  if (!vesselData[UserID].color) {
+   if (!vesselData[UserID].track) {
+    vesselData[UserID].track = [];
+   }
+   if (!vesselData[UserID].color) {
             vesselData[UserID].color = randomColor();
           }
           // Create a marker using your existing function (e.g., getVesselIcon).
@@ -2611,7 +2624,8 @@ function selectVesselById(UserID) {
           // Optionally, bind popups or tooltips.
           marker.bindPopup(createPopupContent(stateData), { autoPan: false });
 
-          // Focus on the vessel (recenter, highlight, etc.)
+          // Focus on the vessel. fetchMissingData inside focusOnVessel will be
+          // skipped because lastFetchedUserID === UserID.
           focusOnVessel(UserID);
 
         } else {
@@ -2619,6 +2633,7 @@ function selectVesselById(UserID) {
         }
       })
       .catch(error => {
+        stateFetchInFlight = false;
         console.error("Error fetching vessel state:", error);
       });
   } else {
@@ -2626,11 +2641,14 @@ function selectVesselById(UserID) {
     fetch(`/state?UserID=${UserID}`)
       .then(response => response.json())
       .then(stateData => {
+        stateFetchInFlight = false;
+        // Mark as fetched so fetchMissingData inside focusOnVessel won't re-fetch.
+        lastFetchedUserID = UserID;
         // Update global state and marker position.
         vesselData[UserID] = stateData;
-	if (!vesselData[UserID].track) {
-  	   vesselData[UserID].track = [];
-	}
+ if (!vesselData[UserID].track) {
+      vesselData[UserID].track = [];
+ }
         if (!vesselData[UserID].color) {
           vesselData[UserID].color = randomColor();
        }
@@ -2641,6 +2659,7 @@ function selectVesselById(UserID) {
         hydrateTrackHistory(UserID);
       })
       .catch(error => {
+        stateFetchInFlight = false;
         console.error("Error updating vessel state for marker:", error);
       });
   }
@@ -4498,6 +4517,13 @@ function performSearch(query) {
 	  }
 	  // Reset the in-flight flag when starting fresh for a new vessel.
 	  stateFetchInFlight = false;
+
+	  // If we already have the ImageURL (e.g. from selectVesselById's fetch),
+	  // just update the header immediately and skip the redundant state fetch.
+	  if (vesselData[UserID] && vesselData[UserID].ImageURL) {
+	    updateVesselDetailHeader(UserID);
+	    return;
+	  }
 
 	  // Fetch full state immediately (ImageURL may or may not be present yet).
 	  doFetchState(UserID, 0);
