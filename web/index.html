@@ -1081,7 +1081,8 @@ function attachImageClick(imgElem) {
 }
 
 // Preload the vessel image before inserting it into the container.
-function loadVesselImage(url, container) {
+// onLoadCallback(url) is called after the image successfully loads.
+function loadVesselImage(url, container, onLoadCallback) {
   url = url.trim();
   // Create the image element.
   const img = document.createElement('img');
@@ -1107,6 +1108,10 @@ function loadVesselImage(url, container) {
       existingImg.remove();
     }
     container.appendChild(img);
+    // Notify caller that the image has actually loaded and been inserted.
+    if (typeof onLoadCallback === 'function') {
+      onLoadCallback(url);
+    }
   };
 
   // Handle loading errors.
@@ -1131,14 +1136,20 @@ function updateVesselDetailHeader(userID) {
   
   // Check if there is an image URL.
   if (vesselData[userID].ImageURL) {
-    // Only update the image if the URL has changed.
-    if (currentLoadedImageUrl !== vesselData[userID].ImageURL) {
+    // Only start a new load if the URL has changed AND the image isn't already
+    // present in the container (i.e. a previous load completed successfully).
+    const existingImg = imageContainer.querySelector('#vessel-image');
+    const urlChanged = currentLoadedImageUrl !== vesselData[userID].ImageURL;
+    if (urlChanged || !existingImg) {
       // Clear any existing content in the image container.
       imageContainer.innerHTML = '';
       // Load and inject the image into the image container.
-      loadVesselImage(vesselData[userID].ImageURL, imageContainer);
-      currentLoadedImageUrl = vesselData[userID].ImageURL;
-      document.getElementById('vessel-detail').style.maxHeight = '400px';
+      // currentLoadedImageUrl is set inside the onload callback so it is only
+      // marked as loaded once the <img> is actually in the DOM.
+      loadVesselImage(vesselData[userID].ImageURL, imageContainer, function(loadedUrl) {
+        currentLoadedImageUrl = loadedUrl;
+        document.getElementById('vessel-detail').style.maxHeight = '400px';
+      });
     }
   } else {
     // No image URL: clear any previous image.
@@ -3034,12 +3045,32 @@ function focusOnVessel(userID, initialFocus = true) {
     document.getElementById('toggle-detail-overlay').textContent = 'Show Details';
   }
   
-  if (isMobile) {
-    setTimeout(() => {
+  // Only update the header (which triggers image loading) when the vessel
+  // actually changes or this is an explicit initial focus. Skipping it on
+  // the repeated focusOnVessel(mmsi, false) calls from summary updates
+  // prevents the image container from being cleared while an image is loading.
+  if (initialFocus) {
+    if (isMobile) {
+      setTimeout(() => {
+        updateVesselDetailHeader(userID);
+      }, 300);  // 300 ms delay; adjust as needed
+    } else {
       updateVesselDetailHeader(userID);
-    }, 300);  // 300 ms delay; adjust as needed
+    }
   } else {
-    updateVesselDetailHeader(userID);
+    // On non-initial focus (e.g. summary-driven pan), only update the header
+    // if the image is missing from the container — this recovers from any
+    // previous failed load without clearing a successfully loaded image.
+    const imageContainer = document.getElementById('vessel-header-image');
+    if (!imageContainer.querySelector('#vessel-image')) {
+      if (isMobile) {
+        setTimeout(() => {
+          updateVesselDetailHeader(userID);
+        }, 300);
+      } else {
+        updateVesselDetailHeader(userID);
+      }
+    }
   }
   
   // Attach copy link event.
