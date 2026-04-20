@@ -1086,10 +1086,18 @@ function attachImageClick(imgElem) {
   });
 }
 
-// Preload the vessel image before inserting it into the container.
-// onLoadCallback(url) is called after the image successfully loads.
+// Insert the vessel image into the container immediately so the browser
+// can render it progressively as it downloads (same behaviour as vesselhistory.html).
+// onLoadCallback(url) is called once the image has fully loaded.
 function loadVesselImage(url, container, onLoadCallback) {
   url = url.trim();
+
+  // Remove any existing vessel image first.
+  const existingImg = container.querySelector('#vessel-image');
+  if (existingImg) {
+    existingImg.remove();
+  }
+
   // Create the image element.
   const img = document.createElement('img');
   img.id = 'vessel-image';
@@ -1099,35 +1107,27 @@ function loadVesselImage(url, container, onLoadCallback) {
   img.style.cursor = 'pointer';
   img.alt = 'Vessel Image';
 
-  // Attach the click event immediately.
+  // Attach the click event.
   img.addEventListener('click', function(e) {
     e.stopPropagation();
-    // Use the current src of the image when clicked.
     openImageModal(img.src);
   });
 
-  // When the image loads, append it to the container.
   img.onload = function() {
-    // Remove any previously appended image with the same id.
-    const existingImg = container.querySelector('#vessel-image');
-    if (existingImg) {
-      existingImg.remove();
-    }
-    container.appendChild(img);
-    // Notify caller that the image has actually loaded and been inserted.
+    // Notify caller that the image has fully loaded.
     if (typeof onLoadCallback === 'function') {
       onLoadCallback(url);
     }
   };
 
-  // Handle loading errors.
   img.onerror = function() {
     console.error("Image failed to load:", url);
-    // Optionally, retry loading after a delay or show a fallback image.
+    img.remove();
   };
 
-  // Set the image source (this starts the asynchronous load).
+  // Set src and append to DOM immediately — browser renders progressively.
   img.src = url;
+  container.appendChild(img);
 }
 
 function updateVesselDetailHeader(userID) {
