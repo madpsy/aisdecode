@@ -1095,6 +1095,12 @@ map.on('click', () => {
     
     focusedVessel = null;
     unsubscribeInstantUpdates();
+
+    // Cancel any pending image polling.
+    if (imagePollingTimer !== null) {
+      clearTimeout(imagePollingTimer);
+      imagePollingTimer = null;
+    }
     
     // Remove UserID from URL when vessel focus is removed
     const url = new URL(window.location);
@@ -2012,10 +2018,18 @@ function attachImageClick(imgElem) {
   });
 }
 
-// Preload the vessel image before inserting it into the container.
-function loadVesselImage(url, container) {
+// Insert the vessel image into the container immediately so the browser
+// can render it progressively as it downloads.
+// onLoadCallback(url) is called once the image has fully loaded.
+function loadVesselImage(url, container, onLoadCallback) {
   url = url.trim();
-  // Create the image element.
+
+  // Remove any existing vessel image first.
+  const existingImg = container.querySelector('#vessel-image');
+  if (existingImg) {
+    existingImg.remove();
+  }
+
   const img = document.createElement('img');
   img.id = 'vessel-image';
   img.style.maxWidth = '100%';
@@ -2024,31 +2038,25 @@ function loadVesselImage(url, container) {
   img.style.cursor = 'pointer';
   img.alt = 'Vessel Image';
 
-  // Attach the click event immediately.
   img.addEventListener('click', function(e) {
     e.stopPropagation();
-    // Use the current src of the image when clicked.
     openImageModal(img.src);
   });
 
-  // When the image loads, append it to the container.
   img.onload = function() {
-    // Remove any previously appended image with the same id.
-    const existingImg = container.querySelector('#vessel-image');
-    if (existingImg) {
-      existingImg.remove();
+    if (typeof onLoadCallback === 'function') {
+      onLoadCallback(url);
     }
-    container.appendChild(img);
   };
 
-  // Handle loading errors.
   img.onerror = function() {
     console.error("Image failed to load:", url);
-    // Optionally, retry loading after a delay or show a fallback image.
+    img.remove();
   };
 
-  // Set the image source (this starts the asynchronous load).
+  // Set src and append to DOM immediately — browser renders progressively.
   img.src = url;
+  container.appendChild(img);
 }
 
 function updateVesselDetailHeader(UserID) {
@@ -2085,10 +2093,20 @@ function updateVesselDetailHeader(UserID) {
   // --- now restore the image logic ---
   const imageContainer = document.getElementById('vessel-header-image');
   if (vesselData[UserID].ImageURL) {
-    // only reload if the URL changed (optional optimization)
-    loadVesselImage(vesselData[UserID].ImageURL, imageContainer);
+    // Only start a new load if the URL has changed OR the image isn't already
+    // present in the container (i.e. a previous load completed successfully).
+    const existingImg = imageContainer.querySelector('#vessel-image');
+    const urlChanged = currentLoadedImageUrl !== vesselData[UserID].ImageURL;
+    if (urlChanged || !existingImg) {
+      loadVesselImage(vesselData[UserID].ImageURL, imageContainer, function(loadedUrl) {
+        currentLoadedImageUrl = loadedUrl;
+        document.getElementById('vessel-detail').style.maxHeight = '400px';
+      });
+    }
   } else {
     imageContainer.innerHTML = '';
+    currentLoadedImageUrl = '';
+    document.getElementById('vessel-detail').style.maxHeight = '300px';
   }
 
   // Attach copy-link behavior
@@ -4469,10 +4487,31 @@ function performSearch(query) {
         }
 
 	let lastFetchedUserID = null;
+	let imagePollingTimer = null;
+	let stateFetchInFlight = false;  // true while a /state? request is pending
 
 	function fetchMissingData(UserID) {
-	  // Only fetch if this vessel hasn't already had its missing data fetched this selection.
-	  if (lastFetchedUserID === UserID) return;
+	  // Cancel any in-progress image polling for a previous vessel.
+	  if (imagePollingTimer !== null) {
+	    clearTimeout(imagePollingTimer);
+	    imagePollingTimer = null;
+	  }
+	  // Reset the in-flight flag when starting fresh for a new vessel.
+	  stateFetchInFlight = false;
+
+	  // Fetch full state immediately (ImageURL may or may not be present yet).
+	  doFetchState(UserID, 0);
+	}
+
+	// Fetch /state?UserID=<UserID> and merge into vesselData.
+	// If ImageURL is still missing, retry up to maxAttempts times with a 2s delay.
+	// Only one request is ever in-flight at a time (stateFetchInFlight guard).
+	function doFetchState(UserID, attempt) {
+	  const maxAttempts = 8;  // up to ~16 seconds of retrying
+
+	  // Don't start a new request if one is already waiting for a response.
+	  if (stateFetchInFlight) return;
+	  stateFetchInFlight = true;
 
 	  fetch(`/state?UserID=${UserID}`)
 	    .then(response => {
@@ -4482,11 +4521,29 @@ function performSearch(query) {
 	      return response.json();
 	    })
 	    .then(data => {
+	      stateFetchInFlight = false;
+
+	      // Only apply if this vessel is still the focused one.
+	      if (UserID !== focusedVessel) return;
+
 	      Object.assign(vesselData[UserID], data);
 	      updateVesselDetailOverlay();
+	      // Update the header now that we have the full state (including ImageURL).
+	      updateVesselDetailHeader(UserID);
 	      lastFetchedUserID = UserID;
+
+	      // If ImageURL is still absent and we have retries left, schedule another fetch.
+	      if (!vesselData[UserID].ImageURL && attempt < maxAttempts) {
+	        imagePollingTimer = setTimeout(() => {
+	          imagePollingTimer = null;
+	          if (UserID === focusedVessel) {
+	            doFetchState(UserID, attempt + 1);
+	          }
+	        }, 2000);
+	      }
 	    })
 	    .catch(err => {
+	      stateFetchInFlight = false;
 	      console.error("Error fetching missing vessel data:", err);
 	    });
 	}
@@ -5016,12 +5073,31 @@ function focusOnVessel(UserID, initialFocus = true) {
     document.getElementById('toggle-detail-overlay').textContent = 'Show';
   }
   
-  if (isMobile) {
-    setTimeout(() => {
+  // Only update the header (which triggers image loading) when the vessel
+  // actually changes or this is an explicit initial focus. Skipping it on
+  // the repeated focusOnVessel(mmsi, false) calls from summary updates
+  // prevents the image container from being cleared while an image is loading.
+  if (initialFocus) {
+    if (isMobile) {
+      setTimeout(() => {
+        updateVesselDetailHeader(UserID);
+      }, 300);  // 300 ms delay; adjust as needed
+    } else {
       updateVesselDetailHeader(UserID);
-    }, 300);  // 300 ms delay; adjust as needed
+    }
   } else {
-    updateVesselDetailHeader(UserID);
+    // On non-initial focus, only update the header if the image is missing —
+    // this recovers from a failed load without clearing a successfully loaded image.
+    const imageContainer = document.getElementById('vessel-header-image');
+    if (!imageContainer.querySelector('#vessel-image')) {
+      if (isMobile) {
+        setTimeout(() => {
+          updateVesselDetailHeader(UserID);
+        }, 300);
+      } else {
+        updateVesselDetailHeader(UserID);
+      }
+    }
   }
   
   // Attach copy link event.
